@@ -1,0 +1,26 @@
+.root {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+  background: #0f1117;
+}
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+}
+
+.logout {
+  padding: 14px;
+  background: #1a1d27;
+  border: none;
+  border-top: 1px solid #2a2d3a;
+  color: #888;
+  font-size: 18px;
+  cursor: pointer;
+  transition: color 0.2s;
+}
+
+.logout:hover {
+  color: #ff6b6b;
+}

@@ -1,0 +1,100 @@
+.root {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  background: #0f1117;
+}
+
+.card {
+  background: #1a1d27;
+  border-radius: 12px;
+  padding: 40px;
+  width: 360px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.logo {
+  text-align: center;
+  font-size: 28px;
+  font-weight: 700;
+  color: #6c63ff;
+  margin: 0;
+  letter-spacing: 2px;
+}
+
+.tabs {
+  display: flex;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #0f1117;
+}
+
+.tab, .activeTab {
+  flex: 1;
+  padding: 10px;
+  border: none;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  transition: background 0.2s;
+}
+
+.tab {
+  background: transparent;
+  color: #888;
+}
+
+.activeTab {
+  background: #6c63ff;
+  color: #fff;
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.input {
+  padding: 12px 14px;
+  background: #0f1117;
+  border: 1px solid #2a2d3a;
+  border-radius: 8px;
+  color: #e0e0e0;
+  font-size: 14px;
+  outline: none;
+}
+
+.input:focus {
+  border-color: #6c63ff;
+}
+
+.error {
+  color: #ff6b6b;
+  font-size: 13px;
+  margin: 0;
+}
+
+.submit {
+  padding: 12px;
+  background: #6c63ff;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.submit:hover:not(:disabled) {
+  opacity: 0.85;
+}
+
+.submit:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

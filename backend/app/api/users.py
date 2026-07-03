@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -8,8 +9,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.core.e2e import decode_public_key_b64
+from app.core.e2e_users import get_direct_chat_partner_ids
 from app.models.user import User
 from app.schemas.user import UserOut
+from app.ws.hub import manager
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -22,6 +25,7 @@ class UploadKeyBody(BaseModel):
 class PublicKeyOut(BaseModel):
     user_id: str
     public_key: str | None
+    public_key_updated_at: datetime | None = None
 
 
 @router.get("/me", response_model=UserOut)
@@ -51,9 +55,36 @@ async def upload_public_key(
             detail="Public key already set. Use force=true to rotate.",
         )
 
+    key_changed = (
+        current_user.public_key is not None and current_user.public_key != body.public_key
+    )
+
     current_user.public_key = body.public_key
+    if key_changed:
+        current_user.public_key_updated_at = datetime.now(timezone.utc)
+    elif current_user.public_key_updated_at is None:
+        current_user.public_key_updated_at = datetime.now(timezone.utc)
+
     await db.commit()
-    return PublicKeyOut(user_id=current_user.id, public_key=current_user.public_key)
+    await db.refresh(current_user)
+
+    if key_changed:
+        partner_ids = await get_direct_chat_partner_ids(current_user.id, db)
+        await manager.broadcast_to_users(
+            partner_ids,
+            {
+                "type": "key_changed",
+                "user_id": current_user.id,
+                "public_key": current_user.public_key,
+                "updated_at": current_user.public_key_updated_at.isoformat(),
+            },
+        )
+
+    return PublicKeyOut(
+        user_id=current_user.id,
+        public_key=current_user.public_key,
+        public_key_updated_at=current_user.public_key_updated_at,
+    )
 
 
 @router.get("/{user_id}/key", response_model=PublicKeyOut)
@@ -67,7 +98,11 @@ async def get_public_key(
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    return PublicKeyOut(user_id=user.id, public_key=user.public_key)
+    return PublicKeyOut(
+        user_id=user.id,
+        public_key=user.public_key,
+        public_key_updated_at=user.public_key_updated_at,
+    )
 
 
 @router.get("/search", response_model=list[UserOut])

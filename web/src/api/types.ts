@@ -37,4 +37,5 @@ export interface TokenResponse {
 // WebSocket events
 export type WsEvent =
   | { type: "new_message"; message_id: string; chat_id: string; sender_id: string; payload: string; status: string; timestamp: string }
-  | { type: "message_status"; message_id: string; status: string; updated_by: string };
+  | { type: "message_status"; message_id: string; status: string; updated_by: string }
+  | { type: "key_changed"; user_id: string; public_key: string; updated_at: string };

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useChatStore } from "../store/chat";
 import { useAuthStore } from "../store/auth";
 import { E2EError } from "../crypto/errors";
+import E2EStatusPanel from "./E2EStatusPanel";
 import s from "./MessageView.module.css";
 
 export default function MessageView() {
@@ -13,8 +14,14 @@ export default function MessageView() {
     sendMessage,
     e2eReady,
     e2eError,
+    e2eTrust,
+    peerFingerprint,
+    showE2ePanel,
     showMigrationNotice,
     dismissMigrationNotice,
+    setShowE2ePanel,
+    verifyActivePeer,
+    acceptActivePeerKey,
   } = useChatStore();
   const currentUser = useAuthStore((st) => st.user);
   const [text, setText] = useState("");
@@ -75,12 +82,28 @@ export default function MessageView() {
 
   const e2eLockClass = () => {
     if (!isDirect) return s.e2eOpen;
-    if (e2eReady) return s.e2eSecure;
+    if (e2eTrust === "ok") return s.e2eSecure;
+    if (e2eTrust === "changed") return s.e2eDanger;
+    if (e2eReady) return s.e2ePending;
     return s.e2eWarning;
+  };
+
+  const e2eBadgeText = () => {
+    if (!isDirect) return "";
+    if (e2eTrust === "ok") return "🔒 E2E проверен";
+    if (e2eTrust === "changed") return "🔒 ключ изменился";
+    if (e2eTrust === "new" || e2eTrust === "unverified") return "🔒 E2E";
+    if (e2eReady) return "🔒 E2E";
+    return "🔒 E2E недоступно";
   };
 
   const e2eTitle = () => {
     if (!isDirect) return "Групповой чат без end-to-end шифрования";
+    if (e2eTrust === "ok") return "Ключ собеседника проверен";
+    if (e2eTrust === "changed") return "Ключ собеседника изменился — требуется подтверждение";
+    if (e2eTrust === "new" || e2eTrust === "unverified") {
+      return "Шифрование активно. Рекомендуется проверить код безопасности.";
+    }
     if (e2eReady) return "Сообщения защищены end-to-end шифрованием";
     return e2eError ?? "Шифрование недоступно";
   };
@@ -91,16 +114,36 @@ export default function MessageView() {
         <span className={s.avatar}>{chatTitle()[0]?.toUpperCase()}</span>
         <div className={s.headerInfo}>
           <span className={s.name}>{chatTitle()}</span>
-          {isDirect && (
-            <span className={`${s.e2eBadge} ${e2eLockClass()}`} title={e2eTitle()}>
-              🔒 {e2eReady ? "E2E" : "E2E недоступно"}
-            </span>
-          )}
-          {chat?.type === "group" && (
-            <span className={`${s.e2eBadge} ${s.e2eOpen}`} title={e2eTitle()}>
-              🔓 без E2E
-            </span>
-          )}
+          <div className={s.headerActions}>
+            {isDirect && (
+              <>
+                <button
+                  type="button"
+                  className={`${s.e2eBadge} ${e2eLockClass()}`}
+                  title={e2eTitle()}
+                  onClick={() => setShowE2ePanel(true)}
+                >
+                  {e2eBadgeText()}
+                </button>
+                {(e2eTrust === "new" ||
+                  e2eTrust === "unverified" ||
+                  e2eTrust === "changed") && (
+                  <button
+                    type="button"
+                    className={s.verifyBtn}
+                    onClick={() => setShowE2ePanel(true)}
+                  >
+                    {e2eTrust === "changed" ? "Подтвердить ключ" : "Проверить"}
+                  </button>
+                )}
+              </>
+            )}
+            {chat?.type === "group" && (
+              <span className={`${s.e2eBadge} ${s.e2eOpen}`} title={e2eTitle()}>
+                🔓 без E2E
+              </span>
+            )}
+          </div>
         </div>
       </div>
 
@@ -113,7 +156,16 @@ export default function MessageView() {
         </div>
       )}
 
-      {isDirect && e2eReady === false && e2eError && (
+      {isDirect && e2eTrust === "changed" && (
+        <div className={s.bannerDanger}>
+          Ключ собеседника изменился. Сверьте код безопасности перед продолжением переписки.
+          <button type="button" className={s.bannerAction} onClick={() => setShowE2ePanel(true)}>
+            Открыть
+          </button>
+        </div>
+      )}
+
+      {isDirect && e2eReady === false && e2eTrust !== "changed" && e2eError && (
         <div className={s.bannerWarning}>{e2eError}</div>
       )}
 
@@ -156,6 +208,17 @@ export default function MessageView() {
           ➤
         </button>
       </form>
+
+      {showE2ePanel && isDirect && (
+        <E2EStatusPanel
+          username={chatTitle()}
+          fingerprint={peerFingerprint}
+          trustStatus={e2eTrust}
+          onVerify={() => void verifyActivePeer()}
+          onAcceptKey={() => void acceptActivePeerKey()}
+          onClose={() => setShowE2ePanel(false)}
+        />
+      )}
     </div>
   );
 }

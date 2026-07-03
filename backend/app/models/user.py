@@ -15,7 +15,10 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(256), unique=True, nullable=False)
     password_hash: Mapped[str] = mapped_column(String(256), nullable=False)
     avatar_url: Mapped[str | None] = mapped_column(Text, nullable=True)
-    public_key: Mapped[str | None] = mapped_column(Text, nullable=True)  # для E2E (фаза 4)
+    public_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    public_key_updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)

@@ -1,10 +1,10 @@
 /**
  * Управление E2E ключами (web).
- * Приватный ключ — non-exportable CryptoKey в IndexedDB.
- * Публичный ключ — base64 в IndexedDB (рядом с приватным).
+ * Seed-based identity в IndexedDB; backup/rotate — фаза 3.
  */
 import { http } from "../api/client";
 import {
+  clearIdentityKeys,
   generateIdentityKeyPair,
   loadIdentityKeyPair,
 } from "./webcrypto";
@@ -14,10 +14,12 @@ export { encodeBase64, decodeBase64 } from "tweetnacl-util";
 const LEGACY_KEY_PRIVATE = "quazar_e2e_priv";
 const LEGACY_KEY_PUBLIC = "quazar_e2e_pub";
 const MIGRATION_UI_KEY = "quazar_e2e_migration_ui";
+const BACKUP_DONE_KEY = "quazar_e2e_backup_done";
 
 export interface IdentityKeys {
   publicKey: string;
-  privateKey: CryptoKey;
+  privateKey: CryptoKey | null;
+  seed: Uint8Array | null;
 }
 
 /** Удаляет legacy-ключи из localStorage (tweetnacl MVP). */
@@ -45,6 +47,14 @@ export function consumeMigrationUiFlag(): boolean {
   return true;
 }
 
+export function markBackupDone(): void {
+  localStorage.setItem(BACKUP_DONE_KEY, "1");
+}
+
+export function hasBackupDone(): boolean {
+  return localStorage.getItem(BACKUP_DONE_KEY) === "1";
+}
+
 export async function loadOrCreateKeys(): Promise<IdentityKeys & { migrated: boolean }> {
   const migrated = migrateLegacyKeys();
 
@@ -54,7 +64,22 @@ export async function loadOrCreateKeys(): Promise<IdentityKeys & { migrated: boo
   }
 
   const created = await generateIdentityKeyPair();
-  return { ...created, migrated: migrated || true };
+  return {
+    publicKey: created.publicKey,
+    privateKey: null,
+    seed: created.seed,
+    migrated: migrated || true,
+  };
+}
+
+export async function rotateLocalKeys(): Promise<IdentityKeys> {
+  await clearIdentityKeys();
+  const created = await generateIdentityKeyPair();
+  return {
+    publicKey: created.publicKey,
+    privateKey: null,
+    seed: created.seed,
+  };
 }
 
 export async function uploadPublicKey(
@@ -62,6 +87,26 @@ export async function uploadPublicKey(
   force = false
 ): Promise<void> {
   await http.put("/users/me/key", { public_key: publicKey, force });
+}
+
+export async function rotateKeysOnServer(password: string, publicKey: string): Promise<void> {
+  await http.post("/users/me/key/rotate", {
+    password,
+    public_key: publicKey,
+  });
+}
+
+export async function uploadKeyBackup(blob: string): Promise<void> {
+  await http.put("/users/me/key-backup", { backup: blob });
+}
+
+export async function fetchKeyBackup(): Promise<string | null> {
+  try {
+    const { data } = await http.get<{ backup: string | null }>("/users/me/key-backup");
+    return data.backup;
+  } catch {
+    return null;
+  }
 }
 
 const _keyCache = new Map<string, string>();

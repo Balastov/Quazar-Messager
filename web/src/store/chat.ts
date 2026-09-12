@@ -45,9 +45,17 @@ interface ChatState {
 
 const sentPlaintextById = new Map<string, string>();
 
-async function tryDecrypt(payload: string, privateKey: CryptoKey): Promise<string> {
+async function tryDecrypt(
+  payload: string,
+  keys: { seed: Uint8Array | null; privateKey: CryptoKey | null }
+): Promise<string> {
   if (!isEncrypted(payload)) return payload;
-  return (await decryptMessage(payload, privateKey)) ?? "[не удалось расшифровать]";
+  return (
+    (await decryptMessage(payload, {
+      seed: keys.seed,
+      privateKey: keys.privateKey,
+    })) ?? "[не удалось расшифровать]"
+  );
 }
 
 function getOtherUserId(chat: Chat, myId: string): string | null {
@@ -111,8 +119,8 @@ export const useChatStore = create<ChatState>((set, get) => {
           decryptedPayload = sentPlaintextById.get(event.message_id)!;
           sentPlaintextById.delete(event.message_id);
         } else {
-          const { privateKey } = await loadOrCreateKeys();
-          decryptedPayload = await tryDecrypt(event.payload, privateKey);
+          const keys = await loadOrCreateKeys();
+          decryptedPayload = await tryDecrypt(event.payload, keys);
         }
 
         const msg: Message = {
@@ -251,11 +259,11 @@ export const useChatStore = create<ChatState>((set, get) => {
 
       if (!get().messages[chatId]) {
         const rawMsgs = await messagesApi.list(chatId);
-        const { privateKey } = await loadOrCreateKeys();
+        const keys = await loadOrCreateKeys();
         const decrypted = await Promise.all(
           rawMsgs.map(async (m) => ({
             ...m,
-            payload: await tryDecrypt(m.payload, privateKey),
+            payload: await tryDecrypt(m.payload, keys),
           }))
         );
         set((s) => ({ messages: { ...s.messages, [chatId]: decrypted } }));

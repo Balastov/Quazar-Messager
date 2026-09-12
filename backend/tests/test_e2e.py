@@ -1,3 +1,4 @@
+import base64
 import unittest
 
 from app.core.e2e import X25519_PUBLIC_KEY_BYTES, decode_public_key_b64
@@ -5,8 +6,6 @@ from app.core.e2e import X25519_PUBLIC_KEY_BYTES, decode_public_key_b64
 
 class TestPublicKeyValidation(unittest.TestCase):
     def test_valid_32_byte_key(self):
-        import base64
-
         raw = b"\x01" * 32
         encoded = base64.b64encode(raw).decode()
         self.assertEqual(decode_public_key_b64(encoded), raw)
@@ -16,8 +15,6 @@ class TestPublicKeyValidation(unittest.TestCase):
             decode_public_key_b64("not!!!valid")
 
     def test_rejects_wrong_length(self):
-        import base64
-
         raw = b"\x01" * 16
         encoded = base64.b64encode(raw).decode()
         with self.assertRaises(ValueError) as ctx:
@@ -39,6 +36,13 @@ class TestDirectChatPartners(unittest.IsolatedAsyncioTestCase):
 
         partners = await get_direct_chat_partner_ids("user-1", FakeDb())
         self.assertEqual(partners, [])
+
+
+class TestBackupFormat(unittest.TestCase):
+    def test_backup_prefix_constant(self):
+        from app.api.users import BACKUP_PREFIX
+
+        self.assertTrue(BACKUP_PREFIX.startswith("ENC_BACKUP:"))
 
 
 if __name__ == "__main__":

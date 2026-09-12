@@ -32,7 +32,7 @@ export function encryptMessage(plaintext: string, recipientPublicKeyB64: string)
 
 export async function decryptMessage(
   payload: string,
-  privateKey: CryptoKey
+  opts: { seed?: Uint8Array | null; privateKey?: CryptoKey | null }
 ): Promise<string | null> {
   if (!payload.startsWith(E2E_PREFIX)) return null;
   try {
@@ -41,10 +41,20 @@ export async function decryptMessage(
     const nonce = blob.slice(32, 56);
     const ciphertext = blob.slice(56);
 
-    const sharedKey = await deriveBoxSharedKey(privateKey, ephPub);
-    const plainBytes = nacl.box.open.after(ciphertext, nonce, sharedKey);
-    if (!plainBytes) return null;
-    return encodeUTF8(plainBytes);
+    if (opts.seed && opts.seed.length === 32) {
+      const plainBytes = nacl.box.open(ciphertext, nonce, ephPub, opts.seed);
+      if (!plainBytes) return null;
+      return encodeUTF8(plainBytes);
+    }
+
+    if (opts.privateKey) {
+      const sharedKey = await deriveBoxSharedKey(opts.privateKey, ephPub);
+      const plainBytes = nacl.box.open.after(ciphertext, nonce, sharedKey);
+      if (!plainBytes) return null;
+      return encodeUTF8(plainBytes);
+    }
+
+    return null;
   } catch {
     return null;
   }

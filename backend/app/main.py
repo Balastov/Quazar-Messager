@@ -22,6 +22,9 @@ async def lifespan(app: FastAPI):
                 "public_key_updated_at TIMESTAMP WITH TIME ZONE"
             )
         )
+        await conn.execute(
+            text("ALTER TABLE users ADD COLUMN IF NOT EXISTS key_backup TEXT")
+        )
     yield
 
 

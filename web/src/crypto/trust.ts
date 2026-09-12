@@ -6,6 +6,43 @@ import { fetchUserPublicKey, invalidateKeyCache } from "./keys";
 
 const STORAGE_KEY = "quazar_trusted_keys";
 
+/** In-memory fallback when localStorage is unavailable/broken (e.g. some test runners). */
+const memoryStore = new Map<string, string>();
+
+function storageGet(key: string): string | null {
+  try {
+    if (typeof localStorage !== "undefined" && typeof localStorage.getItem === "function") {
+      return localStorage.getItem(key);
+    }
+  } catch {
+    // ignore
+  }
+  return memoryStore.get(key) ?? null;
+}
+
+function storageSet(key: string, value: string): void {
+  try {
+    if (typeof localStorage !== "undefined" && typeof localStorage.setItem === "function") {
+      localStorage.setItem(key, value);
+      return;
+    }
+  } catch {
+    // ignore
+  }
+  memoryStore.set(key, value);
+}
+
+function storageRemove(key: string): void {
+  try {
+    if (typeof localStorage !== "undefined" && typeof localStorage.removeItem === "function") {
+      localStorage.removeItem(key);
+    }
+  } catch {
+    // ignore
+  }
+  memoryStore.delete(key);
+}
+
 export type TrustStatus = "ok" | "new" | "unverified" | "changed" | "missing";
 
 export interface TrustedKeyRecord {
@@ -28,7 +65,7 @@ interface TrustedKeyStore {
 
 function loadStore(): TrustedKeyStore {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = storageGet(STORAGE_KEY);
     return raw ? (JSON.parse(raw) as TrustedKeyStore) : {};
   } catch {
     return {};
@@ -36,7 +73,7 @@ function loadStore(): TrustedKeyStore {
 }
 
 function saveStore(store: TrustedKeyStore): void {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(store));
+  storageSet(STORAGE_KEY, JSON.stringify(store));
 }
 
 export function getTrustedKey(userId: string): TrustedKeyRecord | null {
@@ -113,4 +150,9 @@ export function clearPeerTrust(userId: string): void {
   const store = loadStore();
   delete store[userId];
   saveStore(store);
+}
+
+export function clearAllTrustedKeys(): void {
+  storageRemove(STORAGE_KEY);
+  memoryStore.delete(STORAGE_KEY);
 }

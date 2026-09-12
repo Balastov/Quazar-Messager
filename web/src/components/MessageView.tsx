@@ -177,7 +177,15 @@ export default function MessageView() {
           const isOwn = msg.sender_id === currentUser?.id;
           return (
             <div key={msg.id} className={isOwn ? s.ownBubble : s.otherBubble}>
-              <span className={s.text}>{msg.payload}</span>
+              <span
+                className={
+                  msg.payload.startsWith("Сообщение недоступно")
+                    ? s.textMuted
+                    : s.text
+                }
+              >
+                {msg.payload}
+              </span>
               <span className={s.meta}>
                 {new Date(msg.created_at).toLocaleTimeString("ru", {
                   hour: "2-digit",

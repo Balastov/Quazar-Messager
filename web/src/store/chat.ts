@@ -54,7 +54,7 @@ async function tryDecrypt(
     (await decryptMessage(payload, {
       seed: keys.seed,
       privateKey: keys.privateKey,
-    })) ?? "[не удалось расшифровать]"
+    })) ?? "Сообщение недоступно (другое устройство или старый ключ?)"
   );
 }
 

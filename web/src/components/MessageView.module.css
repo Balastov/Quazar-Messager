@@ -212,6 +212,12 @@
   word-break: break-word;
 }
 
+.textMuted {
+  word-break: break-word;
+  font-style: italic;
+  opacity: 0.75;
+}
+
 .meta {
   font-size: 11px;
   opacity: 0.7;

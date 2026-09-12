@@ -4,6 +4,7 @@ import { setAuthToken } from "../api/client";
 import { usersApi } from "../api/users";
 import { socket } from "../ws/socket";
 import { loadOrCreateKeys, markMigrationForUi, uploadPublicKey } from "../crypto/keys";
+import { logError } from "../utils/log";
 import type { User } from "../api/types";
 
 interface AuthState {
@@ -32,10 +33,11 @@ export const useAuthStore = create<AuthState>()(
         const user = await usersApi.me();
         set({ token, user });
         socket.connect(token);
-        initE2EKeys().catch(console.error);
+        initE2EKeys().catch((err) => logError("initE2EKeys", err));
       },
 
       logout: () => {
+        // Политика A: E2E-ключи остаются в IndexedDB между сессиями.
         setAuthToken(null);
         socket.disconnect();
         set({ token: null, user: null });
@@ -51,7 +53,7 @@ export const useAuthStore = create<AuthState>()(
             .then((user) => {
               useAuthStore.setState({ user });
               socket.connect(state.token!);
-              initE2EKeys().catch(console.error);
+              initE2EKeys().catch((err) => logError("initE2EKeys", err));
             })
             .catch(() => {
               state.logout();

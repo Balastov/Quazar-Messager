@@ -2,14 +2,31 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
+from starlette.responses import Response
 from sqlalchemy import text
 
+from app.core.config import settings
 from app.core.database import Base, engine
 from app.api.auth import router as auth_router
 from app.api.users import router as users_router
 from app.api.chats import router as chats_router
 from app.api.messages import router as messages_router
 from app.ws.router import router as ws_router
+
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next) -> Response:
+        response = await call_next(request)
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("Referrer-Policy", "no-referrer")
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        if settings.CONTENT_SECURITY_POLICY:
+            response.headers.setdefault(
+                "Content-Security-Policy", settings.CONTENT_SECURITY_POLICY
+            )
+        return response
 
 
 @asynccontextmanager
@@ -30,13 +47,15 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Quazar Messager API", version="0.1.0", lifespan=lifespan)
 
+_cors_origins = settings.cors_origins_list
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # в продакшне — ограничить
-    allow_credentials=True,
+    allow_origins=_cors_origins,
+    allow_credentials=_cors_origins != ["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(SecurityHeadersMiddleware)
 
 app.include_router(auth_router)
 app.include_router(users_router)

@@ -1,3 +1,7 @@
+# Docker embedded DNS — resolve upstreams at request time (avoids crash if
+# backend/web are briefly unreachable at nginx start).
+resolver 127.0.0.11 valid=10s ipv6=off;
+
 # HTTP: ACME challenge + redirect to HTTPS
 server {
     listen 80;
@@ -31,7 +35,9 @@ server {
     client_max_body_size 2m;
 
     location /api/ {
-        proxy_pass http://backend:8000/;
+        set $api_upstream backend;
+        rewrite ^/api/(.*)$ /$1 break;
+        proxy_pass http://$api_upstream:8000;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
@@ -41,7 +47,8 @@ server {
     }
 
     location /ws {
-        proxy_pass http://backend:8000/ws;
+        set $ws_upstream backend;
+        proxy_pass http://$ws_upstream:8000/ws;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
@@ -53,7 +60,8 @@ server {
     }
 
     location / {
-        proxy_pass http://web:80;
+        set $web_upstream web;
+        proxy_pass http://$web_upstream:80;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;

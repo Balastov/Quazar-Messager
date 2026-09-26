@@ -1,5 +1,11 @@
 # Production stack for quazar-msg.ru
-# Usage: docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
+#
+# Shared VM (padma.ru / mispring.ru already on system nginx) — default:
+#   docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
+#   then install deploy/host-nginx/quazar-msg.ru.conf into system nginx
+#
+# Dedicated VM (Quazar owns 80/443):
+#   docker compose -f docker-compose.prod.yml --env-file .env.prod --profile edge up -d --build
 
 services:
   postgres:
@@ -20,6 +26,9 @@ services:
   backend:
     build: ./backend
     restart: unless-stopped
+    ports:
+      # Host nginx proxies here (8000 is often used by other apps on shared VMs)
+      - "127.0.0.1:8002:8000"
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-quazar}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-quazar}
       REDIS_URL: redis://redis:6379
@@ -32,10 +41,14 @@ services:
   web:
     build: ./web
     restart: unless-stopped
+    ports:
+      - "127.0.0.1:3080:80"
 
+  # Only for a dedicated server where Quazar owns ports 80/443.
   nginx:
     build: ./deploy/nginx
     restart: unless-stopped
+    profiles: ["edge"]
     ports:
       - "80:80"
       - "443:443"
@@ -56,7 +69,6 @@ services:
     entrypoint: /bin/sh
     profiles: ["certs"]
 
-  # Redis is declared for future use; backend does not require it yet.
   redis:
     image: redis:7-alpine
     restart: unless-stopped

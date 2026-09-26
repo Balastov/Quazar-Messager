@@ -5,6 +5,11 @@
 
 Итоговый адрес: **https://quazar-msg.ru**
 
+> **Важно:** если на той же VM уже крутятся другие сайты (например `padma.ru`, `mispring.ru`),
+> **не** отдавайте порты 80/443 Docker-nginx. Используйте раздел
+> [Общий сервер с другими сайтами](#общий-сервер-с-другими-сайтами) — системный nginx
+> остаётся главным, Quazar слушает только localhost.
+
 ---
 
 ## Что понадобится
@@ -166,38 +171,46 @@ grep -n PASSWORD .env.prod
 
 ## Шаг 7. Запустить контейнеры
 
+### Вариант A — общий сервер (рекомендуется, если уже есть padma/mispring)
+
 ```bash
 cd /opt/quazar
-docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
+bash deploy/scripts/install-shared-host.sh
 ```
 
-Первый запуск может занять несколько минут (сборка frontend/backend).
+Скрипт: не трогает чужие сайты, поднимает Quazar на `127.0.0.1:3080` / `127.0.0.1:8002`,
+добавляет vhost в системный nginx и получает сертификат через `certbot --nginx`.
+
+Проверь все три сайта: padma.ru, mispring.ru, quazar-msg.ru.
+
+### Вариант B — выделенный сервер только под Quazar
+
+```bash
+cd /opt/quazar
+docker compose -f docker-compose.prod.yml --env-file .env.prod --profile edge up -d --build
+```
 
 Статус:
 
 ```bash
 docker compose -f docker-compose.prod.yml --env-file .env.prod ps
-docker compose -f docker-compose.prod.yml --env-file .env.prod logs --tail=50
 ```
 
-Все сервисы `postgres`, `backend`, `web`, `nginx` должны быть `Up`.
-
-Открой в браузере `https://quazar-msg.ru` — может быть предупреждение о сертификате (временный self-signed). Это нормально до шага 8.
+Открой `https://quazar-msg.ru` (возможен временный self-signed до шага 8).
 
 ---
 
-## Шаг 8. Настоящий HTTPS (Let's Encrypt)
+## Шаг 8. HTTPS (Let's Encrypt)
 
-DNS уже должен указывать на сервер (шаг 1), порты 80/443 открыты.
+### Общий сервер
+
+Уже сделано скриптом `install-shared-host.sh`. Обновление сертификата:
 
 ```bash
-cd /opt/quazar
-bash deploy/scripts/get-cert.sh
+sudo certbot renew
 ```
 
-Если успех — браузер откроет сайт **без** предупреждения о сертификате.
-
-Продление сертификата (раз в ~2 месяца или по cron):
+### Выделенный сервер (profile edge)
 
 ```bash
 cd /opt/quazar
@@ -210,14 +223,37 @@ bash deploy/scripts/get-cert.sh
 crontab -e
 ```
 
-Добавь строку:
+Добавь строку (edge):
 
 ```
 0 3 1 * * cd /opt/quazar && bash deploy/scripts/get-cert.sh >> /var/log/quazar-cert.log 2>&1
 ```
 
+или (shared host):
+
+```
+0 3 1 * * certbot renew --quiet
+```
+
 ---
 
+## Общий сервер с другими сайтами
+
+На VM уже может быть системный nginx с сайтами в `/etc/nginx/sites-enabled/`
+(например `padma`, `task-tracker` / mispring.ru).
+
+Правильная схема:
+
+```text
+Internet → system nginx :80/:443
+              ├─ padma.ru      → /var/www/padma + :3001
+              ├─ mispring.ru   → :8000
+              └─ quazar-msg.ru → 127.0.0.1:3080 (web) + :8002 (API/WS)
+```
+
+Docker **не** занимает 80/443. Конфиг: `deploy/host-nginx/`.
+
+---
 ## Шаг 9. Проверка мессенджера
 
 1. Открой https://quazar-msg.ru  
@@ -274,7 +310,11 @@ docker compose -f docker-compose.prod.yml --env-file .env.prod down -v
 
 ## Архитектура
 
-- `https://quazar-msg.ru/` → React (контейнер `web`)
+**Общий сервер:** system nginx → localhost web `:3080` + API `:8002`
+
+**Выделенный сервер (`--profile edge`):** Docker nginx на 80/443
+
+- `https://quazar-msg.ru/` → React (`web`)
 - `https://quazar-msg.ru/api/...` → FastAPI (`backend`)
 - `wss://quazar-msg.ru/ws` → WebSocket FastAPI
-- PostgreSQL только внутри Docker-сети (снаружи не открыт)
+- PostgreSQL только внутри Docker-сети

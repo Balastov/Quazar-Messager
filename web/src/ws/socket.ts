@@ -2,6 +2,11 @@ import type { WsEvent } from "../api/types";
 
 type Handler = (event: WsEvent) => void;
 
+function wsUrl(token: string): string {
+  const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
+  return `${proto}//${window.location.host}/ws?token=${encodeURIComponent(token)}`;
+}
+
 class SocketManager {
   private ws: WebSocket | null = null;
   private handlers = new Set<Handler>();
@@ -33,8 +38,7 @@ class SocketManager {
 
   private _open() {
     if (!this.token) return;
-    const url = `ws://localhost:8000/ws?token=${this.token}`;
-    this.ws = new WebSocket(url);
+    this.ws = new WebSocket(wsUrl(this.token));
 
     this.ws.onmessage = (e) => {
       try {
@@ -47,7 +51,6 @@ class SocketManager {
 
     this.ws.onclose = () => {
       if (this.token) {
-        // автопереподключение через 3 сек
         this.reconnectTimer = setTimeout(() => this._open(), 3000);
       }
     };

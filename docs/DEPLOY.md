@@ -266,14 +266,77 @@ Docker **не** занимает 80/443. Конфиг: `deploy/host-nginx/`.
 
 ---
 
-## Обновление кода после изменений
+## Автодеплой из `main` (GitHub Actions)
+
+При каждом пуше в `main` GitHub подключается по SSH и обновляет `/opt/quazar`.
+
+### 1. SSH-ключ для деплоя (на своём Mac)
+
+```bash
+ssh-keygen -t ed25519 -C "github-deploy-quazar" -f ~/.ssh/quazar_deploy -N ""
+```
+
+Публичный ключ добавь на сервер:
+
+```bash
+ssh-copy-id -i ~/.ssh/quazar_deploy.pub user1@176.108.246.144
+```
+
+или вручную:
+
+```bash
+# на сервере
+mkdir -p ~/.ssh && chmod 700 ~/.ssh
+echo "СЮДА_СОДЕРЖИМОЕ_quazar_deploy.pub" >> ~/.ssh/authorized_keys
+chmod 600 ~/.ssh/authorized_keys
+```
+
+Проверка с Mac:
+
+```bash
+ssh -i ~/.ssh/quazar_deploy user1@176.108.246.144 "cd /opt/quazar && docker compose version"
+```
+
+### 2. Secrets в GitHub
+
+Репозиторий → **Settings → Secrets and variables → Actions → New repository secret**:
+
+| Secret | Значение |
+|--------|----------|
+| `DEPLOY_HOST` | `176.108.246.144` |
+| `DEPLOY_USER` | `user1` |
+| `DEPLOY_SSH_KEY` | **весь** приватный ключ из `~/.ssh/quazar_deploy` (включая `BEGIN`/`END`) |
+
+### 3. Права git на сервере
+
+Репозиторий должен быть клонирован и обновляем без пароля (публичный GitHub OK):
+
+```bash
+cd /opt/quazar
+git remote -v
+# origin → https://github.com/Balastov/Quazar-Messager.git
+```
+
+### 4. Проверка
+
+В репозитории → **Actions** → workflow **Deploy production** → после пуша в `main` или кнопка **Run workflow**.
+
+Ручной деплой по-прежнему:
+
+```bash
+cd /opt/quazar
+bash deploy/scripts/remote-deploy.sh
+```
+
+---
+
+## Обновление кода после изменений (вручную)
 
 На сервере:
 
 ```bash
 cd /opt/quazar
-git pull
-docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
+bash deploy/scripts/remote-deploy.sh
 ```
 
 ---

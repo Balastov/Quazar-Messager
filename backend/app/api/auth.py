@@ -15,14 +15,14 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 @router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
 async def register(body: UserRegister, db: Annotated[AsyncSession, Depends(get_db)]):
     result = await db.execute(
-        select(User).where((User.email == body.email) | (User.username == body.username))
+        select(User).where((User.phone == body.phone) | (User.username == body.username))
     )
     if result.scalar_one_or_none():
-        raise HTTPException(status_code=400, detail="Email or username already taken")
+        raise HTTPException(status_code=400, detail="Phone or username already taken")
 
     user = User(
         username=body.username,
-        email=body.email,
+        phone=body.phone,
         password_hash=hash_password(body.password),
     )
     db.add(user)
@@ -34,7 +34,7 @@ async def register(body: UserRegister, db: Annotated[AsyncSession, Depends(get_d
 
 @router.post("/login", response_model=TokenResponse)
 async def login(body: UserLogin, db: Annotated[AsyncSession, Depends(get_db)]):
-    result = await db.execute(select(User).where(User.email == body.email))
+    result = await db.execute(select(User).where(User.phone == body.phone))
     user = result.scalar_one_or_none()
 
     if not user or not verify_password(body.password, user.password_hash):

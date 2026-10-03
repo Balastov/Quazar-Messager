@@ -42,6 +42,43 @@ async def lifespan(app: FastAPI):
         await conn.execute(
             text("ALTER TABLE users ADD COLUMN IF NOT EXISTS key_backup TEXT")
         )
+        # Phone auth migration (email → phone)
+        await conn.execute(
+            text("ALTER TABLE users ADD COLUMN IF NOT EXISTS phone VARCHAR(20)")
+        )
+        # Legacy email column may still exist; relax NOT NULL if present
+        await conn.execute(
+            text(
+                """
+                DO $$
+                BEGIN
+                  IF EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name = 'users' AND column_name = 'email'
+                  ) THEN
+                    ALTER TABLE users ALTER COLUMN email DROP NOT NULL;
+                  END IF;
+                END $$;
+                """
+            )
+        )
+        await conn.execute(
+            text(
+                """
+                DO $$
+                BEGIN
+                  IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint WHERE conname = 'users_phone_key'
+                  ) AND NOT EXISTS (
+                    SELECT 1 FROM pg_indexes WHERE indexname = 'ix_users_phone'
+                  ) THEN
+                    CREATE UNIQUE INDEX IF NOT EXISTS ix_users_phone ON users (phone)
+                    WHERE phone IS NOT NULL;
+                  END IF;
+                END $$;
+                """
+            )
+        )
     yield
 
 

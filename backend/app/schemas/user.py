@@ -1,11 +1,13 @@
 from datetime import datetime
 
-from pydantic import BaseModel, EmailStr, field_validator
+from pydantic import BaseModel, field_validator
+
+from app.core.phone import normalize_ru_phone
 
 
 class UserRegister(BaseModel):
     username: str
-    email: EmailStr
+    phone: str
     password: str
 
     @field_validator("username")
@@ -17,6 +19,11 @@ class UserRegister(BaseModel):
             raise ValueError("Username may only contain letters, digits, _ and .")
         return v
 
+    @field_validator("phone")
+    @classmethod
+    def phone_valid(cls, v: str) -> str:
+        return normalize_ru_phone(v)
+
     @field_validator("password")
     @classmethod
     def password_valid(cls, v: str) -> str:
@@ -26,8 +33,13 @@ class UserRegister(BaseModel):
 
 
 class UserLogin(BaseModel):
-    email: EmailStr
+    phone: str
     password: str
+
+    @field_validator("phone")
+    @classmethod
+    def phone_valid(cls, v: str) -> str:
+        return normalize_ru_phone(v)
 
 
 class TokenResponse(BaseModel):
@@ -38,7 +50,7 @@ class TokenResponse(BaseModel):
 class UserOut(BaseModel):
     id: str
     username: str
-    email: str
+    phone: str
     avatar_url: str | None
     created_at: datetime
 

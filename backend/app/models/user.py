@@ -12,7 +12,7 @@ class User(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     username: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
-    email: Mapped[str] = mapped_column(String(256), unique=True, nullable=False)
+    phone: Mapped[str] = mapped_column(String(20), unique=True, nullable=False, index=True)
     password_hash: Mapped[str] = mapped_column(String(256), nullable=False)
     avatar_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     public_key: Mapped[str | None] = mapped_column(Text, nullable=True)

@@ -11,11 +11,12 @@ import {
 } from 'react-native';
 import {authApi} from '../api/auth';
 import {useAuthStore} from '../store/auth';
+import {formatRuPhoneMask, isCompleteRuPhone, toE164Ru} from '../utils/phone';
 
 export default function AuthScreen() {
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [username, setUsername] = useState('');
-  const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('+7');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -24,12 +25,17 @@ export default function AuthScreen() {
 
   const submit = async () => {
     setError('');
+    const e164 = toE164Ru(phone);
+    if (!e164 || !isCompleteRuPhone(phone)) {
+      setError('Введите номер в формате +7 (999) 000-00-00');
+      return;
+    }
     setLoading(true);
     try {
       const data =
         mode === 'login'
-          ? await authApi.login(email, password)
-          : await authApi.register(username, email, password);
+          ? await authApi.login(e164, password)
+          : await authApi.register(username, e164, password);
       await setToken(data.access_token);
     } catch (err: unknown) {
       const detail = (err as {response?: {data?: {detail?: string}}})?.response?.data?.detail;
@@ -71,12 +77,11 @@ export default function AuthScreen() {
         )}
         <TextInput
           style={s.input}
-          placeholder="Email"
+          placeholder="+7 (999) 000-00-00"
           placeholderTextColor="#555"
-          value={email}
-          onChangeText={setEmail}
-          autoCapitalize="none"
-          keyboardType="email-address"
+          value={phone}
+          onChangeText={text => setPhone(formatRuPhoneMask(text))}
+          keyboardType="phone-pad"
         />
         <TextInput
           style={s.input}
@@ -89,7 +94,10 @@ export default function AuthScreen() {
 
         {error !== '' && <Text style={s.error}>{error}</Text>}
 
-        <Pressable style={[s.submit, loading && s.disabled]} onPress={submit} disabled={loading}>
+        <Pressable
+          style={[s.submit, (loading || !isCompleteRuPhone(phone)) && s.disabled]}
+          onPress={submit}
+          disabled={loading || !isCompleteRuPhone(phone)}>
           {loading ? (
             <ActivityIndicator color="#fff" />
           ) : (

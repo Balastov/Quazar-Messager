@@ -30,16 +30,18 @@
 
 .emptyBack {
   position: absolute;
-  top: 14px;
+  top: calc(12px + var(--qz-safe-top));
   left: 12px;
+  z-index: 2;
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  min-height: 44px;
   border: 1px solid var(--qz-border);
   background: rgba(18, 14, 32, 0.85);
   color: var(--qz-text);
   border-radius: 999px;
-  padding: 8px 12px;
+  padding: 8px 14px;
   font-size: 13px;
   cursor: pointer;
 }
@@ -54,19 +56,33 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 12px 14px;
-  background: rgba(12, 10, 22, 0.72);
+  flex-shrink: 0;
+  padding: calc(10px + var(--qz-safe-top)) 14px 12px;
+  background: rgba(12, 10, 22, 0.92);
   border-bottom: 1px solid var(--qz-border);
   backdrop-filter: blur(16px);
 }
 
 .back {
   display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  min-width: 44px;
+  min-height: 44px;
   border: none;
+  border-radius: 12px;
   background: transparent;
   color: var(--qz-text);
   cursor: pointer;
-  padding: 4px;
+  padding: 0;
+  margin-left: -6px;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+.back:active {
+  background: rgba(255, 255, 255, 0.08);
 }
 
 @media (min-width: 768px) {
@@ -250,7 +266,7 @@
   align-items: center;
   gap: 8px;
   flex-shrink: 0;
-  padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
+  padding: 10px 12px calc(10px + var(--qz-safe-bottom));
   background: rgba(12, 10, 22, 0.92);
   border-top: 1px solid var(--qz-border);
   backdrop-filter: blur(16px);
@@ -259,6 +275,10 @@
 @media (min-width: 768px) {
   .composer {
     padding-bottom: 12px;
+  }
+
+  .header {
+    padding-top: 12px;
   }
 }
 

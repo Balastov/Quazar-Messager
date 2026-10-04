@@ -5,7 +5,7 @@
   flex-direction: column;
   background: rgba(12, 10, 22, 0.78);
   backdrop-filter: blur(16px);
-  padding-bottom: 72px;
+  padding-bottom: calc(72px + var(--qz-safe-bottom));
 }
 
 @media (min-width: 768px) {
@@ -15,7 +15,8 @@
 }
 
 .header {
-  padding: 18px 16px 10px;
+  padding: calc(12px + var(--qz-safe-top)) 16px 10px;
+  flex-shrink: 0;
 }
 
 .title {

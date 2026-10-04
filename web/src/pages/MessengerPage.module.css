@@ -62,13 +62,19 @@
   }
 }
 
-/* На мобиле список с bottom nav */
+/* На мобиле список с bottom nav + home indicator */
 @media (max-width: 767px) {
   .main {
-    padding-bottom: 64px;
+    padding-bottom: calc(64px + var(--qz-safe-bottom));
   }
 
   .mainChatOpen {
     padding-bottom: 0;
+  }
+
+  .mobileChat {
+    /* Не уходим под системные жесты сверху/снизу — отступы в header/composer */
+    padding-left: var(--qz-safe-left);
+    padding-right: var(--qz-safe-right);
   }
 }

@@ -29,10 +29,11 @@
 }
 
 .mobileChat {
-  position: absolute;
+  position: fixed;
   inset: 0;
-  z-index: 30;
+  z-index: 50;
   display: flex;
+  flex-direction: column;
   background: var(--qz-bg);
 }
 

@@ -19,6 +19,7 @@ const ITEMS: { id: AppTab; label: string; Icon: typeof IconChat }[] = [
 export default function AppNav() {
   const tab = useUiStore((st) => st.tab);
   const setTab = useUiStore((st) => st.setTab);
+  const mobileChatOpen = useUiStore((st) => st.mobileChatOpen);
   const user = useAuthStore((st) => st.user);
 
   const renderItems = (variant: "side" | "bottom") =>
@@ -52,7 +53,7 @@ export default function AppNav() {
           </div>
         )}
       </aside>
-      <nav className={s.bottom}>{renderItems("bottom")}</nav>
+      {!mobileChatOpen && <nav className={s.bottom}>{renderItems("bottom")}</nav>}
     </>
   );
 }

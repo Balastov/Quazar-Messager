@@ -56,7 +56,9 @@ export default function AuthPage() {
   return (
     <div className={s.root}>
       <div className={s.card}>
-        <h1 className={s.logo}>Quazar</h1>
+        <div className={s.brand}>
+          <img className={s.logoImg} src="/logo-full.png" alt="Quazar" />
+        </div>
         <div className={s.tabs}>
           <button className={mode === "login" ? s.activeTab : s.tab} onClick={() => setMode("login")}>
             Войти

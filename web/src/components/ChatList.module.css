@@ -8,14 +8,27 @@
 }
 
 .header {
-  padding: 18px 20px;
+  padding: 14px 16px;
   border-bottom: 1px solid #2a2d3a;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.brandMark {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  object-fit: cover;
+  flex-shrink: 0;
+  user-select: none;
+  -webkit-user-drag: none;
 }
 
 .title {
   font-size: 20px;
   font-weight: 700;
-  color: #6c63ff;
+  color: #e8eaf2;
   letter-spacing: 1px;
 }
 

@@ -16,13 +16,18 @@
   gap: 20px;
 }
 
-.logo {
-  text-align: center;
-  font-size: 28px;
-  font-weight: 700;
-  color: #6c63ff;
-  margin: 0;
-  letter-spacing: 2px;
+.brand {
+  display: flex;
+  justify-content: center;
+  margin: -4px 0 4px;
+}
+
+.logoImg {
+  display: block;
+  width: min(220px, 100%);
+  height: auto;
+  user-select: none;
+  -webkit-user-drag: none;
 }
 
 .tabs {

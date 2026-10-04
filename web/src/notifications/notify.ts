@@ -54,6 +54,8 @@ export async function notifyIncomingMessage(info: IncomingNotify): Promise<void>
       const n = new Notification(title, {
         body,
         tag: `quazar-chat-${info.chatId}`,
+        icon: "/icons/icon-192.png",
+        badge: "/icons/icon-48.png",
         silent: true, // свой звук уже сыграли
       });
       n.onclick = () => {

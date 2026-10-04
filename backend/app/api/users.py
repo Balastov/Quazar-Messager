@@ -1,11 +1,17 @@
 from datetime import datetime, timezone
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.avatars import (
+    MAX_AVATAR_BYTES,
+    delete_avatar_files,
+    detect_image,
+    save_avatar,
+)
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.core.e2e import decode_public_key_b64
@@ -89,6 +95,50 @@ async def _set_public_key_and_notify(
 
 @router.get("/me", response_model=UserOut)
 async def get_me(current_user: Annotated[User, Depends(get_current_user)]):
+    return current_user
+
+
+@router.post("/me/avatar", response_model=UserOut)
+async def upload_avatar(
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    file: Annotated[UploadFile, File(...)],
+):
+    """Загружает аватар пользователя (JPEG/PNG/WebP/GIF, до 3 МБ)."""
+    data = await file.read(MAX_AVATAR_BYTES + 1)
+    if len(data) > MAX_AVATAR_BYTES:
+        raise HTTPException(status_code=413, detail="Avatar must be at most 3 MB")
+    if not data:
+        raise HTTPException(status_code=422, detail="Empty file")
+
+    detected = detect_image(data)
+    if not detected:
+        raise HTTPException(
+            status_code=422,
+            detail="Unsupported image type. Use JPEG, PNG, WebP or GIF.",
+        )
+    _content_type, ext = detected
+
+    try:
+        url = save_avatar(current_user.id, data, ext)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    current_user.avatar_url = url
+    await db.commit()
+    await db.refresh(current_user)
+    return current_user
+
+
+@router.delete("/me/avatar", response_model=UserOut)
+async def remove_avatar(
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    delete_avatar_files(current_user.id)
+    current_user.avatar_url = None
+    await db.commit()
+    await db.refresh(current_user)
     return current_user
 
 

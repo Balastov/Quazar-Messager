@@ -3,6 +3,7 @@ import { useChatStore } from "../store/chat";
 import { useAuthStore } from "../store/auth";
 import { usersApi } from "../api/users";
 import type { User } from "../api/types";
+import UserAvatar from "./UserAvatar";
 import s from "./ChatList.module.css";
 
 export default function ChatList() {
@@ -34,10 +35,15 @@ export default function ChatList() {
     return () => clearTimeout(timer);
   }, [search]);
 
-  const chatName = (chat: typeof chats[0]) => {
-    if (chat.type === "group") return chat.name ?? "Группа";
-    const other = chat.members.find((m) => m.user.id !== currentUser?.id);
-    return other?.user.username ?? "Неизвестный";
+  const chatPeer = (chat: (typeof chats)[0]) => {
+    if (chat.type === "group") {
+      return { username: chat.name ?? "Группа", avatar_url: null as string | null };
+    }
+    const other = chat.members.find((m) => m.user.id !== currentUser?.id)?.user;
+    return {
+      username: other?.username ?? "Неизвестный",
+      avatar_url: other?.avatar_url ?? null,
+    };
   };
 
   const handleUserClick = async (user: User) => {
@@ -65,7 +71,7 @@ export default function ChatList() {
             {!searching && results.length === 0 && <div className={s.hint}>Никого не найдено</div>}
             {results.map((u) => (
               <button key={u.id} className={s.userResult} onClick={() => handleUserClick(u)}>
-                <span className={s.avatar}>{u.username[0].toUpperCase()}</span>
+                <UserAvatar username={u.username} avatarUrl={u.avatar_url} size="sm" />
                 {u.username}
               </button>
             ))}
@@ -74,16 +80,19 @@ export default function ChatList() {
       </div>
 
       <div className={s.list}>
-        {chats.map((chat) => (
-          <button
-            key={chat.id}
-            className={chat.id === activeChatId ? s.activeItem : s.item}
-            onClick={() => selectChat(chat.id)}
-          >
-            <span className={s.avatar}>{chatName(chat)[0].toUpperCase()}</span>
-            <span className={s.name}>{chatName(chat)}</span>
-          </button>
-        ))}
+        {chats.map((chat) => {
+          const peer = chatPeer(chat);
+          return (
+            <button
+              key={chat.id}
+              className={chat.id === activeChatId ? s.activeItem : s.item}
+              onClick={() => selectChat(chat.id)}
+            >
+              <UserAvatar username={peer.username} avatarUrl={peer.avatar_url} />
+              <span className={s.name}>{peer.username}</span>
+            </button>
+          );
+        })}
       </div>
     </div>
   );

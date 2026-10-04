@@ -16,6 +16,7 @@ import {
   type TrustCheckResult,
   type TrustStatus,
 } from "../crypto/trust";
+import { notifyIncomingMessage } from "../notifications/notify";
 import { useAuthStore } from "./auth";
 import type { Chat, Message } from "../api/types";
 
@@ -141,6 +142,19 @@ export const useChatStore = create<ChatState>((set, get) => {
 
         if (!get().chats.find((c) => c.id === event.chat_id)) {
           await get().loadChats();
+        }
+
+        if (myId && event.sender_id !== myId) {
+          const chat = get().chats.find((c) => c.id === event.chat_id);
+          const sender =
+            chat?.members.find((m) => m.user.id === event.sender_id)?.user.username ??
+            "Новое сообщение";
+          void notifyIncomingMessage({
+            title: sender,
+            body: decryptedPayload,
+            chatId: event.chat_id,
+            isActiveChat: get().activeChatId === event.chat_id,
+          });
         }
       }
 

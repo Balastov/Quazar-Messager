@@ -1,12 +1,15 @@
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
 from sqlalchemy import text
 
+from app.core.avatars import media_root
 from app.core.config import settings
 from app.core.database import Base, engine
 from app.api.auth import router as auth_router
@@ -99,3 +102,6 @@ app.include_router(users_router)
 app.include_router(chats_router)
 app.include_router(messages_router)
 app.include_router(ws_router)
+
+_media = Path(media_root())
+app.mount("/media", StaticFiles(directory=str(_media)), name="media")

@@ -24,19 +24,6 @@
   gap: 12px;
 }
 
-.avatar {
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  background: #6c63ff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 600;
-  color: #fff;
-  flex-shrink: 0;
-}
-
 .headerInfo {
   display: flex;
   flex-direction: column;

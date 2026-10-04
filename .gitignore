@@ -29,3 +29,7 @@ deploy/certbot/
 # Build / cache
 *.log
 .cache/
+
+# Uploaded avatars (local / container volume)
+media/
+backend/media/

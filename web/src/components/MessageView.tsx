@@ -3,6 +3,7 @@ import { useChatStore } from "../store/chat";
 import { useAuthStore } from "../store/auth";
 import { E2EError } from "../crypto/errors";
 import E2EStatusPanel from "./E2EStatusPanel";
+import UserAvatar from "./UserAvatar";
 import s from "./MessageView.module.css";
 
 export default function MessageView() {
@@ -49,12 +50,19 @@ export default function MessageView() {
     );
   }
 
-  const chatTitle = () => {
-    if (!chat) return "";
-    if (chat.type === "group") return chat.name ?? "Группа";
-    const other = chat.members.find((m) => m.user.id !== currentUser?.id);
-    return other?.user.username ?? "";
-  };
+  const peer = (() => {
+    if (!chat) return { username: "", avatar_url: null as string | null };
+    if (chat.type === "group") {
+      return { username: chat.name ?? "Группа", avatar_url: null };
+    }
+    const other = chat.members.find((m) => m.user.id !== currentUser?.id)?.user;
+    return {
+      username: other?.username ?? "",
+      avatar_url: other?.avatar_url ?? null,
+    };
+  })();
+
+  const chatTitle = () => peer.username;
 
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -111,7 +119,7 @@ export default function MessageView() {
   return (
     <div className={s.root}>
       <div className={s.header}>
-        <span className={s.avatar}>{chatTitle()[0]?.toUpperCase()}</span>
+        <UserAvatar username={peer.username || "?"} avatarUrl={peer.avatar_url} size="sm" />
         <div className={s.headerInfo}>
           <span className={s.name}>{chatTitle()}</span>
           <div className={s.headerActions}>

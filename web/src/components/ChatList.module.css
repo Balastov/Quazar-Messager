@@ -106,20 +106,6 @@
   color: #fff;
 }
 
-.avatar {
-  width: 38px;
-  height: 38px;
-  border-radius: 50%;
-  background: #6c63ff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 600;
-  font-size: 16px;
-  flex-shrink: 0;
-  color: #fff;
-}
-
 .name {
   font-weight: 500;
   white-space: nowrap;

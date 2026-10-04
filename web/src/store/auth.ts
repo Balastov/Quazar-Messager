@@ -11,6 +11,7 @@ interface AuthState {
   token: string | null;
   user: User | null;
   setToken: (token: string) => Promise<void>;
+  setUser: (user: User) => void;
   logout: () => void;
 }
 
@@ -35,6 +36,8 @@ export const useAuthStore = create<AuthState>()(
         socket.connect(token);
         initE2EKeys().catch((err) => logError("initE2EKeys", err));
       },
+
+      setUser: (user) => set({ user }),
 
       logout: () => {
         // Политика A: E2E-ключи остаются в IndexedDB между сессиями.

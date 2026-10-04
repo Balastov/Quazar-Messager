@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     # Optional CSP for API responses (empty = do not set).
     CONTENT_SECURITY_POLICY: str = ""
 
+    # Local avatar/media storage (served at /media).
+    MEDIA_ROOT: str = "media"
+
     @property
     def cors_origins_list(self) -> list[str]:
         raw = self.CORS_ORIGINS.strip()

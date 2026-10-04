@@ -29,8 +29,16 @@
   font-weight: 700;
 }
 
+.searchRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 16px 8px;
+}
+
 .searchWrap {
-  margin: 0 16px 10px;
+  flex: 1;
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -46,8 +54,36 @@
   border: none;
   background: transparent;
   color: var(--qz-text);
-  font-size: 14px;
+  font-size: 16px;
   outline: none;
+  min-width: 0;
+}
+
+.bookBtn {
+  width: 42px;
+  height: 42px;
+  flex-shrink: 0;
+  border-radius: 14px;
+  border: 1px solid var(--qz-border);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--qz-text-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.bookBtn:hover {
+  color: #fff;
+  border-color: var(--qz-border-strong);
+  background: rgba(168, 85, 247, 0.15);
+}
+
+.pickerHint {
+  margin: 0 16px 8px;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--qz-text-dim);
 }
 
 .filters {
@@ -201,6 +237,23 @@
 
 .userResult:hover {
   background: rgba(255, 255, 255, 0.04);
+}
+
+.userMeta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.userName {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.userPhone {
+  font-size: 12px;
+  color: var(--qz-text-muted);
 }
 
 .searchSection {

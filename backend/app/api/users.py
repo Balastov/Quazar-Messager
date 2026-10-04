@@ -1,9 +1,10 @@
+import re
 from datetime import datetime, timezone
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.avatars import (
@@ -207,6 +208,44 @@ async def get_key_backup(current_user: Annotated[User, Depends(get_current_user)
     return KeyBackupOut(backup=current_user.key_backup)
 
 
+@router.get("/search", response_model=list[UserOut])
+async def search_users(
+    q: Annotated[str, Query(min_length=1, max_length=64)],
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Поиск пользователей по username или номеру телефона (+7…)."""
+    query = q.strip()
+    if len(query) < 2 and len(re.sub(r"\D", "", query)) < 3:
+        raise HTTPException(status_code=422, detail="Query too short")
+
+    digits = re.sub(r"\D", "", query)
+    local = digits
+    if local.startswith("8") and len(local) == 11:
+        local = local[1:]
+    elif local.startswith("7") and len(local) == 11:
+        local = local[1:]
+
+    conditions = []
+    if len(query) >= 2:
+        conditions.append(User.username.ilike(f"%{query}%"))
+    if len(local) >= 3:
+        conditions.append(User.phone.ilike(f"%{local}%"))
+    if len(digits) >= 3 and digits != local:
+        conditions.append(User.phone.ilike(f"%{digits}%"))
+
+    if not conditions:
+        return []
+
+    result = await db.execute(
+        select(User)
+        .where(or_(*conditions), User.id != current_user.id)
+        .order_by(User.username.asc())
+        .limit(20)
+    )
+    return result.scalars().all()
+
+
 @router.get("/{user_id}/key", response_model=PublicKeyOut)
 async def get_public_key(
     user_id: str,
@@ -223,17 +262,3 @@ async def get_public_key(
         public_key=user.public_key,
         public_key_updated_at=user.public_key_updated_at,
     )
-
-
-@router.get("/search", response_model=list[UserOut])
-async def search_users(
-    q: Annotated[str, Query(min_length=2)],
-    current_user: Annotated[User, Depends(get_current_user)],
-    db: Annotated[AsyncSession, Depends(get_db)],
-):
-    result = await db.execute(
-        select(User)
-        .where(User.username.ilike(f"%{q}%"), User.id != current_user.id)
-        .limit(20)
-    )
-    return result.scalars().all()

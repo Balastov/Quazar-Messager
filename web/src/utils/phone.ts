@@ -34,3 +34,28 @@ export function toE164Ru(input: string): string | null {
 export function isCompleteRuPhone(input: string): boolean {
   return extractRuLocalDigits(input).length === 10;
 }
+
+/** Format stored +7XXXXXXXXXX (or raw) for UI */
+export function formatRuPhoneDisplay(input: string | null | undefined): string {
+  if (!input) return "";
+  const e164 = toE164Ru(input) ?? (input.startsWith("+7") && input.length >= 12 ? input : null);
+  if (!e164) return input;
+  return formatRuPhoneMask(e164);
+}
+
+/** Query looks like a phone fragment (enough digits to search). */
+export function looksLikePhoneQuery(input: string): boolean {
+  return extractRuLocalDigits(input).length >= 3;
+}
+
+/** Whether the search box has enough input to query the API. */
+export function canSearchUsers(input: string): boolean {
+  const q = input.trim();
+  if (!q) return false;
+  const digits = extractRuLocalDigits(q);
+  const mostlyPhone = digits.length > 0 && digits.length >= q.replace(/\s/g, "").replace(/[+\-()]/g, "").length * 0.6;
+  if (mostlyPhone || looksLikePhoneQuery(q)) {
+    return digits.length >= 3;
+  }
+  return q.length >= 2;
+}

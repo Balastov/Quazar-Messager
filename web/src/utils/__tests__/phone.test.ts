@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { extractRuLocalDigits, formatRuPhoneMask, toE164Ru } from "../phone";
+import {
+  canSearchUsers,
+  extractRuLocalDigits,
+  formatRuPhoneDisplay,
+  formatRuPhoneMask,
+  looksLikePhoneQuery,
+  toE164Ru,
+} from "../phone";
 
 describe("Russian phone mask", () => {
   it("formats while typing", () => {
@@ -16,5 +23,14 @@ describe("Russian phone mask", () => {
   it("builds E.164", () => {
     expect(toE164Ru("+7 (999) 123-45-67")).toBe("+79991234567");
     expect(toE164Ru("+7 (999) 123")).toBeNull();
+  });
+
+  it("formats display and detects phone queries", () => {
+    expect(formatRuPhoneDisplay("+79991234567")).toBe("+7 (999) 123-45-67");
+    expect(looksLikePhoneQuery("999")).toBe(true);
+    expect(looksLikePhoneQuery("ab")).toBe(false);
+    expect(canSearchUsers("al")).toBe(true);
+    expect(canSearchUsers("99")).toBe(false);
+    expect(canSearchUsers("999")).toBe(true);
   });
 });

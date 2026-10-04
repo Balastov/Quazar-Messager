@@ -4,8 +4,19 @@ import type { User } from "../api/types";
 import { useAuthStore } from "../store/auth";
 import { useChatStore } from "../store/chat";
 import { useUiStore } from "../store/ui";
+import {
+  canSearchUsers,
+  extractRuLocalDigits,
+  formatRuPhoneDisplay,
+  formatRuPhoneMask,
+  looksLikePhoneQuery,
+} from "../utils/phone";
+import {
+  isContactPickerSupported,
+  pickPhoneFromDeviceContacts,
+} from "../utils/contactsPicker";
 import UserAvatar from "./UserAvatar";
-import { IconSearch, IconStar } from "./icons";
+import { IconAddressBook, IconSearch, IconStar } from "./icons";
 import s from "./ContactsPane.module.css";
 
 type Filter = "all" | "favorites";
@@ -23,13 +34,15 @@ export default function ContactsPane() {
   const [filter, setFilter] = useState<Filter>("all");
   const [results, setResults] = useState<User[]>([]);
   const [searching, setSearching] = useState(false);
+  const [pickerHint, setPickerHint] = useState<string | null>(null);
+  const contactPickerOk = isContactPickerSupported();
 
   useEffect(() => {
     void loadChats();
   }, [loadChats]);
 
   useEffect(() => {
-    if (search.length < 2) {
+    if (!canSearchUsers(search)) {
       setResults([]);
       return;
     }
@@ -37,7 +50,7 @@ export default function ContactsPane() {
       void (async () => {
         setSearching(true);
         try {
-          setResults(await usersApi.search(search));
+          setResults(await usersApi.search(search.trim()));
         } finally {
           setSearching(false);
         }
@@ -48,12 +61,17 @@ export default function ContactsPane() {
 
   const chatPeer = (chat: (typeof chats)[0]) => {
     if (chat.type === "group") {
-      return { username: chat.name ?? "Группа", avatar_url: null as string | null };
+      return {
+        username: chat.name ?? "Группа",
+        avatar_url: null as string | null,
+        phone: null as string | null,
+      };
     }
     const other = chat.members.find((m) => m.user.id !== currentUser?.id)?.user;
     return {
       username: other?.username ?? "Неизвестный",
       avatar_url: other?.avatar_url ?? null,
+      phone: other?.phone ?? null,
     };
   };
 
@@ -72,11 +90,22 @@ export default function ContactsPane() {
   };
 
   const filtered = useMemo(() => {
+    let list = chats;
     if (filter === "favorites") {
-      return chats.filter((c) => favoriteChatIds.includes(c.id));
+      list = list.filter((c) => favoriteChatIds.includes(c.id));
     }
-    return chats;
-  }, [chats, filter, favoriteChatIds]);
+    const q = search.trim().toLowerCase();
+    if (!q) return list;
+    const digits = extractRuLocalDigits(search);
+    return list.filter((c) => {
+      const peer = chatPeer(c);
+      if (peer.username.toLowerCase().includes(q)) return true;
+      if (digits.length >= 3 && peer.phone?.includes(digits)) return true;
+      return false;
+    });
+    // chatPeer depends on currentUser; chats/messages identity is enough here
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chats, filter, favoriteChatIds, search, currentUser?.id]);
 
   const openChat = async (chatId: string) => {
     await selectChat(chatId);
@@ -84,21 +113,69 @@ export default function ContactsPane() {
     setMobileChatOpen(true);
   };
 
+  const pickFromPhone = async () => {
+    setPickerHint(null);
+    if (!contactPickerOk) {
+      setPickerHint(
+        "Выбор из контактов телефона доступен в Chrome на Android. Введите номер вручную."
+      );
+      return;
+    }
+    const picked = await pickPhoneFromDeviceContacts();
+    if (!picked?.tel) {
+      setPickerHint(picked === null ? null : "У контакта нет номера телефона");
+      return;
+    }
+    const digits = extractRuLocalDigits(picked.tel);
+    if (digits.length < 3) {
+      setPickerHint("Не удалось распознать номер контакта");
+      return;
+    }
+    setSearch(digits.length === 10 ? formatRuPhoneMask(picked.tel) : picked.tel);
+  };
+
+  const showSearchPanel = canSearchUsers(search);
+
   return (
     <div className={s.root}>
       <div className={s.header}>
         <h2 className={s.title}>Контакты</h2>
       </div>
 
-      <div className={s.searchWrap}>
-        <IconSearch />
-        <input
-          className={s.search}
-          placeholder="Поиск"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
+      <div className={s.searchRow}>
+        <div className={s.searchWrap}>
+          <IconSearch />
+          <input
+            className={s.search}
+            placeholder="Имя или телефон +7…"
+            value={search}
+            onChange={(e) => {
+              const raw = e.target.value;
+              // Автомаска, если похоже на набор номера
+              if (looksLikePhoneQuery(raw) || /^[+78(]/.test(raw.trim())) {
+                const d = extractRuLocalDigits(raw);
+                setSearch(d.length ? formatRuPhoneMask(raw) : raw);
+              } else {
+                setSearch(raw);
+              }
+            }}
+            inputMode="search"
+          />
+        </div>
+        <button
+          type="button"
+          className={s.bookBtn}
+          title={
+            contactPickerOk
+              ? "Выбрать из контактов телефона"
+              : "Контакты телефона: Chrome на Android"
+          }
+          onClick={() => void pickFromPhone()}
+        >
+          <IconAddressBook />
+        </button>
       </div>
+      {pickerHint && <div className={s.pickerHint}>{pickerHint}</div>}
 
       <div className={s.filters}>
         <button
@@ -117,11 +194,15 @@ export default function ContactsPane() {
         </button>
       </div>
 
-      {search.length >= 2 && (
+      {showSearchPanel && (
         <div className={s.searchSection}>
           {searching && <div className={s.hint}>Поиск...</div>}
           {!searching && results.length === 0 && (
-            <div className={s.hint}>Никого не найдено</div>
+            <div className={s.hint}>
+              {looksLikePhoneQuery(search)
+                ? "Нет пользователя Quazar с таким номером"
+                : "Никого не найдено"}
+            </div>
           )}
           {results.map((u) => (
             <button
@@ -138,7 +219,10 @@ export default function ContactsPane() {
               }}
             >
               <UserAvatar username={u.username} avatarUrl={u.avatar_url} size="sm" />
-              {u.username}
+              <span className={s.userMeta}>
+                <span className={s.userName}>{u.username}</span>
+                <span className={s.userPhone}>{formatRuPhoneDisplay(u.phone)}</span>
+              </span>
             </button>
           ))}
         </div>
@@ -149,7 +233,7 @@ export default function ContactsPane() {
           <div className={s.hint}>
             {filter === "favorites"
               ? "Нет избранных чатов — отметьте звездой"
-              : "Найдите пользователя в поиске, чтобы начать чат"}
+              : "Найдите пользователя по имени или телефону"}
           </div>
         )}
         {filtered.map((chat) => {

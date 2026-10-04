@@ -1,35 +1,37 @@
-import { useEffect, useState } from "react";
-import { useAuthStore } from "../store/auth";
+import { useEffect } from "react";
 import { useChatStore } from "../store/chat";
-import { consumeMigrationUiFlag, hasBackupDone } from "../crypto/keys";
-import ChatList from "../components/ChatList";
+import { useUiStore } from "../store/ui";
+import { consumeMigrationUiFlag } from "../crypto/keys";
+import AppNav from "../components/AppNav";
+import ContactsPane from "../components/ContactsPane";
 import MessageView from "../components/MessageView";
-import SecurityPanel from "../components/SecurityPanel";
-import ProfileSettings from "../components/ProfileSettings";
+import PeerPanel from "../components/PeerPanel";
+import CallsView from "../components/CallsView";
+import SettingsView from "../components/SettingsView";
 import ToastStack from "../components/ToastStack";
 import NotifyPrompt from "../components/NotifyPrompt";
 import s from "./MessengerPage.module.css";
 
 export default function MessengerPage() {
-  const logout = useAuthStore((st) => st.logout);
+  const tab = useUiStore((st) => st.tab);
+  const mobileChatOpen = useUiStore((st) => st.mobileChatOpen);
+  const peerPanelOpen = useUiStore((st) => st.peerPanelOpen);
   const selectChat = useChatStore((st) => st.selectChat);
-  const [showSecurity, setShowSecurity] = useState(false);
-  const [showProfile, setShowProfile] = useState(false);
-  const [showBackupHint, setShowBackupHint] = useState(false);
 
   useEffect(() => {
     if (consumeMigrationUiFlag()) {
       useChatStore.setState({ showMigrationNotice: true });
-    }
-    if (!hasBackupDone()) {
-      setShowBackupHint(true);
     }
   }, []);
 
   useEffect(() => {
     const onOpen = (e: Event) => {
       const chatId = (e as CustomEvent<{ chatId: string }>).detail?.chatId;
-      if (chatId) void selectChat(chatId);
+      if (chatId) {
+        void selectChat(chatId);
+        useUiStore.getState().setTab("chats");
+        useUiStore.getState().setMobileChatOpen(true);
+      }
     };
     window.addEventListener("quazar-open-chat", onOpen);
     return () => window.removeEventListener("quazar-open-chat", onOpen);
@@ -37,45 +39,42 @@ export default function MessengerPage() {
 
   return (
     <div className={s.root}>
-      <div className={s.sidebar}>
-        <ChatList />
-        <NotifyPrompt />
-        {showBackupHint && (
-          <button
-            type="button"
-            className={s.backupHint}
-            onClick={() => {
-              setShowSecurity(true);
-              setShowBackupHint(false);
-            }}
-          >
-            Создайте резервную копию ключей
-          </button>
+      <AppNav />
+
+      <div className={`${s.main} ${mobileChatOpen ? s.mainChatOpen : ""}`}>
+        {(tab === "contacts" || tab === "chats") && (
+          <>
+            <div className={s.listPane}>
+              <ContactsPane />
+            </div>
+            <div className={s.chatPane}>
+              <MessageView />
+              {tab === "chats" && peerPanelOpen && <PeerPanel />}
+            </div>
+          </>
         )}
-        <div className={s.sidebarActions}>
-          <button
-            className={s.actionBtn}
-            onClick={() => setShowProfile(true)}
-            title="Профиль"
-          >
-            👤
-          </button>
-          <button
-            className={s.actionBtn}
-            onClick={() => setShowSecurity(true)}
-            title="Безопасность"
-          >
-            🔐
-          </button>
-          <button className={s.actionBtn} onClick={logout} title="Выйти">
-            ⏏
-          </button>
-        </div>
+
+        {tab === "calls" && (
+          <div className={s.fullPane}>
+            <CallsView />
+          </div>
+        )}
+
+        {tab === "settings" && (
+          <div className={s.fullPane}>
+            <SettingsView />
+          </div>
+        )}
       </div>
-      <MessageView />
+
+      {mobileChatOpen && (tab === "chats" || tab === "contacts") && (
+        <div className={s.mobileChat}>
+          <MessageView showBack />
+        </div>
+      )}
+
+      {!mobileChatOpen && <NotifyPrompt />}
       <ToastStack />
-      {showProfile && <ProfileSettings onClose={() => setShowProfile(false)} />}
-      {showSecurity && <SecurityPanel onClose={() => setShowSecurity(false)} />}
     </div>
   );
 }

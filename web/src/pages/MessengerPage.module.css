@@ -1,68 +1,73 @@
 .root {
+  height: 100%;
   display: flex;
-  height: 100vh;
+  background: var(--qz-bg);
   overflow: hidden;
-  background: #0f1117;
+  position: relative;
 }
 
-.sidebar {
-  display: flex;
-  flex-direction: column;
-}
-
-.logout {
-  padding: 14px;
-  background: #1a1d27;
-  border: none;
-  border-top: 1px solid #2a2d3a;
-  color: #888;
-  font-size: 18px;
-  cursor: pointer;
-  transition: color 0.2s;
-}
-
-.logout:hover {
-  color: #ff6b6b;
-}
-
-.sidebarActions {
-  display: flex;
-  border-top: 1px solid #2a2d3a;
-  background: #1a1d27;
-}
-
-.actionBtn {
+.main {
   flex: 1;
-  padding: 14px;
-  background: transparent;
-  border: none;
-  color: #888;
-  font-size: 18px;
-  cursor: pointer;
-  transition: color 0.2s;
+  min-width: 0;
+  display: flex;
+  height: 100%;
 }
 
-.actionBtn:hover {
-  color: #e0e0e0;
+.listPane {
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  display: flex;
 }
 
-.actionBtn:last-child:hover {
-  color: #ff6b6b;
+.chatPane {
+  display: none;
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  flex-direction: row;
 }
 
-.backupHint {
-  margin: 0;
-  padding: 10px 12px;
-  background: #2a2218;
-  border: none;
-  border-top: 1px solid #3d3420;
-  color: #fbbf24;
-  font-size: 12px;
-  line-height: 1.35;
-  text-align: left;
-  cursor: pointer;
+.mobileChat {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  background: var(--qz-bg);
 }
 
-.backupHint:hover {
-  background: #332818;
+.fullPane {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+}
+
+@media (min-width: 768px) {
+  .listPane {
+    width: auto;
+  }
+
+  .chatPane {
+    display: flex;
+  }
+
+  .mobileChat {
+    display: none;
+  }
+
+  .root {
+    padding-bottom: 0;
+  }
+}
+
+/* На мобиле список с bottom nav */
+@media (max-width: 767px) {
+  .main {
+    padding-bottom: 64px;
+  }
+
+  .mainChatOpen {
+    padding-bottom: 0;
+  }
 }

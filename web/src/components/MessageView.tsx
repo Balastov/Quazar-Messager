@@ -1,12 +1,26 @@
 import { useEffect, useRef, useState } from "react";
 import { useChatStore } from "../store/chat";
 import { useAuthStore } from "../store/auth";
+import { useUiStore } from "../store/ui";
 import { E2EError } from "../crypto/errors";
 import E2EStatusPanel from "./E2EStatusPanel";
 import UserAvatar from "./UserAvatar";
+import {
+  IconBack,
+  IconMore,
+  IconPhone,
+  IconMic,
+  IconPlus,
+  IconSend,
+  IconVideo,
+} from "./icons";
 import s from "./MessageView.module.css";
 
-export default function MessageView() {
+interface Props {
+  showBack?: boolean;
+}
+
+export default function MessageView({ showBack = false }: Props) {
   const {
     activeChatId,
     chats,
@@ -25,6 +39,7 @@ export default function MessageView() {
     acceptActivePeerKey,
   } = useChatStore();
   const currentUser = useAuthStore((st) => st.user);
+  const setMobileChatOpen = useUiStore((st) => st.setMobileChatOpen);
   const [text, setText] = useState("");
   const [sendError, setSendError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -45,7 +60,8 @@ export default function MessageView() {
   if (!activeChatId) {
     return (
       <div className={s.empty}>
-        <p>Выберите чат или найдите пользователя</p>
+        <div className={s.emptyTitle}>Выберите чат</div>
+        <p>Найдите пользователя в контактах или откройте диалог из списка</p>
       </div>
     );
   }
@@ -62,10 +78,8 @@ export default function MessageView() {
     };
   })();
 
-  const chatTitle = () => peer.username;
-
-  const handleSend = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSend = async (e?: React.FormEvent) => {
+    e?.preventDefault();
     const payload = text.trim();
     if (!payload || !activeChatId || inputDisabled) return;
     setText("");
@@ -73,91 +87,74 @@ export default function MessageView() {
     try {
       await sendMessage(activeChatId, payload);
     } catch (err) {
-      if (err instanceof E2EError) {
-        setSendError(err.message);
-      } else {
-        setSendError("Не удалось отправить сообщение");
-      }
+      if (err instanceof E2EError) setSendError(err.message);
+      else setSendError("Не удалось отправить сообщение");
       setText(payload);
     }
   };
 
   const statusIcon = (status: string) => {
-    if (status === "read") return "✓✓";
-    if (status === "delivered") return "✓✓";
+    if (status === "read" || status === "delivered") return "✓✓";
     return "✓";
   };
 
-  const e2eLockClass = () => {
-    if (!isDirect) return s.e2eOpen;
-    if (e2eTrust === "ok") return s.e2eSecure;
-    if (e2eTrust === "changed") return s.e2eDanger;
-    if (e2eReady) return s.e2ePending;
-    return s.e2eWarning;
-  };
+  const e2eDotClass =
+    e2eTrust === "ok"
+      ? s.e2eDot
+      : e2eTrust === "changed"
+        ? s.e2eDotDanger
+        : s.e2eDotWarn;
 
-  const e2eBadgeText = () => {
-    if (!isDirect) return "";
-    if (e2eTrust === "ok") return "🔒 E2E проверен";
-    if (e2eTrust === "changed") return "🔒 ключ изменился";
-    if (e2eTrust === "new" || e2eTrust === "unverified") return "🔒 E2E";
-    if (e2eReady) return "🔒 E2E";
-    return "🔒 E2E недоступно";
-  };
-
-  const e2eTitle = () => {
-    if (!isDirect) return "Групповой чат без end-to-end шифрования";
-    if (e2eTrust === "ok") return "Ключ собеседника проверен";
-    if (e2eTrust === "changed") return "Ключ собеседника изменился — требуется подтверждение";
-    if (e2eTrust === "new" || e2eTrust === "unverified") {
-      return "Шифрование активно. Рекомендуется проверить код безопасности.";
-    }
-    if (e2eReady) return "Сообщения защищены end-to-end шифрованием";
-    return e2eError ?? "Шифрование недоступно";
-  };
+  const subtitle = (() => {
+    if (!isDirect) return "Группа · без E2E";
+    if (e2eTrust === "ok") return "E2E защищён";
+    if (e2eTrust === "changed") return "Ключ изменился";
+    if (e2eReady) return "E2E";
+    return e2eError ?? "E2E недоступно";
+  })();
 
   return (
     <div className={s.root}>
       <div className={s.header}>
+        {showBack && (
+          <button
+            type="button"
+            className={s.back}
+            onClick={() => setMobileChatOpen(false)}
+            aria-label="Назад"
+          >
+            <IconBack />
+          </button>
+        )}
         <UserAvatar username={peer.username || "?"} avatarUrl={peer.avatar_url} size="sm" />
         <div className={s.headerInfo}>
-          <span className={s.name}>{chatTitle()}</span>
-          <div className={s.headerActions}>
-            {isDirect && (
-              <>
-                <button
-                  type="button"
-                  className={`${s.e2eBadge} ${e2eLockClass()}`}
-                  title={e2eTitle()}
-                  onClick={() => setShowE2ePanel(true)}
-                >
-                  {e2eBadgeText()}
-                </button>
-                {(e2eTrust === "new" ||
-                  e2eTrust === "unverified" ||
-                  e2eTrust === "changed") && (
-                  <button
-                    type="button"
-                    className={s.verifyBtn}
-                    onClick={() => setShowE2ePanel(true)}
-                  >
-                    {e2eTrust === "changed" ? "Подтвердить ключ" : "Проверить"}
-                  </button>
-                )}
-              </>
-            )}
-            {chat?.type === "group" && (
-              <span className={`${s.e2eBadge} ${s.e2eOpen}`} title={e2eTitle()}>
-                🔓 без E2E
-              </span>
-            )}
-          </div>
+          <span className={s.name}>{peer.username}</span>
+          <span className={s.sub}>
+            {isDirect && <span className={e2eDotClass} />}
+            {subtitle}
+          </span>
+        </div>
+        <div className={s.headerActions}>
+          <button type="button" className={s.iconBtn} title="Звонки скоро">
+            <IconPhone size={18} />
+          </button>
+          <button type="button" className={s.iconBtn} title="Видео скоро">
+            <IconVideo size={18} />
+          </button>
+          <button
+            type="button"
+            className={s.iconBtn}
+            title="Безопасность"
+            onClick={() => setShowE2ePanel(true)}
+          >
+            <IconMore size={18} />
+          </button>
         </div>
       </div>
 
       {showMigrationNotice && (
         <div className={s.bannerInfo}>
-          Ключи шифрования обновлены. Старые зашифрованные сообщения могут не расшифроваться.
+          Ключи шифрования обновлены. Старые сообщения могут не расшифроваться.
           <button type="button" className={s.bannerDismiss} onClick={dismissMigrationNotice}>
             ✕
           </button>
@@ -166,7 +163,7 @@ export default function MessageView() {
 
       {isDirect && e2eTrust === "changed" && (
         <div className={s.bannerDanger}>
-          Ключ собеседника изменился. Сверьте код безопасности перед продолжением переписки.
+          Ключ собеседника изменился. Сверьте код безопасности.
           <button type="button" className={s.bannerAction} onClick={() => setShowE2ePanel(true)}>
             Открыть
           </button>
@@ -176,24 +173,16 @@ export default function MessageView() {
       {isDirect && e2eReady === false && e2eTrust !== "changed" && e2eError && (
         <div className={s.bannerWarning}>{e2eError}</div>
       )}
-
       {sendError && <div className={s.bannerWarning}>{sendError}</div>}
 
       <div className={s.messages}>
         {loadingMessages && <div className={s.hint}>Загрузка...</div>}
         {msgs.map((msg) => {
           const isOwn = msg.sender_id === currentUser?.id;
+          const unavailable = msg.payload.startsWith("Сообщение недоступно");
           return (
             <div key={msg.id} className={isOwn ? s.ownBubble : s.otherBubble}>
-              <span
-                className={
-                  msg.payload.startsWith("Сообщение недоступно")
-                    ? s.textMuted
-                    : s.text
-                }
-              >
-                {msg.payload}
-              </span>
+              <span className={unavailable ? s.textMuted : s.text}>{msg.payload}</span>
               <span className={s.meta}>
                 {new Date(msg.created_at).toLocaleTimeString("ru", {
                   hour: "2-digit",
@@ -207,27 +196,40 @@ export default function MessageView() {
         <div ref={bottomRef} />
       </div>
 
-      <form className={s.input} onSubmit={handleSend}>
-        <input
-          className={s.textInput}
-          placeholder={
-            inputDisabled
-              ? "Ожидание ключей шифрования..."
-              : "Написать сообщение..."
-          }
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleSend(e)}
-          disabled={inputDisabled}
-        />
-        <button className={s.send} type="submit" disabled={!text.trim() || inputDisabled}>
-          ➤
+      <form className={s.composer} onSubmit={(e) => void handleSend(e)}>
+        <button type="button" className={s.attachBtn} title="Вложения скоро" disabled>
+          <IconPlus size={20} />
         </button>
+        <div className={s.field}>
+          <input
+            className={s.textInput}
+            placeholder={
+              inputDisabled ? "Ожидание ключей шифрования..." : "Написать сообщение..."
+            }
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            disabled={inputDisabled}
+          />
+        </div>
+        {text.trim() ? (
+          <button
+            className={s.sendBtn}
+            type="submit"
+            disabled={!text.trim() || inputDisabled}
+            aria-label="Отправить"
+          >
+            <IconSend size={18} />
+          </button>
+        ) : (
+          <button className={s.micBtn} type="button" title="Голосовые скоро" disabled>
+            <IconMic size={18} />
+          </button>
+        )}
       </form>
 
       {showE2ePanel && isDirect && (
         <E2EStatusPanel
-          username={chatTitle()}
+          username={peer.username}
           fingerprint={peerFingerprint}
           trustStatus={e2eTrust}
           onVerify={() => void verifyActivePeer()}

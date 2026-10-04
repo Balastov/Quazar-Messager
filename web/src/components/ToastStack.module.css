@@ -1,12 +1,13 @@
 .stack {
   position: fixed;
   top: 16px;
-  right: 16px;
+  left: 50%;
+  transform: translateX(-50%);
   z-index: 200;
   display: flex;
   flex-direction: column;
   gap: 10px;
-  width: min(360px, calc(100vw - 32px));
+  width: min(420px, calc(100vw - 24px));
   pointer-events: none;
 }
 
@@ -15,22 +16,14 @@
   position: relative;
   display: flex;
   align-items: stretch;
-  gap: 0;
   width: 100%;
   padding: 0;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(168, 140, 255, 0.28);
   border-radius: 16px;
-  background: linear-gradient(
-    145deg,
-    rgba(36, 40, 58, 0.92),
-    rgba(22, 24, 34, 0.88)
-  );
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  box-shadow:
-    0 12px 40px rgba(0, 0, 0, 0.35),
-    0 0 0 1px rgba(108, 99, 255, 0.12) inset;
-  color: #e8eaf2;
+  background: rgba(18, 14, 32, 0.92);
+  backdrop-filter: blur(18px);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4), 0 0 24px rgba(168, 85, 247, 0.15);
+  color: #f4f1ff;
   text-align: left;
   cursor: pointer;
   overflow: hidden;
@@ -38,13 +31,13 @@
 }
 
 .toast:hover {
-  border-color: rgba(108, 99, 255, 0.35);
+  border-color: rgba(168, 85, 247, 0.55);
 }
 
 .accent {
   width: 4px;
   flex-shrink: 0;
-  background: linear-gradient(180deg, #8b83ff, #5eead4);
+  background: linear-gradient(180deg, #c084fc, #7c3aed);
 }
 
 .content {
@@ -52,21 +45,19 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
-  padding: 14px 8px 14px 14px;
+  padding: 12px 8px 12px 14px;
   min-width: 0;
 }
 
 .title {
   font-size: 13px;
   font-weight: 600;
-  letter-spacing: 0.01em;
-  color: #f3f4f8;
 }
 
 .body {
   font-size: 13px;
   line-height: 1.35;
-  color: #a8b0c4;
+  color: var(--qz-text-muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -76,13 +67,9 @@
   display: flex;
   align-items: flex-start;
   padding: 12px 14px 0 4px;
-  color: #6b7288;
+  color: var(--qz-text-dim);
   font-size: 12px;
   line-height: 1;
-}
-
-.close:hover {
-  color: #e0e0e0;
 }
 
 @keyframes slideIn {
@@ -93,15 +80,5 @@
   to {
     opacity: 1;
     transform: translateY(0) scale(1);
-  }
-}
-
-@media (max-width: 520px) {
-  .stack {
-    top: auto;
-    bottom: 16px;
-    right: 12px;
-    left: 12px;
-    width: auto;
   }
 }

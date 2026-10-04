@@ -5,7 +5,7 @@ export type AppTab = "contacts" | "chats" | "calls" | "settings";
 
 interface UiState {
   tab: AppTab;
-  /** На мобиле: чат открыт на весь экран. */
+  /** На мобиле: чат открыт на весь экран. Не персистим — иначе после reload залипает оверлей. */
   mobileChatOpen: boolean;
   /** ПК: правая панель собеседника. */
   peerPanelOpen: boolean;
@@ -38,6 +38,13 @@ export const useUiStore = create<UiState>()(
 
       isFavorite: (chatId) => get().favoriteChatIds.includes(chatId),
     }),
-    { name: "quazar-ui" }
+    {
+      name: "quazar-ui",
+      partialize: (state) => ({
+        tab: state.tab,
+        peerPanelOpen: state.peerPanelOpen,
+        favoriteChatIds: state.favoriteChatIds,
+      }),
+    }
   )
 );

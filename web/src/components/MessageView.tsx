@@ -60,6 +60,15 @@ export default function MessageView({ showBack = false }: Props) {
   if (!activeChatId) {
     return (
       <div className={s.empty}>
+        {showBack && (
+          <button
+            type="button"
+            className={s.emptyBack}
+            onClick={() => setMobileChatOpen(false)}
+          >
+            <IconBack /> К списку чатов
+          </button>
+        )}
         <div className={s.emptyTitle}>Выберите чат</div>
         <p>Найдите пользователя в контактах или откройте диалог из списка</p>
       </div>

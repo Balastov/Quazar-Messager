@@ -1,4 +1,5 @@
 import { useAuthStore } from "../store/auth";
+import { useChatStore } from "../store/chat";
 import { useUiStore, type AppTab } from "../store/ui";
 import UserAvatar from "./UserAvatar";
 import {
@@ -20,6 +21,8 @@ export default function AppNav() {
   const tab = useUiStore((st) => st.tab);
   const setTab = useUiStore((st) => st.setTab);
   const mobileChatOpen = useUiStore((st) => st.mobileChatOpen);
+  const activeChatId = useChatStore((st) => st.activeChatId);
+  const hideBottomNav = mobileChatOpen && !!activeChatId;
   const user = useAuthStore((st) => st.user);
 
   const renderItems = (variant: "side" | "bottom") =>
@@ -53,7 +56,7 @@ export default function AppNav() {
           </div>
         )}
       </aside>
-      {!mobileChatOpen && <nav className={s.bottom}>{renderItems("bottom")}</nav>}
+      {!hideBottomNav && <nav className={s.bottom}>{renderItems("bottom")}</nav>}
     </>
   );
 }

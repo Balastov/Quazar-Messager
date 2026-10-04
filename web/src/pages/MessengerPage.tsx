@@ -15,14 +15,27 @@ import s from "./MessengerPage.module.css";
 export default function MessengerPage() {
   const tab = useUiStore((st) => st.tab);
   const mobileChatOpen = useUiStore((st) => st.mobileChatOpen);
+  const setMobileChatOpen = useUiStore((st) => st.setMobileChatOpen);
   const peerPanelOpen = useUiStore((st) => st.peerPanelOpen);
+  const activeChatId = useChatStore((st) => st.activeChatId);
   const selectChat = useChatStore((st) => st.selectChat);
+
+  const showMobileChat =
+    mobileChatOpen && !!activeChatId && (tab === "chats" || tab === "contacts");
 
   useEffect(() => {
     if (consumeMigrationUiFlag()) {
       useChatStore.setState({ showMigrationNotice: true });
     }
+    // Сброс залипшего оверлея из старого localStorage
+    useUiStore.setState({ mobileChatOpen: false });
   }, []);
+
+  useEffect(() => {
+    if (mobileChatOpen && !activeChatId) {
+      setMobileChatOpen(false);
+    }
+  }, [mobileChatOpen, activeChatId, setMobileChatOpen]);
 
   useEffect(() => {
     const onOpen = (e: Event) => {
@@ -41,7 +54,7 @@ export default function MessengerPage() {
     <div className={s.root}>
       <AppNav />
 
-      <div className={`${s.main} ${mobileChatOpen ? s.mainChatOpen : ""}`}>
+      <div className={`${s.main} ${showMobileChat ? s.mainChatOpen : ""}`}>
         {(tab === "contacts" || tab === "chats") && (
           <>
             <div className={s.listPane}>
@@ -67,13 +80,13 @@ export default function MessengerPage() {
         )}
       </div>
 
-      {mobileChatOpen && (tab === "chats" || tab === "contacts") && (
+      {showMobileChat && (
         <div className={s.mobileChat}>
           <MessageView showBack />
         </div>
       )}
 
-      {!mobileChatOpen && <NotifyPrompt />}
+      {!showMobileChat && <NotifyPrompt />}
       <ToastStack />
     </div>
   );

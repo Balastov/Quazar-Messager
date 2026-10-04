@@ -3,7 +3,7 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
 const csp =
-  "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob:; connect-src 'self' https: wss: http://localhost:* ws://localhost:*; frame-ancestors 'none'; base-uri 'self'";
+  "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob:; connect-src 'self' https: wss: http://localhost:* ws://localhost:*; worker-src 'self'; frame-ancestors 'none'; base-uri 'self'";
 
 export default defineConfig({
   plugins: [react()],

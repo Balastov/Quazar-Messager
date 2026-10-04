@@ -18,6 +18,7 @@ import {
 } from "../crypto/trust";
 import { notifyIncomingMessage } from "../notifications/notify";
 import { useAuthStore } from "./auth";
+import { useUnreadStore } from "./unread";
 import type { Chat, Message } from "../api/types";
 
 interface ChatState {
@@ -145,6 +146,13 @@ export const useChatStore = create<ChatState>((set, get) => {
         }
 
         if (myId && event.sender_id !== myId) {
+          const isActiveChat = get().activeChatId === event.chat_id;
+          const tabHidden =
+            typeof document !== "undefined" && document.visibilityState === "hidden";
+          if (!isActiveChat || tabHidden) {
+            useUnreadStore.getState().bump(event.chat_id);
+          }
+
           const chat = get().chats.find((c) => c.id === event.chat_id);
           const sender =
             chat?.members.find((m) => m.user.id === event.sender_id)?.user.username ??
@@ -153,7 +161,7 @@ export const useChatStore = create<ChatState>((set, get) => {
             title: sender,
             body: decryptedPayload,
             chatId: event.chat_id,
-            isActiveChat: get().activeChatId === event.chat_id,
+            isActiveChat,
           });
         }
       }
@@ -259,6 +267,8 @@ export const useChatStore = create<ChatState>((set, get) => {
         peerFingerprint = status.trust?.fingerprint ?? null;
         peerUserId = getOtherUserId(chat, myId);
       }
+
+      useUnreadStore.getState().clear(chatId);
 
       set({
         activeChatId: chatId,

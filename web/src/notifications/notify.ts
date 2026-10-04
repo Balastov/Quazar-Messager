@@ -27,6 +27,49 @@ export async function requestNotifyPermission(): Promise<NotificationPermission 
   }
 }
 
+async function showSystemNotification(opts: {
+  title: string;
+  body: string;
+  chatId?: string;
+  tag: string;
+}): Promise<void> {
+  if (browserPermission() !== "granted") return;
+
+  const options: NotificationOptions = {
+    body: opts.body,
+    tag: opts.tag,
+    icon: "/icons/icon-192.png",
+    badge: "/icons/icon-48.png",
+    silent: true,
+    data: opts.chatId ? { chatId: opts.chatId } : {},
+  };
+
+  try {
+    const reg = await navigator.serviceWorker?.ready;
+    if (reg?.showNotification) {
+      await reg.showNotification(opts.title, options);
+      return;
+    }
+  } catch {
+    // fall through to page Notification
+  }
+
+  try {
+    const n = new Notification(opts.title, options);
+    n.onclick = () => {
+      window.focus();
+      n.close();
+      if (opts.chatId) {
+        window.dispatchEvent(
+          new CustomEvent("quazar-open-chat", { detail: { chatId: opts.chatId } })
+        );
+      }
+    };
+  } catch {
+    // ignore
+  }
+}
+
 export async function notifyIncomingMessage(info: IncomingNotify): Promise<void> {
   const prefs = getNotifyPrefs();
   if (!prefs.enabled) return;
@@ -48,25 +91,38 @@ export async function notifyIncomingMessage(info: IncomingNotify): Promise<void>
     void playSoftChime();
   }
 
-  const permission = browserPermission();
-  if (permission === "granted") {
-    try {
-      const n = new Notification(title, {
-        body,
-        tag: `quazar-chat-${info.chatId}`,
-        icon: "/icons/icon-192.png",
-        badge: "/icons/icon-48.png",
-        silent: true, // свой звук уже сыграли
-      });
-      n.onclick = () => {
-        window.focus();
-        n.close();
-        window.dispatchEvent(
-          new CustomEvent("quazar-open-chat", { detail: { chatId: info.chatId } })
-        );
-      };
-    } catch {
-      // ignore — некоторые браузеры режут Notification без SW
-    }
+  await showSystemNotification({
+    title,
+    body,
+    chatId: info.chatId,
+    tag: `quazar-chat-${info.chatId}`,
+  });
+}
+
+/** Полный тест: toast + системное уведомление + звук (даже если звук в настройках выключен). */
+export async function previewNotification(): Promise<void> {
+  const title = "Quazar";
+  const body = "Так выглядит уведомление о новом сообщении";
+
+  useToastStore.getState().push({ title, body });
+  void playSoftChime();
+
+  if (browserPermission() === "default") {
+    await requestNotifyPermission();
+  }
+
+  await showSystemNotification({
+    title,
+    body,
+    tag: `quazar-preview-${Date.now()}`,
+  });
+}
+
+export async function registerNotifyServiceWorker(): Promise<void> {
+  if (!("serviceWorker" in navigator)) return;
+  try {
+    await navigator.serviceWorker.register("/sw.js", { scope: "/" });
+  } catch {
+    // ignore — уведомления всё ещё могут работать через Notification API
   }
 }

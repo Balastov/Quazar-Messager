@@ -10,7 +10,7 @@ import {
   type NotifyPrefs,
 } from "../notifications/prefs";
 import { playSoftChime } from "../notifications/sound";
-import { requestNotifyPermission } from "../notifications/notify";
+import { previewNotification, requestNotifyPermission } from "../notifications/notify";
 import {
   createBackupBlob,
   downloadBackupFile,
@@ -204,9 +204,26 @@ export default function SettingsView() {
               Разрешить уведомления
             </button>
           )}
-          {prefs.enabled && prefs.sound && (
-            <button type="button" className={s.secondary} onClick={() => void playSoftChime()}>
-              Прослушать звук
+          {prefs.enabled && (
+            <button
+              type="button"
+              className={s.secondary}
+              onClick={() =>
+                void (async () => {
+                  setError(null);
+                  await previewNotification();
+                  if (browserPermission() !== "granted") {
+                    setError(
+                      "Системное уведомление не показано — разрешите уведомления в браузере."
+                    );
+                  } else {
+                    setStatus("Тестовое уведомление отправлено (toast + звук + баннер)");
+                  }
+                  setPermission(browserPermission());
+                })()
+              }
+            >
+              Проверить уведомление
             </button>
           )}
         </section>

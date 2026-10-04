@@ -4,6 +4,7 @@ import type { User } from "../api/types";
 import { useAuthStore } from "../store/auth";
 import { useChatStore } from "../store/chat";
 import { useUiStore } from "../store/ui";
+import { useUnreadStore } from "../store/unread";
 import {
   canSearchUsers,
   extractRuLocalDigits,
@@ -29,6 +30,7 @@ export default function ContactsPane() {
   const setTab = useUiStore((st) => st.setTab);
   const favoriteChatIds = useUiStore((st) => st.favoriteChatIds);
   const toggleFavorite = useUiStore((st) => st.toggleFavorite);
+  const unreadCounts = useUnreadStore((st) => st.counts);
 
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
@@ -239,6 +241,8 @@ export default function ContactsPane() {
         {filtered.map((chat) => {
           const peer = chatPeer(chat);
           const fav = favoriteChatIds.includes(chat.id);
+          const unread = unreadCounts[chat.id] ?? 0;
+          const hasUnread = unread > 0;
           return (
             <button
               key={chat.id}
@@ -249,29 +253,37 @@ export default function ContactsPane() {
               <UserAvatar username={peer.username} avatarUrl={peer.avatar_url} />
               <div className={s.meta}>
                 <div className={s.nameRow}>
-                  <span className={s.name}>{peer.username}</span>
+                  <span className={hasUnread ? s.nameUnread : s.name}>{peer.username}</span>
                 </div>
-                <span className={s.preview}>{lastPreview(chat.id)}</span>
+                <span className={hasUnread ? s.previewUnread : s.preview}>
+                  {lastPreview(chat.id)}
+                </span>
               </div>
               <div className={s.aside}>
-                <span className={s.time}>{lastTime(chat.id, chat.created_at)}</span>
-                <span
-                  className={fav ? `${s.starBtn} ${s.starBtnOn}` : s.starBtn}
-                  role="button"
-                  tabIndex={0}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    toggleFavorite(chat.id);
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
+                <span className={hasUnread ? s.timeUnread : s.time}>
+                  {lastTime(chat.id, chat.created_at)}
+                </span>
+                {hasUnread ? (
+                  <span className={s.badge}>{unread > 99 ? "99+" : unread}</span>
+                ) : (
+                  <span
+                    className={fav ? `${s.starBtn} ${s.starBtnOn}` : s.starBtn}
+                    role="button"
+                    tabIndex={0}
+                    onClick={(e) => {
                       e.stopPropagation();
                       toggleFavorite(chat.id);
-                    }
-                  }}
-                >
-                  <IconStar size={15} />
-                </span>
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.stopPropagation();
+                        toggleFavorite(chat.id);
+                      }
+                    }}
+                  >
+                    <IconStar size={15} />
+                  </span>
+                )}
               </div>
             </button>
           );

@@ -108,7 +108,8 @@ export const useChatStore = create<ChatState>((set, get) => {
         if (otherUserId) {
           const recipientKey = await fetchUserPublicKey(otherUserId);
           if (recipientKey) {
-            payload = await encryptMessage(plaintext, recipientKey);
+            const {publicKey: myPublicKey} = await loadOrCreateKeys();
+            payload = await encryptMessage(plaintext, recipientKey, myPublicKey);
           }
         }
       }

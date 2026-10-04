@@ -15,7 +15,7 @@ This is not a full Signal Protocol deployment.
 
 | Adversary | In scope? | Mitigations |
 |-----------|-----------|-------------|
-| Honest-but-curious server | Yes | ENC1 ciphertext only; backup is AES-GCM ciphertext |
+| Honest-but-curious server | Yes | ENC1/ENC2 ciphertext only; backup is AES-GCM ciphertext |
 | Network eavesdropper | Yes | TLS (deploy requirement) + E2E payload |
 | Server pubkey MITM | Partially | TOFU + safety numbers + key-change block |
 | XSS / malicious extension | Partially | Seed in IndexedDB (not localStorage string); CSP recommended. **Not fully solved** — XSS can still abuse crypto APIs in-page |
@@ -25,7 +25,7 @@ This is not a full Signal Protocol deployment.
 
 ## Guarantees (after phases 1–4)
 
-1. Direct messages are encrypted client-side (`ENC1`) when peer key exists.
+1. Direct messages are encrypted client-side (`ENC2`: recipient + sender boxes; legacy `ENC1` still decrypts) when peer key exists.
 2. No silent plaintext fallback for direct chats.
 3. Peer key change is visible and blocks send until confirmed.
 4. Users can verify fingerprints out-of-band.

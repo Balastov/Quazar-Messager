@@ -23,6 +23,7 @@ describe("ENC1 message crypto", () => {
     const recipient = randomKeyPair();
     const ciphertext = encryptMessage("привет, quazar", recipient.publicKey);
     expect(isEncrypted(ciphertext)).toBe(true);
+    expect(ciphertext.startsWith("ENC1:")).toBe(true);
 
     const plain = await decryptMessage(ciphertext, { seed: recipient.secretKey });
     expect(plain).toBe("привет, quazar");
@@ -32,6 +33,30 @@ describe("ENC1 message crypto", () => {
     const recipient = randomKeyPair();
     const other = randomKeyPair();
     const ciphertext = encryptMessage("secret", recipient.publicKey);
+    const plain = await decryptMessage(ciphertext, { seed: other.secretKey });
+    expect(plain).toBeNull();
+  });
+});
+
+describe("ENC2 dual-box message crypto", () => {
+  it("recipient and sender can both decrypt", async () => {
+    const recipient = randomKeyPair();
+    const sender = randomKeyPair();
+    const ciphertext = encryptMessage("привет, quazar", recipient.publicKey, sender.publicKey);
+    expect(ciphertext.startsWith("ENC2:")).toBe(true);
+    expect(isEncrypted(ciphertext)).toBe(true);
+
+    const asRecipient = await decryptMessage(ciphertext, { seed: recipient.secretKey });
+    const asSender = await decryptMessage(ciphertext, { seed: sender.secretKey });
+    expect(asRecipient).toBe("привет, quazar");
+    expect(asSender).toBe("привет, quazar");
+  });
+
+  it("fails for a third party", async () => {
+    const recipient = randomKeyPair();
+    const sender = randomKeyPair();
+    const other = randomKeyPair();
+    const ciphertext = encryptMessage("secret", recipient.publicKey, sender.publicKey);
     const plain = await decryptMessage(ciphertext, { seed: other.secretKey });
     expect(plain).toBeNull();
   });

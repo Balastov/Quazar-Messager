@@ -309,8 +309,9 @@ export const useChatStore = create<ChatState>((set, get) => {
           );
         }
 
-        const payload = encryptMessage(plaintext, trust.publicKey!);
+        const payload = encryptMessage(plaintext, trust.publicKey!, myPublicKey);
         const msg = await messagesApi.send(chatId, payload);
+        // Мгновенный echo по WS; история читается через ENC2 self-box.
         sentPlaintextById.set(msg.id, plaintext);
         return;
       }

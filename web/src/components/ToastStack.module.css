@@ -1,6 +1,6 @@
 .stack {
   position: fixed;
-  top: 16px;
+  top: calc(16px + var(--qz-safe-top));
   left: 50%;
   transform: translateX(-50%);
   z-index: 200;

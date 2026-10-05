@@ -284,6 +284,11 @@ docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build bac
 В web: кнопка видео в чате / «Звонки» / панели собеседника. Камера, PiP, Flip.  
 Подробно: [docs/WEBRTC-VIDEO.md](./WEBRTC-VIDEO.md).
 
+## Звонки: Mobile (часть 4)
+
+React Native: аудио/видео 1:1, оверлей, кнопки в чате. Нужен `react-native-webrtc` + native permissions.  
+Подробно: [docs/WEBRTC-MOBILE.md](./WEBRTC-MOBILE.md).
+
 ---
 
 ## Шаг 9. Проверка мессенджера

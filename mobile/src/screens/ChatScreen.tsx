@@ -13,23 +13,74 @@ import {
 import type {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {useChatStore} from '../store/chat';
 import {useAuthStore} from '../store/auth';
+import {useCallStore} from '../store/call';
 import type {RootStackParamList} from '../navigation';
 import type {Message} from '../api/types';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Chat'>;
 
-export default function ChatScreen({route}: Props) {
+export default function ChatScreen({route, navigation}: Props) {
   const {chatId} = route.params;
-  const {messages, loadingMessages, selectChat, sendMessage} = useChatStore();
+  const {messages, loadingMessages, selectChat, sendMessage, chats} =
+    useChatStore();
   const currentUser = useAuthStore(s => s.user);
+  const startAudioCall = useCallStore(s => s.startAudioCall);
+  const startVideoCall = useCallStore(s => s.startVideoCall);
+  const callPhase = useCallStore(s => s.phase);
+  const callBusy = callPhase !== 'idle' && callPhase !== 'ended';
   const [text, setText] = useState('');
   const listRef = useRef<FlatList<Message>>(null);
 
   const msgs = messages[chatId] ?? [];
+  const chat = chats.find(c => c.id === chatId);
+  const peerId =
+    chat?.type === 'direct'
+      ? chat.members.find(m => m.user.id !== currentUser?.id)?.user.id ?? null
+      : null;
+  const canCall = chat?.type === 'direct' && !!peerId && !callBusy;
 
   useEffect(() => {
     selectChat(chatId);
   }, [chatId, selectChat]);
+
+  useEffect(() => {
+    navigation.setOptions({
+      headerRight: () =>
+        canCall ? (
+          <View style={{flexDirection: 'row', gap: 14, marginRight: 4}}>
+            <Pressable
+              onPress={() => {
+                if (peerId) {
+                  void startAudioCall(chatId, peerId);
+                }
+              }}
+              hitSlop={8}>
+              <Text style={{color: '#c4b5fd', fontSize: 16, fontWeight: '600'}}>
+                📞
+              </Text>
+            </Pressable>
+            <Pressable
+              onPress={() => {
+                if (peerId) {
+                  void startVideoCall(chatId, peerId);
+                }
+              }}
+              hitSlop={8}>
+              <Text style={{color: '#c4b5fd', fontSize: 16, fontWeight: '600'}}>
+                🎥
+              </Text>
+            </Pressable>
+          </View>
+        ) : null,
+    });
+  }, [
+    navigation,
+    canCall,
+    peerId,
+    chatId,
+    startAudioCall,
+    startVideoCall,
+  ]);
 
   useEffect(() => {
     if (msgs.length > 0) {
@@ -39,7 +90,9 @@ export default function ChatScreen({route}: Props) {
 
   const handleSend = async () => {
     const payload = text.trim();
-    if (!payload) {return;}
+    if (!payload) {
+      return;
+    }
     setText('');
     await sendMessage(chatId, payload);
   };
@@ -97,7 +150,9 @@ export default function ChatScreen({route}: Props) {
           keyExtractor={item => item.id}
           renderItem={renderItem}
           contentContainerStyle={s.list}
-          onContentSizeChange={() => listRef.current?.scrollToEnd({animated: false})}
+          onContentSizeChange={() =>
+            listRef.current?.scrollToEnd({animated: false})
+          }
         />
       )}
 

@@ -1,0 +1,5 @@
+<!-- Merge into ios/.../Info.plist -->
+<key>NSCameraUsageDescription</key>
+<string>Quazar нужен доступ к камере для видеозвонков</string>
+<key>NSMicrophoneUsageDescription</key>
+<string>Quazar нужен доступ к микрофону для звонков</string>

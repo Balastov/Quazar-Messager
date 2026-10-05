@@ -16,9 +16,36 @@ class SocketManager {
 
   disconnect() {
     this.token = null;
-    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+    }
     this.ws?.close();
     this.ws = null;
+  }
+
+  isOpen(): boolean {
+    return this.ws?.readyState === WebSocket.OPEN;
+  }
+
+  waitUntilOpen(timeoutMs = 8000): Promise<boolean> {
+    if (this.isOpen()) {
+      return Promise.resolve(true);
+    }
+    return new Promise(resolve => {
+      const started = Date.now();
+      const tick = () => {
+        if (this.isOpen()) {
+          resolve(true);
+          return;
+        }
+        if (Date.now() - started >= timeoutMs) {
+          resolve(false);
+          return;
+        }
+        setTimeout(tick, 150);
+      };
+      tick();
+    });
   }
 
   send(event: object) {
@@ -33,7 +60,9 @@ class SocketManager {
   }
 
   private _open() {
-    if (!this.token) {return;}
+    if (!this.token) {
+      return;
+    }
     this.ws = new WebSocket(`${WS_BASE_URL}/ws?token=${this.token}`);
 
     this.ws.onmessage = e => {

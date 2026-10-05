@@ -107,6 +107,12 @@ export default function MessageView({ showBack = false }: Props) {
     return "✓";
   };
 
+  const statusClass = (status: string) => {
+    if (status === "read") return s.statusRead;
+    if (status === "delivered") return s.statusDelivered;
+    return s.statusSent;
+  };
+
   const e2eDotClass =
     e2eTrust === "ok"
       ? s.e2eDot
@@ -197,7 +203,11 @@ export default function MessageView({ showBack = false }: Props) {
                   hour: "2-digit",
                   minute: "2-digit",
                 })}
-                {isOwn && <span className={s.status}>{statusIcon(msg.status)}</span>}
+                {isOwn && (
+                  <span className={statusClass(msg.status)} aria-label={msg.status}>
+                    {statusIcon(msg.status)}
+                  </span>
+                )}
               </span>
             </div>
           );

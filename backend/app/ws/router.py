@@ -6,11 +6,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import AsyncSessionLocal
 from app.core.security import decode_token
-from app.models.chat import Chat, ChatMember
+from app.models.chat import ChatMember
 from app.models.message import Message
 from app.ws.hub import manager
 
 router = APIRouter()
+
+_STATUS_RANK = {"sent": 0, "delivered": 1, "read": 2}
 
 
 @router.websocket("/ws")
@@ -83,29 +85,80 @@ async def _handle_send_message(data: dict, sender_id: str):
     await manager.broadcast_to_users(member_ids, event)
 
 
-async def _handle_status(data: dict, user_id: str):
+def _collect_message_ids(data: dict) -> list[str]:
+    raw_ids = data.get("message_ids")
+    if isinstance(raw_ids, list):
+        return [mid for mid in raw_ids if isinstance(mid, str) and mid]
     message_id = data.get("message_id")
+    if isinstance(message_id, str) and message_id:
+        return [message_id]
+    return []
+
+
+async def _is_chat_member(db: AsyncSession, chat_id: str, user_id: str) -> bool:
+    result = await db.execute(
+        select(ChatMember).where(
+            ChatMember.chat_id == chat_id,
+            ChatMember.user_id == user_id,
+        )
+    )
+    return result.scalar_one_or_none() is not None
+
+
+async def _handle_status(data: dict, user_id: str):
     new_status = data.get("status")
-    if not message_id or new_status not in ("delivered", "read"):
+    if new_status not in ("delivered", "read"):
         return
 
+    message_ids = _collect_message_ids(data)
+    if not message_ids:
+        return
+
+    # Deduplicate while preserving order
+    seen: set[str] = set()
+    unique_ids: list[str] = []
+    for mid in message_ids:
+        if mid not in seen:
+            seen.add(mid)
+            unique_ids.append(mid)
+
+    updates: list[tuple[str, str, str]] = []  # message_id, status, sender_id
+
     async with AsyncSessionLocal() as db:
-        result = await db.execute(select(Message).where(Message.id == message_id))
-        message = result.scalar_one_or_none()
-        if not message:
+        result = await db.execute(select(Message).where(Message.id.in_(unique_ids)))
+        messages = list(result.scalars().all())
+        if not messages:
             return
 
-        message.status = new_status
-        await db.commit()
+        member_cache: dict[str, bool] = {}
+        for message in messages:
+            if message.sender_id == user_id:
+                continue
 
-        # Уведомляем отправителя об изменении статуса
-        if message.sender_id:
-            await manager.send_to_user(
-                message.sender_id,
-                {
-                    "type": "message_status",
-                    "message_id": message_id,
-                    "status": new_status,
-                    "updated_by": user_id,
-                },
-            )
+            chat_id = message.chat_id
+            if chat_id not in member_cache:
+                member_cache[chat_id] = await _is_chat_member(db, chat_id, user_id)
+            if not member_cache[chat_id]:
+                continue
+
+            current = str(message.status)
+            if _STATUS_RANK.get(new_status, -1) <= _STATUS_RANK.get(current, -1):
+                continue
+
+            message.status = new_status
+            if message.sender_id:
+                updates.append((message.id, new_status, message.sender_id))
+
+        if updates:
+            await db.commit()
+
+    for message_id, status, sender_id in updates:
+        await manager.send_to_user(
+            sender_id,
+            {
+                "type": "message_status",
+                "message_id": message_id,
+                "status": status,
+                "updated_by": user_id,
+            },
+        )

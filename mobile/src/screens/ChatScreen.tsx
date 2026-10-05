@@ -45,9 +45,20 @@ export default function ChatScreen({route}: Props) {
   };
 
   const statusIcon = (status: string) => {
-    if (status === 'read') {return '✓✓';}
-    if (status === 'delivered') {return '✓✓';}
+    if (status === 'read' || status === 'delivered') {
+      return '✓✓';
+    }
     return '✓';
+  };
+
+  const statusColor = (status: string) => {
+    if (status === 'read') {
+      return '#67e8f9';
+    }
+    if (status === 'delivered') {
+      return '#93c5fd';
+    }
+    return 'rgba(255,255,255,0.55)';
   };
 
   const renderItem = ({item}: {item: Message}) => {
@@ -62,7 +73,11 @@ export default function ChatScreen({route}: Props) {
               minute: '2-digit',
             })}
           </Text>
-          {isOwn && <Text style={s.status}>{statusIcon(item.status)}</Text>}
+          {isOwn && (
+            <Text style={[s.status, {color: statusColor(item.status)}]}>
+              {statusIcon(item.status)}
+            </Text>
+          )}
         </View>
       </View>
     );
@@ -128,7 +143,7 @@ const s = StyleSheet.create({
   text: {color: '#fff', fontSize: 14, lineHeight: 20},
   meta: {flexDirection: 'row', gap: 4, alignSelf: 'flex-end', marginTop: 2},
   time: {color: 'rgba(255,255,255,0.6)', fontSize: 11},
-  status: {color: '#b0e0ff', fontSize: 11},
+  status: {fontSize: 11, letterSpacing: -1},
   inputRow: {
     flexDirection: 'row',
     alignItems: 'flex-end',

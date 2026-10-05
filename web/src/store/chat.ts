@@ -17,9 +17,34 @@ import {
   type TrustStatus,
 } from "../crypto/trust";
 import { notifyIncomingMessage } from "../notifications/notify";
+import {
+  applyLocalStatus,
+  pickAckIds,
+  sendMessageStatus,
+  statusRank,
+} from "../ws/receipts";
 import { useAuthStore } from "./auth";
 import { useUnreadStore } from "./unread";
 import type { Chat, Message } from "../api/types";
+
+function isTabVisible(): boolean {
+  return typeof document === "undefined" || document.visibilityState === "visible";
+}
+
+function ackChatMessages(
+  get: () => ChatState,
+  set: (partial: Partial<ChatState> | ((s: ChatState) => Partial<ChatState>)) => void,
+  chatId: string,
+  status: "delivered" | "read"
+) {
+  const myId = useAuthStore.getState().user?.id;
+  if (!myId) return;
+  const msgs = get().messages[chatId] ?? [];
+  const ids = pickAckIds(msgs, myId, status);
+  if (!ids.length) return;
+  sendMessageStatus(ids, status);
+  set((s) => ({ messages: applyLocalStatus(s.messages, ids, status) }));
+}
 
 interface ChatState {
   chats: Chat[];
@@ -147,10 +172,19 @@ export const useChatStore = create<ChatState>((set, get) => {
 
         if (myId && event.sender_id !== myId) {
           const isActiveChat = get().activeChatId === event.chat_id;
-          const tabHidden =
-            typeof document !== "undefined" && document.visibilityState === "hidden";
+          const tabHidden = !isTabVisible();
           if (!isActiveChat || tabHidden) {
             useUnreadStore.getState().bump(event.chat_id);
+          }
+
+          const ackStatus =
+            isActiveChat && !tabHidden ? ("read" as const) : ("delivered" as const);
+          sendMessageStatus([msg.id], ackStatus);
+          set((s) => ({
+            messages: applyLocalStatus(s.messages, [msg.id], ackStatus),
+          }));
+          if (ackStatus === "read") {
+            useUnreadStore.getState().clear(event.chat_id);
           }
 
           const chat = get().chats.find((c) => c.id === event.chat_id);
@@ -167,12 +201,15 @@ export const useChatStore = create<ChatState>((set, get) => {
       }
 
       if (event.type === "message_status") {
+        const nextStatus = event.status as Message["status"];
         set((s) => {
           const updated: Record<string, Message[]> = {};
           for (const [chatId, msgs] of Object.entries(s.messages)) {
-            updated[chatId] = msgs.map((m) =>
-              m.id === event.message_id ? { ...m, status: event.status as Message["status"] } : m
-            );
+            updated[chatId] = msgs.map((m) => {
+              if (m.id !== event.message_id) return m;
+              if (statusRank(nextStatus) <= statusRank(m.status)) return m;
+              return { ...m, status: nextStatus };
+            });
           }
           return { messages: updated };
         });
@@ -188,6 +225,16 @@ export const useChatStore = create<ChatState>((set, get) => {
       }
     })();
   });
+
+  if (typeof document !== "undefined") {
+    document.addEventListener("visibilitychange", () => {
+      if (!isTabVisible()) return;
+      const chatId = get().activeChatId;
+      if (!chatId) return;
+      ackChatMessages(get, set, chatId, "read");
+      useUnreadStore.getState().clear(chatId);
+    });
+  }
 
   return {
     chats: [],
@@ -294,6 +341,12 @@ export const useChatStore = create<ChatState>((set, get) => {
       }
 
       set({ loadingMessages: false });
+
+      // History catch-up: mark received messages delivered, and read if visible.
+      ackChatMessages(get, set, chatId, "delivered");
+      if (isTabVisible()) {
+        ackChatMessages(get, set, chatId, "read");
+      }
     },
 
     sendMessage: async (chatId, plaintext) => {

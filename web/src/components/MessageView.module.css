@@ -256,8 +256,18 @@
   color: rgba(255, 255, 255, 0.65);
 }
 
-.status {
+.statusSent {
+  color: rgba(255, 255, 255, 0.55);
+  letter-spacing: -1px;
+}
+
+.statusDelivered {
   color: #93c5fd;
+  letter-spacing: -1px;
+}
+
+.statusRead {
+  color: #67e8f9;
   letter-spacing: -1px;
 }
 

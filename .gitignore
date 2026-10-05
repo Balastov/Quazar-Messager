@@ -20,6 +20,9 @@ dist/
 # TLS certs (generated on server)
 deploy/certbot/
 
+# coturn config with TURN password (generated on server)
+deploy/coturn/turnserver.conf
+
 # OS & IDE
 .DS_Store
 .idea/

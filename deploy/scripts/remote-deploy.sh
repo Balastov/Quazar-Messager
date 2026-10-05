@@ -10,8 +10,19 @@ git fetch origin main
 git checkout main
 git reset --hard origin/main
 
+COMPOSE_PROFILES=()
+if [[ -f .env.prod ]] \
+  && grep -qE '^WEBRTC_TURN_CREDENTIAL=.+' .env.prod \
+  && grep -qE '^TURN_EXTERNAL_IP=[0-9.]+' .env.prod; then
+  echo "==> TURN configured — enabling coturn profile"
+  bash deploy/scripts/render-turn-config.sh .env.prod
+  COMPOSE_PROFILES=(--profile turn)
+elif [[ -f .env.prod ]] && grep -qE '^WEBRTC_TURN_CREDENTIAL=.+' .env.prod; then
+  echo "==> WARN: WEBRTC_TURN_CREDENTIAL set but TURN_EXTERNAL_IP missing — coturn not started (see docs/WEBRTC-TURN.md)"
+fi
+
 echo "==> Rebuilding containers..."
-docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
+docker compose -f docker-compose.prod.yml --env-file .env.prod "${COMPOSE_PROFILES[@]}" up -d --build
 
 echo "==> Ensuring host nginx /media + 4m upload limit..."
 SITE=/etc/nginx/sites-available/quazar-msg.ru
@@ -69,6 +80,6 @@ PY
 fi
 
 echo "==> Status:"
-docker compose -f docker-compose.prod.yml --env-file .env.prod ps
+docker compose -f docker-compose.prod.yml --env-file .env.prod "${COMPOSE_PROFILES[@]}" ps
 
 echo "==> Deploy finished."

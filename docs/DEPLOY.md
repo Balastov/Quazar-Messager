@@ -254,6 +254,22 @@ Internet → system nginx :80/:443
 Docker **не** занимает 80/443. Конфиг: `deploy/host-nginx/`.
 
 ---
+## Звонки: TURN (часть 1)
+
+Для аудиозвонков с телефона через LTE нужен **TURN** на сервере. Подробно: [docs/WEBRTC-TURN.md](./WEBRTC-TURN.md).
+
+Кратко на `/opt/quazar`:
+
+```bash
+bash deploy/scripts/setup-turn-secrets.sh   # один раз
+# в .env.prod задай TURN_EXTERNAL_IP=публичный_IP_VM
+bash deploy/scripts/render-turn-config.sh
+sudo ufw allow 3478/tcp && sudo ufw allow 3478/udp && sudo ufw allow 49152:49252/udp
+docker compose -f docker-compose.prod.yml --env-file .env.prod --profile turn up -d
+```
+
+---
+
 ## Шаг 9. Проверка мессенджера
 
 1. Открой https://quazar-msg.ru  

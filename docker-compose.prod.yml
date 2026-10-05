@@ -35,6 +35,10 @@ services:
       JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env.prod}
       CORS_ORIGINS: ${CORS_ORIGINS:-https://quazar-msg.ru,https://www.quazar-msg.ru}
       MEDIA_ROOT: /app/media
+      WEBRTC_STUN_URLS: ${WEBRTC_STUN_URLS:-stun:stun.l.google.com:19302,stun:stun1.l.google.com:19302}
+      WEBRTC_TURN_URLS: ${WEBRTC_TURN_URLS:-}
+      WEBRTC_TURN_USERNAME: ${WEBRTC_TURN_USERNAME:-}
+      WEBRTC_TURN_CREDENTIAL: ${WEBRTC_TURN_CREDENTIAL:-}
     volumes:
       - media_data:/app/media
     depends_on:
@@ -76,6 +80,19 @@ services:
     image: redis:7-alpine
     restart: unless-stopped
     profiles: ["redis"]
+
+  # WebRTC relay for calls behind NAT (profile turn — see docs/WEBRTC-TURN.md)
+  coturn:
+    image: coturn/coturn:4.6.2-r10
+    restart: unless-stopped
+    profiles: ["turn"]
+    volumes:
+      - ./deploy/coturn/turnserver.conf:/etc/coturn/turnserver.conf:ro
+    ports:
+      - "3478:3478/tcp"
+      - "3478:3478/udp"
+      - "49152-49252:49152-49252/udp"
+    command: ["-c", "/etc/coturn/turnserver.conf"]
 
 volumes:
   postgres_data:

@@ -1,0 +1,27 @@
+# Generated on the server by deploy/scripts/render-turn-config.sh — do not edit by hand.
+# Source: deploy/coturn/turnserver.conf.template + .env.prod
+
+listening-port=3478
+listening-ip=0.0.0.0
+
+# Relay port range (open the same range in the host firewall)
+min-port=49152
+max-port=49252
+
+external-ip={{TURN_EXTERNAL_IP}}
+realm={{TURN_REALM}}
+server-name={{TURN_REALM}}
+
+fingerprint
+lt-cred-mech
+
+user={{WEBRTC_TURN_USERNAME}}:{{WEBRTC_TURN_CREDENTIAL}}
+
+# No telnet CLI on production
+no-cli
+
+# Log to stdout (docker logs)
+log-file=stdout
+verbose
+
+# STUN is enabled by default on the listening port

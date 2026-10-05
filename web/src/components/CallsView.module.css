@@ -131,3 +131,11 @@
   color: var(--qz-text-muted);
   font-size: 13px;
 }
+
+.sectionLabel {
+  padding: 8px 4px 4px;
+  color: var(--qz-text-dim);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}

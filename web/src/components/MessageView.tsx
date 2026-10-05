@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useChatStore } from "../store/chat";
 import { useAuthStore } from "../store/auth";
 import { useUiStore } from "../store/ui";
+import { useCallStore } from "../store/call";
 import { E2EError } from "../crypto/errors";
 import E2EStatusPanel from "./E2EStatusPanel";
 import UserAvatar from "./UserAvatar";
@@ -40,6 +41,8 @@ export default function MessageView({ showBack = false }: Props) {
   } = useChatStore();
   const currentUser = useAuthStore((st) => st.user);
   const setMobileChatOpen = useUiStore((st) => st.setMobileChatOpen);
+  const startAudioCall = useCallStore((st) => st.startAudioCall);
+  const callPhase = useCallStore((st) => st.phase);
   const [text, setText] = useState("");
   const [sendError, setSendError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -76,16 +79,24 @@ export default function MessageView({ showBack = false }: Props) {
   }
 
   const peer = (() => {
-    if (!chat) return { username: "", avatar_url: null as string | null };
+    if (!chat) return { id: null as string | null, username: "", avatar_url: null as string | null };
     if (chat.type === "group") {
-      return { username: chat.name ?? "Группа", avatar_url: null };
+      return { id: null, username: chat.name ?? "Группа", avatar_url: null };
     }
     const other = chat.members.find((m) => m.user.id !== currentUser?.id)?.user;
     return {
+      id: other?.id ?? null,
       username: other?.username ?? "",
       avatar_url: other?.avatar_url ?? null,
     };
   })();
+
+  const callBusy = callPhase !== "idle" && callPhase !== "ended";
+
+  const handleAudioCall = () => {
+    if (!activeChatId || !peer.id || !isDirect || callBusy) return;
+    void startAudioCall(activeChatId, peer.id);
+  };
 
   const handleSend = async (e?: React.FormEvent) => {
     e?.preventDefault();
@@ -150,10 +161,16 @@ export default function MessageView({ showBack = false }: Props) {
           </span>
         </div>
         <div className={s.headerActions}>
-          <button type="button" className={s.iconBtn} title="Звонки скоро">
+          <button
+            type="button"
+            className={s.iconBtn}
+            title={isDirect ? "Аудиозвонок" : "Звонки только в личных чатах"}
+            disabled={!isDirect || !peer.id || callBusy}
+            onClick={handleAudioCall}
+          >
             <IconPhone size={18} />
           </button>
-          <button type="button" className={s.iconBtn} title="Видео скоро">
+          <button type="button" className={s.iconBtn} title="Видеозвонок — скоро" disabled>
             <IconVideo size={18} />
           </button>
           <button

@@ -10,6 +10,7 @@ import CallsView from "../components/CallsView";
 import SettingsView from "../components/SettingsView";
 import ToastStack from "../components/ToastStack";
 import NotifyPrompt from "../components/NotifyPrompt";
+import CallOverlay from "../components/CallOverlay";
 import s from "./MessengerPage.module.css";
 
 export default function MessengerPage() {
@@ -88,6 +89,7 @@ export default function MessengerPage() {
 
       {!showMobileChat && <NotifyPrompt />}
       <ToastStack />
+      <CallOverlay />
     </div>
   );
 }

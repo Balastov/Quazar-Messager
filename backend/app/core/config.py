@@ -20,12 +20,26 @@ class Settings(BaseSettings):
     # Local avatar/media storage (served at /media).
     MEDIA_ROOT: str = "media"
 
+    # WebRTC ICE — comma-separated URLs. TURN strongly recommended for production mobile.
+    WEBRTC_STUN_URLS: str = "stun:stun.l.google.com:19302,stun:stun1.l.google.com:19302"
+    WEBRTC_TURN_URLS: str = ""
+    WEBRTC_TURN_USERNAME: str = ""
+    WEBRTC_TURN_CREDENTIAL: str = ""
+
     @property
     def cors_origins_list(self) -> list[str]:
         raw = self.CORS_ORIGINS.strip()
         if raw == "*":
             return ["*"]
         return [origin.strip() for origin in raw.split(",") if origin.strip()]
+
+    @property
+    def webrtc_stun_urls_list(self) -> list[str]:
+        return [u.strip() for u in self.WEBRTC_STUN_URLS.split(",") if u.strip()]
+
+    @property
+    def webrtc_turn_urls_list(self) -> list[str]:
+        return [u.strip() for u in self.WEBRTC_TURN_URLS.split(",") if u.strip()]
 
 
 settings = Settings()

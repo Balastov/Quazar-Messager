@@ -12,10 +12,12 @@ from sqlalchemy import text
 from app.core.avatars import media_root
 from app.core.config import settings
 from app.core.database import Base, engine
+from app.models import Call  # noqa: F401 — register table for create_all
 from app.api.auth import router as auth_router
 from app.api.users import router as users_router
 from app.api.chats import router as chats_router
 from app.api.messages import router as messages_router
+from app.api.calls import router as calls_router
 from app.ws.router import router as ws_router
 
 
@@ -101,6 +103,7 @@ app.include_router(auth_router)
 app.include_router(users_router)
 app.include_router(chats_router)
 app.include_router(messages_router)
+app.include_router(calls_router)
 app.include_router(ws_router)
 
 _media = Path(media_root())

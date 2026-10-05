@@ -11,6 +11,7 @@ import {
 } from "../notifications/prefs";
 import { playSoftChime } from "../notifications/sound";
 import { previewNotification, requestNotifyPermission } from "../notifications/notify";
+import { ensurePushSubscription } from "../notifications/push";
 import {
   createBackupBlob,
   downloadBackupFile,
@@ -159,8 +160,11 @@ export default function SettingsView() {
               onChange={(e) => {
                 setNotifyPrefs({ enabled: e.target.checked });
                 setPrefs(getNotifyPrefs());
-                if (e.target.checked && browserPermission() === "default") {
-                  void requestNotifyPermission().then(setPermission);
+                if (e.target.checked) {
+                  void requestNotifyPermission().then((p) => {
+                    setPermission(p);
+                    void ensurePushSubscription();
+                  });
                 }
               }}
             />
@@ -192,6 +196,7 @@ export default function SettingsView() {
                   if (result === "granted") {
                     setNotifyPrefs({ enabled: true, promptDismissed: true });
                     setPrefs(getNotifyPrefs());
+                    void ensurePushSubscription();
                     setStatus("Уведомления включены");
                   } else if (result === "denied") {
                     setError(

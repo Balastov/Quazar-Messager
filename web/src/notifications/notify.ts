@@ -32,17 +32,37 @@ async function showSystemNotification(opts: {
   body: string;
   chatId?: string;
   tag: string;
+  requireInteraction?: boolean;
+  silent?: boolean;
+  kind?: "message" | "call";
+  callId?: string;
+  callerId?: string;
+  actions?: { action: string; title: string }[];
 }): Promise<void> {
   if (browserPermission() !== "granted") return;
 
-  const options: NotificationOptions = {
+  const options: NotificationOptions & {
+    actions?: { action: string; title: string }[];
+    renotify?: boolean;
+  } = {
     body: opts.body,
     tag: opts.tag,
     icon: "/icons/icon-192.png",
     badge: "/icons/icon-48.png",
-    silent: true,
-    data: opts.chatId ? { chatId: opts.chatId } : {},
+    silent: opts.silent ?? true,
+    requireInteraction: opts.requireInteraction ?? false,
+    renotify: opts.kind === "call",
+    data: {
+      kind: opts.kind ?? "message",
+      chatId: opts.chatId ?? null,
+      callId: opts.callId ?? null,
+      callerId: opts.callerId ?? null,
+      callerName: opts.title,
+    },
   };
+  if (opts.actions?.length) {
+    options.actions = opts.actions;
+  }
 
   try {
     const reg = await navigator.serviceWorker?.ready;
@@ -59,12 +79,59 @@ async function showSystemNotification(opts: {
     n.onclick = () => {
       window.focus();
       n.close();
-      if (opts.chatId) {
+      if (opts.kind === "call") {
+        window.dispatchEvent(
+          new CustomEvent("quazar-open-call", {
+            detail: { callId: opts.callId, chatId: opts.chatId },
+          })
+        );
+      } else if (opts.chatId) {
         window.dispatchEvent(
           new CustomEvent("quazar-open-chat", { detail: { chatId: opts.chatId } })
         );
       }
     };
+  } catch {
+    // ignore
+  }
+}
+
+export async function notifyIncomingCall(info: {
+  callId: string;
+  chatId: string;
+  callerId: string;
+  callerName: string;
+}): Promise<void> {
+  const prefs = getNotifyPrefs();
+  if (!prefs.enabled) return;
+
+  if (browserPermission() === "default") {
+    await requestNotifyPermission();
+  }
+
+  await showSystemNotification({
+    title: "Входящий звонок",
+    body: info.callerName || "Собеседник",
+    chatId: info.chatId,
+    callId: info.callId,
+    callerId: info.callerId,
+    tag: `quazar-call-${info.callId}`,
+    kind: "call",
+    requireInteraction: true,
+    silent: false,
+    actions: [
+      { action: "accept", title: "Принять" },
+      { action: "reject", title: "Отклонить" },
+    ],
+  });
+}
+
+export async function clearCallNotification(callId: string | null): Promise<void> {
+  if (!callId || !("serviceWorker" in navigator)) return;
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    const notes = await reg.getNotifications({ tag: `quazar-call-${callId}` });
+    notes.forEach((n) => n.close());
   } catch {
     // ignore
   }

@@ -4,6 +4,7 @@ import { setAuthToken } from "../api/client";
 import { usersApi } from "../api/users";
 import { socket } from "../ws/socket";
 import { loadOrCreateKeys, markMigrationForUi, uploadPublicKey } from "../crypto/keys";
+import { ensurePushSubscription } from "../notifications/push";
 import { logError } from "../utils/log";
 import type { User } from "../api/types";
 
@@ -23,6 +24,12 @@ async function initE2EKeys() {
   }
 }
 
+function afterAuth(token: string) {
+  socket.connect(token);
+  initE2EKeys().catch((err) => logError("initE2EKeys", err));
+  void ensurePushSubscription();
+}
+
 export const useAuthStore = create<AuthState>()(
   persist(
     (set) => ({
@@ -33,14 +40,12 @@ export const useAuthStore = create<AuthState>()(
         setAuthToken(token);
         const user = await usersApi.me();
         set({ token, user });
-        socket.connect(token);
-        initE2EKeys().catch((err) => logError("initE2EKeys", err));
+        afterAuth(token);
       },
 
       setUser: (user) => set({ user }),
 
       logout: () => {
-        // Политика A: E2E-ключи остаются в IndexedDB между сессиями.
         setAuthToken(null);
         socket.disconnect();
         set({ token: null, user: null });
@@ -55,8 +60,7 @@ export const useAuthStore = create<AuthState>()(
             .me()
             .then((user) => {
               useAuthStore.setState({ user });
-              socket.connect(state.token!);
-              initE2EKeys().catch((err) => logError("initE2EKeys", err));
+              afterAuth(state.token!);
             })
             .catch(() => {
               state.logout();

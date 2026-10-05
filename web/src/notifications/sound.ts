@@ -62,3 +62,21 @@ export async function playSoftChime(): Promise<void> {
     osc.stop(t0 + 1.1);
   }
 }
+
+/** Soft repeating ring for incoming calls (stops via returned handle). */
+export function startCallRingtone(): () => void {
+  let stopped = false;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+
+  const tick = () => {
+    if (stopped) return;
+    void playSoftChime();
+    timer = setTimeout(tick, 2200);
+  };
+  tick();
+
+  return () => {
+    stopped = true;
+    if (timer) clearTimeout(timer);
+  };
+}

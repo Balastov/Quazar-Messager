@@ -2,6 +2,8 @@ import { create } from "zustand";
 import { callsApi } from "../api/calls";
 import type { CallHistoryItem, CallMedia, CallPhase, WsEvent } from "../api/types";
 import { CallPeer } from "../calls/peer";
+import { clearCallNotification, notifyIncomingCall } from "../notifications/notify";
+import { startCallRingtone } from "../notifications/sound";
 import { socket } from "../ws/socket";
 import { useAuthStore } from "./auth";
 import { useChatStore } from "./chat";
@@ -14,6 +16,7 @@ type EndReason =
   | "error"
   | "failed"
   | "disconnect"
+  | "timeout"
   | null;
 
 interface CallState {
@@ -38,10 +41,18 @@ interface CallState {
   toggleMute: () => void;
   loadHistory: () => Promise<void>;
   clearEnded: () => void;
+  prepareIncomingFromPush: (info: {
+    callId: string;
+    chatId: string;
+    callerId?: string | null;
+    callerName?: string | null;
+    media?: CallMedia | null;
+  }) => void;
 }
 
 let peer: CallPeer | null = null;
 let endClearTimer: ReturnType<typeof setTimeout> | null = null;
+let stopRingtone: (() => void) | null = null;
 
 function resolvePeerMeta(chatId: string, peerUserId: string) {
   const chat = useChatStore.getState().chats.find((c) => c.id === chatId);
@@ -55,6 +66,16 @@ function resolvePeerMeta(chatId: string, peerUserId: string) {
 function cleanupPeer() {
   peer?.close();
   peer = null;
+}
+
+function stopRing() {
+  stopRingtone?.();
+  stopRingtone = null;
+}
+
+function startRing() {
+  stopRing();
+  stopRingtone = startCallRingtone();
 }
 
 function scheduleClear() {
@@ -97,6 +118,9 @@ async function ensurePeer(media: CallMedia): Promise<CallPeer> {
 }
 
 function finishCall(reason: EndReason, error: string | null = null) {
+  const callId = useCallStore.getState().callId;
+  stopRing();
+  void clearCallNotification(callId);
   cleanupPeer();
   useCallStore.setState({
     phase: "ended",
@@ -119,8 +143,10 @@ export const useCallStore = create<CallState>((set, get) => {
       switch (event.type) {
         case "call_invite": {
           if (event.callee_id !== myId) return;
-          if (get().phase !== "idle" && get().phase !== "ended") {
-            socket.send({ type: "call_reject", call_id: event.call_id, reason: "busy" });
+          if (get().phase !== "idle" && get().phase !== "ended" && get().phase !== "incoming") {
+            if (get().callId !== event.call_id) {
+              socket.send({ type: "call_reject", call_id: event.call_id, reason: "busy" });
+            }
             return;
           }
           const meta = resolvePeerMeta(event.chat_id, event.caller_id);
@@ -133,6 +159,13 @@ export const useCallStore = create<CallState>((set, get) => {
             error: null,
             endReason: null,
             ...meta,
+          });
+          startRing();
+          void notifyIncomingCall({
+            callId: event.call_id,
+            chatId: event.chat_id,
+            callerId: event.caller_id,
+            callerName: meta.peerUsername,
           });
           break;
         }
@@ -151,8 +184,9 @@ export const useCallStore = create<CallState>((set, get) => {
 
         case "call_accept": {
           if (event.call_id !== get().callId) return;
+          stopRing();
+          void clearCallNotification(event.call_id);
           set({ phase: "connecting" });
-          // Caller creates the offer after accept
           if (event.accepted_by !== myId) {
             try {
               const p = await ensurePeer(get().media);
@@ -218,7 +252,11 @@ export const useCallStore = create<CallState>((set, get) => {
 
         case "call_hangup": {
           if (event.call_id !== get().callId) return;
-          finishCall(event.reason === "disconnect" ? "disconnect" : "hangup");
+          if (event.reason === "timeout") {
+            finishCall("timeout", "Нет ответа");
+          } else {
+            finishCall(event.reason === "disconnect" ? "disconnect" : "hangup");
+          }
           break;
         }
 
@@ -259,6 +297,31 @@ export const useCallStore = create<CallState>((set, get) => {
     endReason: null,
     history: [],
 
+    prepareIncomingFromPush: (info) => {
+      const phase = get().phase;
+      if (phase !== "idle" && phase !== "ended" && get().callId !== info.callId) return;
+      const peerUserId = info.callerId ?? get().peerUserId;
+      const meta =
+        info.chatId && peerUserId
+          ? resolvePeerMeta(info.chatId, peerUserId)
+          : {
+              peerUsername: info.callerName ?? get().peerUsername ?? "Собеседник",
+              peerAvatarUrl: get().peerAvatarUrl,
+            };
+      if (info.callerName) meta.peerUsername = info.callerName;
+      set({
+        phase: "incoming",
+        callId: info.callId,
+        chatId: info.chatId,
+        peerUserId: peerUserId,
+        media: info.media ?? { audio: true, video: false },
+        error: null,
+        endReason: null,
+        ...meta,
+      });
+      startRing();
+    },
+
     startAudioCall: async (chatId, peerUserId) => {
       const phase = get().phase;
       if (phase !== "idle" && phase !== "ended") return;
@@ -286,12 +349,10 @@ export const useCallStore = create<CallState>((set, get) => {
       });
 
       try {
-        // Warm mic early so accept→offer is faster; ignore if user denies until accept path.
         const p = await ensurePeer(media);
         const local = await p.startLocalMedia();
         set({ localStream: local });
       } catch {
-        // Permission can be requested again on accept/offer; still allow ringing.
         cleanupPeer();
       }
 
@@ -307,6 +368,8 @@ export const useCallStore = create<CallState>((set, get) => {
     accept: async () => {
       const { callId, phase, media } = get();
       if (!callId || phase !== "incoming") return;
+      stopRing();
+      void clearCallNotification(callId);
       set({ phase: "connecting", error: null });
       try {
         const p = await ensurePeer(media);
@@ -334,6 +397,7 @@ export const useCallStore = create<CallState>((set, get) => {
       const { callId, phase } = get();
       if (!callId || phase === "idle" || phase === "ended") {
         cleanupPeer();
+        stopRing();
         return;
       }
       socket.send({ type: "call_hangup", call_id: callId, reason: "hangup" });
@@ -351,13 +415,14 @@ export const useCallStore = create<CallState>((set, get) => {
         const history = await callsApi.history();
         set({ history });
       } catch {
-        // ignore — history is non-critical for MVP
+        // ignore
       }
     },
 
     clearEnded: () => {
       if (get().phase !== "ended") return;
       cleanupPeer();
+      stopRing();
       set({
         phase: "idle",
         callId: null,

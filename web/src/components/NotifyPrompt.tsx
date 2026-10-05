@@ -6,6 +6,7 @@ import {
   subscribeNotifyPrefs,
 } from "../notifications/prefs";
 import { requestNotifyPermission } from "../notifications/notify";
+import { ensurePushSubscription } from "../notifications/push";
 import s from "./NotifyPrompt.module.css";
 
 export default function NotifyPrompt() {
@@ -28,7 +29,7 @@ export default function NotifyPrompt() {
     <div className={s.banner}>
       <div className={s.text}>
         <strong>Уведомления</strong>
-        <span>Включите, чтобы не пропускать сообщения в фоне</span>
+        <span>Включите, чтобы не пропускать сообщения и звонки в фоне</span>
       </div>
       <div className={s.actions}>
         <button
@@ -38,6 +39,7 @@ export default function NotifyPrompt() {
             void (async () => {
               await requestNotifyPermission();
               setNotifyPrefs({ promptDismissed: true, enabled: true });
+              void ensurePushSubscription();
               refresh();
             })();
           }}

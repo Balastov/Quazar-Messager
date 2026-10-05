@@ -20,6 +20,7 @@ function statusLabel(phase: string, error: string | null, endReason: string | nu
       if (endReason === "unavailable") return "Недоступен";
       if (endReason === "reject") return "Отклонён";
       if (endReason === "failed") return "Сбой соединения";
+      if (endReason === "timeout") return "Нет ответа";
       return "Звонок завершён";
     default:
       return "";

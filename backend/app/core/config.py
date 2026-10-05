@@ -26,6 +26,14 @@ class Settings(BaseSettings):
     WEBRTC_TURN_USERNAME: str = ""
     WEBRTC_TURN_CREDENTIAL: str = ""
 
+    # Web Push (VAPID). Generate: npx web-push generate-vapid-keys
+    VAPID_PUBLIC_KEY: str = ""
+    VAPID_PRIVATE_KEY: str = ""
+    VAPID_SUBJECT: str = "mailto:admin@quazar-msg.ru"
+
+    # Ringing timeout before call becomes missed (seconds)
+    CALL_RING_TIMEOUT_SEC: int = 45
+
     @property
     def cors_origins_list(self) -> list[str]:
         raw = self.CORS_ORIGINS.strip()

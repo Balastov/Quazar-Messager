@@ -18,6 +18,7 @@ Protocol (extensible):
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -25,9 +26,12 @@ from datetime import datetime, timezone
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.database import AsyncSessionLocal
+from app.core.push import send_push_to_user, user_has_push
 from app.models.call import Call
 from app.models.chat import Chat, ChatMember
+from app.models.user import User
 from app.ws.hub import manager
 
 
@@ -40,6 +44,7 @@ class ActiveCall:
     media: str  # audio | video | audio_video
     status: str = "ringing"  # ringing | active
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    timeout_task: asyncio.Task | None = field(default=None, repr=False)
 
 
 # call_id → ActiveCall
@@ -69,6 +74,13 @@ def _media_from_payload(data: dict) -> str:
     return "audio"
 
 
+def _cancel_timeout(call: ActiveCall) -> None:
+    task = call.timeout_task
+    call.timeout_task = None
+    if task and not task.done():
+        task.cancel()
+
+
 def _register(call: ActiveCall) -> None:
     _active[call.id] = call
     _user_call[call.caller_id] = call.id
@@ -79,6 +91,7 @@ def _unregister(call_id: str) -> ActiveCall | None:
     call = _active.pop(call_id, None)
     if not call:
         return None
+    _cancel_timeout(call)
     if _user_call.get(call.caller_id) == call_id:
         _user_call.pop(call.caller_id, None)
     if _user_call.get(call.callee_id) == call_id:
@@ -92,6 +105,27 @@ def _peer_id(call: ActiveCall, user_id: str) -> str | None:
     if user_id == call.callee_id:
         return call.caller_id
     return None
+
+
+def _invite_payload(call: ActiveCall) -> dict:
+    return {
+        "type": "call_invite",
+        "call_id": call.id,
+        "chat_id": call.chat_id,
+        "caller_id": call.caller_id,
+        "callee_id": call.callee_id,
+        "media": {
+            "audio": call.media != "video",
+            "video": call.media in ("video", "audio_video"),
+        },
+    }
+
+
+async def _username(user_id: str) -> str:
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(select(User.username).where(User.id == user_id))
+        name = result.scalar_one_or_none()
+        return name or "Собеседник"
 
 
 async def _assert_direct_member(db: AsyncSession, chat_id: str, user_id: str, peer_id: str) -> bool:
@@ -144,6 +178,34 @@ async def _persist_status(
         await db.commit()
 
 
+async def _ring_timeout(call_id: str) -> None:
+    try:
+        await asyncio.sleep(max(10, int(settings.CALL_RING_TIMEOUT_SEC)))
+    except asyncio.CancelledError:
+        return
+
+    call = get_active_call(call_id)
+    if not call or call.status != "ringing":
+        return
+
+    _unregister(call_id)
+    await _persist_status(call_id, "missed", ended=True)
+    event = {
+        "type": "call_hangup",
+        "call_id": call_id,
+        "chat_id": call.chat_id,
+        "ended_by": "system",
+        "reason": "timeout",
+    }
+    await manager.send_to_user(call.caller_id, event)
+    await manager.send_to_user(call.callee_id, event)
+
+
+def _schedule_timeout(call: ActiveCall) -> None:
+    _cancel_timeout(call)
+    call.timeout_task = asyncio.create_task(_ring_timeout(call.id))
+
+
 async def handle_call_event(data: dict, user_id: str) -> None:
     event_type = data.get("type")
     if event_type == "call_invite":
@@ -161,6 +223,17 @@ async def handle_call_event(data: dict, user_id: str) -> None:
             user_id,
             {"type": "call_error", "error": "unknown_call_event", "detail": event_type},
         )
+
+
+async def deliver_pending_invites(user_id: str) -> None:
+    """Re-send ringing invite when callee reconnects (e.g. opened from push)."""
+    call_id = _user_call.get(user_id)
+    if not call_id:
+        return
+    call = get_active_call(call_id)
+    if not call or call.callee_id != user_id or call.status != "ringing":
+        return
+    await manager.send_to_user(user_id, _invite_payload(call))
 
 
 async def _handle_invite(data: dict, caller_id: str) -> None:
@@ -198,7 +271,9 @@ async def _handle_invite(data: dict, caller_id: str) -> None:
         )
         return
 
-    if not manager.user_connections.get(callee_id):
+    online = bool(manager.user_connections.get(callee_id))
+    has_push = await user_has_push(callee_id)
+    if not online and not has_push:
         await _persist_missed(call_id, chat_id, caller_id, callee_id, media)
         await manager.send_to_user(
             caller_id,
@@ -221,16 +296,25 @@ async def _handle_invite(data: dict, caller_id: str) -> None:
     )
     _register(call)
     await _persist_create(call)
+    _schedule_timeout(call)
 
-    payload = {
-        "type": "call_invite",
-        "call_id": call.id,
-        "chat_id": chat_id,
-        "caller_id": caller_id,
-        "callee_id": callee_id,
-        "media": {"audio": media != "video", "video": media in ("video", "audio_video")},
-    }
-    await manager.send_to_user(callee_id, payload)
+    payload = _invite_payload(call)
+    if online:
+        await manager.send_to_user(callee_id, payload)
+
+    caller_name = await _username(caller_id)
+    await send_push_to_user(
+        callee_id,
+        {
+            "type": "incoming_call",
+            "call_id": call.id,
+            "chat_id": chat_id,
+            "caller_id": caller_id,
+            "caller_name": caller_name,
+            "media": payload["media"],
+        },
+    )
+
     await manager.send_to_user(
         caller_id,
         {
@@ -285,9 +369,12 @@ async def _handle_accept(data: dict, user_id: str) -> None:
         return
     call = get_active_call(call_id)
     if not call or call.callee_id != user_id or call.status != "ringing":
-        await manager.send_to_user(user_id, {"type": "call_error", "error": "invalid_accept", "call_id": call_id})
+        await manager.send_to_user(
+            user_id, {"type": "call_error", "error": "invalid_accept", "call_id": call_id}
+        )
         return
 
+    _cancel_timeout(call)
     call.status = "active"
     await _persist_status(call_id, "active", answered=True)
     event = {
@@ -369,7 +456,6 @@ async def _relay_signaling(data: dict, user_id: str) -> None:
         )
     elif event_type == "call_ice":
         candidate = data.get("candidate")
-        # null candidate = end-of-candidates; still forward
         await manager.send_to_user(
             peer,
             {
@@ -382,7 +468,7 @@ async def _relay_signaling(data: dict, user_id: str) -> None:
 
 
 async def on_user_offline(user_id: str) -> None:
-    """If the user has no more sockets, end any ringing/active call."""
+    """End active media calls on disconnect; keep ringing so push can wake the callee."""
     if manager.user_connections.get(user_id):
         return
     call_id = _user_call.get(user_id)
@@ -390,6 +476,8 @@ async def on_user_offline(user_id: str) -> None:
         return
     call = get_active_call(call_id)
     if not call:
+        return
+    if call.status == "ringing":
         return
     await _handle_hangup({"call_id": call_id, "reason": "disconnect"}, user_id)
 

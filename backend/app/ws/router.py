@@ -24,6 +24,7 @@ async def websocket_endpoint(websocket: WebSocket, token: str):
         return
 
     await manager.connect(websocket, user_id)
+    await call_signaling.deliver_pending_invites(user_id)
     try:
         while True:
             raw = await websocket.receive_text()

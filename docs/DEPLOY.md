@@ -268,6 +268,17 @@ sudo ufw allow 3478/tcp && sudo ufw allow 3478/udp && sudo ufw allow 49152:49252
 docker compose -f docker-compose.prod.yml --env-file .env.prod --profile turn up -d
 ```
 
+## Звонки: Push (часть 2)
+
+Входящий звонок при свёрнутом PWA — через Web Push. Подробно: [docs/WEBRTC-PUSH.md](./WEBRTC-PUSH.md).
+
+```bash
+# на Mac:
+npx --yes web-push generate-vapid-keys
+# в .env.prod: VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VAPID_SUBJECT
+docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build backend
+```
+
 ---
 
 ## Шаг 9. Проверка мессенджера

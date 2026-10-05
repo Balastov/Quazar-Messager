@@ -25,6 +25,30 @@ class SocketManager {
     this.ws = null;
   }
 
+  isOpen(): boolean {
+    return this.ws?.readyState === WebSocket.OPEN;
+  }
+
+  /** Wait until WS is open (e.g. after opening from a push notification). */
+  waitUntilOpen(timeoutMs = 8000): Promise<boolean> {
+    if (this.isOpen()) return Promise.resolve(true);
+    return new Promise((resolve) => {
+      const started = Date.now();
+      const tick = () => {
+        if (this.isOpen()) {
+          resolve(true);
+          return;
+        }
+        if (Date.now() - started >= timeoutMs) {
+          resolve(false);
+          return;
+        }
+        setTimeout(tick, 150);
+      };
+      tick();
+    });
+  }
+
   send(event: object) {
     if (this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(event));

@@ -28,6 +28,7 @@ interface CallState {
   peerAvatarUrl: string | null;
   media: CallMedia;
   muted: boolean;
+  cameraOff: boolean;
   remoteStream: MediaStream | null;
   localStream: MediaStream | null;
   error: string | null;
@@ -35,10 +36,13 @@ interface CallState {
   history: CallHistoryItem[];
 
   startAudioCall: (chatId: string, peerUserId: string) => Promise<void>;
+  startVideoCall: (chatId: string, peerUserId: string) => Promise<void>;
   accept: () => Promise<void>;
   reject: () => void;
   hangup: () => void;
   toggleMute: () => void;
+  toggleCamera: () => void;
+  flipCamera: () => Promise<void>;
   loadHistory: () => Promise<void>;
   clearEnded: () => void;
   prepareIncomingFromPush: (info: {
@@ -129,9 +133,68 @@ function finishCall(reason: EndReason, error: string | null = null) {
     remoteStream: null,
     localStream: null,
     muted: false,
+    cameraOff: false,
   });
   scheduleClear();
   void useCallStore.getState().loadHistory();
+}
+
+async function beginOutgoingCall(
+  set: (partial: Partial<CallState> | ((s: CallState) => Partial<CallState>)) => void,
+  get: () => CallState,
+  chatId: string,
+  peerUserId: string,
+  media: CallMedia
+) {
+  const phase = get().phase;
+  if (phase !== "idle" && phase !== "ended") return;
+
+  const callId =
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+  const meta = resolvePeerMeta(chatId, peerUserId);
+
+  set({
+    phase: "outgoing",
+    callId,
+    chatId,
+    peerUserId,
+    media,
+    muted: false,
+    cameraOff: false,
+    error: null,
+    endReason: null,
+    remoteStream: null,
+    localStream: null,
+    ...meta,
+  });
+
+  try {
+    const p = await ensurePeer(media);
+    const local = await p.startLocalMedia();
+    set({ localStream: local });
+  } catch (err) {
+    cleanupPeer();
+    finishCall(
+      "error",
+      err instanceof Error
+        ? err.message
+        : media.video
+          ? "Нет доступа к камере или микрофону"
+          : "Нет доступа к микрофону"
+    );
+    return;
+  }
+
+  socket.send({
+    type: "call_invite",
+    call_id: callId,
+    chat_id: chatId,
+    callee_id: peerUserId,
+    media,
+  });
 }
 
 export const useCallStore = create<CallState>((set, get) => {
@@ -166,6 +229,7 @@ export const useCallStore = create<CallState>((set, get) => {
             chatId: event.chat_id,
             callerId: event.caller_id,
             callerName: meta.peerUsername,
+            video: event.media?.video === true,
           });
           break;
         }
@@ -291,6 +355,7 @@ export const useCallStore = create<CallState>((set, get) => {
     peerAvatarUrl: null,
     media: { audio: true, video: false },
     muted: false,
+    cameraOff: false,
     remoteStream: null,
     localStream: null,
     error: null,
@@ -315,6 +380,7 @@ export const useCallStore = create<CallState>((set, get) => {
         chatId: info.chatId,
         peerUserId: peerUserId,
         media: info.media ?? { audio: true, video: false },
+        cameraOff: false,
         error: null,
         endReason: null,
         ...meta,
@@ -323,46 +389,11 @@ export const useCallStore = create<CallState>((set, get) => {
     },
 
     startAudioCall: async (chatId, peerUserId) => {
-      const phase = get().phase;
-      if (phase !== "idle" && phase !== "ended") return;
+      await beginOutgoingCall(set, get, chatId, peerUserId, { audio: true, video: false });
+    },
 
-      const callId =
-        typeof crypto !== "undefined" && "randomUUID" in crypto
-          ? crypto.randomUUID()
-          : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-
-      const meta = resolvePeerMeta(chatId, peerUserId);
-      const media: CallMedia = { audio: true, video: false };
-
-      set({
-        phase: "outgoing",
-        callId,
-        chatId,
-        peerUserId,
-        media,
-        muted: false,
-        error: null,
-        endReason: null,
-        remoteStream: null,
-        localStream: null,
-        ...meta,
-      });
-
-      try {
-        const p = await ensurePeer(media);
-        const local = await p.startLocalMedia();
-        set({ localStream: local });
-      } catch {
-        cleanupPeer();
-      }
-
-      socket.send({
-        type: "call_invite",
-        call_id: callId,
-        chat_id: chatId,
-        callee_id: peerUserId,
-        media,
-      });
+    startVideoCall: async (chatId, peerUserId) => {
+      await beginOutgoingCall(set, get, chatId, peerUserId, { audio: true, video: true });
     },
 
     accept: async () => {
@@ -370,7 +401,7 @@ export const useCallStore = create<CallState>((set, get) => {
       if (!callId || phase !== "incoming") return;
       stopRing();
       void clearCallNotification(callId);
-      set({ phase: "connecting", error: null });
+      set({ phase: "connecting", error: null, cameraOff: false });
       try {
         const p = await ensurePeer(media);
         const local = await p.startLocalMedia();
@@ -378,9 +409,14 @@ export const useCallStore = create<CallState>((set, get) => {
         socket.send({ type: "call_accept", call_id: callId });
       } catch (err) {
         socket.send({ type: "call_reject", call_id: callId, reason: "media_error" });
+        const needCam = media.video;
         finishCall(
           "error",
-          err instanceof Error ? err.message : "Нет доступа к микрофону"
+          err instanceof Error
+            ? err.message
+            : needCam
+              ? "Нет доступа к камере или микрофону"
+              : "Нет доступа к микрофону"
         );
       }
     },
@@ -410,6 +446,23 @@ export const useCallStore = create<CallState>((set, get) => {
       set({ muted: next });
     },
 
+    toggleCamera: () => {
+      if (!get().media.video) return;
+      const next = !get().cameraOff;
+      peer?.setCameraEnabled(!next);
+      set({ cameraOff: next });
+    },
+
+    flipCamera: async () => {
+      if (!get().media.video || get().cameraOff) return;
+      try {
+        const stream = await peer?.flipCamera();
+        if (stream) set({ localStream: stream });
+      } catch {
+        set({ error: "Не удалось переключить камеру" });
+      }
+    },
+
     loadHistory: async () => {
       try {
         const history = await callsApi.history();
@@ -435,6 +488,7 @@ export const useCallStore = create<CallState>((set, get) => {
         error: null,
         endReason: null,
         muted: false,
+        cameraOff: false,
         media: { audio: true, video: false },
       });
     },

@@ -8,8 +8,8 @@ export type PeerCallbacks = {
 };
 
 /**
- * Thin WebRTC wrapper. Audio-first; video tracks can be added later via
- * `upgradeToVideo()` without changing the signaling protocol.
+ * WebRTC peer for 1:1 audio / video calls.
+ * Signaling stays the same; `media.video` selects camera at invite time.
  */
 export class CallPeer {
   private pc: RTCPeerConnection | null = null;
@@ -17,6 +17,7 @@ export class CallPeer {
   private remoteStream: MediaStream | null = null;
   private pendingIce: RTCIceCandidateInit[] = [];
   private remoteSet = false;
+  private facingMode: "user" | "environment" = "user";
 
   constructor(
     private iceServers: IceServer[],
@@ -32,6 +33,10 @@ export class CallPeer {
     return this.remoteStream;
   }
 
+  getMedia() {
+    return this.media;
+  }
+
   private rtcIceServers(): RTCIceServer[] {
     return this.iceServers.map((s) => ({
       urls: s.urls,
@@ -40,11 +45,22 @@ export class CallPeer {
     }));
   }
 
-  async startLocalMedia(): Promise<MediaStream> {
-    const stream = await navigator.mediaDevices.getUserMedia({
+  private mediaConstraints(): MediaStreamConstraints {
+    return {
       audio: this.media.audio !== false,
-      video: this.media.video === true,
-    });
+      video:
+        this.media.video === true
+          ? {
+              facingMode: this.facingMode,
+              width: { ideal: 1280 },
+              height: { ideal: 720 },
+            }
+          : false,
+    };
+  }
+
+  async startLocalMedia(): Promise<MediaStream> {
+    const stream = await navigator.mediaDevices.getUserMedia(this.mediaConstraints());
     this.localStream = stream;
     return stream;
   }
@@ -63,8 +79,10 @@ export class CallPeer {
       if (!this.remoteStream) {
         this.remoteStream = new MediaStream();
       }
-      for (const track of ev.streams[0]?.getTracks() ?? [ev.track]) {
-        this.remoteStream.addTrack(track);
+      const incoming = ev.streams[0]?.getTracks() ?? [ev.track];
+      for (const track of incoming) {
+        const exists = this.remoteStream.getTracks().some((t) => t.id === track.id);
+        if (!exists) this.remoteStream.addTrack(track);
       }
       this.cb.onRemoteStream(this.remoteStream);
     };
@@ -116,7 +134,6 @@ export class CallPeer {
     try {
       await this.pc.addIceCandidate(candidate);
     } catch (err) {
-      // Ignore late candidates after hangup / glare
       if (this.pc.signalingState !== "closed") {
         console.warn("addIceCandidate failed", err);
       }
@@ -129,16 +146,60 @@ export class CallPeer {
     });
   }
 
-  /** Future: upgrade audio call to video without new call_id. */
-  async upgradeToVideo(): Promise<void> {
-    if (!this.pc) throw new Error("No peer connection");
-    const cam = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-    const track = cam.getVideoTracks()[0];
-    if (!track) throw new Error("No video track");
-    this.localStream?.addTrack(track);
-    this.pc.addTrack(track, this.localStream!);
-    this.media = { ...this.media, video: true };
-    // Caller will renegotiate via createOffer in a later phase.
+  setCameraEnabled(enabled: boolean) {
+    this.localStream?.getVideoTracks().forEach((t) => {
+      t.enabled = enabled;
+    });
+  }
+
+  /** Switch front/back camera on devices that support it. */
+  async flipCamera(): Promise<MediaStream | null> {
+    if (!this.media.video || !this.pc || !this.localStream) return this.localStream;
+
+    const nextFacing = this.facingMode === "user" ? "environment" : "user";
+    let newStream: MediaStream;
+    try {
+      newStream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: {
+          facingMode: { exact: nextFacing },
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+        },
+      });
+    } catch {
+      // exact facingMode often fails on desktop — soft fallback
+      newStream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: {
+          facingMode: nextFacing,
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+        },
+      });
+    }
+
+    const newTrack = newStream.getVideoTracks()[0];
+    if (!newTrack) return this.localStream;
+
+    const oldTrack = this.localStream.getVideoTracks()[0];
+    const sender = this.pc.getSenders().find((s) => s.track?.kind === "video");
+    if (sender) {
+      await sender.replaceTrack(newTrack);
+    }
+
+    if (oldTrack) {
+      this.localStream.removeTrack(oldTrack);
+      oldTrack.stop();
+    }
+    this.localStream.addTrack(newTrack);
+    this.facingMode = nextFacing;
+    // Stop leftover audio-less stream container tracks already moved
+    newStream.getTracks().forEach((t) => {
+      if (t !== newTrack) t.stop();
+    });
+
+    return this.localStream;
   }
 
   close() {

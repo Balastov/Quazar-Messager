@@ -279,6 +279,11 @@ npx --yes web-push generate-vapid-keys
 docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build backend
 ```
 
+## Звонки: Видео (часть 3)
+
+В web: кнопка видео в чате / «Звонки» / панели собеседника. Камера, PiP, Flip.  
+Подробно: [docs/WEBRTC-VIDEO.md](./WEBRTC-VIDEO.md).
+
 ---
 
 ## Шаг 9. Проверка мессенджера

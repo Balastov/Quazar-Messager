@@ -130,3 +130,113 @@
   background: var(--qz-accent-soft);
   border: 1px solid var(--qz-border-strong);
 }
+
+.videoStage {
+  position: relative;
+  width: min(920px, 100%);
+  height: min(720px, 100%);
+  max-height: calc(100dvh - 32px - var(--qz-safe-top) - var(--qz-safe-bottom));
+  border-radius: var(--qz-radius-lg);
+  overflow: hidden;
+  background: #0a0814;
+  border: 1px solid var(--qz-border);
+  box-shadow: var(--qz-shadow);
+}
+
+.remoteVideo {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  background: #000;
+}
+
+.videoPlaceholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  background:
+    radial-gradient(circle at 50% 30%, rgba(168, 85, 247, 0.28), transparent 55%),
+    #0a0814;
+}
+
+.localPip {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  width: min(132px, 28%);
+  aspect-ratio: 3 / 4;
+  border-radius: 14px;
+  overflow: hidden;
+  border: 1px solid var(--qz-border-strong);
+  background: rgba(0, 0, 0, 0.55);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+.localVideo {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scaleX(-1);
+}
+
+.localOff {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  color: var(--qz-text-muted);
+  text-align: center;
+  padding: 8px;
+}
+
+.videoChrome {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 18px 16px calc(16px + var(--qz-safe-bottom));
+  background: linear-gradient(transparent, rgba(4, 3, 12, 0.88) 40%);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: center;
+}
+
+.videoMeta {
+  text-align: center;
+}
+
+.videoMeta .name {
+  margin-top: 0;
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.6);
+}
+
+.videoMeta .status {
+  color: rgba(244, 241, 255, 0.8);
+}
+
+.mute:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+@media (max-width: 767px) {
+  .videoStage {
+    width: 100%;
+    height: 100%;
+    max-height: none;
+    border-radius: 0;
+    border: none;
+  }
+
+  .root {
+    padding: 0;
+    align-items: stretch;
+  }
+}

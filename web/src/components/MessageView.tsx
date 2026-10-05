@@ -42,6 +42,7 @@ export default function MessageView({ showBack = false }: Props) {
   const currentUser = useAuthStore((st) => st.user);
   const setMobileChatOpen = useUiStore((st) => st.setMobileChatOpen);
   const startAudioCall = useCallStore((st) => st.startAudioCall);
+  const startVideoCall = useCallStore((st) => st.startVideoCall);
   const callPhase = useCallStore((st) => st.phase);
   const [text, setText] = useState("");
   const [sendError, setSendError] = useState<string | null>(null);
@@ -96,6 +97,11 @@ export default function MessageView({ showBack = false }: Props) {
   const handleAudioCall = () => {
     if (!activeChatId || !peer.id || !isDirect || callBusy) return;
     void startAudioCall(activeChatId, peer.id);
+  };
+
+  const handleVideoCall = () => {
+    if (!activeChatId || !peer.id || !isDirect || callBusy) return;
+    void startVideoCall(activeChatId, peer.id);
   };
 
   const handleSend = async (e?: React.FormEvent) => {
@@ -170,7 +176,13 @@ export default function MessageView({ showBack = false }: Props) {
           >
             <IconPhone size={18} />
           </button>
-          <button type="button" className={s.iconBtn} title="Видеозвонок — скоро" disabled>
+          <button
+            type="button"
+            className={s.iconBtn}
+            title={isDirect ? "Видеозвонок" : "Звонки только в личных чатах"}
+            disabled={!isDirect || !peer.id || callBusy}
+            onClick={handleVideoCall}
+          >
             <IconVideo size={18} />
           </button>
           <button

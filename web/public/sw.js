@@ -34,7 +34,8 @@ self.addEventListener("push", (event) => {
 
   if (data.type === "incoming_call") {
     const name = data.caller_name || "Собеседник";
-    const title = "Входящий звонок";
+    const isVideo = !!(data.media && data.media.video);
+    const title = isVideo ? "Входящий видеозвонок" : "Входящий звонок";
     const options = {
       body: name,
       tag: `quazar-call-${data.call_id || "unknown"}`,

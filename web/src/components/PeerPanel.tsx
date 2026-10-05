@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useAuthStore } from "../store/auth";
 import { useChatStore } from "../store/chat";
+import { useCallStore } from "../store/call";
 import { getNotifyPrefs, setNotifyPrefs } from "../notifications/prefs";
 import UserAvatar from "./UserAvatar";
 import { IconChat, IconMore, IconPhone, IconVideo } from "./icons";
@@ -11,6 +12,10 @@ export default function PeerPanel() {
   const chats = useChatStore((st) => st.chats);
   const setShowE2ePanel = useChatStore((st) => st.setShowE2ePanel);
   const currentUser = useAuthStore((st) => st.user);
+  const startAudioCall = useCallStore((st) => st.startAudioCall);
+  const startVideoCall = useCallStore((st) => st.startVideoCall);
+  const callPhase = useCallStore((st) => st.phase);
+  const callBusy = callPhase !== "idle" && callPhase !== "ended";
   const [notifyOn, setNotifyOn] = useState(() => getNotifyPrefs().enabled);
   const [mediaTab, setMediaTab] = useState<"media" | "files" | "links">("media");
 
@@ -25,14 +30,17 @@ export default function PeerPanel() {
 
   const peer =
     chat.type === "group"
-      ? { username: chat.name ?? "Группа", avatar_url: null as string | null }
+      ? { id: null as string | null, username: chat.name ?? "Группа", avatar_url: null as string | null }
       : (() => {
           const other = chat.members.find((m) => m.user.id !== currentUser?.id)?.user;
           return {
+            id: other?.id ?? null,
             username: other?.username ?? "Неизвестный",
             avatar_url: other?.avatar_url ?? null,
           };
         })();
+
+  const canCall = chat.type === "direct" && !!peer.id && !callBusy;
 
   return (
     <aside className={s.root}>
@@ -47,11 +55,27 @@ export default function PeerPanel() {
           <IconChat size={18} />
           Чат
         </button>
-        <button type="button" className={s.action} title="Скоро">
+        <button
+          type="button"
+          className={s.action}
+          title="Аудиозвонок"
+          disabled={!canCall}
+          onClick={() => {
+            if (peer.id) void startAudioCall(activeChatId, peer.id);
+          }}
+        >
           <IconPhone size={18} />
           Звонок
         </button>
-        <button type="button" className={s.action} title="Скоро">
+        <button
+          type="button"
+          className={s.action}
+          title="Видеозвонок"
+          disabled={!canCall}
+          onClick={() => {
+            if (peer.id) void startVideoCall(activeChatId, peer.id);
+          }}
+        >
           <IconVideo size={18} />
           Видео
         </button>

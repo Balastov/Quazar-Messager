@@ -101,6 +101,7 @@ export async function notifyIncomingCall(info: {
   chatId: string;
   callerId: string;
   callerName: string;
+  video?: boolean;
 }): Promise<void> {
   const prefs = getNotifyPrefs();
   if (!prefs.enabled) return;
@@ -110,7 +111,7 @@ export async function notifyIncomingCall(info: {
   }
 
   await showSystemNotification({
-    title: "Входящий звонок",
+    title: info.video ? "Входящий видеозвонок" : "Входящий звонок",
     body: info.callerName || "Собеседник",
     chatId: info.chatId,
     callId: info.callId,

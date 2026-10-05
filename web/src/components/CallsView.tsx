@@ -19,8 +19,9 @@ function formatWhen(iso: string) {
   }
 }
 
-function statusLabel(status: string, isOut: boolean) {
+function statusLabel(status: string, isOut: boolean, media: string) {
   const dir = isOut ? "Исходящий" : "Входящий";
+  const kind = media === "audio" ? "аудио" : "видео";
   const map: Record<string, string> = {
     ended: "завершён",
     missed: "пропущен",
@@ -30,7 +31,7 @@ function statusLabel(status: string, isOut: boolean) {
     ringing: "вызов",
     active: "идёт",
   };
-  return `${dir} · ${map[status] ?? status}`;
+  return `${dir} · ${kind} · ${map[status] ?? status}`;
 }
 
 export default function CallsView() {
@@ -40,6 +41,7 @@ export default function CallsView() {
   const history = useCallStore((st) => st.history);
   const loadHistory = useCallStore((st) => st.loadHistory);
   const startAudioCall = useCallStore((st) => st.startAudioCall);
+  const startVideoCall = useCallStore((st) => st.startVideoCall);
   const callPhase = useCallStore((st) => st.phase);
   const callBusy = callPhase !== "idle" && callPhase !== "ended";
 
@@ -99,8 +101,8 @@ export default function CallsView() {
       </div>
 
       <div className={s.banner}>
-        MVP: аудиозвонки 1:1 через WebRTC. Видео и звонки при закрытом приложении — в следующих
-        обновлениях. Для стабильной связи за NAT нужен TURN.
+        MVP: аудио- и видеозвонки 1:1 через WebRTC. Для стабильной связи за NAT нужен TURN.
+        Push на входящий — в настройках уведомлений.
       </div>
 
       {filteredHistory.length > 0 && (
@@ -115,7 +117,7 @@ export default function CallsView() {
                 <div className={s.meta}>
                   <div className={s.name}>{name}</div>
                   <div className={s.detail}>
-                    {statusLabel(h.status, isOut)}
+                    {statusLabel(h.status, isOut, h.media)}
                     {h.duration_sec != null ? ` · ${h.duration_sec}с` : ""}
                     {" · "}
                     {formatWhen(h.started_at)}
@@ -162,7 +164,13 @@ export default function CallsView() {
               >
                 <IconPhone size={16} />
               </button>
-              <button type="button" className={s.iconBtn} title="Видео — скоро" disabled>
+              <button
+                type="button"
+                className={s.iconBtn}
+                title="Видеозвонок"
+                disabled={callBusy}
+                onClick={() => void startVideoCall(p.chatId, p.userId)}
+              >
                 <IconVideo size={16} />
               </button>
             </div>

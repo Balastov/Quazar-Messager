@@ -205,3 +205,10 @@
     width: min(520px, calc(100vw - 40px));
   }
 }
+
+.lead code,
+.hint code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  color: #c4b5fd;
+}

@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { BackupError, readBackupFile } from "../crypto/backup";
 import {
+  adoptBackupAsAccountKey,
   createAndUploadBackup,
   fetchKeyBackup,
   restoreFromBackup,
@@ -20,6 +21,8 @@ interface E2EState {
   status: E2EStatus;
   hasLocalKey: boolean;
   hasServerBackup: boolean;
+  accountPublicKey: string | null;
+  localPublicKey: string | null;
   restorePromptOpen: boolean;
   busy: boolean;
   error: string | null;
@@ -29,6 +32,7 @@ interface E2EState {
   restoreFromFile: (file: File, password: string) => Promise<void>;
   createBackup: (password: string) => Promise<string>;
   rotate: (accountPassword: string) => Promise<void>;
+  adoptBackup: (blob: string, backupPassword: string, accountPassword: string) => Promise<void>;
   setRestorePromptOpen: (open: boolean) => void;
   reset: () => void;
 }
@@ -38,6 +42,8 @@ const initialState = {
   status: "idle" as E2EStatus,
   hasLocalKey: false,
   hasServerBackup: false,
+  accountPublicKey: null,
+  localPublicKey: null,
   restorePromptOpen: false,
   busy: false,
   error: null,
@@ -68,10 +74,11 @@ export const useE2EStore = create<E2EState>((set, get) => {
     sync: async (userId) => {
       if (get().busy) return;
       const prev = get();
+      const settled = prev.status === "ready" || prev.status === "needs_restore";
       set({
         userId,
-        // Повторная проверка не должна «мигать» уже рабочим состоянием.
-        status: prev.status === "ready" && prev.userId === userId ? "ready" : "checking",
+        // Повторная проверка не должна «мигать»: держим прежнее состояние до ответа.
+        status: settled && prev.userId === userId ? prev.status : "checking",
         error: null,
       });
       try {
@@ -82,6 +89,8 @@ export const useE2EStore = create<E2EState>((set, get) => {
             status: "ready",
             hasLocalKey: true,
             hasServerBackup: res.hasServerBackup,
+            accountPublicKey: res.publicKey,
+            localPublicKey: res.publicKey,
             restorePromptOpen: false,
           });
         } else {
@@ -89,6 +98,8 @@ export const useE2EStore = create<E2EState>((set, get) => {
             status: "needs_restore",
             hasLocalKey: res.hasLocalKey,
             hasServerBackup: res.hasServerBackup,
+            accountPublicKey: res.accountPublicKey,
+            localPublicKey: res.localPublicKey,
             restorePromptOpen: prev.status !== "needs_restore" || prev.restorePromptOpen,
           });
         }
@@ -117,6 +128,11 @@ export const useE2EStore = create<E2EState>((set, get) => {
     rotate: (accountPassword) =>
       exclusive(async (userId) => {
         await rotateKeys(userId, accountPassword);
+      }),
+
+    adoptBackup: (blob, backupPassword, accountPassword) =>
+      exclusive(async (userId) => {
+        await adoptBackupAsAccountKey(userId, blob, backupPassword, accountPassword);
       }),
 
     setRestorePromptOpen: (open) => set({ restorePromptOpen: open }),

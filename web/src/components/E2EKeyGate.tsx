@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import axios from "axios";
+import { shortKeyId, StaleBackupError } from "../crypto/keys";
 import { useE2EStore } from "../store/e2e";
 import { useUiStore } from "../store/ui";
 import s from "./E2EKeyGate.module.css";
@@ -8,8 +9,11 @@ const BACKUP_HINT_DISMISSED_KEY = "quazar_e2e_backup_hint_dismissed";
 
 function errorMessage(err: unknown): string {
   if (axios.isAxiosError(err)) {
-    if (err.response?.status === 401) return "Неверный пароль аккаунта";
     const detail = err.response?.data?.detail;
+    if (err.response?.status === 401 && detail === "Invalid password") {
+      return "Неверный пароль аккаунта";
+    }
+    if (err.response?.status === 401) return "Сессия истекла — войдите в аккаунт заново";
     if (typeof detail === "string") return detail;
   }
   return err instanceof Error ? err.message : "Ошибка";
@@ -23,6 +27,13 @@ function readHintDismissed(): boolean {
   }
 }
 
+interface StaleBackup {
+  blob: string;
+  backupPassword: string;
+  backupPublicKey: string;
+  accountPublicKey: string;
+}
+
 /**
  * Следит, чтобы устройство работало с ключом аккаунта:
  * предлагает восстановить ключи из копии или создать копию для других устройств.
@@ -31,12 +42,16 @@ export default function E2EKeyGate() {
   const status = useE2EStore((st) => st.status);
   const hasServerBackup = useE2EStore((st) => st.hasServerBackup);
   const hasLocalKey = useE2EStore((st) => st.hasLocalKey);
+  const accountPublicKey = useE2EStore((st) => st.accountPublicKey);
+  const localPublicKey = useE2EStore((st) => st.localPublicKey);
   const restorePromptOpen = useE2EStore((st) => st.restorePromptOpen);
   const setRestorePromptOpen = useE2EStore((st) => st.setRestorePromptOpen);
   const busy = useE2EStore((st) => st.busy);
 
   const [password, setPassword] = useState("");
   const [accountPassword, setAccountPassword] = useState("");
+  const [adoptPassword, setAdoptPassword] = useState("");
+  const [stale, setStale] = useState<StaleBackup | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [hintDismissed, setHintDismissed] = useState(readHintDismissed);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -47,13 +62,37 @@ export default function E2EKeyGate() {
       await fn();
       setPassword("");
       setAccountPassword("");
+      setAdoptPassword("");
+      setStale(null);
     } catch (err) {
       setError(errorMessage(err));
     }
   };
 
+  /** Восстановление: копия с другим ключом — не ошибка-тупик, а предложение. */
+  const runRestore = async (fn: () => Promise<void>) => {
+    setStale(null);
+    setError(null);
+    try {
+      await fn();
+      setPassword("");
+    } catch (err) {
+      if (err instanceof StaleBackupError) {
+        setStale({
+          blob: err.blob,
+          backupPassword: password,
+          backupPublicKey: err.backupPublicKey,
+          accountPublicKey: err.accountPublicKey,
+        });
+        return;
+      }
+      setError(errorMessage(err));
+    }
+  };
+
   if (status === "needs_restore" && restorePromptOpen) {
-    const { restoreFromServer, restoreFromFile, rotate, sync, userId } = useE2EStore.getState();
+    const { restoreFromServer, restoreFromFile, rotate, adoptBackup, sync, userId } =
+      useE2EStore.getState();
     return (
       <div className={s.overlay}>
         <div className={s.panel} role="dialog" aria-modal="true">
@@ -71,6 +110,10 @@ export default function E2EKeyGate() {
                 переписка.
               </span>
             )}
+          </p>
+          <p className={s.hint}>
+            Ключ аккаунта: <code>{shortKeyId(accountPublicKey)}</code> · ключ этого браузера:{" "}
+            <code>{shortKeyId(localPublicKey)}</code>
           </p>
 
           <section className={s.section}>
@@ -96,7 +139,7 @@ export default function E2EKeyGate() {
                   type="button"
                   className={s.primary}
                   disabled={busy || password.length < 8}
-                  onClick={() => void run(() => restoreFromServer(password))}
+                  onClick={() => void runRestore(() => restoreFromServer(password))}
                 >
                   {busy ? "Восстанавливаем…" : "Восстановить"}
                 </button>
@@ -127,13 +170,49 @@ export default function E2EKeyGate() {
               onChange={(e) => {
                 const file = e.target.files?.[0];
                 e.target.value = "";
-                if (file) void run(() => restoreFromFile(file, password));
+                if (file) void runRestore(() => restoreFromFile(file, password));
               }}
             />
           </section>
 
+          {stale && (
+            <section className={s.section}>
+              <h4 className={s.sectionTitle}>Копия от другого ключа</h4>
+              <p className={s.hint}>
+                Пароль подошёл, но в копии ключ <code>{shortKeyId(stale.backupPublicKey)}</code>,
+                а у аккаунта сейчас <code>{shortKeyId(stale.accountPublicKey)}</code> — его
+                создало другое устройство (например, браузер на телефоне).
+              </p>
+              <p className={s.hint}>
+                Можно сделать ключ из копии ключом аккаунта: вернётся переписка, зашифрованная
+                этим ключом. Сообщения, зашифрованные ключом{" "}
+                <code>{shortKeyId(stale.accountPublicKey)}</code>, останутся читаемыми только на
+                том устройстве; на остальных ключи нужно будет восстановить из этой копии.
+              </p>
+              <input
+                className={s.input}
+                type="password"
+                placeholder="Пароль аккаунта"
+                value={adoptPassword}
+                onChange={(e) => setAdoptPassword(e.target.value)}
+                disabled={busy}
+                autoFocus
+              />
+              <button
+                type="button"
+                className={s.primary}
+                disabled={busy || adoptPassword.length < 8}
+                onClick={() =>
+                  void run(() => adoptBackup(stale.blob, stale.backupPassword, adoptPassword))
+                }
+              >
+                {busy ? "Сохраняем…" : "Сделать ключом аккаунта"}
+              </button>
+            </section>
+          )}
+
           <section className={s.section}>
-            <h4 className={s.sectionTitle}>Нет доступа к другим устройствам?</h4>
+            <h4 className={s.sectionTitle}>Нет ни копии, ни доступа к другим устройствам?</h4>
             <p className={s.hint}>
               Можно создать новые ключи аккаунта. Переписка, зашифрованная старым ключом, здесь
               не прочитается, а на остальных устройствах ключи придётся восстановить заново.

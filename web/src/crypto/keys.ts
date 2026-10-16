@@ -29,6 +29,27 @@ export type IdentityKeys = LocalIdentity;
 
 export type DecryptionKey = Pick<LocalIdentity, "seed" | "privateKey">;
 
+/** Копия расшифрована, но в ней не тот ключ, что сейчас у аккаунта на сервере. */
+export class StaleBackupError extends BackupError {
+  constructor(
+    readonly blob: string,
+    readonly backupPublicKey: string,
+    readonly accountPublicKey: string
+  ) {
+    super(
+      "В резервной копии другой ключ, чем сейчас у аккаунта: ключ на сервере сменили с другого устройства."
+    );
+    this.name = "StaleBackupError";
+  }
+}
+
+/** Короткий идентификатор ключа для сверки глазами. */
+export function shortKeyId(publicKey: string | null | undefined): string {
+  if (!publicKey) return "—";
+  const clean = publicKey.replace(/=+$/, "");
+  return `${clean.slice(0, 4)}…${clean.slice(-4)}`;
+}
+
 /** Удаляет legacy-ключи из localStorage (tweetnacl MVP). */
 export function migrateLegacyKeys(): boolean {
   const hadLegacy =
@@ -99,7 +120,13 @@ export async function fetchKeyBackup(): Promise<string | null> {
 
 export type IdentitySyncResult =
   | { status: "ready"; publicKey: string; hasServerBackup: boolean }
-  | { status: "needs_restore"; hasLocalKey: boolean; hasServerBackup: boolean };
+  | {
+      status: "needs_restore";
+      hasLocalKey: boolean;
+      hasServerBackup: boolean;
+      accountPublicKey: string | null;
+      localPublicKey: string | null;
+    };
 
 /**
  * Сверяет ключ устройства с ключом аккаунта.
@@ -116,7 +143,13 @@ export async function syncIdentityWithServer(userId: string): Promise<IdentitySy
     if (local?.publicKey === serverKey) {
       return { status: "ready", publicKey: serverKey, hasServerBackup };
     }
-    return { status: "needs_restore", hasLocalKey: local !== null, hasServerBackup };
+    return {
+      status: "needs_restore",
+      hasLocalKey: local !== null,
+      hasServerBackup,
+      accountPublicKey: serverKey,
+      localPublicKey: local?.publicKey ?? null,
+    };
   }
 
   // У аккаунта ещё нет ключа: создаём новый (локальный мог остаться от другого аккаунта
@@ -131,6 +164,8 @@ export async function syncIdentityWithServer(userId: string): Promise<IdentitySy
         status: "needs_restore",
         hasLocalKey: true,
         hasServerBackup: (await fetchKeyBackup()) !== null,
+        accountPublicKey: await fetchAccountPublicKey(userId),
+        localPublicKey: publicKey,
       };
     }
     throw err;
@@ -148,15 +183,36 @@ export async function restoreFromBackup(
   const { publicKey, seed } = await decryptBackup(blob, password);
   const serverKey = await fetchAccountPublicKey(userId);
   if (serverKey && serverKey !== publicKey) {
-    throw new BackupError(
-      "Резервная копия устарела: ключ аккаунта с тех пор сменился. Создайте новую копию на устройстве, где сообщения читаются."
-    );
+    throw new StaleBackupError(blob, publicKey, serverKey);
   }
 
   await saveIdentitySeed(seed);
   if (!serverKey) {
     await uploadPublicKey(publicKey);
   }
+  invalidateKeyCache(userId);
+  markBackupDone();
+  return publicKey;
+}
+
+/**
+ * Делает ключ из резервной копии ключом аккаунта (подтверждение паролем аккаунта).
+ * Нужен, когда ключ на сервере перезаписало другое устройство, а копия — с «правильным» ключом.
+ */
+export async function adoptBackupAsAccountKey(
+  userId: string,
+  blob: string,
+  backupPassword: string,
+  accountPassword: string
+): Promise<string> {
+  const { publicKey, seed } = await decryptBackup(blob, backupPassword);
+  await http.post("/users/me/key/rotate", {
+    password: accountPassword,
+    public_key: publicKey,
+  });
+  await saveIdentitySeed(seed);
+  // Ротация удаляет копию на сервере; эта копия как раз для нового ключа аккаунта.
+  await uploadKeyBackup(blob);
   invalidateKeyCache(userId);
   markBackupDone();
   return publicKey;

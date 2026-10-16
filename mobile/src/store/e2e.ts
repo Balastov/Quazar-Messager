@@ -1,6 +1,7 @@
 import {create} from 'zustand';
 import {BackupError} from '../crypto/backup';
 import {
+  adoptServerBackupAsAccountKey,
   createAndUploadBackup,
   restoreFromServerBackup,
   rotateKeys,
@@ -18,6 +19,8 @@ interface E2EState {
   status: E2EStatus;
   hasLocalKey: boolean;
   hasServerBackup: boolean;
+  accountPublicKey: string | null;
+  localPublicKey: string | null;
   /** Экран восстановления ещё не показывали для текущего needs_restore. */
   restorePromptPending: boolean;
   busy: boolean;
@@ -27,6 +30,7 @@ interface E2EState {
   restore: (password: string) => Promise<void>;
   createBackup: (password: string) => Promise<void>;
   rotate: (accountPassword: string) => Promise<void>;
+  adoptBackup: (backupPassword: string, accountPassword: string) => Promise<void>;
   consumeRestorePrompt: () => void;
   reset: () => void;
 }
@@ -36,6 +40,8 @@ const initialState = {
   status: 'idle' as E2EStatus,
   hasLocalKey: false,
   hasServerBackup: false,
+  accountPublicKey: null,
+  localPublicKey: null,
   restorePromptPending: false,
   busy: false,
   error: null,
@@ -63,9 +69,11 @@ export const useE2EStore = create<E2EState>((set, get) => {
     sync: async userId => {
       if (get().busy) {return;}
       const prev = get();
+      const settled = prev.status === 'ready' || prev.status === 'needs_restore';
       set({
         userId,
-        status: prev.status === 'ready' && prev.userId === userId ? 'ready' : 'checking',
+        // Повторная проверка не должна «мигать»: держим прежнее состояние до ответа.
+        status: settled && prev.userId === userId ? prev.status : 'checking',
         error: null,
       });
       try {
@@ -76,6 +84,8 @@ export const useE2EStore = create<E2EState>((set, get) => {
             status: 'ready',
             hasLocalKey: true,
             hasServerBackup: res.hasServerBackup,
+            accountPublicKey: res.publicKey,
+            localPublicKey: res.publicKey,
             restorePromptPending: false,
           });
         } else {
@@ -83,6 +93,8 @@ export const useE2EStore = create<E2EState>((set, get) => {
             status: 'needs_restore',
             hasLocalKey: res.hasLocalKey,
             hasServerBackup: res.hasServerBackup,
+            accountPublicKey: res.accountPublicKey,
+            localPublicKey: res.localPublicKey,
             restorePromptPending:
               prev.status !== 'needs_restore' || prev.restorePromptPending,
           });
@@ -98,6 +110,11 @@ export const useE2EStore = create<E2EState>((set, get) => {
     createBackup: password => exclusive(userId => createAndUploadBackup(userId, password)),
 
     rotate: accountPassword => exclusive(userId => rotateKeys(userId, accountPassword)),
+
+    adoptBackup: (backupPassword, accountPassword) =>
+      exclusive(userId =>
+        adoptServerBackupAsAccountKey(userId, backupPassword, accountPassword),
+      ),
 
     consumeRestorePrompt: () => set({restorePromptPending: false}),
 

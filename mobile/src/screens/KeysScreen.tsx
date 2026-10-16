@@ -9,12 +9,16 @@ import {
   View,
 } from 'react-native';
 import axios from 'axios';
+import {shortKeyId, StaleBackupError} from '../crypto/keys';
 import {useE2EStore} from '../store/e2e';
 
 function errorMessage(err: unknown): string {
   if (axios.isAxiosError(err)) {
-    if (err.response?.status === 401) {return 'Неверный пароль аккаунта';}
     const detail = err.response?.data?.detail;
+    if (err.response?.status === 401 && detail === 'Invalid password') {
+      return 'Неверный пароль аккаунта';
+    }
+    if (err.response?.status === 401) {return 'Сессия истекла — войдите в аккаунт заново';}
     if (typeof detail === 'string') {return detail;}
   }
   return err instanceof Error ? err.message : 'Ошибка';
@@ -27,10 +31,19 @@ export default function KeysScreen() {
   const hasLocalKey = useE2EStore(s => s.hasLocalKey);
   const busy = useE2EStore(s => s.busy);
   const userId = useE2EStore(s => s.userId);
-  const {restore, createBackup, rotate, sync} = useE2EStore.getState();
+  const accountPublicKey = useE2EStore(s => s.accountPublicKey);
+  const localPublicKey = useE2EStore(s => s.localPublicKey);
+  const {restore, createBackup, rotate, adoptBackup, sync} = useE2EStore.getState();
 
   const [password, setPassword] = useState('');
   const [accountPassword, setAccountPassword] = useState('');
+  const [adoptPassword, setAdoptPassword] = useState('');
+  /** Копия расшифровалась, но с другим ключом, чем у аккаунта. */
+  const [stale, setStale] = useState<{
+    backupPassword: string;
+    backupPublicKey: string;
+    accountPublicKey: string;
+  } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -41,8 +54,30 @@ export default function KeysScreen() {
       await fn();
       setPassword('');
       setAccountPassword('');
+      setAdoptPassword('');
+      setStale(null);
       if (done) {setNotice(done);}
     } catch (err) {
+      setError(errorMessage(err));
+    }
+  };
+
+  const runRestore = async () => {
+    setError(null);
+    setNotice(null);
+    setStale(null);
+    try {
+      await restore(password);
+      setPassword('');
+    } catch (err) {
+      if (err instanceof StaleBackupError) {
+        setStale({
+          backupPassword: password,
+          backupPublicKey: err.backupPublicKey,
+          accountPublicKey: err.accountPublicKey,
+        });
+        return;
+      }
       setError(errorMessage(err));
     }
   };
@@ -59,6 +94,10 @@ export default function KeysScreen() {
             отправлять личные сообщения здесь, восстановите его из резервной копии.
             {hasLocalKey &&
               ' Прежний ключ этого телефона сохранится — им по-прежнему расшифруется старая переписка.'}
+          </Text>
+          <Text style={s.hint}>
+            Ключ аккаунта: <Text style={s.mono}>{shortKeyId(accountPublicKey)}</Text> · ключ
+            этого телефона: <Text style={s.mono}>{shortKeyId(localPublicKey)}</Text>
           </Text>
           {!hasServerBackup && (
             <Text style={s.warn}>
@@ -81,7 +120,7 @@ export default function KeysScreen() {
             <Pressable
               style={[s.primary, (busy || password.length < 8) && s.disabled]}
               disabled={busy || password.length < 8}
-              onPress={() => void run(() => restore(password))}>
+              onPress={() => void runRestore()}>
               {busy ? <ActivityIndicator color="#fff" /> : <Text style={s.primaryText}>Восстановить</Text>}
             </Pressable>
           ) : (
@@ -127,9 +166,49 @@ export default function KeysScreen() {
         </View>
       )}
 
+      {needsRestore && stale && (
+        <View style={s.card}>
+          <Text style={s.title}>Копия от другого ключа</Text>
+          <Text style={s.hint}>
+            Пароль подошёл, но в копии ключ{' '}
+            <Text style={s.mono}>{shortKeyId(stale.backupPublicKey)}</Text>, а у аккаунта сейчас{' '}
+            <Text style={s.mono}>{shortKeyId(stale.accountPublicKey)}</Text> — его создало другое
+            устройство.
+          </Text>
+          <Text style={s.hint}>
+            Можно сделать ключ из копии ключом аккаунта: вернётся переписка, зашифрованная этим
+            ключом. Сообщения, зашифрованные ключом{' '}
+            <Text style={s.mono}>{shortKeyId(stale.accountPublicKey)}</Text>, останутся читаемыми
+            только на том устройстве; на остальных ключи нужно будет восстановить из этой копии.
+          </Text>
+          <TextInput
+            style={s.input}
+            placeholder="Пароль аккаунта"
+            placeholderTextColor="#555"
+            secureTextEntry
+            autoCapitalize="none"
+            value={adoptPassword}
+            onChangeText={setAdoptPassword}
+            editable={!busy}
+          />
+          <Pressable
+            style={[s.primary, (busy || adoptPassword.length < 8) && s.disabled]}
+            disabled={busy || adoptPassword.length < 8}
+            onPress={() =>
+              void run(() => adoptBackup(stale.backupPassword, adoptPassword))
+            }>
+            {busy ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <Text style={s.primaryText}>Сделать ключом аккаунта</Text>
+            )}
+          </Pressable>
+        </View>
+      )}
+
       <View style={s.card}>
         <Text style={s.title}>
-          {needsRestore ? 'Нет доступа к другим устройствам?' : 'Сменить ключи'}
+          {needsRestore ? 'Нет ни копии, ни доступа к другим устройствам?' : 'Сменить ключи'}
         </Text>
         <Text style={s.hint}>
           Новые ключи аккаунта. Переписка, зашифрованная старым ключом, на новых устройствах
@@ -180,6 +259,7 @@ const s = StyleSheet.create({
   lead: {color: '#9ca3af', fontSize: 13, lineHeight: 19},
   hint: {color: '#9ca3af', fontSize: 12, lineHeight: 17},
   warn: {color: '#fbbf24', fontSize: 13, lineHeight: 19},
+  mono: {fontFamily: 'monospace', color: '#c4b5fd'},
   input: {
     backgroundColor: '#0f1117',
     borderWidth: 1,

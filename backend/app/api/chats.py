@@ -1,17 +1,47 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import and_, select
+from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
 from app.core.deps import get_current_user
+from app.models.call import Call
 from app.models.chat import Chat, ChatMember
+from app.models.message import Message
 from app.models.user import User
 from app.schemas.chat import ChatOut, CreateDirectChat, CreateGroupChat
 
 router = APIRouter(prefix="/chats", tags=["chats"])
+
+
+async def _attach_last_activity(chats: list[Chat], db: AsyncSession) -> None:
+    """Последняя активность чата: последнее сообщение, последний звонок или создание."""
+    chat_ids = [c.id for c in chats]
+    if not chat_ids:
+        return
+    last_message = dict(
+        (
+            await db.execute(
+                select(Message.chat_id, func.max(Message.created_at))
+                .where(Message.chat_id.in_(chat_ids))
+                .group_by(Message.chat_id)
+            )
+        ).all()
+    )
+    last_call = dict(
+        (
+            await db.execute(
+                select(Call.chat_id, func.max(Call.started_at))
+                .where(Call.chat_id.in_(chat_ids))
+                .group_by(Call.chat_id)
+            )
+        ).all()
+    )
+    for chat in chats:
+        candidates = [chat.created_at, last_message.get(chat.id), last_call.get(chat.id)]
+        chat.last_activity_at = max(ts for ts in candidates if ts is not None)
 
 
 async def _load_chat(chat_id: str, db: AsyncSession) -> Chat:
@@ -23,6 +53,7 @@ async def _load_chat(chat_id: str, db: AsyncSession) -> Chat:
     chat = result.scalar_one_or_none()
     if not chat:
         raise HTTPException(status_code=404, detail="Chat not found")
+    await _attach_last_activity([chat], db)
     return chat
 
 
@@ -36,9 +67,12 @@ async def list_chats(
         .join(ChatMember)
         .where(ChatMember.user_id == current_user.id)
         .options(selectinload(Chat.members).selectinload(ChatMember.user))
-        .order_by(Chat.created_at.desc())
     )
-    return result.scalars().unique().all()
+    chats = list(result.scalars().unique().all())
+    await _attach_last_activity(chats, db)
+    # Свежие сверху.
+    chats.sort(key=lambda c: c.last_activity_at, reverse=True)
+    return chats
 
 
 @router.post("/direct", response_model=ChatOut, status_code=status.HTTP_201_CREATED)

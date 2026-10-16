@@ -121,6 +121,8 @@ export interface Chat {
   type: "direct" | "group";
   name: string | null;
   created_at: string;
+  /** Последнее сообщение / звонок / создание чата. */
+  last_activity_at?: string | null;
   members: ChatMember[];
 }
 

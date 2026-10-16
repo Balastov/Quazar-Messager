@@ -46,6 +46,26 @@ async function tryDecrypt(payload: string, myPrivKeys: string[]): Promise<string
     : '🔒 Сообщение зашифровано ключом, которого нет на этом устройстве';
 }
 
+function lastActivity(chat: Chat): number {
+  return Date.parse(chat.last_activity_at ?? chat.created_at);
+}
+
+/** Свежие сверху. */
+function sortByActivity(chats: Chat[]): Chat[] {
+  return [...chats].sort((a, b) => lastActivity(b) - lastActivity(a));
+}
+
+/** Поднимает чат вверх списка после нового сообщения или звонка. */
+function touchChat(chats: Chat[], chatId: string, at: string): Chat[] {
+  const chat = chats.find(c => c.id === chatId);
+  if (!chat || lastActivity(chat) >= Date.parse(at)) {
+    return chats;
+  }
+  return sortByActivity(
+    chats.map(c => (c.id === chatId ? {...c, last_activity_at: at} : c)),
+  );
+}
+
 function getOtherUserId(chat: Chat, myId: string): string | null {
   if (chat.type !== 'direct') {
     return null;
@@ -96,6 +116,7 @@ export const useChatStore = create<ChatState>((set, get) => {
           ...s.messages,
           [event.chat_id]: [...(s.messages[event.chat_id] ?? []), msg],
         },
+        chats: touchChat(s.chats, event.chat_id, event.timestamp),
       }));
       if (!get().chats.find(c => c.id === event.chat_id)) {
         get().loadChats();
@@ -121,6 +142,11 @@ export const useChatStore = create<ChatState>((set, get) => {
         // Ключ аккаунта сменили на другом устройстве.
         await useE2EStore.getState().sync(myId);
       }
+    }
+
+    if (event.type.startsWith('call_') && 'chat_id' in event && event.chat_id) {
+      const chatId = event.chat_id;
+      set(s => ({chats: touchChat(s.chats, chatId, new Date().toISOString())}));
     }
 
     if (event.type === 'message_status') {
@@ -176,7 +202,7 @@ export const useChatStore = create<ChatState>((set, get) => {
 
     loadChats: async () => {
       const chats = await chatsApi.list();
-      set({chats});
+      set({chats: sortByActivity(chats)});
     },
 
     selectChat: async (chatId: string) => {

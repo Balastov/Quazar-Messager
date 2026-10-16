@@ -28,6 +28,8 @@ class ChatOut(BaseModel):
     type: Literal["direct", "group"]
     name: str | None
     created_at: datetime
+    # Последнее сообщение / звонок / создание — для сортировки списка.
+    last_activity_at: datetime | None = None
     members: list[ChatMemberOut]
 
     model_config = {"from_attributes": True}

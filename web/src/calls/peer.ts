@@ -1,10 +1,18 @@
 import type { CallMedia, IceServer } from "../api/types";
+import {
+  isNoiseSuppressionSupported,
+  NoiseSuppressedMic,
+  preloadNoiseSuppression,
+  setBrowserNoiseSuppression,
+} from "./noiseSuppression";
 
 export type PeerCallbacks = {
   onIceCandidate: (candidate: RTCIceCandidateInit | null) => void;
   onRemoteStream: (stream: MediaStream) => void;
   onConnectionState: (state: RTCPeerConnectionState) => void;
   onError: (message: string) => void;
+  /** Работает ли сейчас шумоподавление RNNoise для микрофона. */
+  onNoiseSuppression?: (active: boolean) => void;
 };
 
 /**
@@ -18,11 +26,15 @@ export class CallPeer {
   private pendingIce: RTCIceCandidateInit[] = [];
   private remoteSet = false;
   private facingMode: "user" | "environment" = "user";
+  /** Исходный трек микрофона, пока собеседнику уходит очищенный RNNoise. */
+  private rawAudioTrack: MediaStreamTrack | null = null;
+  private denoiser: NoiseSuppressedMic | null = null;
 
   constructor(
     private iceServers: IceServer[],
     private media: CallMedia,
-    private cb: PeerCallbacks
+    private cb: PeerCallbacks,
+    private noiseSuppression = false
   ) {}
 
   getLocalStream() {
@@ -45,9 +57,22 @@ export class CallPeer {
     }));
   }
 
+  private wantsDenoiser(): boolean {
+    return this.noiseSuppression && this.media.audio !== false && isNoiseSuppressionSupported();
+  }
+
   private mediaConstraints(): MediaStreamConstraints {
+    const audio: MediaTrackConstraints | false =
+      this.media.audio !== false
+        ? {
+            echoCancellation: true,
+            autoGainControl: true,
+            // Пока работает RNNoise, встроенное шумоподавление выключено — без двойной обработки.
+            noiseSuppression: !this.wantsDenoiser(),
+          }
+        : false;
     return {
-      audio: this.media.audio !== false,
+      audio,
       video:
         this.media.video === true
           ? {
@@ -60,9 +85,85 @@ export class CallPeer {
   }
 
   async startLocalMedia(): Promise<MediaStream> {
+    const wantsDenoiser = this.wantsDenoiser();
+    // Модель грузится параллельно с запросом доступа к микрофону.
+    if (wantsDenoiser) void preloadNoiseSuppression().catch(() => {});
     const stream = await navigator.mediaDevices.getUserMedia(this.mediaConstraints());
     this.localStream = stream;
+    if (wantsDenoiser) {
+      await this.attachDenoiser();
+    }
     return stream;
+  }
+
+  isNoiseSuppressionActive(): boolean {
+    return this.denoiser !== null;
+  }
+
+  /**
+   * Вкл/выкл шумоподавление во время звонка. Возвращает, работает ли RNNoise после вызова
+   * (false при включении — устройство не поддерживает, остаётся обработка браузера).
+   */
+  async setNoiseSuppression(enabled: boolean): Promise<boolean> {
+    this.noiseSuppression = enabled;
+    if (!this.localStream) return false;
+
+    if (this.denoiser && this.rawAudioTrack) {
+      this.denoiser.setEnabled(enabled);
+      await setBrowserNoiseSuppression(this.rawAudioTrack, !enabled);
+      return enabled;
+    }
+    if (!enabled) return false;
+    return this.attachDenoiser();
+  }
+
+  /** Пропускает микрофон через RNNoise и подменяет отправляемый трек. */
+  private async attachDenoiser(): Promise<boolean> {
+    const raw = this.localStream?.getAudioTracks()[0];
+    if (!raw || this.denoiser) return this.denoiser !== null;
+
+    const denoiser = await NoiseSuppressedMic.create(raw);
+    if (!denoiser || !this.localStream) {
+      denoiser?.close();
+      await setBrowserNoiseSuppression(raw, true);
+      this.cb.onNoiseSuppression?.(false);
+      return false;
+    }
+
+    await setBrowserNoiseSuppression(raw, false);
+    // Выключенный микрофон остаётся выключенным: mute управляет отправляемым треком.
+    denoiser.track.enabled = raw.enabled;
+    raw.enabled = true;
+    denoiser.onFailed = () => void this.detachDenoiser();
+
+    await this.swapAudioTrack(raw, denoiser.track);
+    this.rawAudioTrack = raw;
+    this.denoiser = denoiser;
+    this.cb.onNoiseSuppression?.(true);
+    return true;
+  }
+
+  /** Возврат к исходному микрофону (аудио на устройстве остановилось и не перезапускается). */
+  private async detachDenoiser(): Promise<void> {
+    const { denoiser, rawAudioTrack: raw } = this;
+    if (!denoiser || !raw) return;
+    this.denoiser = null;
+    this.rawAudioTrack = null;
+
+    raw.enabled = denoiser.track.enabled;
+    await setBrowserNoiseSuppression(raw, true);
+    await this.swapAudioTrack(denoiser.track, raw);
+    denoiser.close();
+    this.cb.onNoiseSuppression?.(false);
+  }
+
+  private async swapAudioTrack(from: MediaStreamTrack, to: MediaStreamTrack): Promise<void> {
+    const sender = this.pc?.getSenders().find((s) => s.track === from);
+    if (sender) await sender.replaceTrack(to);
+    if (this.localStream) {
+      this.localStream.removeTrack(from);
+      this.localStream.addTrack(to);
+    }
   }
 
   async ensurePeer(): Promise<RTCPeerConnection> {
@@ -205,6 +306,10 @@ export class CallPeer {
   close() {
     this.localStream?.getTracks().forEach((t) => t.stop());
     this.localStream = null;
+    this.denoiser?.close();
+    this.denoiser = null;
+    this.rawAudioTrack?.stop();
+    this.rawAudioTrack = null;
     this.remoteStream = null;
     this.pendingIce = [];
     this.remoteSet = false;

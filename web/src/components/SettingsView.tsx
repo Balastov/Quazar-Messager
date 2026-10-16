@@ -15,6 +15,7 @@ import { ensurePushSubscription } from "../notifications/push";
 import { downloadBackupFile, BackupError } from "../crypto/backup";
 import { fetchKeyBackup } from "../crypto/keys";
 import { useE2EStore } from "../store/e2e";
+import { useCallStore } from "../store/call";
 import UserAvatar from "./UserAvatar";
 import { IconLogout } from "./icons";
 import s from "./SettingsView.module.css";
@@ -37,6 +38,8 @@ export default function SettingsView() {
   const logout = useAuthStore((st) => st.logout);
   const e2eStatus = useE2EStore((st) => st.status);
   const hasServerBackup = useE2EStore((st) => st.hasServerBackup);
+  const noiseSuppression = useCallStore((st) => st.noiseSuppression);
+  const toggleNoiseSuppression = useCallStore((st) => st.toggleNoiseSuppression);
 
   const [prefs, setPrefs] = useState<NotifyPrefs>(() => getNotifyPrefs());
   const [permission, setPermission] = useState(browserPermission);
@@ -220,6 +223,23 @@ export default function SettingsView() {
               Проверить уведомление
             </button>
           )}
+        </section>
+
+        <section className={s.card}>
+          <h3 className={s.sectionTitle}>Звонки</h3>
+          <label className={s.toggle}>
+            <input
+              type="checkbox"
+              checked={noiseSuppression}
+              onChange={() => void toggleNoiseSuppression()}
+            />
+            <span className={s.toggleUi} />
+            <span className={s.toggleLabel}>Шумоподавление микрофона</span>
+          </label>
+          <p className={s.hint}>
+            Убирает из вашего голоса клавиатуру, вентилятор, улицу и бытовые звуки. Можно
+            переключать прямо во время звонка.
+          </p>
         </section>
 
         <section className={s.card}>

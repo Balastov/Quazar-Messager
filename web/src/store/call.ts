@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { callsApi } from "../api/calls";
 import type { CallHistoryItem, CallMedia, CallPhase, WsEvent } from "../api/types";
 import { CallPeer } from "../calls/peer";
+import { getNoiseSuppressionPref, setNoiseSuppressionPref } from "../calls/noiseSuppression";
 import { clearCallNotification, notifyIncomingCall } from "../notifications/notify";
 import { startCallRingtone } from "../notifications/sound";
 import { socket } from "../ws/socket";
@@ -29,6 +30,10 @@ interface CallState {
   media: CallMedia;
   muted: boolean;
   cameraOff: boolean;
+  /** Настройка пользователя (запоминается на устройстве). */
+  noiseSuppression: boolean;
+  /** RNNoise реально обрабатывает микрофон в текущем звонке. */
+  noiseSuppressionActive: boolean;
   remoteStream: MediaStream | null;
   localStream: MediaStream | null;
   error: string | null;
@@ -41,6 +46,7 @@ interface CallState {
   reject: () => void;
   hangup: () => void;
   toggleMute: () => void;
+  toggleNoiseSuppression: () => Promise<void>;
   toggleCamera: () => void;
   flipCamera: () => Promise<void>;
   loadHistory: () => Promise<void>;
@@ -117,7 +123,10 @@ async function ensurePeer(media: CallMedia): Promise<CallPeer> {
     onError: (message) => {
       useCallStore.setState({ error: message });
     },
-  });
+    onNoiseSuppression: (active) => {
+      useCallStore.setState({ noiseSuppressionActive: active });
+    },
+  }, useCallStore.getState().noiseSuppression);
   return peer;
 }
 
@@ -133,6 +142,7 @@ function finishCall(reason: EndReason, error: string | null = null) {
     remoteStream: null,
     localStream: null,
     muted: false,
+    noiseSuppressionActive: false,
     cameraOff: false,
   });
   scheduleClear();
@@ -163,6 +173,7 @@ async function beginOutgoingCall(
     peerUserId,
     media,
     muted: false,
+    noiseSuppressionActive: false,
     cameraOff: false,
     error: null,
     endReason: null,
@@ -355,6 +366,8 @@ export const useCallStore = create<CallState>((set, get) => {
     peerAvatarUrl: null,
     media: { audio: true, video: false },
     muted: false,
+    noiseSuppression: getNoiseSuppressionPref(),
+    noiseSuppressionActive: false,
     cameraOff: false,
     remoteStream: null,
     localStream: null,
@@ -440,6 +453,15 @@ export const useCallStore = create<CallState>((set, get) => {
       finishCall("hangup");
     },
 
+    toggleNoiseSuppression: async () => {
+      const next = !get().noiseSuppression;
+      setNoiseSuppressionPref(next);
+      set({ noiseSuppression: next });
+      if (!peer) return;
+      const active = await peer.setNoiseSuppression(next);
+      set({ noiseSuppressionActive: active });
+    },
+
     toggleMute: () => {
       const next = !get().muted;
       peer?.setMuted(next);
@@ -488,6 +510,7 @@ export const useCallStore = create<CallState>((set, get) => {
         error: null,
         endReason: null,
         muted: false,
+        noiseSuppressionActive: false,
         cameraOff: false,
         media: { audio: true, video: false },
       });

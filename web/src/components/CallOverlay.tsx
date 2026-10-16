@@ -49,6 +49,9 @@ export default function CallOverlay() {
   const toggleMute = useCallStore((st) => st.toggleMute);
   const toggleCamera = useCallStore((st) => st.toggleCamera);
   const flipCamera = useCallStore((st) => st.flipCamera);
+  const noiseSuppression = useCallStore((st) => st.noiseSuppression);
+  const noiseSuppressionActive = useCallStore((st) => st.noiseSuppressionActive);
+  const toggleNoiseSuppression = useCallStore((st) => st.toggleNoiseSuppression);
 
   const audioRef = useRef<HTMLAudioElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
@@ -101,6 +104,26 @@ export default function CallOverlay() {
   const name = peerUsername || "Собеседник";
   const inCallControls =
     phase === "outgoing" || phase === "connecting" || phase === "active";
+
+  // Включено, но устройство не тянет RNNoise — работает обычная обработка браузера.
+  const noiseUnavailable = noiseSuppression && !noiseSuppressionActive && localStream !== null;
+  const noiseButton = (
+    <button
+      type="button"
+      className={s.mute}
+      onClick={() => void toggleNoiseSuppression()}
+      aria-pressed={noiseSuppression}
+      title={
+        noiseUnavailable
+          ? "Шумоподавление недоступно на этом устройстве — работает обычная обработка"
+          : noiseSuppression
+            ? "Шумоподавление включено: фоновые звуки убираются"
+            : "Шумоподавление выключено"
+      }
+    >
+      {noiseSuppression ? (noiseUnavailable ? "Шум: —" : "Шум: вкл") : "Шум: выкл"}
+    </button>
+  );
 
   return (
     <div className={s.root} role="dialog" aria-label={isVideo ? "Видеозвонок" : "Звонок"}>
@@ -159,6 +182,7 @@ export default function CallOverlay() {
                   >
                     {muted ? "Mic off" : "Mic"}
                   </button>
+                  {noiseButton}
                   <button
                     type="button"
                     className={cameraOff ? s.muteOn : s.mute}
@@ -220,6 +244,7 @@ export default function CallOverlay() {
                 >
                   {muted ? "Mic off" : "Mic"}
                 </button>
+                {noiseButton}
                 <button type="button" className={s.reject} onClick={hangup} aria-label="Завершить">
                   <IconPhone size={22} />
                 </button>

@@ -156,7 +156,7 @@ describe("CallPeer noise suppression", () => {
     await peer.ensurePeer();
 
     expect(sentAudio(pcs[0])?.id).toBe("mic");
-    expect(mic.constraints.at(-1)).toEqual({ noiseSuppression: true });
+    expect(mic.constraints[mic.constraints.length - 1]).toEqual({ noiseSuppression: true });
     expect(onNoiseSuppression).toHaveBeenLastCalledWith(false);
   });
 
@@ -176,7 +176,7 @@ describe("CallPeer noise suppression", () => {
 
     expect(await peer.setNoiseSuppression(false)).toBe(false);
     expect(denoiser.enabled).toBe(false);
-    expect(mic.constraints.at(-1)).toEqual({ noiseSuppression: true });
+    expect(mic.constraints[mic.constraints.length - 1]).toEqual({ noiseSuppression: true });
     expect(sentAudio(pcs[0])?.id).toBe("denoised");
 
     expect(await peer.setNoiseSuppression(true)).toBe(true);

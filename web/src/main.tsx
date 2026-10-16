@@ -1,8 +1,12 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";
+import { capturePendingInvite } from "./api/stars";
 import { registerNotifyServiceWorker } from "./notifications/notify";
 import "./index.css";
+
+// Ссылка-приглашение в Звезду могла открыться до входа — запоминаем её.
+capturePendingInvite();
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

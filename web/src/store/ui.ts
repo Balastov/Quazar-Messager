@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
-export type AppTab = "contacts" | "chats" | "calls" | "settings";
+export type AppTab = "contacts" | "chats" | "stars" | "calls" | "settings";
 
 interface UiState {
   tab: AppTab;

@@ -1,3 +1,5 @@
+import type { StarEvent } from "./stars";
+
 export type CallMedia = {
   audio: boolean;
   video: boolean;
@@ -32,6 +34,7 @@ export interface IceServer {
 
 // WebSocket events
 export type WsEvent =
+  | StarEvent
   | {
       type: "new_message";
       message_id: string;

@@ -1,10 +1,12 @@
 import { useAuthStore } from "../store/auth";
 import { useChatStore } from "../store/chat";
+import { useStarsStore } from "../store/stars";
 import { useUiStore, type AppTab } from "../store/ui";
 import UserAvatar from "./UserAvatar";
 import {
   IconCalls,
   IconChat,
+  IconConstellation,
   IconContacts,
   IconSettings,
 } from "./icons";
@@ -13,6 +15,7 @@ import s from "./AppNav.module.css";
 const ITEMS: { id: AppTab; label: string; Icon: typeof IconChat }[] = [
   { id: "contacts", label: "Контакты", Icon: IconContacts },
   { id: "chats", label: "Чат", Icon: IconChat },
+  { id: "stars", label: "Созвездие", Icon: IconConstellation },
   { id: "calls", label: "Звонки", Icon: IconCalls },
   { id: "settings", label: "Настройки", Icon: IconSettings },
 ];
@@ -22,7 +25,9 @@ export default function AppNav() {
   const setTab = useUiStore((st) => st.setTab);
   const mobileChatOpen = useUiStore((st) => st.mobileChatOpen);
   const activeChatId = useChatStore((st) => st.activeChatId);
-  const hideBottomNav = mobileChatOpen && !!activeChatId;
+  const starChannelOpen = useStarsStore((st) => st.mobileChannelOpen);
+  const hideBottomNav =
+    (mobileChatOpen && !!activeChatId) || (tab === "stars" && starChannelOpen);
   const user = useAuthStore((st) => st.user);
 
   const renderItems = (variant: "side" | "bottom") =>

@@ -5,6 +5,7 @@ import { usersApi } from "../api/users";
 import { socket } from "../ws/socket";
 import { ensurePushSubscription } from "../notifications/push";
 import { useE2EStore } from "./e2e";
+import { useStarsStore } from "./stars";
 import type { User } from "../api/types";
 
 interface AuthState {
@@ -40,6 +41,7 @@ export const useAuthStore = create<AuthState>()(
         setAuthToken(null);
         socket.disconnect();
         useE2EStore.getState().reset();
+        useStarsStore.getState().reset();
         set({ token: null, user: null });
       },
     }),

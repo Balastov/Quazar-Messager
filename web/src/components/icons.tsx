@@ -124,3 +124,36 @@ export const IconAddressBook = (p: IconProps) => (
     <path d="M9 10h6" />
   </Svg>
 );
+
+/** Созвездие: звёзды, соединённые линиями. */
+export const IconConstellation = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="m5 17 5-6 4 3 5-8" />
+    <circle cx="5" cy="17" r="1.6" fill="currentColor" />
+    <circle cx="10" cy="11" r="1.6" fill="currentColor" />
+    <circle cx="14" cy="14" r="1.6" fill="currentColor" />
+    <circle cx="19" cy="6" r="1.6" fill="currentColor" />
+  </Svg>
+);
+
+/** Планета — голосовой канал. */
+export const IconPlanet = (p: IconProps) => (
+  <Svg {...p} size={p.size ?? 18}>
+    <circle cx="12" cy="12" r="5" />
+    <path d="M4.5 15.5c-2 1.8-2.6 3.2-1.8 3.9 1.4 1.2 7-1.6 12.4-6.4S22.6 6 21.3 4.6c-.7-.8-2.2-.2-4 1.3" />
+  </Svg>
+);
+
+/** Спутник — текстовый канал. */
+export const IconSatellite = (p: IconProps) => (
+  <Svg {...p} size={p.size ?? 18}>
+    <path d="M5 8h14M5 16h14M10 3 8 21M16 3l-2 18" />
+  </Svg>
+);
+
+export const IconGear = (p: IconProps) => (
+  <Svg {...p} size={p.size ?? 18}>
+    <circle cx="12" cy="12" r="3" />
+    <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" />
+  </Svg>
+);

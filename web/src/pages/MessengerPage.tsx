@@ -13,6 +13,9 @@ import SettingsView from "../components/SettingsView";
 import ToastStack from "../components/ToastStack";
 import NotifyPrompt from "../components/NotifyPrompt";
 import CallOverlay from "../components/CallOverlay";
+import ConstellationView from "../components/constellation/ConstellationView";
+import { takePendingInvite } from "../api/stars";
+import { useStarsStore } from "../store/stars";
 import E2EKeyGate from "../components/E2EKeyGate";
 import s from "./MessengerPage.module.css";
 
@@ -40,6 +43,12 @@ export default function MessengerPage() {
       useChatStore.setState({ showMigrationNotice: true });
     }
     useUiStore.setState({ mobileChatOpen: false });
+
+    const inviteCode = takePendingInvite();
+    if (inviteCode) {
+      useUiStore.getState().setTab("stars");
+      useStarsStore.getState().openJoinDialog(inviteCode);
+    }
   }, []);
 
   useEffect(() => {
@@ -140,6 +149,12 @@ export default function MessengerPage() {
               {tab === "chats" && peerPanelOpen && <PeerPanel />}
             </div>
           </>
+        )}
+
+        {tab === "stars" && (
+          <div className={s.fullPane}>
+            <ConstellationView />
+          </div>
         )}
 
         {tab === "calls" && (

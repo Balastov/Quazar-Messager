@@ -9,9 +9,15 @@ import {
   sendMessageStatus,
   statusRank,
 } from '../ws/receipts';
-import {fetchUserPublicKey, loadOrCreateKeys} from '../crypto/keys';
+import {
+  fetchUserPublicKey,
+  invalidateKeyCache,
+  loadDecryptionKeys,
+  loadKeys,
+} from '../crypto/keys';
 import {decryptMessage, encryptMessage, isEncrypted} from '../crypto/message';
 import {useAuthStore} from './auth';
+import {useE2EStore} from './e2e';
 import type {Chat, Message} from '../api/types';
 
 interface ChatState {
@@ -22,15 +28,22 @@ interface ChatState {
   loadingMessages: boolean;
   loadChats: () => Promise<void>;
   selectChat: (chatId: string) => Promise<void>;
+  /** Бросает Error с текстом для пользователя, если отправить нельзя. */
   sendMessage: (chatId: string, plaintext: string) => Promise<void>;
   openDirectChat: (userId: string) => Promise<string>;
 }
 
-async function tryDecrypt(payload: string, myPrivKey: string): Promise<string> {
+async function tryDecrypt(payload: string, myPrivKeys: string[]): Promise<string> {
   if (!isEncrypted(payload)) {
     return payload;
   }
-  return (await decryptMessage(payload, myPrivKey)) ?? '[не удалось расшифровать]';
+  const plain = await decryptMessage(payload, myPrivKeys);
+  if (plain !== null) {
+    return plain;
+  }
+  return useE2EStore.getState().status === 'needs_restore'
+    ? '🔒 Восстановите ключи шифрования, чтобы прочитать сообщение'
+    : '🔒 Сообщение зашифровано ключом, которого нет на этом устройстве';
 }
 
 function getOtherUserId(chat: Chat, myId: string): string | null {
@@ -65,8 +78,10 @@ export const useChatStore = create<ChatState>((set, get) => {
   socket.on(async event => {
     if (event.type === 'new_message') {
       const myId = useAuthStore.getState().user?.id;
-      const {privateKey} = await loadOrCreateKeys();
-      const decryptedPayload = await tryDecrypt(event.payload, privateKey);
+      const decryptedPayload = await tryDecrypt(
+        event.payload,
+        await loadDecryptionKeys(),
+      );
 
       const msg: Message = {
         id: event.message_id,
@@ -99,6 +114,15 @@ export const useChatStore = create<ChatState>((set, get) => {
       }
     }
 
+    if (event.type === 'key_changed') {
+      invalidateKeyCache(event.user_id);
+      const myId = useAuthStore.getState().user?.id;
+      if (myId && event.user_id === myId) {
+        // Ключ аккаунта сменили на другом устройстве.
+        await useE2EStore.getState().sync(myId);
+      }
+    }
+
     if (event.type === 'message_status') {
       const nextStatus = event.status as Message['status'];
       set(s => {
@@ -116,6 +140,20 @@ export const useChatStore = create<ChatState>((set, get) => {
         }
         return {messages: updated};
       });
+    }
+  });
+
+  useE2EStore.subscribe((st, prev) => {
+    if (st.status === prev.status) {
+      return;
+    }
+    if (st.status === 'ready' || st.status === 'needs_restore') {
+      // Ключи устройства изменились: перечитываем историю.
+      const activeChatId = get().activeChatId;
+      set({messages: {}});
+      if (activeChatId) {
+        void get().selectChat(activeChatId);
+      }
     }
   });
 
@@ -145,11 +183,11 @@ export const useChatStore = create<ChatState>((set, get) => {
       set({activeChatId: chatId, loadingMessages: true});
       if (!get().messages[chatId]) {
         const rawMsgs = await messagesApi.list(chatId);
-        const {privateKey} = await loadOrCreateKeys();
+        const keys = await loadDecryptionKeys();
         const decrypted = await Promise.all(
           rawMsgs.map(async m => ({
             ...m,
-            payload: await tryDecrypt(m.payload, privateKey),
+            payload: await tryDecrypt(m.payload, keys),
           })),
         );
         set(s => ({messages: {...s.messages, [chatId]: decrypted}}));
@@ -167,17 +205,30 @@ export const useChatStore = create<ChatState>((set, get) => {
       const chat = chats.find(c => c.id === chatId);
       const myId = useAuthStore.getState().user?.id;
 
+      if (!chat || !myId) {
+        return;
+      }
+
       let payload = plaintext;
 
-      if (chat && myId) {
+      // Личные чаты — только E2E: без ключей не отправляем, а не шлём открытым текстом.
+      if (chat.type === 'direct') {
         const otherUserId = getOtherUserId(chat, myId);
-        if (otherUserId) {
-          const recipientKey = await fetchUserPublicKey(otherUserId);
-          if (recipientKey) {
-            const {publicKey: myPublicKey} = await loadOrCreateKeys();
-            payload = await encryptMessage(plaintext, recipientKey, myPublicKey);
-          }
+        if (!otherUserId) {
+          throw new Error('Не удалось определить собеседника');
         }
+        const myKeys =
+          useE2EStore.getState().status === 'ready' ? await loadKeys() : null;
+        if (!myKeys) {
+          throw new Error(
+            'Ключи шифрования на этом устройстве не восстановлены. Восстановите их из резервной копии.',
+          );
+        }
+        const recipientKey = await fetchUserPublicKey(otherUserId);
+        if (!recipientKey) {
+          throw new Error('Собеседник ещё не настроил шифрование. Отправка недоступна.');
+        }
+        payload = await encryptMessage(plaintext, recipientKey, myKeys.publicKey);
       }
 
       await messagesApi.send(chatId, payload);

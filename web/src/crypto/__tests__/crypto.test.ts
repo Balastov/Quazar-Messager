@@ -2,6 +2,8 @@ import nacl from "tweetnacl";
 import { encodeBase64 } from "tweetnacl-util";
 import { describe, expect, it } from "vitest";
 import { encryptMessage, decryptMessage, isEncrypted } from "../message";
+import { BackupError, decryptBackup, encryptBackup } from "../backup";
+import { derivePublicKeyFromSeed } from "../webcrypto";
 import { computeFingerprint, fingerprintMatches } from "../fingerprint";
 import {
   acceptPeerKeyChange,
@@ -59,6 +61,39 @@ describe("ENC2 dual-box message crypto", () => {
     const ciphertext = encryptMessage("secret", recipient.publicKey, sender.publicKey);
     const plain = await decryptMessage(ciphertext, { seed: other.secretKey });
     expect(plain).toBeNull();
+  });
+});
+
+describe("key backup", () => {
+  it("round-trips the identity seed", async () => {
+    const seed = nacl.randomBytes(32);
+    const blob = await encryptBackup(seed, "correct horse");
+    expect(blob.startsWith("ENC_BACKUP:v1:")).toBe(true);
+
+    const restored = await decryptBackup(blob, "correct horse");
+    expect(restored.seed).toEqual(seed);
+    expect(restored.publicKey).toBe(derivePublicKeyFromSeed(seed));
+  });
+
+  it("rejects a wrong password", async () => {
+    const blob = await encryptBackup(nacl.randomBytes(32), "correct horse");
+    await expect(decryptBackup(blob, "wrong horse")).rejects.toBeInstanceOf(BackupError);
+  });
+
+  it("lets a second device read its own outgoing messages", async () => {
+    // Устройство A: ключ аккаунта, исходящее сообщение и резервная копия.
+    const accountSeed = nacl.randomBytes(32);
+    const peer = randomKeyPair();
+    const outgoing = encryptMessage(
+      "пишу с ноутбука",
+      peer.publicKey,
+      derivePublicKeyFromSeed(accountSeed)
+    );
+    const blob = await encryptBackup(accountSeed, "backup-password");
+
+    // Устройство B восстанавливает тот же ключ и читает историю.
+    const { seed } = await decryptBackup(blob, "backup-password");
+    expect(await decryptMessage(outgoing, { seed })).toBe("пишу с ноутбука");
   });
 });
 

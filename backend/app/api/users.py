@@ -77,8 +77,9 @@ async def _set_public_key_and_notify(
 
     if key_changed:
         partner_ids = await get_direct_chat_partner_ids(current_user.id, db)
+        # Свои же устройства тоже должны узнать, что ключ аккаунта сменился.
         await manager.broadcast_to_users(
-            partner_ids,
+            [*partner_ids, current_user.id],
             {
                 "type": "key_changed",
                 "user_id": current_user.id,
@@ -179,6 +180,9 @@ async def rotate_public_key(
     """Ротация публичного ключа с подтверждением паролем аккаунта."""
     if not verify_password(body.password, current_user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid password")
+
+    # Резервная копия содержит старый ключ — другим устройствам она больше не поможет.
+    current_user.key_backup = None
 
     return await _set_public_key_and_notify(
         current_user,

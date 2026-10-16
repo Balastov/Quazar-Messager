@@ -6,11 +6,13 @@ import {useAuthStore} from '../store/auth';
 import AuthScreen from '../screens/AuthScreen';
 import ChatsScreen from '../screens/ChatsScreen';
 import ChatScreen from '../screens/ChatScreen';
+import KeysScreen from '../screens/KeysScreen';
 
 export type RootStackParamList = {
   Auth: undefined;
   Chats: undefined;
   Chat: {chatId: string; title: string};
+  Keys: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -48,6 +50,11 @@ export default function Navigation() {
               name="Chat"
               component={ChatScreen}
               options={({route}) => ({title: route.params.title})}
+            />
+            <Stack.Screen
+              name="Keys"
+              component={KeysScreen}
+              options={{title: 'Ключи шифрования'}}
             />
           </>
         )}

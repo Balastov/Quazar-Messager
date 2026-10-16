@@ -13,6 +13,7 @@ import SettingsView from "../components/SettingsView";
 import ToastStack from "../components/ToastStack";
 import NotifyPrompt from "../components/NotifyPrompt";
 import CallOverlay from "../components/CallOverlay";
+import E2EKeyGate from "../components/E2EKeyGate";
 import s from "./MessengerPage.module.css";
 
 type CallEventDetail = {
@@ -162,6 +163,7 @@ export default function MessengerPage() {
 
       {!showMobileChat && <NotifyPrompt />}
       <ToastStack />
+      <E2EKeyGate />
       <CallOverlay />
     </div>
   );

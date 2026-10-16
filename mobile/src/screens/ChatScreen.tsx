@@ -29,6 +29,7 @@ export default function ChatScreen({route, navigation}: Props) {
   const callPhase = useCallStore(s => s.phase);
   const callBusy = callPhase !== 'idle' && callPhase !== 'ended';
   const [text, setText] = useState('');
+  const [sendError, setSendError] = useState<string | null>(null);
   const listRef = useRef<FlatList<Message>>(null);
 
   const msgs = messages[chatId] ?? [];
@@ -94,7 +95,13 @@ export default function ChatScreen({route, navigation}: Props) {
       return;
     }
     setText('');
-    await sendMessage(chatId, payload);
+    setSendError(null);
+    try {
+      await sendMessage(chatId, payload);
+    } catch (err) {
+      setText(payload);
+      setSendError(err instanceof Error ? err.message : 'Не удалось отправить сообщение');
+    }
   };
 
   const statusIcon = (status: string) => {
@@ -156,6 +163,7 @@ export default function ChatScreen({route, navigation}: Props) {
         />
       )}
 
+      {sendError && <Text style={s.sendError}>{sendError}</Text>}
       <View style={s.inputRow}>
         <TextInput
           style={s.input}
@@ -229,5 +237,12 @@ const s = StyleSheet.create({
     justifyContent: 'center',
   },
   disabled: {opacity: 0.4},
+  sendError: {
+    color: '#fbbf24',
+    fontSize: 13,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    backgroundColor: '#1a1d27',
+  },
   sendIcon: {color: '#fff', fontSize: 18},
 });

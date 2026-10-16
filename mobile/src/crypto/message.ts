@@ -5,18 +5,17 @@
  * ENC1: "ENC1:" + base64( eph_pub[32] || nonce[24] || ciphertext )
  * ENC2: "ENC2:" + base64( u32be(len_r) || box_r || u32be(len_s) || box_s )
  */
+import {utf8ToBytes} from '@noble/hashes/utils';
 import {
   crypto_box_easy,
   crypto_box_open_easy,
   crypto_box_keypair,
   randombytes_buf,
   crypto_box_NONCEBYTES,
-  from_base64,
-  to_base64,
-  from_string,
   to_string,
   ready,
 } from 'react-native-libsodium';
+import {decodeB64, encodeB64} from './base64';
 
 export const E2E_PREFIX = 'ENC1:';
 export const E2E_PREFIX_V2 = 'ENC2:';
@@ -43,12 +42,12 @@ async function sealBox(
   recipientPublicKeyB64: string,
 ): Promise<Uint8Array> {
   await ready;
-  const recipientPubKey = from_base64(recipientPublicKeyB64);
+  const recipientPubKey = decodeB64(recipientPublicKeyB64);
   const ephemeral = crypto_box_keypair();
   const nonce = randombytes_buf(crypto_box_NONCEBYTES);
 
   const ciphertext = crypto_box_easy(
-    from_string(plaintext),
+    utf8ToBytes(plaintext),
     nonce,
     recipientPubKey,
     ephemeral.privateKey,
@@ -71,7 +70,7 @@ async function openBox(
     const ephPub = blob.slice(0, 32);
     const nonce = blob.slice(32, 56);
     const ciphertext = blob.slice(56);
-    const myPrivKey = from_base64(myPrivateKeyB64);
+    const myPrivKey = decodeB64(myPrivateKeyB64);
     const plainBytes = crypto_box_open_easy(ciphertext, nonce, ephPub, myPrivKey);
     return to_string(plainBytes);
   } catch {
@@ -81,7 +80,7 @@ async function openBox(
 
 function parseEnc2Boxes(payload: string): Uint8Array[] | null {
   try {
-    const raw = from_base64(payload.slice(E2E_PREFIX_V2.length));
+    const raw = decodeB64(payload.slice(E2E_PREFIX_V2.length));
     if (raw.length < 8) {return null;}
 
     const lenR = readU32BE(raw, 0);
@@ -110,7 +109,7 @@ export async function encryptMessage(
   const forRecipient = await sealBox(plaintext, recipientPublicKeyB64);
 
   if (!senderPublicKeyB64) {
-    return E2E_PREFIX + to_base64(forRecipient);
+    return E2E_PREFIX + encodeB64(forRecipient);
   }
 
   const forSender = await sealBox(plaintext, senderPublicKeyB64);
@@ -120,29 +119,29 @@ export async function encryptMessage(
   writeU32BE(blob, 4 + forRecipient.length, forSender.length);
   blob.set(forSender, 8 + forRecipient.length);
 
-  return E2E_PREFIX_V2 + to_base64(blob);
+  return E2E_PREFIX_V2 + encodeB64(blob);
 }
 
+/** Пробует каждый из приватных ключей (текущий, затем архивные). */
 export async function decryptMessage(
   payload: string,
-  myPrivateKeyB64: string,
+  myPrivateKeysB64: string[],
 ): Promise<string | null> {
   try {
+    let boxes: Uint8Array[] | null = null;
     if (payload.startsWith(E2E_PREFIX_V2)) {
-      const boxes = parseEnc2Boxes(payload);
-      if (!boxes) {return null;}
+      boxes = parseEnc2Boxes(payload);
+    } else if (payload.startsWith(E2E_PREFIX)) {
+      boxes = [decodeB64(payload.slice(E2E_PREFIX.length))];
+    }
+    if (!boxes) {return null;}
+
+    for (const key of myPrivateKeysB64) {
       for (const box of boxes) {
-        const plain = await openBox(box, myPrivateKeyB64);
+        const plain = await openBox(box, key);
         if (plain !== null) {return plain;}
       }
-      return null;
     }
-
-    if (payload.startsWith(E2E_PREFIX)) {
-      const blob = from_base64(payload.slice(E2E_PREFIX.length));
-      return openBox(blob, myPrivateKeyB64);
-    }
-
     return null;
   } catch {
     return null;

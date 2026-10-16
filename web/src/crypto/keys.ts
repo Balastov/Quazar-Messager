@@ -1,12 +1,21 @@
 /**
  * Управление E2E ключами (web).
- * Seed-based identity в IndexedDB; backup/rotate — фаза 3.
+ *
+ * У аккаунта один identity-ключ на все устройства. Создаётся он только на первом
+ * устройстве; остальные получают его из зашифрованной паролем резервной копии.
+ * Устройство никогда не перезаписывает ключ на сервере молча — только явная ротация.
  */
+import axios from "axios";
+import nacl from "tweetnacl";
 import { http } from "../api/client";
+import { BackupError, createBackupBlob, decryptBackup } from "./backup";
 import {
-  clearIdentityKeys,
+  derivePublicKeyFromSeed,
   generateIdentityKeyPair,
   loadIdentityKeyPair,
+  loadLegacyIdentities,
+  saveIdentitySeed,
+  type LocalIdentity,
 } from "./webcrypto";
 
 export { encodeBase64, decodeBase64 } from "tweetnacl-util";
@@ -16,11 +25,9 @@ const LEGACY_KEY_PUBLIC = "quazar_e2e_pub";
 const MIGRATION_UI_KEY = "quazar_e2e_migration_ui";
 const BACKUP_DONE_KEY = "quazar_e2e_backup_done";
 
-export interface IdentityKeys {
-  publicKey: string;
-  privateKey: CryptoKey | null;
-  seed: Uint8Array | null;
-}
+export type IdentityKeys = LocalIdentity;
+
+export type DecryptionKey = Pick<LocalIdentity, "seed" | "privateKey">;
 
 /** Удаляет legacy-ключи из localStorage (tweetnacl MVP). */
 export function migrateLegacyKeys(): boolean {
@@ -37,10 +44,6 @@ export function migrateLegacyKeys(): boolean {
   return hadLegacy;
 }
 
-export function markMigrationForUi(): void {
-  localStorage.setItem(MIGRATION_UI_KEY, "1");
-}
-
 export function consumeMigrationUiFlag(): boolean {
   if (localStorage.getItem(MIGRATION_UI_KEY) !== "1") return false;
   localStorage.removeItem(MIGRATION_UI_KEY);
@@ -55,45 +58,30 @@ export function hasBackupDone(): boolean {
   return localStorage.getItem(BACKUP_DONE_KEY) === "1";
 }
 
-export async function loadOrCreateKeys(): Promise<IdentityKeys & { migrated: boolean }> {
-  const migrated = migrateLegacyKeys();
-
-  const existing = await loadIdentityKeyPair();
-  if (existing) {
-    return { ...existing, migrated };
-  }
-
-  const created = await generateIdentityKeyPair();
-  return {
-    publicKey: created.publicKey,
-    privateKey: null,
-    seed: created.seed,
-    migrated: migrated || true,
-  };
+function clearBackupDone(): void {
+  localStorage.removeItem(BACKUP_DONE_KEY);
 }
 
-export async function rotateLocalKeys(): Promise<IdentityKeys> {
-  await clearIdentityKeys();
-  const created = await generateIdentityKeyPair();
-  return {
-    publicKey: created.publicKey,
-    privateKey: null,
-    seed: created.seed,
-  };
+/** Текущий ключ устройства (без создания нового). */
+export function loadKeys(): Promise<IdentityKeys | null> {
+  return loadIdentityKeyPair();
 }
 
-export async function uploadPublicKey(
-  publicKey: string,
-  force = false
-): Promise<void> {
-  await http.put("/users/me/key", { public_key: publicKey, force });
+/** Текущий ключ + архив прежних — для расшифровки истории. */
+export async function loadDecryptionKeys(): Promise<DecryptionKey[]> {
+  const current = await loadIdentityKeyPair();
+  const legacy = await loadLegacyIdentities();
+  return [...(current ? [current] : []), ...legacy];
 }
 
-export async function rotateKeysOnServer(password: string, publicKey: string): Promise<void> {
-  await http.post("/users/me/key/rotate", {
-    password,
-    public_key: publicKey,
-  });
+export async function uploadPublicKey(publicKey: string): Promise<void> {
+  await http.put("/users/me/key", { public_key: publicKey });
+}
+
+/** Ключ аккаунта на сервере, без кэша. Ошибки сети пробрасываются. */
+async function fetchAccountPublicKey(userId: string): Promise<string | null> {
+  const { data } = await http.get<{ public_key: string | null }>(`/users/${userId}/key`);
+  return data.public_key;
 }
 
 export async function uploadKeyBackup(blob: string): Promise<void> {
@@ -107,6 +95,104 @@ export async function fetchKeyBackup(): Promise<string | null> {
   } catch {
     return null;
   }
+}
+
+export type IdentitySyncResult =
+  | { status: "ready"; publicKey: string; hasServerBackup: boolean }
+  | { status: "needs_restore"; hasLocalKey: boolean; hasServerBackup: boolean };
+
+/**
+ * Сверяет ключ устройства с ключом аккаунта.
+ * Новый ключ создаётся, только если у аккаунта ключа ещё нет.
+ */
+export async function syncIdentityWithServer(userId: string): Promise<IdentitySyncResult> {
+  migrateLegacyKeys();
+
+  const serverKey = await fetchAccountPublicKey(userId);
+  const local = await loadIdentityKeyPair();
+
+  if (serverKey) {
+    const hasServerBackup = (await fetchKeyBackup()) !== null;
+    if (local?.publicKey === serverKey) {
+      return { status: "ready", publicKey: serverKey, hasServerBackup };
+    }
+    return { status: "needs_restore", hasLocalKey: local !== null, hasServerBackup };
+  }
+
+  // У аккаунта ещё нет ключа: создаём новый (локальный мог остаться от другого аккаунта
+  // в этом браузере — он уйдёт в архив).
+  const { publicKey } = await generateIdentityKeyPair();
+  try {
+    await uploadPublicKey(publicKey);
+  } catch (err) {
+    if (axios.isAxiosError(err) && err.response?.status === 409) {
+      // Другое устройство успело зарегистрировать свой ключ раньше.
+      return {
+        status: "needs_restore",
+        hasLocalKey: true,
+        hasServerBackup: (await fetchKeyBackup()) !== null,
+      };
+    }
+    throw err;
+  }
+  invalidateKeyCache(userId);
+  return { status: "ready", publicKey, hasServerBackup: false };
+}
+
+/** Восстанавливает ключ аккаунта из резервной копии на этом устройстве. */
+export async function restoreFromBackup(
+  userId: string,
+  blob: string,
+  password: string
+): Promise<string> {
+  const { publicKey, seed } = await decryptBackup(blob, password);
+  const serverKey = await fetchAccountPublicKey(userId);
+  if (serverKey && serverKey !== publicKey) {
+    throw new BackupError(
+      "Резервная копия устарела: ключ аккаунта с тех пор сменился. Создайте новую копию на устройстве, где сообщения читаются."
+    );
+  }
+
+  await saveIdentitySeed(seed);
+  if (!serverKey) {
+    await uploadPublicKey(publicKey);
+  }
+  invalidateKeyCache(userId);
+  markBackupDone();
+  return publicKey;
+}
+
+/** Создаёт копию и сохраняет её на сервере. Только для актуального ключа аккаунта. */
+export async function createAndUploadBackup(userId: string, password: string): Promise<string> {
+  const local = await loadIdentityKeyPair();
+  const serverKey = await fetchAccountPublicKey(userId);
+  if (!local || local.publicKey !== serverKey) {
+    throw new BackupError(
+      "Ключ этого устройства не совпадает с ключом аккаунта. Сначала восстановите ключи из резервной копии."
+    );
+  }
+
+  const blob = await createBackupBlob(password);
+  await uploadKeyBackup(blob);
+  markBackupDone();
+  return blob;
+}
+
+/**
+ * Новая пара ключей для аккаунта. Локально сохраняется только после того,
+ * как сервер принял ключ (иначе при неверном пароле устройство осталось бы без ключа аккаунта).
+ */
+export async function rotateKeys(userId: string, accountPassword: string): Promise<string> {
+  const seed = nacl.randomBytes(32);
+  const publicKey = derivePublicKeyFromSeed(seed);
+  await http.post("/users/me/key/rotate", {
+    password: accountPassword,
+    public_key: publicKey,
+  });
+  await saveIdentitySeed(seed);
+  invalidateKeyCache(userId);
+  clearBackupDone();
+  return publicKey;
 }
 
 const _keyCache = new Map<string, string>();

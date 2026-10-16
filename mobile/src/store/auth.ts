@@ -4,7 +4,7 @@ import {persist, createJSONStorage} from 'zustand/middleware';
 import {setAuthToken} from '../api/client';
 import {usersApi} from '../api/users';
 import {socket} from '../ws/socket';
-import {loadOrCreateKeys, uploadPublicKey} from '../crypto/keys';
+import {useE2EStore} from './e2e';
 import type {User} from '../api/types';
 
 interface AuthState {
@@ -13,11 +13,6 @@ interface AuthState {
   hydrated: boolean;
   setToken: (token: string) => Promise<void>;
   logout: () => void;
-}
-
-async function initE2EKeys() {
-  const {publicKey} = await loadOrCreateKeys();
-  await uploadPublicKey(publicKey);
 }
 
 export const useAuthStore = create<AuthState>()(
@@ -32,12 +27,13 @@ export const useAuthStore = create<AuthState>()(
         const user = await usersApi.me();
         set({token, user});
         socket.connect(token);
-        initE2EKeys().catch(console.error);
+        void useE2EStore.getState().sync(user.id);
       },
 
       logout: () => {
         setAuthToken(null);
         socket.disconnect();
+        useE2EStore.getState().reset();
         set({token: null, user: null});
       },
     }),
@@ -52,7 +48,7 @@ export const useAuthStore = create<AuthState>()(
             .then(user => {
               useAuthStore.setState({user, hydrated: true});
               socket.connect(state.token!);
-              initE2EKeys().catch(console.error);
+              void useE2EStore.getState().sync(user.id);
             })
             .catch(() => {
               state.logout();

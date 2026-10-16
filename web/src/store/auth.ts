@@ -3,9 +3,8 @@ import { persist } from "zustand/middleware";
 import { setAuthToken } from "../api/client";
 import { usersApi } from "../api/users";
 import { socket } from "../ws/socket";
-import { loadOrCreateKeys, markMigrationForUi, uploadPublicKey } from "../crypto/keys";
 import { ensurePushSubscription } from "../notifications/push";
-import { logError } from "../utils/log";
+import { useE2EStore } from "./e2e";
 import type { User } from "../api/types";
 
 interface AuthState {
@@ -16,17 +15,9 @@ interface AuthState {
   logout: () => void;
 }
 
-async function initE2EKeys() {
-  const { publicKey, migrated } = await loadOrCreateKeys();
-  await uploadPublicKey(publicKey, migrated);
-  if (migrated) {
-    markMigrationForUi();
-  }
-}
-
-function afterAuth(token: string) {
+function afterAuth(token: string, userId: string) {
   socket.connect(token);
-  initE2EKeys().catch((err) => logError("initE2EKeys", err));
+  void useE2EStore.getState().sync(userId);
   void ensurePushSubscription();
 }
 
@@ -40,7 +31,7 @@ export const useAuthStore = create<AuthState>()(
         setAuthToken(token);
         const user = await usersApi.me();
         set({ token, user });
-        afterAuth(token);
+        afterAuth(token, user.id);
       },
 
       setUser: (user) => set({ user }),
@@ -48,6 +39,7 @@ export const useAuthStore = create<AuthState>()(
       logout: () => {
         setAuthToken(null);
         socket.disconnect();
+        useE2EStore.getState().reset();
         set({ token: null, user: null });
       },
     }),
@@ -60,7 +52,7 @@ export const useAuthStore = create<AuthState>()(
             .me()
             .then((user) => {
               useAuthStore.setState({ user });
-              afterAuth(state.token!);
+              afterAuth(state.token!, user.id);
             })
             .catch(() => {
               state.logout();

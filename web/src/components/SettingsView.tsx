@@ -12,22 +12,9 @@ import {
 import { playSoftChime } from "../notifications/sound";
 import { previewNotification, requestNotifyPermission } from "../notifications/notify";
 import { ensurePushSubscription } from "../notifications/push";
-import {
-  createBackupBlob,
-  downloadBackupFile,
-  readBackupFile,
-  restoreFromBackupBlob,
-  BackupError,
-} from "../crypto/backup";
-import {
-  fetchKeyBackup,
-  hasBackupDone,
-  markBackupDone,
-  rotateKeysOnServer,
-  rotateLocalKeys,
-  uploadKeyBackup,
-  uploadPublicKey,
-} from "../crypto/keys";
+import { downloadBackupFile, BackupError } from "../crypto/backup";
+import { fetchKeyBackup } from "../crypto/keys";
+import { useE2EStore } from "../store/e2e";
 import UserAvatar from "./UserAvatar";
 import { IconLogout } from "./icons";
 import s from "./SettingsView.module.css";
@@ -48,6 +35,8 @@ export default function SettingsView() {
   const user = useAuthStore((st) => st.user);
   const setUser = useAuthStore((st) => st.setUser);
   const logout = useAuthStore((st) => st.logout);
+  const e2eStatus = useE2EStore((st) => st.status);
+  const hasServerBackup = useE2EStore((st) => st.hasServerBackup);
 
   const [prefs, setPrefs] = useState<NotifyPrefs>(() => getNotifyPrefs());
   const [permission, setPermission] = useState(browserPermission);
@@ -236,8 +225,12 @@ export default function SettingsView() {
         <section className={s.card}>
           <h3 className={s.sectionTitle}>Безопасность E2E</h3>
           <p className={s.hint}>
-            Резервная копия шифруется паролем. Сервер хранит только ciphertext.
-            {!hasBackupDone() && " Рекомендуется создать копию."}
+            Один ключ шифрования на все ваши устройства. Резервная копия шифруется паролем
+            (сервер хранит только ciphertext) и нужна, чтобы открыть переписку на новом
+            устройстве.
+            {e2eStatus === "ready" && !hasServerBackup && " Рекомендуется создать копию."}
+            {e2eStatus === "needs_restore" &&
+              " Ключ этого устройства не совпадает с ключом аккаунта — восстановите ключи из копии."}
           </p>
           <input
             className={s.input}
@@ -254,10 +247,8 @@ export default function SettingsView() {
               disabled={busy || backupPassword.length < 8}
               onClick={() =>
                 void run(async () => {
-                  const blob = await createBackupBlob(backupPassword);
-                  await uploadKeyBackup(blob);
+                  const blob = await useE2EStore.getState().createBackup(backupPassword);
                   downloadBackupFile(blob, user.username);
-                  markBackupDone();
                   setBackupPassword("");
                   setStatus("Резервная копия сохранена и скачана");
                 })
@@ -297,11 +288,7 @@ export default function SettingsView() {
               disabled={busy || restorePassword.length < 8}
               onClick={() =>
                 void run(async () => {
-                  const blob = await fetchKeyBackup();
-                  if (!blob) throw new BackupError("На сервере нет копии");
-                  const { publicKey } = await restoreFromBackupBlob(blob, restorePassword);
-                  await uploadPublicKey(publicKey, true);
-                  markBackupDone();
+                  await useE2EStore.getState().restoreFromServer(restorePassword);
                   setRestorePassword("");
                   setStatus("Ключи восстановлены");
                 })
@@ -328,10 +315,7 @@ export default function SettingsView() {
               e.target.value = "";
               if (!file) return;
               void run(async () => {
-                const blob = await readBackupFile(file);
-                const { publicKey } = await restoreFromBackupBlob(blob, restorePassword);
-                await uploadPublicKey(publicKey, true);
-                markBackupDone();
+                await useE2EStore.getState().restoreFromFile(file, restorePassword);
                 setRestorePassword("");
                 setStatus("Ключи восстановлены из файла");
               });
@@ -352,10 +336,11 @@ export default function SettingsView() {
             disabled={busy || rotatePassword.length < 8}
             onClick={() =>
               void run(async () => {
-                const keys = await rotateLocalKeys();
-                await rotateKeysOnServer(rotatePassword, keys.publicKey);
+                await useE2EStore.getState().rotate(rotatePassword);
                 setRotatePassword("");
-                setStatus("Ключи обновлены. Создайте новую резервную копию.");
+                setStatus(
+                  "Ключи обновлены. Создайте новую резервную копию — без неё другие устройства не смогут читать новые сообщения."
+                );
               })
             }
           >

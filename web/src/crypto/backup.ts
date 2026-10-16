@@ -2,9 +2,11 @@
  * Encrypted E2E key backup.
  * Format: ENC_BACKUP:v1: + base64( salt[16] || iv[12] || ciphertext )
  * Ciphertext = AES-GCM( JSON { version, publicKey, seed } ), key = PBKDF2(password)
+ *
+ * Тот же формат читает и пишет мобильный клиент (mobile/src/crypto/backup.ts).
  */
 import { encodeBase64, decodeBase64 } from "tweetnacl-util";
-import { getIdentitySeed, loadIdentityKeyPair, restoreIdentityFromSeed } from "./webcrypto";
+import { derivePublicKeyFromSeed, getIdentitySeed, loadIdentityKeyPair } from "./webcrypto";
 
 export const BACKUP_PREFIX = "ENC_BACKUP:v1:";
 const PBKDF2_ITERATIONS = 210_000;
@@ -46,22 +48,14 @@ async function deriveAesKey(password: string, salt: Uint8Array): Promise<CryptoK
   );
 }
 
-export async function createBackupBlob(password: string): Promise<string> {
+export async function encryptBackup(seed: Uint8Array, password: string): Promise<string> {
   if (password.length < 8) {
     throw new BackupError("Пароль для резервной копии должен быть не короче 8 символов");
   }
 
-  const identity = await loadIdentityKeyPair();
-  const seed = await getIdentitySeed();
-  if (!identity || !seed) {
-    throw new BackupError(
-      "Резервная копия недоступна для текущих ключей. Сначала выполните ротацию ключей."
-    );
-  }
-
   const payload: BackupPayload = {
     version: 1,
-    publicKey: identity.publicKey,
+    publicKey: derivePublicKeyFromSeed(seed),
     seed: encodeBase64(seed),
   };
 
@@ -81,10 +75,11 @@ export async function createBackupBlob(password: string): Promise<string> {
   return BACKUP_PREFIX + encodeBase64(blob);
 }
 
-export async function restoreFromBackupBlob(
+/** Расшифровывает копию, ничего не сохраняя локально. */
+export async function decryptBackup(
   backup: string,
   password: string
-): Promise<{ publicKey: string }> {
+): Promise<{ publicKey: string; seed: Uint8Array }> {
   if (!backup.startsWith(BACKUP_PREFIX)) {
     throw new BackupError("Неверный формат резервной копии");
   }
@@ -109,15 +104,26 @@ export async function restoreFromBackupBlob(
       throw new BackupError("Неподдерживаемая версия резервной копии");
     }
 
-    const restored = await restoreIdentityFromSeed(parsed.seed);
-    if (restored.publicKey !== parsed.publicKey) {
+    const seed = decodeBase64(parsed.seed);
+    if (derivePublicKeyFromSeed(seed) !== parsed.publicKey) {
       throw new BackupError("Ключи в резервной копии повреждены");
     }
-    return { publicKey: restored.publicKey };
+    return { publicKey: parsed.publicKey, seed };
   } catch (err) {
     if (err instanceof BackupError) throw err;
     throw new BackupError("Не удалось расшифровать. Проверьте пароль и файл.");
   }
+}
+
+export async function createBackupBlob(password: string): Promise<string> {
+  const identity = await loadIdentityKeyPair();
+  const seed = await getIdentitySeed();
+  if (!identity || !seed) {
+    throw new BackupError(
+      "Резервная копия недоступна для текущих ключей. Сначала выполните ротацию ключей."
+    );
+  }
+  return encryptBackup(seed, password);
 }
 
 export function downloadBackupFile(blob: string, username: string): void {

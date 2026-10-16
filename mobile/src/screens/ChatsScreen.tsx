@@ -12,6 +12,7 @@ import {useFocusEffect} from '@react-navigation/native';
 import type {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {useChatStore} from '../store/chat';
 import {useAuthStore} from '../store/auth';
+import {useE2EStore} from '../store/e2e';
 import {usersApi} from '../api/users';
 import type {RootStackParamList} from '../navigation';
 import type {Chat, User} from '../api/types';
@@ -22,6 +23,9 @@ export default function ChatsScreen({navigation}: Props) {
   const {chats, loadChats, openDirectChat} = useChatStore();
   const currentUser = useAuthStore(s => s.user);
   const logout = useAuthStore(s => s.logout);
+  const e2eStatus = useE2EStore(s => s.status);
+  const hasServerBackup = useE2EStore(s => s.hasServerBackup);
+  const restorePromptPending = useE2EStore(s => s.restorePromptPending);
 
   const [search, setSearch] = useState('');
   const [results, setResults] = useState<User[]>([]);
@@ -36,12 +40,25 @@ export default function ChatsScreen({navigation}: Props) {
   useEffect(() => {
     navigation.setOptions({
       headerRight: () => (
-        <Pressable onPress={logout} style={{marginRight: 4}}>
-          <Text style={{color: '#ff6b6b', fontSize: 14, fontWeight: '600'}}>Выйти</Text>
-        </Pressable>
+        <View style={{flexDirection: 'row', gap: 16, marginRight: 4}}>
+          <Pressable onPress={() => navigation.navigate('Keys')} hitSlop={8}>
+            <Text style={{color: '#c4b5fd', fontSize: 14, fontWeight: '600'}}>Ключи</Text>
+          </Pressable>
+          <Pressable onPress={logout} hitSlop={8}>
+            <Text style={{color: '#ff6b6b', fontSize: 14, fontWeight: '600'}}>Выйти</Text>
+          </Pressable>
+        </View>
       ),
     });
   }, [navigation, logout]);
+
+  // Ключ аккаунта есть на другом устройстве — сразу предлагаем восстановить его здесь.
+  useEffect(() => {
+    if (e2eStatus === 'needs_restore' && restorePromptPending) {
+      useE2EStore.getState().consumeRestorePrompt();
+      navigation.navigate('Keys');
+    }
+  }, [e2eStatus, restorePromptPending, navigation]);
 
   useEffect(() => {
     if (search.length < 2) {
@@ -78,6 +95,22 @@ export default function ChatsScreen({navigation}: Props) {
 
   return (
     <View style={s.root}>
+      {e2eStatus === 'needs_restore' && (
+        <Pressable style={[s.banner, s.bannerWarn]} onPress={() => navigation.navigate('Keys')}>
+          <Text style={s.bannerText}>
+            Ключи шифрования не восстановлены — личные сообщения недоступны. Нажмите, чтобы
+            восстановить.
+          </Text>
+        </Pressable>
+      )}
+      {e2eStatus === 'ready' && !hasServerBackup && (
+        <Pressable style={s.banner} onPress={() => navigation.navigate('Keys')}>
+          <Text style={s.bannerText}>
+            Создайте резервную копию ключей — без неё переписка не откроется на других
+            устройствах.
+          </Text>
+        </Pressable>
+      )}
       <View style={s.searchWrap}>
         <TextInput
           style={s.search}
@@ -125,6 +158,17 @@ export default function ChatsScreen({navigation}: Props) {
 
 const s = StyleSheet.create({
   root: {flex: 1, backgroundColor: '#0f1117'},
+  banner: {
+    marginHorizontal: 12,
+    marginTop: 12,
+    padding: 12,
+    borderRadius: 10,
+    backgroundColor: '#1a1d27',
+    borderWidth: 1,
+    borderColor: '#2a2d3a',
+  },
+  bannerWarn: {borderColor: 'rgba(251, 191, 36, 0.5)'},
+  bannerText: {color: '#e0e0e0', fontSize: 13, lineHeight: 18},
   searchWrap: {padding: 12},
   search: {
     backgroundColor: '#1a1d27',

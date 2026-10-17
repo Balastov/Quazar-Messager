@@ -236,6 +236,24 @@ describe("voice store", () => {
     expect(useVoiceStore.getState().serverMuted).toBe(false);
   });
 
+  it("switches to another microphone without reconnecting", async () => {
+    await useVoiceStore.getState().join("s1", "p1");
+    const room = FakeRoom.last!;
+    const pub = room.published[0];
+    const oldMic = mic;
+    const oldDenoiser = FakeDenoiser.last!;
+
+    mic = new FakeTrack("usb-mic");
+    await useVoiceStore.getState().switchMicrophone();
+    const newDenoiser = FakeDenoiser.last!;
+    expect(newDenoiser).not.toBe(oldDenoiser);
+    expect(pub.audioTrack.replaceTrack).toHaveBeenCalledWith(newDenoiser.track, true);
+    expect(oldMic.stopped).toBe(true);
+    expect(oldDenoiser.closed).toBe(true);
+    expect(room.published).toHaveLength(1); // не переподключались и не публиковали заново
+    expect(FakeRoom.last).toBe(room);
+  });
+
   it("switching planets leaves the previous one", async () => {
     await useVoiceStore.getState().join("s1", "p1");
     const first = FakeRoom.last!;

@@ -1,5 +1,9 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import { applyOutput } from "../calls/devices";
 import { useCallStore } from "../store/call";
+import { useDevicesStore } from "../store/devices";
+import AudioDevices from "./AudioDevices";
+import Dialog from "./constellation/Dialog";
 import UserAvatar from "./UserAvatar";
 import { IconPhone, IconVideo } from "./icons";
 import s from "./CallOverlay.module.css";
@@ -54,6 +58,8 @@ export default function CallOverlay() {
   const toggleNoiseSuppression = useCallStore((st) => st.toggleNoiseSuppression);
 
   const audioRef = useRef<HTMLAudioElement>(null);
+  const output = useDevicesStore((st) => st.output);
+  const [devicesOpen, setDevicesOpen] = useState(false);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const localVideoRef = useRef<HTMLVideoElement>(null);
 
@@ -88,6 +94,12 @@ export default function CallOverlay() {
     }
   }, [remoteStream, showVideoStage]);
 
+  // Звук собеседника — в выбранный динамик (где браузер это умеет).
+  useEffect(() => {
+    void applyOutput(audioRef.current, output);
+    void applyOutput(remoteVideoRef.current, output);
+  }, [output, remoteStream, showVideoStage]);
+
   useEffect(() => {
     const el = localVideoRef.current;
     if (!el) return;
@@ -107,6 +119,18 @@ export default function CallOverlay() {
 
   // Включено, но устройство не тянет RNNoise — работает обычная обработка браузера.
   const noiseUnavailable = noiseSuppression && !noiseSuppressionActive && localStream !== null;
+  const devicesButton = (
+    <button
+      type="button"
+      className={s.mute}
+      onClick={() => setDevicesOpen(true)}
+      title="Микрофон и динамик"
+      aria-label="Микрофон и динамик"
+    >
+      🎧
+    </button>
+  );
+
   const noiseButton = (
     <button
       type="button"
@@ -183,6 +207,7 @@ export default function CallOverlay() {
                     {muted ? "Mic off" : "Mic"}
                   </button>
                   {noiseButton}
+                  {devicesButton}
                   <button
                     type="button"
                     className={cameraOff ? s.muteOn : s.mute}
@@ -245,6 +270,7 @@ export default function CallOverlay() {
                   {muted ? "Mic off" : "Mic"}
                 </button>
                 {noiseButton}
+                  {devicesButton}
                 <button type="button" className={s.reject} onClick={hangup} aria-label="Завершить">
                   <IconPhone size={22} />
                 </button>
@@ -262,6 +288,11 @@ export default function CallOverlay() {
             )}
           </div>
         </div>
+      )}
+      {devicesOpen && (
+        <Dialog title="Микрофон и динамик" onClose={() => setDevicesOpen(false)}>
+          <AudioDevices />
+        </Dialog>
       )}
     </div>
   );

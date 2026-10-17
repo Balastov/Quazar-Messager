@@ -7,6 +7,7 @@ import { useVoiceStore, type VoicePeer } from "../../store/voice";
 import UserAvatar from "../UserAvatar";
 import { IconBack, IconGear, IconPlanet } from "../icons";
 import Dialog from "./Dialog";
+import AudioDevices from "../AudioDevices";
 import { apiError, can, outranks, ROOM_LABEL } from "./rules";
 import s from "./Constellation.module.css";
 
@@ -23,6 +24,7 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
   const callPhase = useCallStore((st) => st.phase);
   const [modError, setModError] = useState<string | null>(null);
   const [inviteOpen, setInviteOpen] = useState(false);
+  const [devicesOpen, setDevicesOpen] = useState(false);
   const myKnock = useDoorsStore((st) => st.myKnock);
   const allKnocks = useDoorsStore((st) => st.knocks);
   const doors = useDoorsStore.getState();
@@ -331,6 +333,9 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
         >
           {voice.noiseSuppression ? (voice.noiseActive || voice.micUnavailable ? "Шум: вкл" : "Шум: —") : "Шум: выкл"}
         </button>
+        <button type="button" className={s.secondary} onClick={() => setDevicesOpen(true)}>
+          🎧 Устройства
+        </button>
         {canInvite && (
           <button type="button" className={s.secondary} onClick={() => setInviteOpen(true)}>
             🚪 Позвать
@@ -340,6 +345,11 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
           Выйти с Планеты
         </button>
       </div>
+      {devicesOpen && (
+        <Dialog title="Микрофон и динамик" onClose={() => setDevicesOpen(false)}>
+          <AudioDevices />
+        </Dialog>
+      )}
       {inviteOpen && (
         <InviteDialog
           detail={detail}

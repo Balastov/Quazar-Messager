@@ -3,6 +3,7 @@ import { callsApi } from "../api/calls";
 import type { CallHistoryItem, CallMedia, CallPhase, WsEvent } from "../api/types";
 import { CallPeer } from "../calls/peer";
 import { getNoiseSuppressionPref, setNoiseSuppressionPref } from "../calls/noiseSuppression";
+import { applyIosRoute } from "../calls/devices";
 import { clearCallNotification, notifyIncomingCall } from "../notifications/notify";
 import { startCallRingtone } from "../notifications/sound";
 import { socket } from "../ws/socket";
@@ -48,6 +49,8 @@ interface CallState {
   hangup: () => void;
   toggleMute: () => void;
   toggleNoiseSuppression: () => Promise<void>;
+  /** Выбрали другой микрофон в настройках устройств. */
+  switchMicrophone: () => Promise<void>;
   toggleCamera: () => void;
   flipCamera: () => Promise<void>;
   loadHistory: () => Promise<void>;
@@ -161,6 +164,7 @@ async function beginOutgoingCall(
   if (phase !== "idle" && phase !== "ended") return;
   // Личный звонок и Планета одновременно — нельзя: микрофон один.
   await useVoiceStore.getState().leave();
+  applyIosRoute();
 
   const callId =
     typeof crypto !== "undefined" && "randomUUID" in crypto
@@ -418,6 +422,7 @@ export const useCallStore = create<CallState>((set, get) => {
       stopRing();
       void clearCallNotification(callId);
       await useVoiceStore.getState().leave();
+      applyIosRoute();
       set({ phase: "connecting", error: null, cameraOff: false });
       try {
         const p = await ensurePeer(media);
@@ -455,6 +460,14 @@ export const useCallStore = create<CallState>((set, get) => {
       }
       socket.send({ type: "call_hangup", call_id: callId, reason: "hangup" });
       finishCall("hangup");
+    },
+
+    switchMicrophone: async () => {
+      try {
+        await peer?.switchMicrophone();
+      } catch {
+        set({ error: "Не удалось переключить микрофон" });
+      }
     },
 
     toggleNoiseSuppression: async () => {

@@ -21,6 +21,7 @@ import {
   setBrowserNoiseSuppression,
   setNoiseSuppressionPref,
 } from "../calls/noiseSuppression";
+import { applyIosRoute, applyOutput, getMicrophone, getPreferredOutput } from "../calls/devices";
 import { useCallStore } from "./call";
 
 export type VoiceStatus = "idle" | "connecting" | "connected" | "reconnecting";
@@ -59,6 +60,10 @@ interface VoiceState {
   toggleMic: () => Promise<void>;
   /** Ещё раз попросить микрофон, не выходя с Планеты. */
   retryMic: () => Promise<void>;
+  /** Выбрали другой микрофон — подменяем отправляемый трек на ходу. */
+  switchMicrophone: () => Promise<void>;
+  /** Выбрали другой динамик — переводим звук собеседников. */
+  applyOutput: () => Promise<void>;
   toggleNoise: () => Promise<void>;
   unlockAudio: () => Promise<void>;
   dismissNotice: () => void;
@@ -95,7 +100,10 @@ function attachAudio(track: RemoteTrack) {
   if (track.kind !== "audio" || !track.sid) return;
   const elements = track.attach();
   const list = Array.isArray(elements) ? elements : [elements];
-  for (const el of list) audioContainer().appendChild(el);
+  for (const el of list) {
+    audioContainer().appendChild(el);
+    void applyOutput(el);
+  }
   audioElements.set(track.sid, list as HTMLMediaElement[]);
 }
 
@@ -228,21 +236,25 @@ export const useVoiceStore = create<VoiceState>((set, get) => {
     };
   }
 
+  /** Микрофон (выбранный или системный) и, если можно, RNNoise поверх него. */
+  async function openMicrophone(): Promise<{ raw: MediaStreamTrack; denoiser: NoiseSuppressedMic | null }> {
+    const wantDenoiser = get().noiseSuppression && isNoiseSuppressionSupported();
+    const stream = await getMicrophone({
+      echoCancellation: true,
+      autoGainControl: true,
+      noiseSuppression: !wantDenoiser,
+    });
+    const raw = stream.getAudioTracks()[0];
+    if (!raw) throw new DOMException("no audio track", "NotFoundError");
+    const denoiser = wantDenoiser ? await NoiseSuppressedMic.create(raw) : null;
+    if (wantDenoiser && !denoiser) await setBrowserNoiseSuppression(raw, true);
+    return { raw, denoiser };
+  }
+
   /** Берёт микрофон (через RNNoise, если можно) и публикует его. Ошибку объясняет на экране. */
   async function acquireMic(r: Room) {
-    const wantDenoiser = get().noiseSuppression && isNoiseSuppressionSupported();
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          autoGainControl: true,
-          noiseSuppression: !wantDenoiser,
-        },
-      });
-      const raw = stream.getAudioTracks()[0];
-      if (!raw) throw new DOMException("no audio track", "NotFoundError");
-      const denoiser = wantDenoiser ? await NoiseSuppressedMic.create(raw) : null;
-      if (wantDenoiser && !denoiser) await setBrowserNoiseSuppression(raw, true);
+      const { raw, denoiser } = await openMicrophone();
       if (room !== r) {
         denoiser?.close();
         raw.stop();
@@ -339,6 +351,7 @@ export const useVoiceStore = create<VoiceState>((set, get) => {
       if (status !== "idle") await get().leave();
 
       set({ status: "connecting", starId, channelId, error: null, notice: null, locked: null });
+      applyIosRoute(); // iPhone: «у уха» или громкая связь — до того, как пойдёт звук
       const wantDenoiser = get().noiseSuppression && isNoiseSuppressionSupported();
       if (wantDenoiser) void preloadNoiseSuppression().catch(() => {});
 
@@ -393,6 +406,44 @@ export const useVoiceStore = create<VoiceState>((set, get) => {
       if (publication.isMuted) await publication.unmute();
       else await publication.mute();
       syncPeers();
+    },
+
+    switchMicrophone: async () => {
+      const r = room;
+      if (!r || get().status === "idle") return;
+      if (!mic) {
+        // Микрофона не было (не разрешили) — пробуем взять выбранный.
+        await acquireMic(r);
+        syncPeers();
+        return;
+      }
+      const old = mic;
+      try {
+        const next = await openMicrophone();
+        if (room !== r || mic !== old) {
+          next.denoiser?.close();
+          next.raw.stop();
+          return;
+        }
+        const track = next.denoiser?.track ?? next.raw;
+        await old.publication?.audioTrack?.replaceTrack(track, true);
+        if (next.denoiser) watchDenoiser(next.denoiser);
+        mic = { raw: next.raw, denoiser: next.denoiser, publication: old.publication };
+        old.denoiser?.close();
+        old.raw.stop();
+        set({ noiseActive: !!next.denoiser, micError: null });
+      } catch (err) {
+        set({ notice: micErrorText(err) });
+      }
+      syncPeers();
+    },
+
+    applyOutput: async () => {
+      const deviceId = getPreferredOutput();
+      for (const els of audioElements.values()) {
+        for (const el of els) await applyOutput(el, deviceId);
+      }
+      await room?.switchActiveDevice("audiooutput", deviceId || "default").catch(() => {});
     },
 
     retryMic: async () => {

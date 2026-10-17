@@ -1,4 +1,5 @@
 import type { CallMedia, IceServer } from "../api/types";
+import { getMicrophone, getPreferredInput } from "./devices";
 import {
   isNoiseSuppressionSupported,
   NoiseSuppressedMic,
@@ -69,6 +70,8 @@ export class CallPeer {
             autoGainControl: true,
             // Пока работает RNNoise, встроенное шумоподавление выключено — без двойной обработки.
             noiseSuppression: !this.wantsDenoiser(),
+            // Выбранный микрофон; если его нет — браузер возьмёт системный.
+            ...(getPreferredInput() ? { deviceId: { ideal: getPreferredInput() } } : {}),
           }
         : false;
     return {
@@ -94,6 +97,37 @@ export class CallPeer {
       await this.attachDenoiser();
     }
     return stream;
+  }
+
+  /** Выбрали другой микрофон — подменяем отправляемый трек без пересогласования звонка. */
+  async switchMicrophone(): Promise<void> {
+    if (!this.localStream || this.media.audio === false) return;
+    const oldOut = this.denoiser?.track ?? this.localStream.getAudioTracks()[0];
+    if (!oldOut) return;
+    const oldRaw = this.denoiser ? this.rawAudioTrack : oldOut;
+    const oldDenoiser = this.denoiser;
+    const wasEnabled = oldOut.enabled;
+
+    const wantsDenoiser = this.wantsDenoiser();
+    const stream = await getMicrophone({
+      echoCancellation: true,
+      autoGainControl: true,
+      noiseSuppression: !wantsDenoiser,
+    });
+    const raw = stream.getAudioTracks()[0];
+    if (!raw) return;
+    const denoiser = wantsDenoiser ? await NoiseSuppressedMic.create(raw) : null;
+    if (wantsDenoiser && !denoiser) await setBrowserNoiseSuppression(raw, true);
+    if (denoiser) denoiser.onFailed = () => void this.detachDenoiser();
+    const newOut = denoiser?.track ?? raw;
+    newOut.enabled = wasEnabled; // выключенный микрофон остаётся выключенным
+
+    await this.swapAudioTrack(oldOut, newOut);
+    this.denoiser = denoiser;
+    this.rawAudioTrack = denoiser ? raw : null;
+    oldDenoiser?.close();
+    oldRaw?.stop();
+    this.cb.onNoiseSuppression?.(denoiser !== null);
   }
 
   isNoiseSuppressionActive(): boolean {

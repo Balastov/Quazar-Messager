@@ -210,6 +210,35 @@ describe("CallPeer noise suppression", () => {
     expect(onNoiseSuppression).toHaveBeenLastCalledWith(false);
   });
 
+  it("switches the microphone mid-call keeping noise suppression and mute", async () => {
+    const { peer } = makePeer(true);
+    await peer.ensurePeer();
+    const first = FakeDenoiser.instances[0];
+    peer.setMuted(true);
+
+    const usb = new FakeTrack("audio", "usb-mic");
+    mic = usb;
+    await peer.switchMicrophone();
+    const second = FakeDenoiser.instances[1];
+    expect(sentAudio(pcs[0])).toBe(second.track);
+    expect(second.track.enabled).toBe(false); // выключенный микрофон остался выключенным
+    expect(first.closed).toBe(true);
+    expect(peer.isNoiseSuppressionActive()).toBe(true);
+
+    peer.setMuted(false);
+    expect(second.track.enabled).toBe(true);
+  });
+
+  it("switches the microphone without noise suppression too", async () => {
+    const { peer } = makePeer(false);
+    await peer.ensurePeer();
+    const old = mic;
+    mic = new FakeTrack("audio", "usb-mic");
+    await peer.switchMicrophone();
+    expect(sentAudio(pcs[0])?.id).toBe("usb-mic");
+    expect(old.stopped).toBe(true);
+  });
+
   it("releases the microphone on close", async () => {
     const { peer } = makePeer(true);
     await peer.ensurePeer();

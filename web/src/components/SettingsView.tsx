@@ -18,6 +18,7 @@ import { useE2EStore } from "../store/e2e";
 import { useCallStore } from "../store/call";
 import UserAvatar from "./UserAvatar";
 import MicCheck from "./MicCheck";
+import AudioDevices from "./AudioDevices";
 import { IconLogout } from "./icons";
 import s from "./SettingsView.module.css";
 
@@ -241,6 +242,7 @@ export default function SettingsView() {
             Убирает из вашего голоса клавиатуру, вентилятор, улицу и бытовые звуки. Можно
             переключать прямо во время звонка.
           </p>
+          <AudioDevices />
           <MicCheck buttonClass={s.secondary} hintClass={s.hint} />
         </section>
 

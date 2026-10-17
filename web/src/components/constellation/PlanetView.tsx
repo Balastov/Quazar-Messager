@@ -159,6 +159,17 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
             🔊 Нажмите, чтобы слышать собеседников
           </button>
         )}
+        {voice.micUnavailable && voice.micError && (
+          <div className={s.listItem} role="alert">
+            <div className={s.listMain}>
+              <span className={s.listTitle}>Вас не слышно: микрофон не включился</span>
+              <span className={s.listSub}>{voice.micError}</span>
+            </div>
+            <button type="button" className={s.primary} onClick={() => void voice.retryMic()}>
+              Включить микрофон
+            </button>
+          </div>
+        )}
         {voice.serverMuted && (
           <p className={`${s.hint} ${s.warn}`}>
             Модератор выключил вам микрофон. Вы слышите всех, но вас пока не слышно.
@@ -224,11 +235,15 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
         <button
           type="button"
           className={`${s.secondary} ${voice.micOn ? s.voiceToggle : s.voiceToggleOff}`}
-          onClick={() => void voice.toggleMic()}
-          disabled={voice.micUnavailable || voice.serverMuted || voice.status !== "connected"}
+          onClick={() => void (voice.micUnavailable ? voice.retryMic() : voice.toggleMic())}
+          disabled={voice.serverMuted || voice.status !== "connected"}
           aria-pressed={voice.micOn}
         >
-          {voice.micUnavailable ? "Нет микрофона" : voice.micOn ? "🎙 Микрофон вкл" : "🔇 Микрофон выкл"}
+          {voice.micUnavailable
+            ? "🎙 Включить микрофон"
+            : voice.micOn
+              ? "🎙 Микрофон вкл"
+              : "🔇 Микрофон выкл"}
         </button>
         <button
           type="button"

@@ -14,6 +14,7 @@ export function VoiceBar({ floating = false }: { floating?: boolean }) {
   const micUnavailable = useVoiceStore((st) => st.micUnavailable);
   const serverMuted = useVoiceStore((st) => st.serverMuted);
   const toggleMic = useVoiceStore((st) => st.toggleMic);
+  const retryMic = useVoiceStore((st) => st.retryMic);
   const leave = useVoiceStore((st) => st.leave);
   const detail = useStarsStore((st) => (starId ? st.details[starId] : undefined));
 
@@ -42,8 +43,8 @@ export function VoiceBar({ floating = false }: { floating?: boolean }) {
       <button
         type="button"
         className={`${s.secondary} ${s.small} ${micOn ? "" : s.voiceToggleOff}`}
-        onClick={() => void toggleMic()}
-        disabled={micUnavailable || serverMuted || status !== "connected"}
+        onClick={() => void (micUnavailable ? retryMic() : toggleMic())}
+        disabled={serverMuted || status !== "connected"}
         aria-label={micOn ? "Выключить микрофон" : "Включить микрофон"}
         title={micOn ? "Выключить микрофон" : "Включить микрофон"}
       >

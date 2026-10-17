@@ -160,8 +160,22 @@ describe("voice store", () => {
     const st = useVoiceStore.getState();
     expect(st.status).toBe("connected");
     expect(st.micUnavailable).toBe(true);
-    expect(st.notice).toMatch(/микрофон/i);
+    expect(st.micError).toMatch(/Разрешите/);
     expect(FakeRoom.last!.published).toHaveLength(0);
+  });
+
+  it("turns the microphone on later without leaving the planet", async () => {
+    micDenied = true;
+    await useVoiceStore.getState().join("s1", "p1");
+    const room = FakeRoom.last!;
+
+    micDenied = false;
+    await useVoiceStore.getState().retryMic();
+    const st = useVoiceStore.getState();
+    expect(st.micUnavailable).toBe(false);
+    expect(st.micError).toBeNull();
+    expect(room.published[0].track.id).toBe("denoised");
+    expect(FakeRoom.last).toBe(room);
   });
 
   it("refuses to join during a personal call", async () => {
@@ -215,5 +229,15 @@ describe("voice store", () => {
     expect(first.disconnect).toHaveBeenCalled();
     expect(FakeRoom.last).not.toBe(first);
     expect(useVoiceStore.getState().channelId).toBe("p2");
+  });
+});
+
+describe("micErrorText", () => {
+  it("explains each kind of failure", async () => {
+    const { micErrorText } = await import("../voice");
+    expect(micErrorText(new DOMException("x", "NotAllowedError"))).toMatch(/Разрешите/);
+    expect(micErrorText(new DOMException("x", "NotFoundError"))).toMatch(/не найден/);
+    expect(micErrorText(new DOMException("x", "NotReadableError"))).toMatch(/занят/);
+    expect(micErrorText(new Error("publish timed out"))).toMatch(/publish timed out/);
   });
 });

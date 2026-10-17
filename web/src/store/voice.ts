@@ -39,8 +39,10 @@ interface VoiceState {
   channelId: string | null;
   peers: VoicePeer[];
   micOn: boolean;
-  /** Микрофон недоступен (нет разрешения) — можно только слушать. */
+  /** Микрофон недоступен — можно только слушать. */
   micUnavailable: boolean;
+  /** Почему микрофон недоступен и что сделать (показывается на экране Планеты). */
+  micError: string | null;
   /** Модератор выключил микрофон. */
   serverMuted: boolean;
   noiseSuppression: boolean;
@@ -53,6 +55,8 @@ interface VoiceState {
   join: (starId: string, channelId: string) => Promise<void>;
   leave: () => Promise<void>;
   toggleMic: () => Promise<void>;
+  /** Ещё раз попросить микрофон, не выходя с Планеты. */
+  retryMic: () => Promise<void>;
   toggleNoise: () => Promise<void>;
   unlockAudio: () => Promise<void>;
   dismissNotice: () => void;
@@ -106,6 +110,33 @@ function peerOf(p: Participant, isLocal: boolean): VoicePeer {
     speaking: p.isSpeaking,
     micOn: p.isMicrophoneEnabled,
   };
+}
+
+/** Понятная причина, почему не удалось взять микрофон, и что с этим сделать. */
+export function micErrorText(err: unknown): string {
+  const name = err instanceof DOMException || err instanceof Error ? err.name : "";
+  switch (name) {
+    case "NotAllowedError":
+    case "SecurityError":
+      return (
+        "Браузер не дал доступ к микрофону. Разрешите его: значок слева от адреса сайта → " +
+        "«Микрофон» → «Разрешить». На Mac проверьте ещё: Системные настройки → " +
+        "Конфиденциальность и безопасность → Микрофон → включите ваш браузер."
+      );
+    case "NotFoundError":
+    case "OverconstrainedError":
+      return "Микрофон не найден. Подключите гарнитуру или проверьте, что микрофон включён в системе.";
+    case "NotReadableError":
+    case "AbortError":
+      return (
+        "Микрофон занят другой программой (Zoom, Телемост, другая вкладка с звонком). " +
+        "Закройте её и нажмите «Включить микрофон»."
+      );
+    default: {
+      const detail = err instanceof Error && err.message ? ` (${err.message})` : "";
+      return `Не удалось включить микрофон${detail}. Нажмите «Включить микрофон», чтобы попробовать ещё раз.`;
+    }
+  }
 }
 
 function apiError(err: unknown, fallback: string): string {
@@ -167,11 +198,53 @@ export const useVoiceStore = create<VoiceState>((set, get) => {
       peers: [],
       micOn: false,
       micUnavailable: false,
+      micError: null,
       serverMuted: false,
       noiseActive: false,
       needsAudioUnlock: false,
       ...(notice ? { notice } : {}),
     });
+  }
+
+  /** Берёт микрофон (через RNNoise, если можно) и публикует его. Ошибку объясняет на экране. */
+  async function acquireMic(r: Room) {
+    const wantDenoiser = get().noiseSuppression && isNoiseSuppressionSupported();
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          autoGainControl: true,
+          noiseSuppression: !wantDenoiser,
+        },
+      });
+      const raw = stream.getAudioTracks()[0];
+      if (!raw) throw new DOMException("no audio track", "NotFoundError");
+      const denoiser = wantDenoiser ? await NoiseSuppressedMic.create(raw) : null;
+      if (wantDenoiser && !denoiser) await setBrowserNoiseSuppression(raw, true);
+      if (room !== r) {
+        denoiser?.close();
+        raw.stop();
+        return;
+      }
+      mic = { raw, denoiser, publication: null };
+      if (denoiser) {
+        denoiser.onFailed = () => {
+          // Обработка звука остановилась — переключаемся на обычный микрофон.
+          if (!mic?.denoiser) return;
+          void mic.publication?.audioTrack?.replaceTrack(mic.raw, true);
+          void setBrowserNoiseSuppression(mic.raw, true);
+          mic.denoiser.close();
+          mic.denoiser = null;
+          set({ noiseActive: false });
+        };
+      }
+      await publishMic(r);
+      set({ noiseActive: !!denoiser, micUnavailable: false, micError: null });
+    } catch (err) {
+      console.error("Planet microphone failed", err);
+      await releaseMic();
+      set({ micUnavailable: true, micError: micErrorText(err) });
+    }
   }
 
   function wire(r: Room, { RoomEvent, DisconnectReason }: LiveKit) {
@@ -234,6 +307,7 @@ export const useVoiceStore = create<VoiceState>((set, get) => {
     peers: [],
     micOn: false,
     micUnavailable: false,
+    micError: null,
     serverMuted: false,
     noiseSuppression: getNoiseSuppressionPref(),
     noiseActive: false,
@@ -283,44 +357,8 @@ export const useVoiceStore = create<VoiceState>((set, get) => {
         return;
       }
 
-      // Микрофон. Если его нет или не разрешили — остаёмся слушать.
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            echoCancellation: true,
-            autoGainControl: true,
-            noiseSuppression: !wantDenoiser,
-          },
-        });
-        const raw = stream.getAudioTracks()[0];
-        const denoiser = wantDenoiser ? await NoiseSuppressedMic.create(raw) : null;
-        if (wantDenoiser && !denoiser) await setBrowserNoiseSuppression(raw, true);
-        if (room !== r) {
-          denoiser?.close();
-          raw.stop();
-          return;
-        }
-        mic = { raw, denoiser, publication: null };
-        if (denoiser) {
-          denoiser.onFailed = () => {
-            // Обработка звука остановилась — переключаемся на обычный микрофон.
-            if (!mic?.denoiser) return;
-            void mic.publication?.audioTrack?.replaceTrack(mic.raw, true);
-            void setBrowserNoiseSuppression(mic.raw, true);
-            mic.denoiser.close();
-            mic.denoiser = null;
-            set({ noiseActive: false });
-          };
-        }
-        await publishMic(r);
-        set({ noiseActive: !!denoiser, micUnavailable: false });
-      } catch (err) {
-        await releaseMic();
-        set({
-          micUnavailable: true,
-          notice: apiError(err, "Микрофон недоступен — вы на Планете только слушаете"),
-        });
-      }
+      // Микрофон. Если его нет или не разрешили — остаёмся слушать, причину покажем на экране.
+      await acquireMic(r);
 
       await r.startAudio().catch(() => {});
       set({ status: "connected", needsAudioUnlock: !r.canPlaybackAudio });
@@ -337,6 +375,14 @@ export const useVoiceStore = create<VoiceState>((set, get) => {
       if (!publication || get().serverMuted) return;
       if (publication.isMuted) await publication.unmute();
       else await publication.mute();
+      syncPeers();
+    },
+
+    retryMic: async () => {
+      const r = room;
+      if (!r || get().status === "idle" || mic) return;
+      set({ micError: null });
+      await acquireMic(r);
       syncPeers();
     },
 

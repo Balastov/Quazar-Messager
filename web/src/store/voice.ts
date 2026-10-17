@@ -51,6 +51,8 @@ interface VoiceState {
   needsAudioUnlock: boolean;
   error: string | null;
   notice: string | null;
+  /** Комната «По приглашениям» не пустила — нужно постучаться. */
+  locked: { starId: string; channelId: string } | null;
 
   join: (starId: string, channelId: string) => Promise<void>;
   leave: () => Promise<void>;
@@ -324,6 +326,7 @@ export const useVoiceStore = create<VoiceState>((set, get) => {
     needsAudioUnlock: false,
     error: null,
     notice: null,
+    locked: null,
 
     join: async (starId, channelId) => {
       const { status, channelId: current } = get();
@@ -335,7 +338,7 @@ export const useVoiceStore = create<VoiceState>((set, get) => {
       }
       if (status !== "idle") await get().leave();
 
-      set({ status: "connecting", starId, channelId, error: null, notice: null });
+      set({ status: "connecting", starId, channelId, error: null, notice: null, locked: null });
       const wantDenoiser = get().noiseSuppression && isNoiseSuppressionSupported();
       if (wantDenoiser) void preloadNoiseSuppression().catch(() => {});
 
@@ -363,6 +366,10 @@ export const useVoiceStore = create<VoiceState>((set, get) => {
         await r.connect(url, token);
       } catch (err) {
         await cleanup();
+        if (axios.isAxiosError(err) && err.response?.status === 423) {
+          set({ locked: { starId, channelId } });
+          return;
+        }
         set({ error: apiError(err, "Не удалось подключиться к Планете. Попробуйте ещё раз.") });
         return;
       }
@@ -426,6 +433,6 @@ export const useVoiceStore = create<VoiceState>((set, get) => {
       set({ needsAudioUnlock: room ? !room.canPlaybackAudio : false });
     },
 
-    dismissNotice: () => set({ notice: null, error: null }),
+    dismissNotice: () => set({ notice: null, error: null, locked: null }),
   };
 });

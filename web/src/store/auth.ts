@@ -7,6 +7,7 @@ import { ensurePushSubscription } from "../notifications/push";
 import { useE2EStore } from "./e2e";
 import { useStarsStore } from "./stars";
 import { useVoiceStore } from "./voice";
+import { useDoorsStore } from "./doors";
 import type { User } from "../api/types";
 
 interface AuthState {
@@ -43,6 +44,7 @@ export const useAuthStore = create<AuthState>()(
         socket.disconnect();
         useE2EStore.getState().reset();
         void useVoiceStore.getState().leave();
+        useDoorsStore.getState().reset();
         useStarsStore.getState().reset();
         set({ token: null, user: null });
       },

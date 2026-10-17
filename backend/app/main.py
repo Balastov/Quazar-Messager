@@ -21,6 +21,7 @@ from app.api.chats import router as chats_router
 from app.api.messages import router as messages_router
 from app.api.calls import router as calls_router
 from app.api.push import router as push_router
+from app.api.doors import router as doors_router
 from app.api.office import router as office_router
 from app.api.stars import invites_router as star_invites_router
 from app.api.stars import router as stars_router
@@ -99,6 +100,12 @@ async def lifespan(app: FastAPI):
                 "REFERENCES star_floors(id) ON DELETE SET NULL"
             )
         )
+        await conn.execute(
+            text(
+                "ALTER TABLE star_channels ADD COLUMN IF NOT EXISTS access VARCHAR(16) "
+                "NOT NULL DEFAULT 'open'"
+            )
+        )
     # Кто сейчас на Планетах — восстанавливаем из LiveKit после перезапуска (в фоне).
     app.state.voice_resync = asyncio.create_task(voice.resync())
     yield
@@ -126,6 +133,7 @@ app.include_router(stars_router)
 app.include_router(star_invites_router)
 app.include_router(voice_router)
 app.include_router(office_router)
+app.include_router(doors_router)
 app.include_router(livekit_webhook_router)
 app.include_router(ws_router)
 

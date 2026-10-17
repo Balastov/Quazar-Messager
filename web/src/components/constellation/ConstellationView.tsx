@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { ChannelKind, StarChannel } from "../../api/stars";
+import { useDoorsStore } from "../../store/doors";
 import { unreadForStar, useStarsStore } from "../../store/stars";
 import { IconConstellation } from "../icons";
 import ChannelDialog from "./ChannelDialog";
@@ -51,6 +52,11 @@ export default function ConstellationView() {
     const desktop = window.matchMedia("(min-width: 768px)").matches;
     if (desktop || mobileChannelOpen) void selectChannel(channelId);
   }, [activeStarId, activeChannelByStar, unread, mobileChannelOpen, selectChannel]);
+
+  // Стуки в двери этой Звезды (кто может впускать — все, остальным — свои).
+  useEffect(() => {
+    if (activeStarId) void useDoorsStore.getState().loadKnocks(activeStarId);
+  }, [activeStarId]);
 
   useEffect(() => {
     if (!notice) return;

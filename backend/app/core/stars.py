@@ -63,6 +63,8 @@ class Perm(str, Enum):
     MANAGE_CHANNELS = "manage_channels"
     VOICE_MODERATE = "voice_moderate"
     EDIT_MAP = "edit_map"
+    # Впускать в комнаты «По приглашениям» и входить в них без стука.
+    ADMIT = "admit"
 
 
 # Владелец настраивает права только для этих ролей; админ и владелец имеют все.
@@ -81,20 +83,43 @@ DEFAULT_ROLE_PERMISSIONS: dict[str, list[str]] = {
         Perm.DELETE_MESSAGES.value,
         Perm.KICK.value,
         Perm.VOICE_MODERATE.value,
+        Perm.ADMIT.value,
     ],
     "member": [Perm.INVITE.value],
 }
 
+# Права, которые существовали до того, как настройки начали запоминать список известных прав.
+_LEGACY_KNOWN = frozenset(
+    {"invite", "delete_messages", "kick", "manage_channels", "voice_moderate", "edit_map"}
+)
+KNOWN_KEY = "_known"
+
 
 def normalize_role_permissions(raw: dict | None) -> dict[str, list[str]]:
-    """Оставляет только допустимые права и только для настраиваемых ролей."""
+    """Оставляет только допустимые права и только для настраиваемых ролей.
+
+    Права, появившиеся после того, как владелец сохранил настройки, получают значение
+    по умолчанию — иначе новое право молча оказалось бы выключено у старых Звёзд.
+    """
     raw = raw or {}
+    known = set(raw.get(KNOWN_KEY, _LEGACY_KNOWN)) if raw else set()
     result: dict[str, list[str]] = {}
     for role in CONFIGURABLE_ROLES:
-        values = raw.get(role, DEFAULT_ROLE_PERMISSIONS[role])
+        values = set(raw.get(role, DEFAULT_ROLE_PERMISSIONS[role]))
+        values |= {p for p in DEFAULT_ROLE_PERMISSIONS[role] if p not in known}
         allowed = {p.value for p in GRANTABLE[role]}
-        result[role] = sorted({v for v in values if v in allowed})
+        result[role] = sorted(v for v in values if v in allowed)
     return result
+
+
+def stored_role_permissions(perms: dict | None) -> dict:
+    """Для сохранения в БД: явно выбранные права ролей + список всех прав, известных сейчас.
+
+    perms — права ролей, как их выбрал владелец (или None — значения по умолчанию).
+    Всё, чего нет в выбранном списке, считается сознательно выключенным.
+    """
+    explicit = {**(perms or DEFAULT_ROLE_PERMISSIONS), KNOWN_KEY: [p.value for p in Perm]}
+    return {**normalize_role_permissions(explicit), KNOWN_KEY: explicit[KNOWN_KEY]}
 
 
 def has_perm(role: str, perm: Perm, role_permissions: dict | None) -> bool:

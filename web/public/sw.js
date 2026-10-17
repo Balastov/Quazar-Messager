@@ -60,6 +60,39 @@ self.addEventListener("push", (event) => {
     return;
   }
 
+  if (data.type === "star_door") {
+    // Двери комнат Созвездия: «зовёт вас», «стучится», ответ на стук.
+    const door = data.door || "invite";
+    const actions =
+      door === "invite"
+        ? [{ action: "join", title: "Зайти" }]
+        : door === "knock"
+          ? [
+              { action: "admit", title: "Впустить" },
+              { action: "deny", title: "Отказать" },
+            ]
+          : [];
+    const options = {
+      body: data.body || "",
+      tag: `quazar-door-${data.knock_id || data.channel_id || "x"}`,
+      icon: "/icons/icon-192.png",
+      badge: "/icons/icon-48.png",
+      requireInteraction: door === "invite" || door === "knock",
+      renotify: true,
+      data: {
+        kind: "door",
+        starId: data.star_id || null,
+        channelId: data.channel_id || null,
+        door,
+        knockId: data.knock_id || null,
+        lobbyChannelId: data.lobby_channel_id || null,
+      },
+      actions,
+    };
+    event.waitUntil(self.registration.showNotification(data.title || "Quazar", options));
+    return;
+  }
+
   const title = data.title || "Quazar";
   const options = {
     body: data.body || "Новое уведомление",
@@ -100,6 +133,23 @@ self.addEventListener("notificationclick", (event) => {
         media: data.media || null,
       })
     );
+    return;
+  }
+
+  if (data.kind === "door" && data.starId && data.channelId) {
+    const link = {
+      starId: data.starId,
+      channelId: data.channelId,
+      door: data.door,
+      knockId: data.knockId || null,
+      lobbyChannelId: data.lobbyChannelId || null,
+      action: action || null,
+    };
+    const params = new URLSearchParams({ star: link.starId, planet: link.channelId, door: link.door });
+    if (link.knockId) params.set("knock", link.knockId);
+    if (link.lobbyChannelId) params.set("lobby", link.lobbyChannelId);
+    if (link.action) params.set("do", link.action);
+    event.waitUntil(openOrFocus(`/?${params.toString()}`, { type: "quazar-star-door", link }));
     return;
   }
 

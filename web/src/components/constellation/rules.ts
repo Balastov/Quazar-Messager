@@ -24,7 +24,11 @@ export const ROOM_LABEL: Record<RoomKind, string> = {
   smoking: "Курилка",
   kitchen: "Кухня",
   custom: "Другое",
+  lobby: "Зал ожидания",
 };
+
+/** Типы комнат, которые можно выбрать (зал ожидания создаётся сам). */
+export const SELECTABLE_ROOM_KINDS: RoomKind[] = ["coworking", "meeting", "smoking", "kitchen", "custom"];
 
 export const PERM_LABEL: Record<StarPerm, string> = {
   invite: "Приглашать людей",
@@ -33,6 +37,7 @@ export const PERM_LABEL: Record<StarPerm, string> = {
   manage_channels: "Создавать и удалять Спутники и Планеты",
   voice_moderate: "Выключать микрофон и выводить с Планет",
   edit_map: "Редактировать карту офиса",
+  admit: "Впускать в закрытые комнаты и входить в них без стука",
 };
 
 export const PERM_ORDER: StarPerm[] = [
@@ -42,6 +47,7 @@ export const PERM_ORDER: StarPerm[] = [
   "manage_channels",
   "voice_moderate",
   "edit_map",
+  "admit",
 ];
 
 /** Участнику можно выдать только приглашения. */

@@ -4,6 +4,7 @@ import {
   type ChannelKind,
   type LayoutRoom,
   type RolePermissions,
+  type RoomAccess,
   type RoomKind,
   type StarChannel,
   type StarDetail,
@@ -92,11 +93,18 @@ interface StarsState {
     name: string;
     capacity?: number;
     room_kind?: RoomKind;
+    access?: RoomAccess;
     floor_id?: string;
   }) => Promise<void>;
   updateChannel: (
     channelId: string,
-    body: { name?: string; capacity?: number; room_kind?: RoomKind; floor_id?: string }
+    body: {
+      name?: string;
+      capacity?: number;
+      room_kind?: RoomKind;
+      access?: RoomAccess;
+      floor_id?: string;
+    }
   ) => Promise<void>;
   createFloor: (name: string) => Promise<string | null>;
   renameFloor: (floorId: string, name: string) => Promise<void>;

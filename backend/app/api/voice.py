@@ -5,8 +5,9 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 
+from app.api.doors import can_admit, is_closed
 from app.api.stars import _channel, _load_membership, _target_member
-from app.core import livekit, voice
+from app.core import doors, livekit, voice
 from app.core import stars as rules
 from app.core.config import settings
 from app.core.database import get_db
@@ -45,7 +46,7 @@ async def _planet(db: AsyncSession, star_id: str, channel_id: str):
 
 @router.post("/{star_id}/planets/{channel_id}/join", response_model=PlanetJoinOut)
 async def join_planet(star_id: str, channel_id: str, current_user: CurrentUser, db: Db):
-    await _load_membership(db, star_id, current_user.id)
+    star, me = await _load_membership(db, star_id, current_user.id)
     channel = await _planet(db, star_id, channel_id)
     if not livekit.configured():
         raise _unavailable()
@@ -60,10 +61,26 @@ async def join_planet(star_id: str, channel_id: str, current_user: CurrentUser, 
         raise _unavailable("Голосовой сервер сейчас недоступен. Попробуйте чуть позже.") from exc
 
     identities = {p.get("identity") for p in present}
-    if current_user.id not in identities and len(identities) >= capacity:
+    already_inside = current_user.id in identities
+    if not already_inside and len(identities) >= capacity:
         raise HTTPException(
             status_code=409, detail=f"Планета заполнена: {len(identities)} из {capacity}"
         )
+
+    # Дверь «По приглашениям»: без права впускать нужен пропуск (позвали или впустили).
+    if is_closed(channel) and not already_inside and not can_admit(star, me):
+        # Пропуск гасится, когда LiveKit подтвердит вход (вебхук): сорвалось подключение —
+        # можно повторить, пока пропуск не истёк.
+        if not doors.has_pass(current_user.id, channel_id):
+            if not identities:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Комната закрыта и сейчас пустая. Войти в неё могут модераторы, админы и владелец.",
+                )
+            # 423 — клиент предложит постучаться.
+            raise HTTPException(
+                status_code=423, detail="Комната по приглашениям — постучитесь, чтобы вас впустили"
+            )
 
     token = livekit.participant_token(
         room=room,

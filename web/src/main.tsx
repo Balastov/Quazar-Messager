@@ -27,6 +27,12 @@ type SwCallMsg = {
 
 function handleCallMessage(data: SwCallMsg) {
   if (!data?.type) return;
+  if (data.type === "quazar-star-door") {
+    window.dispatchEvent(
+      new CustomEvent("quazar-star-door", { detail: (data as { link?: unknown }).link })
+    );
+    return;
+  }
   if (data.type === "quazar-open-chat" && data.chatId) {
     window.dispatchEvent(
       new CustomEvent("quazar-open-chat", { detail: { chatId: data.chatId } })

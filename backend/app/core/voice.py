@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 
 from sqlalchemy import select
 
-from app.core import livekit
+from app.core import doors, livekit
 from app.core.database import AsyncSessionLocal
 from app.models.star import StarChannel, StarMember
 from app.ws.hub import manager
@@ -159,11 +159,17 @@ async def handle_webhook(event: dict) -> None:
         if not star_id:
             return
         _add(star_id, channel_id, identity)
+        doors.consume_pass(identity, channel_id)
         await broadcast(star_id, channel_id)
     elif kind in ("participant_left", "participant_connection_aborted"):
         planet = _planets.get(channel_id)
         if planet and _remove(channel_id, identity):
             await broadcast(planet.star_id, channel_id)
+            # Ушёл из зала ожидания — ожидание снимается (импорт здесь: иначе цикл модулей).
+            from app.api.doors import on_participant_left
+
+            async with session_factory() as db:
+                await on_participant_left(db, planet.star_id, channel_id, identity)
 
 
 async def remove_from_planet(star_id: str, channel_id: str, user_id: str) -> None:

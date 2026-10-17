@@ -10,6 +10,7 @@ ChannelKind = Literal["satellite", "planet"]
 Role = Literal["owner", "admin", "moderator", "member"]
 AssignableRole = Literal["admin", "moderator", "member"]
 RoomKind = Literal["coworking", "meeting", "smoking", "kitchen", "custom"]
+Access = Literal["open", "invite"]
 
 assert set(ROOM_KINDS) == {"coworking", "meeting", "smoking", "kitchen", "custom"}
 
@@ -60,6 +61,7 @@ class CreateChannel(_Named):
     name: str = Field(min_length=1, max_length=48)
     capacity: int | None = Field(default=None, ge=1, le=PLANET_MAX_CAPACITY)
     room_kind: RoomKind | None = None
+    access: Access = "open"
     # Этаж для комнаты в Звезде «Работа»; по умолчанию — первый.
     floor_id: str | None = None
 
@@ -68,6 +70,7 @@ class UpdateChannel(_Named):
     name: str | None = Field(default=None, min_length=1, max_length=48)
     capacity: int | None = Field(default=None, ge=1, le=PLANET_MAX_CAPACITY)
     room_kind: RoomKind | None = None
+    access: Access | None = None
     # Перенести комнату на другой этаж (нужно право «Редактировать карту офиса»).
     floor_id: str | None = None
 
@@ -129,6 +132,7 @@ class StarChannelOut(BaseModel):
     position: int
     capacity: int | None
     room_kind: str | None
+    access: str = "open"
     floor_id: str | None = None
     map_x: int | None
     map_y: int | None

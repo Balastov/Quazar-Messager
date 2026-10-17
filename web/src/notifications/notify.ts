@@ -194,3 +194,59 @@ export async function registerNotifyServiceWorker(): Promise<void> {
     // ignore — уведомления всё ещё могут работать через Notification API
   }
 }
+
+/** Что открыть по нажатию на уведомление двери комнаты (Созвездие). */
+export interface DoorLink {
+  starId: string;
+  channelId: string;
+  door: "invite" | "knock" | "admit" | "wait" | "deny";
+  knockId?: string | null;
+  lobbyChannelId?: string | null;
+  /** Кнопка в уведомлении: join / admit / deny. */
+  action?: string | null;
+}
+
+export function doorLinkUrl(link: DoorLink): string {
+  const params = new URLSearchParams({ star: link.starId, planet: link.channelId, door: link.door });
+  if (link.knockId) params.set("knock", link.knockId);
+  if (link.lobbyChannelId) params.set("lobby", link.lobbyChannelId);
+  if (link.action) params.set("do", link.action);
+  return `/?${params.toString()}`;
+}
+
+/** «Вас зовут», «Стучатся», «Вас впустили» — когда вкладка скрыта. */
+export async function notifyDoor(
+  link: DoorLink,
+  opts: { title: string; body: string; actions?: { action: string; title: string }[] }
+): Promise<void> {
+  const tabVisible = typeof document !== "undefined" && document.visibilityState === "visible";
+  if (tabVisible || browserPermission() !== "granted") return;
+  const options: NotificationOptions & { actions?: { action: string; title: string }[] } = {
+    body: opts.body,
+    tag: `quazar-door-${link.knockId ?? link.channelId}`,
+    icon: "/icons/icon-192.png",
+    badge: "/icons/icon-48.png",
+    requireInteraction: link.door === "invite" || link.door === "knock",
+    data: { kind: "door", ...link },
+  };
+  if (opts.actions?.length) options.actions = opts.actions;
+  try {
+    const reg = await navigator.serviceWorker?.ready;
+    if (reg?.showNotification) {
+      await reg.showNotification(opts.title, options);
+      return;
+    }
+  } catch {
+    // fall through
+  }
+  try {
+    const n = new Notification(opts.title, options);
+    n.onclick = () => {
+      window.focus();
+      n.close();
+      window.dispatchEvent(new CustomEvent("quazar-star-door", { detail: link }));
+    };
+  } catch {
+    // ignore
+  }
+}

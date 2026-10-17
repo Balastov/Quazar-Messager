@@ -3,14 +3,17 @@ import { http } from "./client";
 export type StarKind = "gaming" | "work";
 export type StarRole = "owner" | "admin" | "moderator" | "member";
 export type ChannelKind = "satellite" | "planet";
-export type RoomKind = "coworking" | "meeting" | "smoking" | "kitchen" | "custom";
+export type RoomKind = "coworking" | "meeting" | "smoking" | "kitchen" | "custom" | "lobby";
+/** Вход в Планету: свободный или по приглашениям (стучаться). */
+export type RoomAccess = "open" | "invite";
 export type StarPerm =
   | "invite"
   | "delete_messages"
   | "kick"
   | "manage_channels"
   | "voice_moderate"
-  | "edit_map";
+  | "edit_map"
+  | "admit";
 
 export interface StarUser {
   id: string;
@@ -32,6 +35,7 @@ export interface StarChannel {
   position: number;
   capacity: number | null;
   room_kind: RoomKind | null;
+  access: RoomAccess;
   /** Этаж карты офиса (Звёзды «Работа»). */
   floor_id: string | null;
   map_x: number | null;
@@ -69,6 +73,27 @@ export interface LayoutRoom {
   y: number;
   w: number;
   h: number;
+}
+
+export type KnockAnswer = "admit" | "wait" | "deny";
+
+export interface Knock {
+  id: string;
+  star_id: string;
+  channel_id: string;
+  user_id: string;
+  status: "pending" | "waiting";
+  lobby_channel_id: string | null;
+}
+
+export interface KnockEvent {
+  type: "planet_knock";
+  star_id: string;
+  knock: Knock;
+  user_name: string;
+  room_name: string;
+  star_name: string;
+  expires_in: number;
 }
 
 export interface VoicePresence {
@@ -150,6 +175,29 @@ export type StarEvent =
   | { type: "star_channels_order"; star_id: string; channel_ids: string[] }
   | { type: "star_message"; star_id: string; message: StarMessage }
   | { type: "star_floors"; star_id: string; floors: StarFloor[] }
+  | {
+      type: "planet_invite";
+      star_id: string;
+      channel_id: string;
+      from_user_id: string;
+      from_name: string;
+      room_name: string;
+      star_name: string;
+      expires_in: number;
+    }
+  | KnockEvent
+  | { type: "planet_knock_closed"; star_id: string; knock_id: string }
+  | {
+      type: "planet_knock_answer";
+      star_id: string;
+      channel_id: string;
+      knock_id: string;
+      action: KnockAnswer;
+      room_name: string;
+      star_name: string;
+      by_name: string;
+      lobby_channel_id?: string;
+    }
   | { type: "star_layout"; star_id: string; floor: StarFloor; rooms: LayoutRoom[] }
   | {
       type: "star_voice";
@@ -206,13 +254,20 @@ export const starsApi = {
       name: string;
       capacity?: number;
       room_kind?: RoomKind;
+      access?: RoomAccess;
       floor_id?: string;
     }
   ) => http.post<StarChannel>(`${base(starId)}/channels`, body).then((r) => r.data),
   updateChannel: (
     starId: string,
     channelId: string,
-    body: { name?: string; capacity?: number; room_kind?: RoomKind; floor_id?: string }
+    body: {
+      name?: string;
+      capacity?: number;
+      room_kind?: RoomKind;
+      access?: RoomAccess;
+      floor_id?: string;
+    }
   ) => http.patch<StarChannel>(`${base(starId)}/channels/${channelId}`, body).then((r) => r.data),
   deleteChannel: (starId: string, channelId: string) =>
     http.delete(`${base(starId)}/channels/${channelId}`),
@@ -242,6 +297,17 @@ export const starsApi = {
         rooms,
       })
       .then((r) => r.data),
+
+  invite: (starId: string, channelId: string, userId: string) =>
+    http.post(`${base(starId)}/planets/${channelId}/invite`, { user_id: userId }),
+  knock: (starId: string, channelId: string) =>
+    http.post<Knock>(`${base(starId)}/planets/${channelId}/knock`).then((r) => r.data),
+  cancelKnock: (starId: string, knockId: string) =>
+    http.delete(`${base(starId)}/knocks/${knockId}`),
+  answerKnock: (starId: string, knockId: string, action: KnockAnswer) =>
+    http.post(`${base(starId)}/knocks/${knockId}/answer`, { action }),
+  knocks: (starId: string) =>
+    http.get<KnockEvent[]>(`${base(starId)}/knocks`).then((r) => r.data),
 
   joinPlanet: (starId: string, channelId: string) =>
     http.post<PlanetJoin>(`${base(starId)}/planets/${channelId}/join`).then((r) => r.data),

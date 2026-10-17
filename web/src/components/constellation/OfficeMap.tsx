@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { StarChannel, StarDetail } from "../../api/stars";
 import { useAuthStore } from "../../store/auth";
+import { useDoorsStore } from "../../store/doors";
 import { useStarsStore } from "../../store/stars";
 import { useVoiceStore } from "../../store/voice";
 import { IconBack } from "../icons";
@@ -46,6 +47,7 @@ export default function OfficeMap({ detail, onBack, onOpenPlanet, onAddRoom }: P
   const deleteFloor = useStarsStore((st) => st.deleteFloor);
   const saveLayout = useStarsStore((st) => st.saveLayout);
   const refreshStar = useStarsStore((st) => st.refreshStar);
+  const myKnock = useDoorsStore((st) => st.myKnock);
 
   const floors = detail.floors;
   const [floorId, setFloorId] = useState<string | null>(floors[0]?.id ?? null);
@@ -66,6 +68,8 @@ export default function OfficeMap({ detail, onBack, onOpenPlanet, onAddRoom }: P
 
   const canEdit = can(detail, "edit_map");
   const canAddRooms = can(detail, "manage_channels");
+  const canAdmit = can(detail, "admit");
+  const isClosed = (c: StarChannel) => c.access === "invite" && c.room_kind !== "lobby";
 
   useEffect(() => {
     if (floorId && !floors.some((f) => f.id === floorId)) setFloorId(floors[0]?.id ?? null);
@@ -164,6 +168,18 @@ export default function OfficeMap({ detail, onBack, onOpenPlanet, onAddRoom }: P
     }
     const inside = detail.voice?.[c.id] ?? [];
     if (inside.length >= (c.capacity ?? 10)) return;
+    if (isClosed(c) && !canAdmit && !inside.some((p) => p.user_id === myId)) {
+      if (myKnock?.channelId === c.id) return;
+      if (!inside.length) {
+        useDoorsStore.setState({
+          notice: `«${c.name}» закрыта и сейчас пустая. Войти могут модераторы, админы и владелец.`,
+        });
+        return;
+      }
+      // Закрытая комната — нажатие означает «постучаться».
+      void useDoorsStore.getState().knock(detail.id, c.id, c.name);
+      return;
+    }
     void voice.join(detail.id, c.id);
   };
 
@@ -309,6 +325,8 @@ export default function OfficeMap({ detail, onBack, onOpenPlanet, onAddRoom }: P
             const capacity = c.capacity ?? 10;
             const mine = iAmIn(c) || inside.some((p) => p.user_id === myId);
             const full = inside.length >= capacity && !mine;
+            const locked = isClosed(c) && !canAdmit && !mine;
+            const knocking = myKnock?.channelId === c.id;
             const classes = [
               s.room,
               inside.length ? s.roomOccupied : "",
@@ -332,7 +350,11 @@ export default function OfficeMap({ detail, onBack, onOpenPlanet, onAddRoom }: P
                       ? `${c.name} — вы здесь`
                       : full
                         ? `${c.name} — заполнена`
-                        : `${c.name} — нажмите, чтобы зайти`
+                        : knocking
+                          ? `${c.name} — вы постучались, ждём ответа`
+                          : locked
+                            ? `${c.name} — по приглашениям, нажмите, чтобы постучаться`
+                            : `${c.name} — нажмите, чтобы зайти`
                 }
                 onPointerDown={(e) => onPointerDown(e, c, "move")}
                 onClick={() => onRoomClick(c)}
@@ -343,6 +365,7 @@ export default function OfficeMap({ detail, onBack, onOpenPlanet, onAddRoom }: P
                 <div className={s.roomHead}>
                   <span aria-hidden>{ROOM_ICON[c.room_kind ?? "custom"]}</span>
                   <span className={s.roomName}>{c.name}</span>
+                  {isClosed(c) && <span className={s.lock} aria-label="по приглашениям">{knocking ? "✊" : "🔒"}</span>}
                   <span className={s.roomCount}>
                     {inside.length}/{capacity}
                   </span>

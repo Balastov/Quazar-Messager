@@ -37,9 +37,9 @@ function detail(id: string, name = "Звезда"): StarDetail {
       },
     ],
     channels: [
-      { id: `${id}-planet`, star_id: id, kind: "planet", name: "Общая", position: 0, capacity: 10, room_kind: null, floor_id: null, map_x: null, map_y: null, map_w: null, map_h: null },
-      { id: `${id}-general`, star_id: id, kind: "satellite", name: "общий", position: 0, capacity: null, room_kind: null, floor_id: null, map_x: null, map_y: null, map_w: null, map_h: null },
-      { id: `${id}-news`, star_id: id, kind: "satellite", name: "новости", position: 1, capacity: null, room_kind: null, floor_id: null, map_x: null, map_y: null, map_w: null, map_h: null },
+      { id: `${id}-planet`, star_id: id, kind: "planet", name: "Общая", position: 0, capacity: 10, room_kind: null, access: "open", floor_id: null, map_x: null, map_y: null, map_w: null, map_h: null },
+      { id: `${id}-general`, star_id: id, kind: "satellite", name: "общий", position: 0, capacity: null, room_kind: null, access: "open", floor_id: null, map_x: null, map_y: null, map_w: null, map_h: null },
+      { id: `${id}-news`, star_id: id, kind: "satellite", name: "новости", position: 1, capacity: null, room_kind: null, access: "open", floor_id: null, map_x: null, map_y: null, map_w: null, map_h: null },
     ],
   };
 }

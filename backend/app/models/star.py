@@ -78,8 +78,10 @@ class StarChannel(Base):
     position: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     # Только для Планет.
     capacity: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    # Тип комнаты на карте офиса (Звёзды «Работа»): coworking | meeting | smoking | kitchen | custom
+    # Тип комнаты: coworking | meeting | smoking | kitchen | custom | lobby (зал ожидания, системный)
     room_kind: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    # Доступ к Планете: "open" (свободный вход) | "invite" (по приглашениям — стучаться).
+    access: Mapped[str] = mapped_column(String(16), nullable=False, default="open", server_default="open")
     # Этаж и положение на карте офиса в клетках сетки.
     floor_id: Mapped[str | None] = mapped_column(
         ForeignKey("star_floors.id", ondelete="SET NULL"), nullable=True, index=True

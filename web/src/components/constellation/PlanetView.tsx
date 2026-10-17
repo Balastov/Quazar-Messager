@@ -2,9 +2,11 @@ import { useState } from "react";
 import { starsApi, type StarChannel, type StarDetail } from "../../api/stars";
 import { useAuthStore } from "../../store/auth";
 import { useCallStore } from "../../store/call";
+import { useDoorsStore } from "../../store/doors";
 import { useVoiceStore, type VoicePeer } from "../../store/voice";
 import UserAvatar from "../UserAvatar";
 import { IconBack, IconGear, IconPlanet } from "../icons";
+import Dialog from "./Dialog";
 import { apiError, can, outranks, ROOM_LABEL } from "./rules";
 import s from "./Constellation.module.css";
 
@@ -20,6 +22,10 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
   const voice = useVoiceStore();
   const callPhase = useCallStore((st) => st.phase);
   const [modError, setModError] = useState<string | null>(null);
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const myKnock = useDoorsStore((st) => st.myKnock);
+  const allKnocks = useDoorsStore((st) => st.knocks);
+  const doors = useDoorsStore.getState();
 
   const here = voice.channelId === channel.id && voice.status !== "idle";
   const elsewhere = voice.status !== "idle" && !here;
@@ -29,6 +35,13 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
   const full = presence.length >= capacity && !iAmInside;
   const inCall = callPhase !== "idle" && callPhase !== "ended";
   const room = channel.room_kind ? ROOM_LABEL[channel.room_kind] : null;
+  // Дверь «По приглашениям»: кто может впускать — входит без стука.
+  const closed = channel.access === "invite" && channel.room_kind !== "lobby";
+  const canAdmit = can(detail, "admit");
+  const mustKnock = closed && !canAdmit && !iAmInside;
+  const myKnockHere = myKnock?.channelId === channel.id ? myKnock : null;
+  const knocksHere = Object.values(allKnocks).filter((k) => k.knock.channel_id === channel.id);
+  const canInvite = !closed || canAdmit;
 
   const member = (userId: string) => detail.members.find((m) => m.user.id === userId);
   const serverMuted = (userId: string) =>
@@ -58,7 +71,8 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
       <div className={s.channelTitle}>
         <span className={s.channelTitleName}>{channel.name}</span>
         <span className={s.channelTitleSub}>
-          Планета · {room ? `${room} · ` : ""}
+          {closed ? "🔒 по приглашениям · " : "Планета · "}
+          {room ? `${room} · ` : ""}
           {presence.length} из {capacity}
         </span>
       </div>
@@ -116,20 +130,58 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
           )}
           {voice.error && <div className={s.error}>{voice.error}</div>}
           {inCall && <p className={s.hint}>Сначала завершите личный звонок.</p>}
-          <button
-            type="button"
-            className={s.primary}
-            disabled={full || inCall || voice.status === "connecting"}
-            onClick={() => void voice.join(detail.id, channel.id)}
-          >
-            {full
-              ? "Планета заполнена"
-              : voice.status === "connecting" && voice.channelId === channel.id
-                ? "Подключаемся…"
-                : elsewhere
-                  ? "Перейти на эту Планету"
-                  : "Зайти на Планету"}
-          </button>
+          {closed && !canAdmit && (
+            <p className={s.hint}>
+              🔒 Комната по приглашениям: постучитесь — модератор впустит вас, отправит в зал
+              ожидания или откажет. Или попросите кого-то позвать вас.
+            </p>
+          )}
+          {mustKnock && myKnockHere ? (
+            <>
+              <div className={s.hint}>
+                {myKnockHere.status === "pending"
+                  ? "✊ Вы постучались — ждём ответа…"
+                  : "🛋 Вы в зале ожидания — вас впустят, когда смогут"}
+              </div>
+              <button type="button" className={s.secondary} onClick={() => void doors.cancelKnock()}>
+                {myKnockHere.status === "pending" ? "Отменить стук" : "Больше не ждать"}
+              </button>
+            </>
+          ) : mustKnock && presence.length === 0 ? (
+            <>
+              <button type="button" className={s.primary} disabled>
+                🔒 Комната закрыта
+              </button>
+              <p className={s.hint}>
+                Сейчас внутри никого. Войти в пустую закрытую комнату могут модераторы, админы и
+                владелец.
+              </p>
+            </>
+          ) : mustKnock || voice.locked?.channelId === channel.id ? (
+            <button
+              type="button"
+              className={s.primary}
+              disabled={full || inCall}
+              onClick={() => void doors.knock(detail.id, channel.id, channel.name)}
+            >
+              {full ? "Планета заполнена" : "✊ Постучаться"}
+            </button>
+          ) : (
+            <button
+              type="button"
+              className={s.primary}
+              disabled={full || inCall || voice.status === "connecting"}
+              onClick={() => void voice.join(detail.id, channel.id)}
+            >
+              {full
+                ? "Планета заполнена"
+                : voice.status === "connecting" && voice.channelId === channel.id
+                  ? "Подключаемся…"
+                  : elsewhere
+                    ? "Перейти на эту Планету"
+                    : "Зайти на Планету"}
+            </button>
+          )}
         </div>
       </>
     );
@@ -168,6 +220,31 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
             <button type="button" className={s.primary} onClick={() => void voice.retryMic()}>
               Включить микрофон
             </button>
+          </div>
+        )}
+        {canAdmit && knocksHere.length > 0 && (
+          <div className={s.list}>
+            {knocksHere.map((k) => (
+              <div key={k.knock.id} className={s.listItem}>
+                <div className={s.listMain}>
+                  <span className={s.listTitle}>
+                    {k.knock.status === "pending" ? "✊ Стучится" : "🛋 Ждёт в зале ожидания"}:{" "}
+                    {k.user_name}
+                  </span>
+                </div>
+                <button type="button" className={`${s.primary} ${s.small}`} onClick={() => void doors.answer(k.knock.id, "admit")}>
+                  Впустить
+                </button>
+                {k.knock.status === "pending" && (
+                  <button type="button" className={`${s.secondary} ${s.small}`} onClick={() => void doors.answer(k.knock.id, "wait")}>
+                    В зал ожидания
+                  </button>
+                )}
+                <button type="button" className={`${s.danger} ${s.small}`} onClick={() => void doors.answer(k.knock.id, "deny")}>
+                  Отказать
+                </button>
+              </div>
+            ))}
           </div>
         )}
         {voice.serverMuted && (
@@ -254,10 +331,76 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
         >
           {voice.noiseSuppression ? (voice.noiseActive || voice.micUnavailable ? "Шум: вкл" : "Шум: —") : "Шум: выкл"}
         </button>
+        {canInvite && (
+          <button type="button" className={s.secondary} onClick={() => setInviteOpen(true)}>
+            🚪 Позвать
+          </button>
+        )}
         <button type="button" className={s.danger} onClick={() => void voice.leave()}>
           Выйти с Планеты
         </button>
       </div>
+      {inviteOpen && (
+        <InviteDialog
+          detail={detail}
+          channel={channel}
+          insideIds={new Set(presence.map((p) => p.user_id))}
+          onClose={() => setInviteOpen(false)}
+        />
+      )}
     </>
+  );
+}
+
+/** «Позвать» в комнату: участнику Звезды придёт «… зовёт вас в …». */
+function InviteDialog({
+  detail,
+  channel,
+  insideIds,
+  onClose,
+}: {
+  detail: StarDetail;
+  channel: StarChannel;
+  insideIds: Set<string>;
+  onClose: () => void;
+}) {
+  const myId = useAuthStore((st) => st.user?.id);
+  const [sent, setSent] = useState<Set<string>>(new Set());
+  const [error, setError] = useState<string | null>(null);
+  const candidates = detail.members.filter((m) => m.user.id !== myId && !insideIds.has(m.user.id));
+
+  const invite = async (userId: string) => {
+    setError(null);
+    try {
+      await useDoorsStore.getState().invite(detail.id, channel.id, userId);
+      setSent((prev) => new Set(prev).add(userId));
+    } catch (err) {
+      setError(apiError(err));
+    }
+  };
+
+  return (
+    <Dialog title={`Позвать в «${channel.name}»`} onClose={onClose}>
+      {candidates.length === 0 && <p className={s.hint}>Все участники Звезды уже здесь.</p>}
+      <div className={s.list}>
+        {candidates.map((m) => (
+          <div key={m.user.id} className={s.listItem}>
+            <UserAvatar username={m.user.username} avatarUrl={m.user.avatar_url} size="sm" />
+            <div className={s.listMain}>
+              <span className={s.listTitle}>{m.user.username}</span>
+            </div>
+            <button
+              type="button"
+              className={`${sent.has(m.user.id) ? s.secondary : s.primary} ${s.small}`}
+              onClick={() => void invite(m.user.id)}
+              disabled={sent.has(m.user.id)}
+            >
+              {sent.has(m.user.id) ? "Позвали ✓" : "Позвать"}
+            </button>
+          </div>
+        ))}
+      </div>
+      {error && <div className={s.error}>{error}</div>}
+    </Dialog>
   );
 }

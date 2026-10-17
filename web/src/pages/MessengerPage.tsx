@@ -15,6 +15,9 @@ import NotifyPrompt from "../components/NotifyPrompt";
 import CallOverlay from "../components/CallOverlay";
 import ConstellationView from "../components/constellation/ConstellationView";
 import VoiceBarHost from "../components/constellation/VoiceBar";
+import DoorToasts from "../components/constellation/DoorToasts";
+import { useDoorsStore } from "../store/doors";
+import type { DoorLink } from "../notifications/notify";
 import { takePendingInvite } from "../api/stars";
 import { useStarsStore } from "../store/stars";
 import E2EKeyGate from "../components/E2EKeyGate";
@@ -45,11 +48,34 @@ export default function MessengerPage() {
     }
     useUiStore.setState({ mobileChatOpen: false });
 
+    // Открыли по уведомлению двери комнаты: ?star=…&planet=…&door=…
+    const params = new URLSearchParams(window.location.search);
+    const door = params.get("door") as DoorLink["door"] | null;
+    const starId = params.get("star");
+    const planetId = params.get("planet");
+    if (door && starId && planetId) {
+      void useDoorsStore.getState().openDoorLink({
+        starId,
+        channelId: planetId,
+        door,
+        knockId: params.get("knock"),
+        lobbyChannelId: params.get("lobby"),
+        action: params.get("do"),
+      });
+      window.history.replaceState({}, "", "/");
+    }
+    const onDoor = (e: Event) => {
+      const link = (e as CustomEvent<DoorLink>).detail;
+      if (link?.starId && link.channelId) void useDoorsStore.getState().openDoorLink(link);
+    };
+    window.addEventListener("quazar-star-door", onDoor);
+
     const inviteCode = takePendingInvite();
     if (inviteCode) {
       useUiStore.getState().setTab("stars");
       useStarsStore.getState().openJoinDialog(inviteCode);
     }
+    return () => window.removeEventListener("quazar-star-door", onDoor);
   }, []);
 
   useEffect(() => {
@@ -181,6 +207,7 @@ export default function MessengerPage() {
       <ToastStack />
       <E2EKeyGate />
       <VoiceBarHost />
+      <DoorToasts />
       <CallOverlay />
     </div>
   );

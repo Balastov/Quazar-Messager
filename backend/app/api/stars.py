@@ -8,10 +8,11 @@ from datetime import datetime, timedelta, timezone
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import stars as rules
+from app.core import doors
 from app.core import floors as floors_svc
 from app.core import voice
 from app.core.database import get_db
@@ -202,6 +203,7 @@ async def _remove_member(db: AsyncSession, star_id: str, user_id: str, reason: s
     await db.commit()
     await _broadcast(db, star_id, {"type": "star_member_removed", "user_id": user_id, "reason": reason})
     await manager.send_to_user(user_id, {"type": "star_removed", "star_id": star_id, "reason": reason})
+    doors.forget_user(star_id, user_id)
     await voice.evict_user(star_id, user_id)
 
 
@@ -287,7 +289,7 @@ async def create_star(body: CreateStar, current_user: CurrentUser, db: Db):
         name=body.name,
         kind=body.kind,
         owner_id=current_user.id,
-        role_permissions=rules.normalize_role_permissions(None),
+        role_permissions=rules.stored_role_permissions(None),
     )
     db.add(star)
     await db.flush()
@@ -441,10 +443,11 @@ async def update_permissions(
     star, me = await _load_membership(db, star_id, current_user.id)
     if me.role != "owner":
         raise _forbid("Права настраивает владелец")
-    star.role_permissions = rules.normalize_role_permissions(body.model_dump())
+    star.role_permissions = rules.stored_role_permissions(body.model_dump())
     await db.commit()
-    await _broadcast(db, star_id, {"type": "star_permissions", "role_permissions": star.role_permissions})
-    return star.role_permissions
+    normalized = rules.normalize_role_permissions(star.role_permissions)
+    await _broadcast(db, star_id, {"type": "star_permissions", "role_permissions": normalized})
+    return normalized
 
 
 # --- Приглашения ----------------------------------------------------------
@@ -592,7 +595,10 @@ async def create_channel(star_id: str, body: CreateChannel, current_user: Curren
     existing = (
         await db.execute(
             select(func.count(), func.max(StarChannel.position)).where(
-                StarChannel.star_id == star_id, StarChannel.kind == body.kind
+                StarChannel.star_id == star_id,
+                StarChannel.kind == body.kind,
+                # Зал ожидания — системная комната, в лимит не входит.
+                or_(StarChannel.room_kind.is_(None), StarChannel.room_kind != "lobby"),
             )
         )
     ).one()
@@ -613,6 +619,7 @@ async def create_channel(star_id: str, body: CreateChannel, current_user: Curren
     if body.kind == "planet":
         channel.room_kind = body.room_kind if star.kind == "work" else None
         channel.capacity = body.capacity or rules.default_capacity(channel.room_kind)
+        channel.access = body.access
     db.add(channel)
 
     floor = None
@@ -640,8 +647,10 @@ async def update_channel(
     if channel.kind == "planet":
         if body.capacity is not None:
             channel.capacity = body.capacity
-        if body.room_kind is not None and star.kind == "work":
+        if body.room_kind is not None and star.kind == "work" and channel.room_kind != "lobby":
             channel.room_kind = body.room_kind
+        if body.access is not None and channel.room_kind != "lobby":
+            channel.access = body.access
 
     moved = False
     if (

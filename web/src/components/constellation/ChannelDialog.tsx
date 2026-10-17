@@ -1,11 +1,18 @@
 import { useState } from "react";
-import type { ChannelKind, RoomKind, StarChannel, StarFloor, StarKind } from "../../api/stars";
+import type {
+  ChannelKind,
+  RoomAccess,
+  RoomKind,
+  StarChannel,
+  StarFloor,
+  StarKind,
+} from "../../api/stars";
 import { useStarsStore } from "../../store/stars";
 import Dialog from "./Dialog";
-import { apiError, ROOM_LABEL } from "./rules";
+import { apiError, ROOM_LABEL, SELECTABLE_ROOM_KINDS } from "./rules";
 import s from "./Constellation.module.css";
 
-const ROOM_KINDS = Object.keys(ROOM_LABEL) as RoomKind[];
+const ROOM_KINDS = SELECTABLE_ROOM_KINDS;
 
 interface Props {
   starKind: StarKind;
@@ -51,6 +58,8 @@ export default function ChannelDialog({
     channel?.floor_id ?? defaultFloorId ?? floors[0]?.id ?? ""
   );
   const showFloors = kind === "planet" && starKind === "work" && floors.length > 0;
+  const isLobby = channel?.room_kind === "lobby";
+  const [access, setAccess] = useState<RoomAccess>(channel?.access ?? "open");
   const floorEditable = !channel || canEditMap;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -84,7 +93,8 @@ export default function ChannelDialog({
     const planetFields = isPlanet
       ? {
           capacity,
-          ...(isWork ? { room_kind: roomKind } : {}),
+          ...(isWork && !isLobby ? { room_kind: roomKind } : {}),
+          ...(isLobby ? {} : { access }),
           ...(floorChanged && floorEditable ? { floor_id: floorId } : {}),
         }
       : {};
@@ -111,7 +121,22 @@ export default function ChannelDialog({
           />
         </label>
 
-        {isPlanet && isWork && (
+        {isPlanet && !isLobby && (
+          <label className={s.label}>
+            Вход
+            <select
+              className={s.select}
+              value={access}
+              onChange={(e) => setAccess(e.target.value as RoomAccess)}
+              disabled={busy}
+            >
+              <option value="open">Свободный вход</option>
+              <option value="invite">По приглашениям — стучаться</option>
+            </select>
+          </label>
+        )}
+
+        {isPlanet && isWork && !isLobby && (
           <label className={s.label}>
             Комната на карте офиса
             <select

@@ -73,7 +73,11 @@ export default function ChannelSidebar({
                 onDoubleClick={manage ? () => onEditChannel(c) : undefined}
               >
                 {kind === "satellite" ? <IconSatellite /> : <IconPlanet />}
-                <span className={`${s.channelName} ${count ? s.channelUnread : ""}`}>{c.name}</span>
+                <span className={`${s.channelName} ${count ? s.channelUnread : ""}`}>
+                  {c.room_kind === "lobby" ? "🛋 " : ""}
+                  {c.name}
+                  {c.access === "invite" && c.room_kind !== "lobby" ? " 🔒" : ""}
+                </span>
                 {kind === "planet" && (
                   <span className={s.channelHint}>
                     {inside.length ? `${inside.length}/${c.capacity}` : `до ${c.capacity}`}

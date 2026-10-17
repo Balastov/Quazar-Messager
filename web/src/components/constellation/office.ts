@@ -23,6 +23,7 @@ export const ROOM_ICON: Record<RoomKind, string> = {
   smoking: "🚬",
   kitchen: "☕",
   custom: "🚪",
+  lobby: "🛋",
 };
 
 export function rectOf(channel: StarChannel): Rect | null {

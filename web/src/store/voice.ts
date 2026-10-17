@@ -206,6 +206,26 @@ export const useVoiceStore = create<VoiceState>((set, get) => {
     });
   }
 
+  /** RNNoise выдаёт тишину или аудио остановилось — переключаемся на обычный микрофон. */
+  function watchDenoiser(denoiser: NoiseSuppressedMic) {
+    denoiser.onFailed = (reason) => {
+      if (!mic || mic.denoiser !== denoiser) return;
+      void mic.publication?.audioTrack?.replaceTrack(mic.raw, true);
+      void setBrowserNoiseSuppression(mic.raw, true);
+      denoiser.close();
+      mic.denoiser = null;
+      set({
+        noiseActive: false,
+        ...(reason === "silent"
+          ? {
+              notice:
+                "Шумоподавление не заработало на этом устройстве — включён обычный микрофон, вас слышно",
+            }
+          : {}),
+      });
+    };
+  }
+
   /** Берёт микрофон (через RNNoise, если можно) и публикует его. Ошибку объясняет на экране. */
   async function acquireMic(r: Room) {
     const wantDenoiser = get().noiseSuppression && isNoiseSuppressionSupported();
@@ -227,17 +247,7 @@ export const useVoiceStore = create<VoiceState>((set, get) => {
         return;
       }
       mic = { raw, denoiser, publication: null };
-      if (denoiser) {
-        denoiser.onFailed = () => {
-          // Обработка звука остановилась — переключаемся на обычный микрофон.
-          if (!mic?.denoiser) return;
-          void mic.publication?.audioTrack?.replaceTrack(mic.raw, true);
-          void setBrowserNoiseSuppression(mic.raw, true);
-          mic.denoiser.close();
-          mic.denoiser = null;
-          set({ noiseActive: false });
-        };
-      }
+      if (denoiser) watchDenoiser(denoiser);
       await publishMic(r);
       set({ noiseActive: !!denoiser, micUnavailable: false, micError: null });
     } catch (err) {
@@ -406,6 +416,7 @@ export const useVoiceStore = create<VoiceState>((set, get) => {
       }
       await setBrowserNoiseSuppression(mic.raw, false);
       mic.denoiser = denoiser;
+      watchDenoiser(denoiser);
       await mic.publication?.audioTrack?.replaceTrack(denoiser.track, true);
       set({ noiseActive: true });
     },

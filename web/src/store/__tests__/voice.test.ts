@@ -79,7 +79,7 @@ class FakeDenoiser {
   track = new FakeTrack("denoised");
   enabled = true;
   closed = false;
-  onFailed: (() => void) | null = null;
+  onFailed: ((reason: "silent" | "suspended") => void) | null = null;
   setEnabled(on: boolean) {
     this.enabled = on;
   }
@@ -194,6 +194,20 @@ describe("voice store", () => {
     expect(FakeDenoiser.last!.closed).toBe(true);
     expect(useVoiceStore.getState().status).toBe("idle");
     expect(useVoiceStore.getState().notice).toBeNull();
+  });
+
+  it("falls back to the plain microphone when RNNoise outputs silence", async () => {
+    await useVoiceStore.getState().join("s1", "p1");
+    const pub = FakeRoom.last!.published[0];
+    const denoiser = FakeDenoiser.last!;
+
+    denoiser.onFailed!("silent");
+    expect(pub.audioTrack.replaceTrack).toHaveBeenCalledWith(mic, true);
+    expect(denoiser.closed).toBe(true);
+    const st = useVoiceStore.getState();
+    expect(st.noiseActive).toBe(false);
+    expect(st.notice).toMatch(/Шумоподавление не заработало/);
+    expect(st.status).toBe("connected");
   });
 
   it("explains being removed by a moderator", async () => {

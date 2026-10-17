@@ -949,3 +949,212 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* --- Карта офиса --- */
+
+.map {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.mapToolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--qz-border);
+}
+
+.floorTabs {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+}
+
+.floorTab,
+.floorTabActive {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border-radius: var(--qz-radius-pill);
+  border: 1px solid var(--qz-border);
+  background: none;
+  color: var(--qz-text-muted);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.floorTabActive {
+  background: var(--qz-accent-soft);
+  border-color: var(--qz-border-strong);
+  color: var(--qz-text);
+}
+
+.floorTabTool {
+  border: none;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  padding: 0 2px;
+  font-size: 12px;
+  opacity: 0.8;
+}
+
+.mapViewport {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 16px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.mapGrid {
+  position: relative;
+  border-radius: 10px;
+  border: 1px solid var(--qz-border);
+  background-color: rgba(255, 255, 255, 0.015);
+  background-image:
+    linear-gradient(to right, rgba(168, 140, 255, 0.07) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(168, 140, 255, 0.07) 1px, transparent 1px);
+}
+
+.room {
+  position: absolute;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1.5px solid rgba(168, 140, 255, 0.35);
+  background: rgba(26, 21, 46, 0.92);
+  color: var(--qz-text);
+  overflow: hidden;
+  cursor: pointer;
+  user-select: none;
+  text-align: left;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.room:hover {
+  border-color: var(--qz-border-strong);
+}
+
+.roomOccupied {
+  background: rgba(36, 28, 66, 0.95);
+}
+
+/* Комната, в которой сейчас вы. */
+.roomMine {
+  border: 2.5px solid #6ee7a0;
+  box-shadow: 0 0 0 3px rgba(110, 231, 160, 0.18), 0 0 18px rgba(110, 231, 160, 0.35);
+}
+
+.roomFull {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.roomEditing {
+  cursor: grab;
+  touch-action: none;
+  border-style: dashed;
+}
+
+.roomDragging {
+  cursor: grabbing;
+  z-index: 2;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+
+.roomBlocked {
+  border-color: var(--qz-danger);
+}
+
+.roomHead {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.roomName {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.roomCount {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--qz-text-muted);
+}
+
+.roomPeople {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+}
+
+.roomPerson {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--qz-accent-soft);
+  font-size: 9px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.roomInfo {
+  position: absolute;
+  bottom: 4px;
+  right: 4px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--qz-text-muted);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.roomResize {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 18px;
+  height: 18px;
+  cursor: nwse-resize;
+  touch-action: none;
+  background: linear-gradient(135deg, transparent 50%, var(--qz-border-strong) 50%);
+  border-bottom-right-radius: 7px;
+}
+
+.mapFooter {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 16px calc(10px + var(--qz-safe-bottom));
+  border-top: 1px solid var(--qz-border);
+}
+
+.zoom {
+  display: inline-flex;
+  gap: 4px;
+}

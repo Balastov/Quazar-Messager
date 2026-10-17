@@ -8,6 +8,9 @@ import s from "./Constellation.module.css";
 interface Props {
   detail: StarDetail;
   activeChannelId: string | null;
+  /** Открыта карта офиса (Звёзды «Работа»). */
+  mapActive?: boolean;
+  onOpenMap?: () => void;
   onOpenChannel: (channel: StarChannel) => void;
   onAddChannel: (kind: ChannelKind) => void;
   onEditChannel: (channel: StarChannel) => void;
@@ -21,6 +24,8 @@ export default function ChannelSidebar({
   onAddChannel,
   onEditChannel,
   onOpenSettings,
+  mapActive = false,
+  onOpenMap,
 }: Props) {
   const unread = useStarsStore((st) => st.unread);
   const channels = sortChannels(detail.channels);
@@ -63,7 +68,7 @@ export default function ChannelSidebar({
             <div key={c.id}>
               <button
                 type="button"
-                className={c.id === activeChannelId ? s.channelActive : s.channel}
+                className={c.id === activeChannelId && !mapActive ? s.channelActive : s.channel}
                 onClick={() => onOpenChannel(c)}
                 onDoubleClick={manage ? () => onEditChannel(c) : undefined}
               >
@@ -124,7 +129,21 @@ export default function ChannelSidebar({
       </div>
       <div className={s.channels}>
         {section("satellite", "Спутники")}
-        {section("planet", "Планеты")}
+        {detail.kind === "work" && onOpenMap && (
+          <button
+            type="button"
+            className={mapActive ? s.channelActive : s.channel}
+            style={{ marginTop: 10 }}
+            onClick={onOpenMap}
+          >
+            <span aria-hidden>🗺</span>
+            <span className={s.channelName}>Карта офиса</span>
+            <span className={s.channelHint}>
+              {detail.floors.length > 1 ? `${detail.floors.length} эт.` : ""}
+            </span>
+          </button>
+        )}
+        {section("planet", detail.kind === "work" ? "Комнаты" : "Планеты")}
       </div>
       <div className={s.sidebarFooter} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         <VoiceBar />

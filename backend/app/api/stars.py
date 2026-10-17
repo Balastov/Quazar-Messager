@@ -12,6 +12,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import stars as rules
+from app.core import floors as floors_svc
 from app.core import voice
 from app.core.database import get_db
 from app.core.deps import get_current_user
@@ -28,6 +29,7 @@ from app.schemas.star import (
     StarBanOut,
     StarChannelOut,
     StarDetailOut,
+    StarFloorOut,
     StarInviteOut,
     StarLimitsOut,
     StarMemberOut,
@@ -169,7 +171,16 @@ def _summary(star: Star, my_role: str, member_count: int) -> StarSummaryOut:
     )
 
 
+def floors_event(floors: list) -> dict:
+    return {
+        "type": "star_floors",
+        "floors": [StarFloorOut.model_validate(f).model_dump(mode="json") for f in floors],
+    }
+
+
 async def _detail(db: AsyncSession, star: Star, me: StarMember) -> StarDetailOut:
+    # Рабочим Звёздам — этаж и места для комнат (в т.ч. созданным до появления карты).
+    floors = await floors_svc.ensure_floors(db, star)
     members = await _members_out(db, star.id)
     channels = await _channels(db, star.id)
     return StarDetailOut(
@@ -179,6 +190,7 @@ async def _detail(db: AsyncSession, star: Star, me: StarMember) -> StarDetailOut
         channels=[StarChannelOut.model_validate(c) for c in channels],
         members=members,
         voice=voice.star_presence(star.id),
+        floors=[StarFloorOut.model_validate(f) for f in floors],
     )
 
 
@@ -282,6 +294,8 @@ async def create_star(body: CreateStar, current_user: CurrentUser, db: Db):
     me = StarMember(star_id=star.id, user_id=current_user.id, role="owner")
     db.add(me)
     db.add_all(_default_channels(star))
+    await db.flush()
+    await floors_svc.ensure_floors(db, star)  # «1 этаж» и места для комнат
     await db.commit()
     return await _detail(db, star, me)
 
@@ -600,8 +614,18 @@ async def create_channel(star_id: str, body: CreateChannel, current_user: Curren
         channel.room_kind = body.room_kind if star.kind == "work" else None
         channel.capacity = body.capacity or rules.default_capacity(channel.room_kind)
     db.add(channel)
+
+    floor = None
+    if body.kind == "planet" and star.kind == "work":
+        floors = await floors_svc.ensure_floors(db, star)
+        target = next((f for f in floors if f.id == body.floor_id), floors[0])
+        floor = await floors_svc.lock_floor(db, star_id, target.id)
+        await floors_svc.place_room(db, channel, floor)
+
     await db.commit()
     await _broadcast(db, star_id, _channel_event(channel))
+    if floor:
+        await _broadcast(db, star_id, floors_event(await floors_svc.list_floors(db, star_id)))
     return channel
 
 
@@ -609,7 +633,7 @@ async def create_channel(star_id: str, body: CreateChannel, current_user: Curren
 async def update_channel(
     star_id: str, channel_id: str, body: UpdateChannel, current_user: CurrentUser, db: Db
 ):
-    star, _ = await _require_perm(db, star_id, current_user, Perm.MANAGE_CHANNELS)
+    star, me = await _require_perm(db, star_id, current_user, Perm.MANAGE_CHANNELS)
     channel = await _channel(db, star_id, channel_id)
     if body.name is not None:
         channel.name = body.name
@@ -618,8 +642,30 @@ async def update_channel(
             channel.capacity = body.capacity
         if body.room_kind is not None and star.kind == "work":
             channel.room_kind = body.room_kind
+
+    moved = False
+    if (
+        channel.kind == "planet"
+        and star.kind == "work"
+        and body.floor_id is not None
+        and body.floor_id != channel.floor_id
+    ):
+        if not rules.has_perm(me.role, Perm.EDIT_MAP, star.role_permissions):
+            raise _forbid("Переносить комнаты между этажами может тот, кто редактирует карту офиса")
+        new_floor = await floors_svc.lock_floor(db, star_id, body.floor_id)
+        if not new_floor:
+            raise HTTPException(status_code=404, detail="Этаж не найден")
+        if channel.floor_id:
+            old_floor = await floors_svc.lock_floor(db, star_id, channel.floor_id)
+            if old_floor:
+                old_floor.version += 1
+        await floors_svc.place_room(db, channel, new_floor)
+        moved = True
+
     await db.commit()
     await _broadcast(db, star_id, _channel_event(channel))
+    if moved:
+        await _broadcast(db, star_id, floors_event(await floors_svc.list_floors(db, star_id)))
     return channel
 
 
@@ -628,9 +674,14 @@ async def delete_channel(star_id: str, channel_id: str, current_user: CurrentUse
     await _require_perm(db, star_id, current_user, Perm.MANAGE_CHANNELS)
     channel = await _channel(db, star_id, channel_id)
     is_planet = channel.kind == "planet"
+    floor = await floors_svc.lock_floor(db, star_id, channel.floor_id) if channel.floor_id else None
+    if floor:
+        floor.version += 1  # план этажа изменился
     await db.delete(channel)
     await db.commit()
     await _broadcast(db, star_id, {"type": "star_channel_deleted", "channel_id": channel_id})
+    if floor:
+        await _broadcast(db, star_id, floors_event(await floors_svc.list_floors(db, star_id)))
     if is_planet:
         await voice.close_planet(star_id, channel_id)
 

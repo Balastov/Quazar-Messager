@@ -60,12 +60,38 @@ class CreateChannel(_Named):
     name: str = Field(min_length=1, max_length=48)
     capacity: int | None = Field(default=None, ge=1, le=PLANET_MAX_CAPACITY)
     room_kind: RoomKind | None = None
+    # Этаж для комнаты в Звезде «Работа»; по умолчанию — первый.
+    floor_id: str | None = None
 
 
 class UpdateChannel(_Named):
     name: str | None = Field(default=None, min_length=1, max_length=48)
     capacity: int | None = Field(default=None, ge=1, le=PLANET_MAX_CAPACITY)
     room_kind: RoomKind | None = None
+    # Перенести комнату на другой этаж (нужно право «Редактировать карту офиса»).
+    floor_id: str | None = None
+
+
+class CreateFloor(_Named):
+    name: str = Field(min_length=1, max_length=48)
+
+
+class UpdateFloor(_Named):
+    name: str = Field(min_length=1, max_length=48)
+
+
+class LayoutRoom(BaseModel):
+    channel_id: str
+    x: int
+    y: int
+    w: int
+    h: int
+
+
+class SaveLayout(BaseModel):
+    # Версия плана, с которой человек начинал править.
+    version: int
+    rooms: list[LayoutRoom]
 
 
 class ReorderChannels(BaseModel):
@@ -103,12 +129,27 @@ class StarChannelOut(BaseModel):
     position: int
     capacity: int | None
     room_kind: str | None
+    floor_id: str | None = None
     map_x: int | None
     map_y: int | None
     map_w: int | None
     map_h: int | None
 
     model_config = {"from_attributes": True}
+
+
+class StarFloorOut(BaseModel):
+    id: str
+    name: str
+    position: int
+    version: int
+
+    model_config = {"from_attributes": True}
+
+
+class LayoutOut(BaseModel):
+    floor: StarFloorOut
+    rooms: list[LayoutRoom]
 
 
 class StarSummaryOut(BaseModel):
@@ -134,6 +175,8 @@ class StarDetailOut(StarSummaryOut):
     members: list[StarMemberOut]
     # Кто сейчас на какой Планете: channel_id -> участники.
     voice: dict[str, list[VoiceParticipantOut]] = {}
+    # Этажи карты офиса (только у Звёзд «Работа»).
+    floors: list[StarFloorOut] = []
 
 
 class StarMessageOut(BaseModel):

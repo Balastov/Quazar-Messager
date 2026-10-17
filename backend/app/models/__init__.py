@@ -3,7 +3,15 @@ from app.models.message import Message
 from app.models.user import User
 from app.models.call import Call
 from app.models.push import PushSubscription
-from app.models.star import Star, StarBan, StarChannel, StarInvite, StarMember, StarMessage
+from app.models.star import (
+    Star,
+    StarBan,
+    StarChannel,
+    StarFloor,
+    StarInvite,
+    StarMember,
+    StarMessage,
+)
 
 __all__ = [
     "User",
@@ -15,6 +23,7 @@ __all__ = [
     "Star",
     "StarMember",
     "StarChannel",
+    "StarFloor",
     "StarMessage",
     "StarInvite",
     "StarBan",

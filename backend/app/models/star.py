@@ -49,6 +49,22 @@ class StarMember(Base):
     joined_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
 
+class StarFloor(Base):
+    """Этаж карты офиса (только для Звёзд «Работа»)."""
+
+    __tablename__ = "star_floors"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    star_id: Mapped[str] = mapped_column(
+        ForeignKey("stars.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    name: Mapped[str] = mapped_column(String(48), nullable=False)
+    position: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # Растёт при каждом сохранении плана — ловим одновременные правки двух людей.
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
 class StarChannel(Base):
     __tablename__ = "star_channels"
 
@@ -64,7 +80,10 @@ class StarChannel(Base):
     capacity: Mapped[int | None] = mapped_column(Integer, nullable=True)
     # Тип комнаты на карте офиса (Звёзды «Работа»): coworking | meeting | smoking | kitchen | custom
     room_kind: Mapped[str | None] = mapped_column(String(16), nullable=True)
-    # Положение на карте офиса в клетках сетки (этап 3).
+    # Этаж и положение на карте офиса в клетках сетки.
+    floor_id: Mapped[str | None] = mapped_column(
+        ForeignKey("star_floors.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     map_x: Mapped[int | None] = mapped_column(Integer, nullable=True)
     map_y: Mapped[int | None] = mapped_column(Integer, nullable=True)
     map_w: Mapped[int | None] = mapped_column(Integer, nullable=True)

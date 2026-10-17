@@ -6,13 +6,14 @@ import ChannelDialog from "./ChannelDialog";
 import ChannelSidebar from "./ChannelSidebar";
 import CreateStarDialog from "./CreateStarDialog";
 import JoinStarDialog from "./JoinStarDialog";
+import OfficeMap from "./OfficeMap";
 import PlanetView from "./PlanetView";
 import SatelliteView from "./SatelliteView";
 import StarSettings, { type SettingsTab } from "./StarSettings";
 import { initials } from "./rules";
 import s from "./Constellation.module.css";
 
-type ChannelDialogState = { kind: ChannelKind; channel?: StarChannel } | null;
+type ChannelDialogState = { kind: ChannelKind; channel?: StarChannel; floorId?: string } | null;
 
 export default function ConstellationView() {
   const loaded = useStarsStore((st) => st.loaded);
@@ -35,6 +36,8 @@ export default function ConstellationView() {
   const [settingsTab, setSettingsTab] = useState<SettingsTab | null>(null);
   const [channelDialog, setChannelDialog] = useState<ChannelDialogState>(null);
   const [loadError, setLoadError] = useState(false);
+  /** У рабочих Звёзд по умолчанию открыта карта офиса. */
+  const [mapByStar, setMapByStar] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     if (loaded) return;
@@ -59,12 +62,28 @@ export default function ConstellationView() {
   const channelId = activeStarId ? (activeChannelByStar[activeStarId] ?? null) : null;
   const channel = detail?.channels.find((c) => c.id === channelId) ?? null;
 
+  const mapOpen = !!detail && detail.kind === "work" && (mapByStar[detail.id] ?? true);
+  const setMapOpen = (open: boolean) => {
+    if (detail) setMapByStar((m) => ({ ...m, [detail.id]: open }));
+  };
+
   const openChannel = (c: StarChannel) => {
+    setMapOpen(false);
     void selectChannel(c.id);
     setMobileChannelOpen(true);
   };
 
   const renderContent = (onBack?: () => void) => {
+    if (detail && mapOpen) {
+      return (
+        <OfficeMap
+          detail={detail}
+          onBack={onBack}
+          onOpenPlanet={openChannel}
+          onAddRoom={(floorId) => setChannelDialog({ kind: "planet", floorId })}
+        />
+      );
+    }
     if (!detail || !channel) {
       return (
         <div className={s.empty}>
@@ -161,6 +180,11 @@ export default function ConstellationView() {
           <ChannelSidebar
             detail={detail}
             activeChannelId={channelId}
+            mapActive={mapOpen}
+            onOpenMap={() => {
+              setMapOpen(true);
+              setMobileChannelOpen(true);
+            }}
             onOpenChannel={openChannel}
             onAddChannel={(kind) => setChannelDialog({ kind })}
             onEditChannel={(c) => setChannelDialog({ kind: c.kind, channel: c })}
@@ -211,6 +235,9 @@ export default function ConstellationView() {
           starKind={detail.kind}
           kind={channelDialog.kind}
           channel={channelDialog.channel}
+          floors={detail.floors}
+          defaultFloorId={channelDialog.floorId}
+          canEditMap={detail.my_permissions.includes("edit_map")}
           onClose={() => setChannelDialog(null)}
         />
       )}

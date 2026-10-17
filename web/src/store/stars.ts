@@ -2,6 +2,7 @@ import { create } from "zustand";
 import {
   starsApi,
   type ChannelKind,
+  type LayoutRoom,
   type RolePermissions,
   type RoomKind,
   type StarChannel,
@@ -91,11 +92,16 @@ interface StarsState {
     name: string;
     capacity?: number;
     room_kind?: RoomKind;
+    floor_id?: string;
   }) => Promise<void>;
   updateChannel: (
     channelId: string,
-    body: { name?: string; capacity?: number; room_kind?: RoomKind }
+    body: { name?: string; capacity?: number; room_kind?: RoomKind; floor_id?: string }
   ) => Promise<void>;
+  createFloor: (name: string) => Promise<string | null>;
+  renameFloor: (floorId: string, name: string) => Promise<void>;
+  deleteFloor: (floorId: string) => Promise<void>;
+  saveLayout: (floorId: string, version: number, rooms: LayoutRoom[]) => Promise<void>;
   deleteChannel: (channelId: string) => Promise<void>;
   renameStar: (name: string) => Promise<void>;
   deleteStar: () => Promise<void>;
@@ -285,6 +291,25 @@ export const useStarsStore = create<StarsState>((set, get) => {
         }
         break;
       }
+      case "star_floors":
+        patchDetail(starId, (d) => ({
+          ...d,
+          floors: [...event.floors].sort((a, b) => a.position - b.position),
+        }));
+        break;
+      case "star_layout":
+        patchDetail(starId, (d) => {
+          const rooms = new Map(event.rooms.map((r) => [r.channel_id, r]));
+          return {
+            ...d,
+            floors: d.floors.map((f) => (f.id === event.floor.id ? event.floor : f)),
+            channels: d.channels.map((c) => {
+              const r = rooms.get(c.id);
+              return r ? { ...c, map_x: r.x, map_y: r.y, map_w: r.w, map_h: r.h } : c;
+            }),
+          };
+        });
+        break;
       case "star_voice":
         patchDetail(starId, (d) => {
           const voice = { ...(d.voice ?? {}) };
@@ -456,6 +481,41 @@ export const useStarsStore = create<StarsState>((set, get) => {
       if (!starId) return;
       await starsApi.deleteChannel(starId, channelId);
       handleEvent({ type: "star_channel_deleted", star_id: starId, channel_id: channelId });
+    },
+
+    createFloor: async (name) => {
+      const starId = get().activeStarId;
+      if (!starId) return null;
+      const floor = await starsApi.createFloor(starId, name);
+      patchDetail(starId, (d) =>
+        d.floors.some((f) => f.id === floor.id) ? d : { ...d, floors: [...d.floors, floor] }
+      );
+      return floor.id;
+    },
+
+    renameFloor: async (floorId, name) => {
+      const starId = get().activeStarId;
+      if (!starId) return;
+      const floor = await starsApi.renameFloor(starId, floorId, name);
+      patchDetail(starId, (d) => ({
+        ...d,
+        floors: d.floors.map((f) => (f.id === floor.id ? floor : f)),
+      }));
+    },
+
+    deleteFloor: async (floorId) => {
+      const starId = get().activeStarId;
+      if (!starId) return;
+      await starsApi.deleteFloor(starId, floorId);
+      // Комнаты переехали на другой этаж — берём свежие данные.
+      await get().refreshStar(starId);
+    },
+
+    saveLayout: async (floorId, version, rooms) => {
+      const starId = get().activeStarId;
+      if (!starId) return;
+      const out = await starsApi.saveLayout(starId, floorId, version, rooms);
+      handleEvent({ type: "star_layout", star_id: starId, ...out });
     },
 
     renameStar: async (name) => {

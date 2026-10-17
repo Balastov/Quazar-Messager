@@ -32,6 +32,8 @@ export interface StarChannel {
   position: number;
   capacity: number | null;
   room_kind: RoomKind | null;
+  /** Этаж карты офиса (Звёзды «Работа»). */
+  floor_id: string | null;
   map_x: number | null;
   map_y: number | null;
   map_w: number | null;
@@ -53,6 +55,22 @@ export interface RolePermissions {
   member: StarPerm[];
 }
 
+export interface StarFloor {
+  id: string;
+  name: string;
+  position: number;
+  /** Растёт при каждом сохранении плана. */
+  version: number;
+}
+
+export interface LayoutRoom {
+  channel_id: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
 export interface VoicePresence {
   user_id: string;
   joined_at: string;
@@ -67,6 +85,8 @@ export interface StarDetail extends StarSummary {
   members: StarMember[];
   /** Кто сейчас на какой Планете: channel_id → участники. */
   voice: Record<string, VoicePresence[]>;
+  /** Этажи карты офиса (только у Звёзд «Работа»). */
+  floors: StarFloor[];
 }
 
 export interface PlanetJoin {
@@ -129,6 +149,8 @@ export type StarEvent =
   | { type: "star_channel_deleted"; star_id: string; channel_id: string }
   | { type: "star_channels_order"; star_id: string; channel_ids: string[] }
   | { type: "star_message"; star_id: string; message: StarMessage }
+  | { type: "star_floors"; star_id: string; floors: StarFloor[] }
+  | { type: "star_layout"; star_id: string; floor: StarFloor; rooms: LayoutRoom[] }
   | {
       type: "star_voice";
       star_id: string;
@@ -179,12 +201,18 @@ export const starsApi = {
 
   createChannel: (
     starId: string,
-    body: { kind: ChannelKind; name: string; capacity?: number; room_kind?: RoomKind }
+    body: {
+      kind: ChannelKind;
+      name: string;
+      capacity?: number;
+      room_kind?: RoomKind;
+      floor_id?: string;
+    }
   ) => http.post<StarChannel>(`${base(starId)}/channels`, body).then((r) => r.data),
   updateChannel: (
     starId: string,
     channelId: string,
-    body: { name?: string; capacity?: number; room_kind?: RoomKind }
+    body: { name?: string; capacity?: number; room_kind?: RoomKind; floor_id?: string }
   ) => http.patch<StarChannel>(`${base(starId)}/channels/${channelId}`, body).then((r) => r.data),
   deleteChannel: (starId: string, channelId: string) =>
     http.delete(`${base(starId)}/channels/${channelId}`),
@@ -201,6 +229,19 @@ export const starsApi = {
       .then((r) => r.data),
   deleteMessage: (starId: string, channelId: string, messageId: string) =>
     http.delete(`${base(starId)}/channels/${channelId}/messages/${messageId}`),
+
+  createFloor: (starId: string, name: string) =>
+    http.post<StarFloor>(`${base(starId)}/floors`, { name }).then((r) => r.data),
+  renameFloor: (starId: string, floorId: string, name: string) =>
+    http.patch<StarFloor>(`${base(starId)}/floors/${floorId}`, { name }).then((r) => r.data),
+  deleteFloor: (starId: string, floorId: string) => http.delete(`${base(starId)}/floors/${floorId}`),
+  saveLayout: (starId: string, floorId: string, version: number, rooms: LayoutRoom[]) =>
+    http
+      .put<{ floor: StarFloor; rooms: LayoutRoom[] }>(`${base(starId)}/floors/${floorId}/layout`, {
+        version,
+        rooms,
+      })
+      .then((r) => r.data),
 
   joinPlanet: (starId: string, channelId: string) =>
     http.post<PlanetJoin>(`${base(starId)}/planets/${channelId}/join`).then((r) => r.data),

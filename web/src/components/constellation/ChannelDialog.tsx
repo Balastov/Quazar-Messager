@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { ChannelKind, RoomKind, StarChannel, StarKind } from "../../api/stars";
+import type { ChannelKind, RoomKind, StarChannel, StarFloor, StarKind } from "../../api/stars";
 import { useStarsStore } from "../../store/stars";
 import Dialog from "./Dialog";
 import { apiError, ROOM_LABEL } from "./rules";
@@ -12,10 +12,23 @@ interface Props {
   kind: ChannelKind;
   /** Есть — редактируем, нет — создаём. */
   channel?: StarChannel;
+  /** Этажи карты офиса (Звёзды «Работа»). */
+  floors?: StarFloor[];
+  defaultFloorId?: string;
+  /** Переносить комнату между этажами может тот, кто редактирует карту. */
+  canEditMap?: boolean;
   onClose: () => void;
 }
 
-export default function ChannelDialog({ starKind, kind, channel, onClose }: Props) {
+export default function ChannelDialog({
+  starKind,
+  kind,
+  channel,
+  floors = [],
+  defaultFloorId,
+  canEditMap = false,
+  onClose,
+}: Props) {
   const limits = useStarsStore((st) => st.limits);
   const createChannel = useStarsStore((st) => st.createChannel);
   const updateChannel = useStarsStore((st) => st.updateChannel);
@@ -34,6 +47,11 @@ export default function ChannelDialog({ starKind, kind, channel, onClose }: Prop
   const [capacity, setCapacity] = useState<number>(
     channel?.capacity ?? defaultFor(isWork ? "meeting" : null)
   );
+  const [floorId, setFloorId] = useState<string>(
+    channel?.floor_id ?? defaultFloorId ?? floors[0]?.id ?? ""
+  );
+  const showFloors = kind === "planet" && starKind === "work" && floors.length > 0;
+  const floorEditable = !channel || canEditMap;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -62,8 +80,13 @@ export default function ChannelDialog({ starKind, kind, channel, onClose }: Prop
     e.preventDefault();
     const trimmed = name.trim();
     if (!trimmed) return;
+    const floorChanged = showFloors && floorId && floorId !== (channel?.floor_id ?? "");
     const planetFields = isPlanet
-      ? { capacity, ...(isWork ? { room_kind: roomKind } : {}) }
+      ? {
+          capacity,
+          ...(isWork ? { room_kind: roomKind } : {}),
+          ...(floorChanged && floorEditable ? { floor_id: floorId } : {}),
+        }
       : {};
     void run(() =>
       channel
@@ -104,6 +127,25 @@ export default function ChannelDialog({ starKind, kind, channel, onClose }: Prop
               {ROOM_KINDS.map((k) => (
                 <option key={k} value={k}>
                   {ROOM_LABEL[k]}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+
+        {showFloors && (
+          <label className={s.label}>
+            Этаж
+            <select
+              className={s.select}
+              value={floorId}
+              onChange={(e) => setFloorId(e.target.value)}
+              disabled={busy || !floorEditable}
+              title={floorEditable ? undefined : "Переносить между этажами может тот, кто редактирует карту"}
+            >
+              {floors.map((f) => (
+                <option key={f.id} value={f.id}>
+                  {f.name}
                 </option>
               ))}
             </select>

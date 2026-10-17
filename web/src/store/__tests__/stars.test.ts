@@ -28,6 +28,7 @@ function detail(id: string, name = "Звезда"): StarDetail {
     my_permissions: ["invite", "delete_messages", "kick", "manage_channels"],
     role_permissions: { moderator: [], member: [] },
     voice: {},
+    floors: [],
     members: [
       {
         user: { id: ME, username: "я", avatar_url: null },
@@ -36,9 +37,9 @@ function detail(id: string, name = "Звезда"): StarDetail {
       },
     ],
     channels: [
-      { id: `${id}-planet`, star_id: id, kind: "planet", name: "Общая", position: 0, capacity: 10, room_kind: null, map_x: null, map_y: null, map_w: null, map_h: null },
-      { id: `${id}-general`, star_id: id, kind: "satellite", name: "общий", position: 0, capacity: null, room_kind: null, map_x: null, map_y: null, map_w: null, map_h: null },
-      { id: `${id}-news`, star_id: id, kind: "satellite", name: "новости", position: 1, capacity: null, room_kind: null, map_x: null, map_y: null, map_w: null, map_h: null },
+      { id: `${id}-planet`, star_id: id, kind: "planet", name: "Общая", position: 0, capacity: 10, room_kind: null, floor_id: null, map_x: null, map_y: null, map_w: null, map_h: null },
+      { id: `${id}-general`, star_id: id, kind: "satellite", name: "общий", position: 0, capacity: null, room_kind: null, floor_id: null, map_x: null, map_y: null, map_w: null, map_h: null },
+      { id: `${id}-news`, star_id: id, kind: "satellite", name: "новости", position: 1, capacity: null, room_kind: null, floor_id: null, map_x: null, map_y: null, map_w: null, map_h: null },
     ],
   };
 }
@@ -157,6 +158,29 @@ describe("stars store", () => {
     expect(useStarsStore.getState().details.a.member_count).toBe(2);
     emit({ type: "star_member_removed", star_id: "a", user_id: "u2", reason: "leave" });
     expect(useStarsStore.getState().details.a.member_count).toBe(1);
+  });
+
+  it("applies floor list and saved layouts from other people", async () => {
+    await useStarsStore.getState().load();
+    emit({
+      type: "star_floors",
+      star_id: "a",
+      floors: [
+        { id: "f2", name: "2 этаж", position: 1, version: 0 },
+        { id: "f1", name: "1 этаж", position: 0, version: 4 },
+      ],
+    });
+    expect(useStarsStore.getState().details.a.floors.map((f) => f.id)).toEqual(["f1", "f2"]);
+
+    emit({
+      type: "star_layout",
+      star_id: "a",
+      floor: { id: "f1", name: "1 этаж", position: 0, version: 5 },
+      rooms: [{ channel_id: "a-planet", x: 3, y: 4, w: 6, h: 5 }],
+    });
+    const st = useStarsStore.getState().details.a;
+    expect(st.floors.find((f) => f.id === "f1")?.version).toBe(5);
+    expect(st.channels.find((c) => c.id === "a-planet")).toMatchObject({ map_x: 3, map_y: 4, map_w: 6, map_h: 5 });
   });
 
   it("selects a newly created star", async () => {

@@ -121,11 +121,19 @@ class StarSummaryOut(BaseModel):
     my_role: Role
 
 
+class VoiceParticipantOut(BaseModel):
+    user_id: str
+    joined_at: datetime
+    server_muted: bool
+
+
 class StarDetailOut(StarSummaryOut):
     my_permissions: list[str]
     role_permissions: dict[str, list[str]]
     channels: list[StarChannelOut]
     members: list[StarMemberOut]
+    # Кто сейчас на какой Планете: channel_id -> участники.
+    voice: dict[str, list[VoiceParticipantOut]] = {}
 
 
 class StarMessageOut(BaseModel):

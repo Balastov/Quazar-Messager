@@ -285,6 +285,14 @@ export const useStarsStore = create<StarsState>((set, get) => {
         }
         break;
       }
+      case "star_voice":
+        patchDetail(starId, (d) => {
+          const voice = { ...(d.voice ?? {}) };
+          if (event.participants.length) voice[event.channel_id] = event.participants;
+          else delete voice[event.channel_id];
+          return { ...d, voice };
+        });
+        break;
       case "star_message_deleted":
         set((s) => {
           const list = s.messages[event.channel_id];

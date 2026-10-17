@@ -767,3 +767,185 @@
 .noticeText {
   flex: 1;
 }
+
+/* --- Голос на Планетах --- */
+
+.voice {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px;
+}
+
+.voiceStatus {
+  text-align: center;
+  font-size: 13px;
+  color: var(--qz-text-muted);
+}
+
+.voiceGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 10px;
+}
+
+.voicePeer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 14px 10px;
+  border-radius: var(--qz-radius);
+  border: 1px solid var(--qz-border);
+  background: var(--qz-bg-soft);
+  text-align: center;
+  min-width: 0;
+}
+
+.voiceAvatar {
+  border-radius: 50%;
+  padding: 3px;
+  border: 3px solid transparent;
+  transition: border-color 0.12s, box-shadow 0.12s;
+}
+
+.voiceAvatarSpeaking {
+  border-color: var(--qz-online);
+  box-shadow: 0 0 16px rgba(52, 211, 153, 0.5);
+}
+
+.voicePeerName {
+  max-width: 100%;
+  font-size: 14px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.voicePeerState {
+  font-size: 12px;
+  color: var(--qz-text-muted);
+}
+
+.voicePeerMuted {
+  color: var(--qz-danger);
+}
+
+.voiceControls {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 12px 16px calc(12px + var(--qz-safe-bottom));
+  border-top: 1px solid var(--qz-border);
+  background: rgba(12, 10, 22, 0.78);
+}
+
+.voiceToggle,
+.voiceToggleOff {
+  min-width: 64px;
+}
+
+.voiceToggleOff {
+  background: rgba(248, 113, 113, 0.16);
+  border-color: rgba(248, 113, 113, 0.45);
+}
+
+.presence {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0 0 6px 36px;
+}
+
+.presenceRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--qz-text-muted);
+  min-width: 0;
+}
+
+.presenceDot {
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--qz-accent-soft);
+  color: var(--qz-text);
+  font-size: 11px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.presenceName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Плашка «Вы на Планете» */
+
+.voiceBar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: var(--qz-radius);
+  border: 1px solid rgba(52, 211, 153, 0.45);
+  background: #10231c;
+  box-sizing: border-box;
+}
+
+.voiceBarFloating {
+  position: fixed;
+  z-index: 60;
+  left: 12px;
+  right: 12px;
+  bottom: calc(76px + var(--qz-safe-bottom));
+  box-shadow: var(--qz-shadow);
+}
+
+@media (min-width: 768px) {
+  .voiceBarFloating {
+    left: auto;
+    right: 20px;
+    top: calc(14px + var(--qz-safe-top));
+    bottom: auto;
+    width: min(380px, calc(100vw - 40px));
+  }
+}
+
+.voiceBarInfo {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  border: none;
+  background: none;
+  color: var(--qz-text);
+  text-align: left;
+  cursor: pointer;
+  padding: 0;
+}
+
+.voiceBarTitle {
+  font-size: 13px;
+  font-weight: 700;
+  color: #6ee7a0;
+}
+
+.voiceBarSub {
+  font-size: 12px;
+  color: var(--qz-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

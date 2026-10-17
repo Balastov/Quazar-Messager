@@ -8,6 +8,7 @@ import { startCallRingtone } from "../notifications/sound";
 import { socket } from "../ws/socket";
 import { useAuthStore } from "./auth";
 import { useChatStore } from "./chat";
+import { useVoiceStore } from "./voice";
 
 type EndReason =
   | "hangup"
@@ -158,6 +159,8 @@ async function beginOutgoingCall(
 ) {
   const phase = get().phase;
   if (phase !== "idle" && phase !== "ended") return;
+  // Личный звонок и Планета одновременно — нельзя: микрофон один.
+  await useVoiceStore.getState().leave();
 
   const callId =
     typeof crypto !== "undefined" && "randomUUID" in crypto
@@ -414,6 +417,7 @@ export const useCallStore = create<CallState>((set, get) => {
       if (!callId || phase !== "incoming") return;
       stopRing();
       void clearCallNotification(callId);
+      await useVoiceStore.getState().leave();
       set({ phase: "connecting", error: null, cameraOff: false });
       try {
         const p = await ensurePeer(media);

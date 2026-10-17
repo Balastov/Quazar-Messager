@@ -12,6 +12,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import stars as rules
+from app.core import voice
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.core.stars import Perm
@@ -177,6 +178,7 @@ async def _detail(db: AsyncSession, star: Star, me: StarMember) -> StarDetailOut
         role_permissions=rules.normalize_role_permissions(star.role_permissions),
         channels=[StarChannelOut.model_validate(c) for c in channels],
         members=members,
+        voice=voice.star_presence(star.id),
     )
 
 
@@ -188,6 +190,7 @@ async def _remove_member(db: AsyncSession, star_id: str, user_id: str, reason: s
     await db.commit()
     await _broadcast(db, star_id, {"type": "star_member_removed", "user_id": user_id, "reason": reason})
     await manager.send_to_user(user_id, {"type": "star_removed", "star_id": star_id, "reason": reason})
+    await voice.evict_user(star_id, user_id)
 
 
 def _default_channels(star: Star) -> list[StarChannel]:
@@ -306,11 +309,14 @@ async def delete_star(star_id: str, current_user: CurrentUser, db: Db):
     if me.role != "owner":
         raise _forbid("Удалить Звезду может только владелец")
     member_ids = await _member_ids(db, star_id)
+    planet_ids = [c.id for c in await _channels(db, star_id) if c.kind == "planet"]
     await db.execute(delete(Star).where(Star.id == star_id))
     await db.commit()
     await manager.broadcast_to_users(
         member_ids, {"type": "star_removed", "star_id": star_id, "reason": "deleted"}
     )
+    for channel_id in planet_ids:
+        await voice.close_planet(star_id, channel_id)
 
 
 @router.post("/{star_id}/transfer", response_model=StarDetailOut)
@@ -621,9 +627,12 @@ async def update_channel(
 async def delete_channel(star_id: str, channel_id: str, current_user: CurrentUser, db: Db):
     await _require_perm(db, star_id, current_user, Perm.MANAGE_CHANNELS)
     channel = await _channel(db, star_id, channel_id)
+    is_planet = channel.kind == "planet"
     await db.delete(channel)
     await db.commit()
     await _broadcast(db, star_id, {"type": "star_channel_deleted", "channel_id": channel_id})
+    if is_planet:
+        await voice.close_planet(star_id, channel_id)
 
 
 @router.put("/{star_id}/channels/order", status_code=status.HTTP_204_NO_CONTENT)

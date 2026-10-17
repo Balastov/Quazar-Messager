@@ -1,7 +1,8 @@
 import type { ChannelKind, StarChannel, StarDetail } from "../../api/stars";
 import { sortChannels, useStarsStore } from "../../store/stars";
 import { IconGear, IconPlanet, IconSatellite } from "../icons";
-import { can, GAMING_LIMITS, KIND_LABEL, ROLE_LABEL } from "./rules";
+import { can, GAMING_LIMITS, initials, KIND_LABEL, ROLE_LABEL } from "./rules";
+import { VoiceBar } from "./VoiceBar";
 import s from "./Constellation.module.css";
 
 interface Props {
@@ -57,19 +58,40 @@ export default function ChannelSidebar({
         </div>
         {list.map((c) => {
           const count = unread[c.id]?.count ?? 0;
+          const inside = kind === "planet" ? (detail.voice?.[c.id] ?? []) : [];
           return (
-            <button
-              key={c.id}
-              type="button"
-              className={c.id === activeChannelId ? s.channelActive : s.channel}
-              onClick={() => onOpenChannel(c)}
-              onDoubleClick={manage ? () => onEditChannel(c) : undefined}
-            >
-              {kind === "satellite" ? <IconSatellite /> : <IconPlanet />}
-              <span className={`${s.channelName} ${count ? s.channelUnread : ""}`}>{c.name}</span>
-              {kind === "planet" && <span className={s.channelHint}>до {c.capacity}</span>}
-              {count > 0 && <span className={s.countBadge}>{count > 99 ? "99+" : count}</span>}
-            </button>
+            <div key={c.id}>
+              <button
+                type="button"
+                className={c.id === activeChannelId ? s.channelActive : s.channel}
+                onClick={() => onOpenChannel(c)}
+                onDoubleClick={manage ? () => onEditChannel(c) : undefined}
+              >
+                {kind === "satellite" ? <IconSatellite /> : <IconPlanet />}
+                <span className={`${s.channelName} ${count ? s.channelUnread : ""}`}>{c.name}</span>
+                {kind === "planet" && (
+                  <span className={s.channelHint}>
+                    {inside.length ? `${inside.length}/${c.capacity}` : `до ${c.capacity}`}
+                  </span>
+                )}
+                {count > 0 && <span className={s.countBadge}>{count > 99 ? "99+" : count}</span>}
+              </button>
+              {inside.length > 0 && (
+                <div className={s.presence}>
+                  {inside.map((p) => {
+                    const name =
+                      detail.members.find((m) => m.user.id === p.user_id)?.user.username ?? "Участник";
+                    return (
+                      <div key={p.user_id} className={s.presenceRow}>
+                        <span className={s.presenceDot}>{initials(name)}</span>
+                        <span className={s.presenceName}>{name}</span>
+                        {p.server_muted && <span title="Микрофон выключил модератор">🔇</span>}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           );
         })}
         {list.length === 0 && (
@@ -104,8 +126,9 @@ export default function ChannelSidebar({
         {section("satellite", "Спутники")}
         {section("planet", "Планеты")}
       </div>
-      {can(detail, "invite") && (
-        <div className={s.sidebarFooter}>
+      <div className={s.sidebarFooter} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <VoiceBar />
+        {can(detail, "invite") && (
           <button
             type="button"
             className={`${s.secondary} ${s.wide}`}
@@ -113,8 +136,8 @@ export default function ChannelSidebar({
           >
             Пригласить людей
           </button>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }

@@ -14,6 +14,7 @@ import ToastStack from "../components/ToastStack";
 import NotifyPrompt from "../components/NotifyPrompt";
 import CallOverlay from "../components/CallOverlay";
 import ConstellationView from "../components/constellation/ConstellationView";
+import VoiceBarHost from "../components/constellation/VoiceBar";
 import { takePendingInvite } from "../api/stars";
 import { useStarsStore } from "../store/stars";
 import E2EKeyGate from "../components/E2EKeyGate";
@@ -179,6 +180,7 @@ export default function MessengerPage() {
       {!showMobileChat && <NotifyPrompt />}
       <ToastStack />
       <E2EKeyGate />
+      <VoiceBarHost />
       <CallOverlay />
     </div>
   );

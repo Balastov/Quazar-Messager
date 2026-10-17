@@ -34,6 +34,13 @@ class Settings(BaseSettings):
     # Ringing timeout before call becomes missed (seconds)
     CALL_RING_TIMEOUT_SEC: int = 45
 
+    # LiveKit — медиасервер голосовых Планет. Пусто = голос на Планетах выключен.
+    # LIVEKIT_URL — адрес для бэкенда внутри docker-сети, LIVEKIT_PUBLIC_URL — для браузеров.
+    LIVEKIT_URL: str = ""
+    LIVEKIT_PUBLIC_URL: str = ""
+    LIVEKIT_API_KEY: str = ""
+    LIVEKIT_API_SECRET: str = ""
+
     @property
     def cors_origins_list(self) -> list[str]:
         raw = self.CORS_ORIGINS.strip()

@@ -53,11 +53,26 @@ export interface RolePermissions {
   member: StarPerm[];
 }
 
+export interface VoicePresence {
+  user_id: string;
+  joined_at: string;
+  /** Модератор выключил микрофон. */
+  server_muted: boolean;
+}
+
 export interface StarDetail extends StarSummary {
   my_permissions: StarPerm[];
   role_permissions: RolePermissions;
   channels: StarChannel[];
   members: StarMember[];
+  /** Кто сейчас на какой Планете: channel_id → участники. */
+  voice: Record<string, VoicePresence[]>;
+}
+
+export interface PlanetJoin {
+  url: string;
+  token: string;
+  room: string;
 }
 
 export interface StarMessage {
@@ -114,6 +129,12 @@ export type StarEvent =
   | { type: "star_channel_deleted"; star_id: string; channel_id: string }
   | { type: "star_channels_order"; star_id: string; channel_ids: string[] }
   | { type: "star_message"; star_id: string; message: StarMessage }
+  | {
+      type: "star_voice";
+      star_id: string;
+      channel_id: string;
+      participants: VoicePresence[];
+    }
   | {
       type: "star_message_deleted";
       star_id: string;
@@ -180,6 +201,13 @@ export const starsApi = {
       .then((r) => r.data),
   deleteMessage: (starId: string, channelId: string, messageId: string) =>
     http.delete(`${base(starId)}/channels/${channelId}/messages/${messageId}`),
+
+  joinPlanet: (starId: string, channelId: string) =>
+    http.post<PlanetJoin>(`${base(starId)}/planets/${channelId}/join`).then((r) => r.data),
+  voiceMute: (starId: string, channelId: string, userId: string, muted: boolean) =>
+    http.post(`${base(starId)}/planets/${channelId}/voice/${userId}/mute`, { muted }),
+  voiceRemove: (starId: string, channelId: string, userId: string) =>
+    http.post(`${base(starId)}/planets/${channelId}/voice/${userId}/remove`),
 };
 
 /** Ссылка-приглашение, которую можно отправить человеку. */

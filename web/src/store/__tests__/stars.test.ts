@@ -27,6 +27,7 @@ function detail(id: string, name = "Звезда"): StarDetail {
     my_role: "owner",
     my_permissions: ["invite", "delete_messages", "kick", "manage_channels"],
     role_permissions: { moderator: [], member: [] },
+    voice: {},
     members: [
       {
         user: { id: ME, username: "я", avatar_url: null },

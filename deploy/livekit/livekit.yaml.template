@@ -1,0 +1,34 @@
+# Generated on the server by deploy/scripts/render-livekit-config.sh — do not edit by hand.
+# Source: deploy/livekit/livekit.yaml.template + .env.prod
+#
+# LiveKit — медиасервер голосовых Планет (Созвездие).
+# Снаружи нужны только два порта: 7881/tcp и 7882/udp. Сигналинг (7880) идёт через nginx /livekit/.
+
+port: 7880
+
+logging:
+  level: info
+
+rtc:
+  # Весь UDP-трафик через один порт (мультиплексирование) — удобно в Docker и для фаервола.
+  udp_port: 7882
+  # Запасной путь, если UDP режется сетью клиента.
+  tcp_port: 7881
+{{NODE_IP_BLOCK}}
+{{TURN_BLOCK}}
+
+keys:
+  {{LIVEKIT_API_KEY}}: {{LIVEKIT_API_SECRET}}
+
+room:
+  # Комнаты создаёт только бэкенд (он и проверяет вместимость Планеты).
+  auto_create: false
+  empty_timeout: 120
+  departure_timeout: 20
+  # Потолок для любой Планеты (PLANET_MAX_CAPACITY).
+  max_participants: 25
+
+webhook:
+  api_key: {{LIVEKIT_API_KEY}}
+  urls:
+    - http://backend:8000/livekit/webhook

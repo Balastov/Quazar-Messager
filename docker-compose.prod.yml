@@ -43,6 +43,11 @@ services:
       VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
       VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:admin@quazar-msg.ru}
       CALL_RING_TIMEOUT_SEC: ${CALL_RING_TIMEOUT_SEC:-45}
+      # Голос на Планетах (profile voice). Пустые ключи = голос выключен.
+      LIVEKIT_URL: http://livekit:7880
+      LIVEKIT_PUBLIC_URL: wss://${DOMAIN:-quazar-msg.ru}/livekit
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-}
     volumes:
       - media_data:/app/media
     depends_on:
@@ -97,6 +102,20 @@ services:
       - "3478:3478/udp"
       - "49152-49252:49152-49252/udp"
     command: ["-c", "/etc/coturn/turnserver.conf"]
+
+  # Медиасервер голосовых Планет (profile voice — см. docs/VOICE-PLANETS.md).
+  # Снаружи: 7881/tcp и 7882/udp; сигналинг 7880 — только через host nginx (/livekit/).
+  livekit:
+    image: livekit/livekit-server:v1.13.7
+    restart: unless-stopped
+    profiles: ["voice"]
+    command: ["--config", "/etc/livekit.yaml"]
+    volumes:
+      - ./deploy/livekit/livekit.yaml:/etc/livekit.yaml:ro
+    ports:
+      - "127.0.0.1:7880:7880"
+      - "7881:7881/tcp"
+      - "7882:7882/udp"
 
 volumes:
   postgres_data:

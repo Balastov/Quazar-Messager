@@ -1,3 +1,4 @@
+import asyncio
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -10,6 +11,7 @@ from starlette.responses import Response
 from sqlalchemy import text
 
 from app.core.avatars import media_root
+from app.core import voice
 from app.core.config import settings
 from app.core.database import Base, engine
 from app.models import Call, PushSubscription, Star  # noqa: F401 — register tables for create_all
@@ -21,6 +23,8 @@ from app.api.calls import router as calls_router
 from app.api.push import router as push_router
 from app.api.stars import invites_router as star_invites_router
 from app.api.stars import router as stars_router
+from app.api.voice import router as voice_router
+from app.api.voice import webhook_router as livekit_webhook_router
 from app.ws.router import router as ws_router
 
 
@@ -87,6 +91,8 @@ async def lifespan(app: FastAPI):
                 """
             )
         )
+    # Кто сейчас на Планетах — восстанавливаем из LiveKit после перезапуска (в фоне).
+    app.state.voice_resync = asyncio.create_task(voice.resync())
     yield
 
 
@@ -110,6 +116,8 @@ app.include_router(calls_router)
 app.include_router(push_router)
 app.include_router(stars_router)
 app.include_router(star_invites_router)
+app.include_router(voice_router)
+app.include_router(livekit_webhook_router)
 app.include_router(ws_router)
 
 _media = Path(media_root())

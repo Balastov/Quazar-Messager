@@ -21,10 +21,20 @@ elif [[ -f .env.prod ]] && grep -qE '^WEBRTC_TURN_CREDENTIAL=.+' .env.prod; then
   echo "==> WARN: WEBRTC_TURN_CREDENTIAL set but TURN_EXTERNAL_IP missing — coturn not started (see docs/WEBRTC-TURN.md)"
 fi
 
+# Голос на Планетах: ключи и конфиг LiveKit. Если не вышло — сайт деплоится без голоса.
+if [[ -f .env.prod ]]; then
+  if bash deploy/scripts/render-livekit-config.sh .env.prod; then
+    echo "==> LiveKit configured — enabling voice profile"
+    COMPOSE_PROFILES+=(--profile voice)
+  else
+    echo "==> WARN: LiveKit config failed — voice on Planets stays off (see docs/VOICE-PLANETS.md)"
+  fi
+fi
+
 echo "==> Rebuilding containers..."
 docker compose -f docker-compose.prod.yml --env-file .env.prod "${COMPOSE_PROFILES[@]}" up -d --build
 
-echo "==> Ensuring host nginx /media + 4m upload limit..."
+echo "==> Ensuring host nginx /media, /livekit/ + 4m upload limit..."
 SITE=/etc/nginx/sites-available/quazar-msg.ru
 if [[ -f "$SITE" ]]; then
   sudo python3 - <<'PY'
@@ -64,6 +74,27 @@ if "location /media/" not in text:
         text = text.replace("location /ws", MEDIA + "\n    location /ws", 1)
     else:
         text = text.replace("location / {", MEDIA + "\n    location / {", 1)
+
+LIVEKIT = """
+    location /livekit/ {
+        proxy_pass http://127.0.0.1:7880/;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 86400;
+    }
+"""
+if "location /livekit/" not in text:
+    # Вставляем в HTTPS-блок: рядом с /ws. Первый "location / {" — это редирект в HTTP-блоке.
+    if "location /ws" in text:
+        text = text.replace("location /ws", LIVEKIT.strip() + "\n\n    location /ws", 1)
+    else:
+        head, sep, tail = text.rpartition("location / {")
+        text = head + LIVEKIT.strip() + "\n\n    " + sep + tail
 
 if text != orig:
     path.write_text(text)

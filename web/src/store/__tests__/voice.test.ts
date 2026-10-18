@@ -11,7 +11,10 @@ vi.stubGlobal("localStorage", {
 class FakeTrack {
   enabled = true;
   stopped = false;
-  constructor(readonly id: string) {}
+  constructor(
+    readonly id: string,
+    readonly source = "microphone"
+  ) {}
   stop() {
     this.stopped = true;
   }
@@ -21,7 +24,10 @@ class FakeTrack {
 class FakePublication {
   isMuted = false;
   audioTrack = { replaceTrack: vi.fn(async () => {}) };
-  constructor(readonly track: FakeTrack) {}
+  constructor(
+    readonly track: FakeTrack,
+    readonly source: string
+  ) {}
   async mute() {
     this.isMuted = true;
   }
@@ -36,17 +42,35 @@ class FakeRoom {
   canPlaybackAudio = true;
   remoteParticipants = new Map();
   published: FakePublication[] = [];
+  // Сколько живых публикаций: published хранит и снятые — для проверок истории.
+  live = new Set<FakePublication>();
+  screenTracks: FakeTrack[] = [new FakeTrack("screen", "screen_share"), new FakeTrack("tab-audio", "screen_share_audio")];
   localParticipant = {
     identity: "me",
     name: "я",
     isSpeaking: false,
     isMicrophoneEnabled: true,
-    permissions: { canPublish: true },
-    publishTrack: vi.fn(async (track: FakeTrack) => {
-      const pub = new FakePublication(track);
+    permissions: { canPublish: true, canPublishSources: [2] } as { canPublish: boolean; canPublishSources?: number[] },
+    get isScreenShareEnabled() {
+      return false;
+    },
+    get trackPublications() {
+      return new Map([...room().live].map((p, i) => [String(i), p]));
+    },
+    getTrackPublication: (source: string) => [...this.live].find((p) => p.source === source),
+    publishTrack: vi.fn(async (track: FakeTrack, opts?: { source?: string }) => {
+      const pub = new FakePublication(track, opts?.source ?? track.source);
       this.published.push(pub);
+      this.live.add(pub);
       return pub;
     }),
+    unpublishTrack: vi.fn(async (track: FakeTrack) => {
+      const pub = [...this.live].find((p) => p.track === track);
+      if (!pub) return;
+      this.live.delete(pub);
+      this.emit("LocalTrackUnpublished", pub);
+    }),
+    createScreenTracks: vi.fn(async () => this.screenTracks),
   };
   connect = vi.fn(async () => {});
   disconnect = vi.fn(async () => {});
@@ -58,6 +82,15 @@ class FakeRoom {
     this.handlers.set(event, [...(this.handlers.get(event) ?? []), fn]);
     return this;
   }
+  off(event: string, fn: (...args: unknown[]) => void) {
+    this.handlers.set(event, (this.handlers.get(event) ?? []).filter((h) => h !== fn));
+    return this;
+  }
+  /** Сервер поменял права участника (как UpdateParticipant). */
+  grant(sources: number[]) {
+    this.localParticipant.permissions = { canPublish: sources.length > 0, canPublishSources: sources };
+    this.emit("ParticipantPermissionsChanged", undefined, this.localParticipant);
+  }
   removeAllListeners() {
     this.handlers.clear();
   }
@@ -66,10 +99,13 @@ class FakeRoom {
   }
 }
 
+const room = () => FakeRoom.last!;
+
 vi.mock("livekit-client", () => ({
   Room: FakeRoom,
   RoomEvent: new Proxy({}, { get: (_t, name) => String(name) }),
-  Track: { Source: { Microphone: "microphone" } },
+  Track: { Source: { Microphone: "microphone", ScreenShare: "screen_share", ScreenShareAudio: "screen_share_audio" } },
+  ScreenSharePresets: { h1080fps15: { resolution: { width: 1920, height: 1080 }, encoding: { maxBitrate: 1, maxFramerate: 15 } } },
   DisconnectReason: { CLIENT_INITIATED: 1, DUPLICATE_IDENTITY: 2, PARTICIPANT_REMOVED: 4, ROOM_DELETED: 5 },
 }));
 
@@ -104,7 +140,18 @@ vi.mock("../../calls/noiseSuppression", () => ({
 }));
 
 const joinPlanet = vi.fn(async () => ({ url: "wss://example.test/livekit", token: "tok", room: "planet-p1" }));
-vi.mock("../../api/stars", () => ({ starsApi: { joinPlanet: (...a: unknown[]) => joinPlanet(...(a as [])) } }));
+/** По умолчанию сервер выдаёт слот и права на экран. */
+const startScreen = vi.fn(async () => {
+  setTimeout(() => room().grant([2, 3, 4]), 0);
+});
+const stopScreen = vi.fn(async () => {});
+vi.mock("../../api/stars", () => ({
+  starsApi: {
+    joinPlanet: (...a: unknown[]) => joinPlanet(...(a as [])),
+    startScreen: (...a: unknown[]) => startScreen(...(a as [])),
+    stopScreen: (...a: unknown[]) => stopScreen(...(a as [])),
+  },
+}));
 
 const callState = { phase: "idle" };
 vi.mock("../call", () => ({ useCallStore: { getState: () => callState } }));
@@ -131,6 +178,8 @@ beforeEach(async () => {
   callState.phase = "idle";
   mic = new FakeTrack("mic");
   joinPlanet.mockClear();
+  startScreen.mockClear();
+  stopScreen.mockClear();
 });
 
 describe("voice store", () => {
@@ -221,14 +270,14 @@ describe("voice store", () => {
   it("republishes the microphone after a moderator returns it", async () => {
     await useVoiceStore.getState().join("s1", "p1");
     const room = FakeRoom.last!;
-    const local = room.localParticipant;
 
-    local.permissions = { canPublish: false };
-    room.emit("ParticipantPermissionsChanged", undefined, local);
+    room.grant([]);
+    expect(useVoiceStore.getState().serverMuted).toBe(true);
+    // Нет MICROPHONE в списке источников — тоже выключен (так мьютят, не трогая показ экрана).
+    room.grant([3, 4]);
     expect(useVoiceStore.getState().serverMuted).toBe(true);
 
-    local.permissions = { canPublish: true };
-    room.emit("ParticipantPermissionsChanged", undefined, local);
+    room.grant([2]);
     await vi.waitFor(() => expect(room.published).toHaveLength(2));
     expect(room.published[1].track.id).toBe("denoised");
     // Вернули право говорить — но включает микрофон сам человек.
@@ -261,6 +310,71 @@ describe("voice store", () => {
     expect(first.disconnect).toHaveBeenCalled();
     expect(FakeRoom.last).not.toBe(first);
     expect(useVoiceStore.getState().channelId).toBe("p2");
+  });
+});
+
+describe("screen share", () => {
+  const sources = () => [...room().live].map((p) => p.source).sort();
+
+  it("publishes the screen only after the server grants the slot", async () => {
+    await useVoiceStore.getState().join("s1", "p1");
+    await useVoiceStore.getState().startScreenShare();
+    expect(startScreen).toHaveBeenCalledWith("s1", "p1");
+    expect(sources()).toEqual(["microphone", "screen_share", "screen_share_audio"]);
+    const st = useVoiceStore.getState();
+    expect(st.sharingScreen).toBe(true);
+    expect(st.screenStarting).toBe(false);
+    expect(st.screens).toEqual([expect.objectContaining({ userId: "me", isLocal: true })]);
+  });
+
+  it("explains a taken slot and releases the captured screen", async () => {
+    startScreen.mockImplementationOnce(async () => {
+      throw { isAxiosError: true, response: { status: 409, data: { detail: "Сейчас экран показывает Анна" } } };
+    });
+    await useVoiceStore.getState().join("s1", "p1");
+    await useVoiceStore.getState().startScreenShare();
+    expect(sources()).toEqual(["microphone"]);
+    expect(room().screenTracks.every((t) => t.stopped)).toBe(true);
+    expect(useVoiceStore.getState().notice).toBe("Сейчас экран показывает Анна");
+    expect(useVoiceStore.getState().sharingScreen).toBe(false);
+  });
+
+  it("stays quiet when the person closes the screen picker", async () => {
+    await useVoiceStore.getState().join("s1", "p1");
+    room().localParticipant.createScreenTracks.mockRejectedValueOnce(new DOMException("x", "NotAllowedError"));
+    await useVoiceStore.getState().startScreenShare();
+    expect(startScreen).not.toHaveBeenCalled();
+    expect(useVoiceStore.getState().notice).toBeNull();
+    expect(useVoiceStore.getState().screenStarting).toBe(false);
+  });
+
+  it("stops by itself: unpublishes, stops capture, frees the slot", async () => {
+    await useVoiceStore.getState().join("s1", "p1");
+    await useVoiceStore.getState().startScreenShare();
+    await useVoiceStore.getState().stopScreenShare();
+    expect(sources()).toEqual(["microphone"]);
+    expect(room().screenTracks.every((t) => t.stopped)).toBe(true);
+    expect(stopScreen).toHaveBeenCalledWith("s1", "p1");
+    expect(useVoiceStore.getState().notice).toBeNull();
+    expect(useVoiceStore.getState().sharingScreen).toBe(false);
+  });
+
+  it("tells when a moderator stops the screen", async () => {
+    await useVoiceStore.getState().join("s1", "p1");
+    await useVoiceStore.getState().startScreenShare();
+    room().grant([2]);
+    await vi.waitFor(() => expect(sources()).toEqual(["microphone"]));
+    expect(room().screenTracks.every((t) => t.stopped)).toBe(true);
+    expect(useVoiceStore.getState().notice).toBe("Модератор остановил ваш показ экрана");
+    expect(useVoiceStore.getState().serverMuted).toBe(false);
+  });
+
+  it("stops the capture when leaving the planet", async () => {
+    await useVoiceStore.getState().join("s1", "p1");
+    await useVoiceStore.getState().startScreenShare();
+    const r = room();
+    await useVoiceStore.getState().leave();
+    expect(r.screenTracks.every((t) => t.stopped)).toBe(true);
   });
 });
 

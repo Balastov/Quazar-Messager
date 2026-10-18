@@ -3,12 +3,13 @@ import { starsApi, type StarChannel, type StarDetail } from "../../api/stars";
 import { useAuthStore } from "../../store/auth";
 import { useCallStore } from "../../store/call";
 import { useDoorsStore } from "../../store/doors";
-import { useVoiceStore, type VoicePeer } from "../../store/voice";
+import { canShareScreen, useVoiceStore, type VoicePeer } from "../../store/voice";
 import UserAvatar from "../UserAvatar";
 import { IconBack, IconGear, IconPlanet } from "../icons";
 import Dialog from "./Dialog";
 import AudioDevices from "../AudioDevices";
-import { apiError, can, outranks, ROOM_LABEL } from "./rules";
+import ScreenStage from "./ScreenStage";
+import { apiError, can, canStopScreen, outranks, ROOM_LABEL } from "./rules";
 import s from "./Constellation.module.css";
 
 interface Props {
@@ -48,6 +49,12 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
   const member = (userId: string) => detail.members.find((m) => m.user.id === userId);
   const serverMuted = (userId: string) =>
     presence.find((p) => p.user_id === userId)?.server_muted ?? false;
+  // Кто показывает экран — решает сервер; чужие треки экрана без слота не показываем.
+  const sharerId = presence.find((p) => p.screen_sharing)?.user_id ?? null;
+  const sharerName = sharerId ? (member(sharerId)?.user.username ?? "Участник") : "";
+  const sharerRole = sharerId ? member(sharerId)?.role : undefined;
+  const canStopSharer =
+    !!sharerId && sharerId !== myId && !!sharerRole && canStopScreen(detail, sharerRole);
   const canModerate = (userId: string) => {
     const role = member(userId)?.role;
     return userId !== myId && !!role && can(detail, "voice_moderate") && outranks(detail.my_role, role);
@@ -124,6 +131,7 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
                           микрофон выключил модератор
                         </span>
                       )}
+                      {p.screen_sharing && <span className={s.listSub}>🖥 показывает экран</span>}
                     </div>
                   </div>
                 );
@@ -254,6 +262,24 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
             Модератор выключил вам микрофон. Вы слышите всех, но вас пока не слышно.
           </p>
         )}
+        {sharerId && (
+          <ScreenStage
+            sharerName={sharerName}
+            screen={voice.screens.find((sc) => sc.userId === sharerId) ?? null}
+            isMine={sharerId === myId}
+            onStop={
+              sharerId === myId
+                ? () => void voice.stopScreenShare()
+                : canStopSharer
+                  ? () => {
+                      if (window.confirm(`Остановить показ экрана ${sharerName}?`)) {
+                        void moderate(() => starsApi.stopScreenOf(detail.id, channel.id, sharerId));
+                      }
+                    }
+                  : undefined
+            }
+          />
+        )}
         <div className={s.voiceGrid}>
           {voice.peers.map((peer) => {
             const m = member(peer.userId);
@@ -276,6 +302,7 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
                 <span className={`${s.voicePeerState} ${state.muted ? s.voicePeerMuted : ""}`}>
                   {state.text}
                 </span>
+                {peer.userId === sharerId && <span className={s.voicePeerState}>🖥 показывает экран</span>}
                 {canModerate(peer.userId) && (
                   <div className={s.row} style={{ justifyContent: "center" }}>
                     <button
@@ -333,6 +360,27 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
         >
           {voice.noiseSuppression ? (voice.noiseActive || voice.micUnavailable ? "Шум: вкл" : "Шум: —") : "Шум: выкл"}
         </button>
+        {canShareScreen() &&
+          (voice.sharingScreen || sharerId === myId ? (
+            <button
+              type="button"
+              className={`${s.secondary} ${s.screenActive}`}
+              onClick={() => void voice.stopScreenShare()}
+              aria-pressed
+            >
+              🖥 Остановить показ
+            </button>
+          ) : (
+            <button
+              type="button"
+              className={s.secondary}
+              onClick={() => void voice.startScreenShare()}
+              disabled={!!sharerId || voice.screenStarting || voice.status !== "connected"}
+              title={sharerId ? `Сейчас экран показывает ${sharerName}` : "Показать экран всем на Планете"}
+            >
+              {voice.screenStarting ? "🖥 Выбираем экран…" : "🖥 Показать экран"}
+            </button>
+          ))}
         <button type="button" className={s.secondary} onClick={() => setDevicesOpen(true)}>
           🎧 Устройства
         </button>

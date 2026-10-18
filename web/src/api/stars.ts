@@ -101,6 +101,8 @@ export interface VoicePresence {
   joined_at: string;
   /** Модератор выключил микрофон. */
   server_muted: boolean;
+  /** Показывает экран (на Планете — не больше одного). */
+  screen_sharing?: boolean;
 }
 
 export interface StarDetail extends StarSummary {
@@ -315,6 +317,12 @@ export const starsApi = {
     http.post(`${base(starId)}/planets/${channelId}/voice/${userId}/mute`, { muted }),
   voiceRemove: (starId: string, channelId: string, userId: string) =>
     http.post(`${base(starId)}/planets/${channelId}/voice/${userId}/remove`),
+  startScreen: (starId: string, channelId: string) =>
+    http.post(`${base(starId)}/planets/${channelId}/screen`),
+  stopScreen: (starId: string, channelId: string) =>
+    http.delete(`${base(starId)}/planets/${channelId}/screen`),
+  stopScreenOf: (starId: string, channelId: string, userId: string) =>
+    http.post(`${base(starId)}/planets/${channelId}/voice/${userId}/screen/stop`),
 };
 
 /** Ссылка-приглашение, которую можно отправить человеку. */

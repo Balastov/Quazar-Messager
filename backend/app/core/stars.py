@@ -53,6 +53,11 @@ def outranks(actor_role: str, target_role: str) -> bool:
     return rank(actor_role) > rank(target_role)
 
 
+def can_stop_screen(actor_role: str, target_role: str) -> bool:
+    """Чужой показ экрана останавливают модератор, админ и владелец — у тех, кто ниже рангом."""
+    return rank(actor_role) >= rank("moderator") and outranks(actor_role, target_role)
+
+
 # --- Права ----------------------------------------------------------------
 
 

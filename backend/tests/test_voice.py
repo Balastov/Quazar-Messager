@@ -32,6 +32,8 @@ class TestTokensAndWebhooks(unittest.TestCase):
         self.assertEqual(claims["video"]["room"], "planet-1")
         self.assertTrue(claims["video"]["roomJoin"])
         self.assertFalse(claims["video"].get("roomAdmin", False))
+        # Экран показывать нельзя, пока бэкенд не выдаст слот.
+        self.assertEqual(claims["video"]["canPublishSources"], ["microphone"])
         self.assertLessEqual(claims["exp"] - time.time(), livekit.CLIENT_TOKEN_TTL_SEC)
 
     def test_webhook_signature(self):
@@ -170,7 +172,7 @@ class VoiceApiTest(StarsTestBase):
         await self.call(
             voice_api.mute_participant, self.star.id, self.planet.id, alice, voice_api.VoiceMute(muted=True), user="mod"
         )
-        self.assertIn(("set_can_publish", voice.room_name(self.planet.id), alice, False), self.lk.calls)
+        self.assertEqual(self.lk.sources(voice.room_name(self.planet.id), alice), [])
         self.assertTrue(next(p for p in voice.participants(self.planet.id) if p.user_id == alice).server_muted)
 
         # Старших модерировать нельзя, участникам — нельзя вообще.
@@ -183,6 +185,122 @@ class VoiceApiTest(StarsTestBase):
 
         await self.call(voice_api.remove_participant, self.star.id, self.planet.id, alice, user="mod")
         self.assertNotIn(alice, self.present())
+
+    # --- Показ экрана ---------------------------------------------------------
+
+    def sharing(self, planet=None) -> set[str]:
+        return {p.user_id for p in voice.participants((planet or self.planet).id) if p.screen_sharing}
+
+    async def track_event(self, kind: str, user: str, sid: str, source="SCREEN_SHARE"):
+        await voice.handle_webhook(
+            {
+                "event": kind,
+                "room": {"name": voice.room_name(self.planet.id)},
+                "participant": {"identity": self.users[user].id},
+                "track": {"sid": sid, "source": source, "type": "VIDEO"},
+            }
+        )
+
+    async def test_screen_share_one_at_a_time(self):
+        await self.enter("alice")
+        await self.enter("bob")
+        alice = self.users["alice"].id
+        room = voice.room_name(self.planet.id)
+
+        self.events.clear()
+        await self.call(voice_api.start_screen, self.star.id, self.planet.id, user="alice")
+        self.assertEqual(self.sharing(), {alice})
+        self.assertEqual(
+            self.lk.sources(room, alice), ["MICROPHONE", "SCREEN_SHARE", "SCREEN_SHARE_AUDIO"]
+        )
+        last = [e for _, e in self.events if e["type"] == "star_voice"][-1]
+        self.assertEqual([p["user_id"] for p in last["participants"] if p["screen_sharing"]], [alice])
+        detail = await self.call(api.get_star, self.star.id, user="bob")
+        self.assertTrue(next(p for p in detail.voice[self.planet.id] if p.user_id == alice).screen_sharing)
+
+        # Повторный запрос того же человека — не ошибка; второй — ждёт.
+        await self.call(voice_api.start_screen, self.star.id, self.planet.id, user="alice")
+        err = await self.expect_error(409, voice_api.start_screen, self.star.id, self.planet.id, user="bob")
+        self.assertIn("alice", err.detail)
+
+        await self.call(voice_api.stop_my_screen, self.star.id, self.planet.id, user="alice")
+        self.assertEqual(self.sharing(), set())
+        self.assertEqual(self.lk.sources(room, alice), ["MICROPHONE"])
+        await self.call(voice_api.start_screen, self.star.id, self.planet.id, user="bob")
+        self.assertEqual(self.sharing(), {self.users["bob"].id})
+
+    async def test_screen_share_needs_presence(self):
+        err = await self.expect_error(409, voice_api.start_screen, self.star.id, self.planet.id, user="alice")
+        self.assertIn("зайдите", err.detail)
+        await self.expect_error(404, voice_api.start_screen, self.star.id, self.planet.id, user="carol")
+        await self.expect_error(400, voice_api.start_screen, self.star.id, self.satellite.id, user="alice")
+
+    async def test_moderators_stop_others_screen(self):
+        for user in ("alice", "bob", "admin"):
+            await self.enter(user)
+        alice, admin = self.users["alice"].id, self.users["admin"].id
+
+        await self.call(voice_api.start_screen, self.star.id, self.planet.id, user="alice")
+        # Обычный участник чужой показ не останавливает.
+        await self.expect_error(403, voice_api.stop_screen_of, self.star.id, self.planet.id, alice, user="bob")
+        await self.call(voice_api.stop_screen_of, self.star.id, self.planet.id, alice, user="mod")
+        self.assertEqual(self.sharing(), set())
+        self.assertEqual(self.lk.sources(voice.room_name(self.planet.id), alice), ["MICROPHONE"])
+
+        # Старших по роли не останавливают; владелец может остановить админа.
+        await self.call(voice_api.start_screen, self.star.id, self.planet.id, user="admin")
+        await self.expect_error(403, voice_api.stop_screen_of, self.star.id, self.planet.id, admin, user="mod")
+        await self.call(voice_api.stop_screen_of, self.star.id, self.planet.id, admin, user="owner")
+        self.assertEqual(self.sharing(), set())
+
+    async def test_server_mute_keeps_screen(self):
+        await self.enter("alice")
+        alice = self.users["alice"].id
+        room = voice.room_name(self.planet.id)
+        await self.call(voice_api.start_screen, self.star.id, self.planet.id, user="alice")
+        await self.call(
+            voice_api.mute_participant, self.star.id, self.planet.id, alice, voice_api.VoiceMute(muted=True), user="mod"
+        )
+        self.assertEqual(self.lk.sources(room, alice), ["SCREEN_SHARE", "SCREEN_SHARE_AUDIO"])
+        await self.call(voice_api.stop_my_screen, self.star.id, self.planet.id, user="alice")
+        # Микрофон остаётся выключенным модератором.
+        self.assertEqual(self.lk.sources(room, alice), [])
+
+    async def test_screen_released_by_webhooks(self):
+        await self.enter("alice")
+        await self.enter("bob")
+        await self.call(voice_api.start_screen, self.star.id, self.planet.id, user="alice")
+        await self.track_event("track_published", "alice", "TR_screen")
+        # Микрофон и чужие sid слот не освобождают.
+        await self.track_event("track_unpublished", "alice", "TR_mic", source="MICROPHONE")
+        await self.track_event("track_unpublished", "alice", "TR_old")
+        self.assertEqual(self.sharing(), {self.users["alice"].id})
+        # Нажали «Остановить показ» в браузере.
+        await self.track_event("track_unpublished", "alice", "TR_screen")
+        self.assertEqual(self.sharing(), set())
+
+        # Ушёл с Планеты — слот свободен.
+        await self.call(voice_api.start_screen, self.star.id, self.planet.id, user="bob")
+        await voice.handle_webhook(
+            {
+                "event": "participant_left",
+                "room": {"name": voice.room_name(self.planet.id)},
+                "participant": {"identity": self.users["bob"].id},
+            }
+        )
+        self.assertEqual(self.sharing(), set())
+        await self.call(voice_api.start_screen, self.star.id, self.planet.id, user="alice")
+
+    async def test_resync_restores_screen(self):
+        await self.enter("alice")
+        room = voice.room_name(self.planet.id)
+        self.lk.tracks[(room, self.users["alice"].id)] = [
+            {"sid": "TR_mic", "source": 2},
+            {"sid": "TR_screen", "source": 3},
+        ]
+        voice.reset()
+        await voice.resync()
+        self.assertEqual(self.sharing(), {self.users["alice"].id})
 
     async def test_voice_moderation_can_be_revoked(self):
         await self.enter("alice")

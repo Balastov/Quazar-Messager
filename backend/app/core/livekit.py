@@ -24,6 +24,20 @@ ROOM_SERVICE = "/twirp/livekit.RoomService/"
 CLIENT_TOKEN_TTL_SEC = 120
 ADMIN_TOKEN_TTL_SEC = 60
 
+# Источники треков (enum TrackSource LiveKit). В токене — строчными, в Server API — именами enum.
+SOURCE_MICROPHONE = "MICROPHONE"
+SOURCE_SCREEN_SHARE = "SCREEN_SHARE"
+SOURCE_SCREEN_SHARE_AUDIO = "SCREEN_SHARE_AUDIO"
+# protojson может прислать enum и числом.
+_SOURCE_NUMBERS = {2: SOURCE_MICROPHONE, 3: SOURCE_SCREEN_SHARE, 4: SOURCE_SCREEN_SHARE_AUDIO}
+
+
+def track_source(value: Any) -> str | None:
+    """Источник трека из вебхука или ListParticipants: "SCREEN_SHARE" / 3 → "SCREEN_SHARE"."""
+    if isinstance(value, int):
+        return _SOURCE_NUMBERS.get(value)
+    return str(value).upper() if value else None
+
 
 class LiveKitError(Exception):
     pass
@@ -57,7 +71,11 @@ def _sign(claims: dict[str, Any], ttl: int) -> str:
 
 
 def participant_token(*, room: str, identity: str, name: str, metadata: dict[str, Any]) -> str:
-    """Токен для браузера: зайти в одну комнату, говорить и слушать."""
+    """Токен для браузера: зайти в одну комнату, говорить и слушать.
+
+    Публиковать можно только микрофон: показ экрана бэкенд разрешает отдельно
+    (не больше одного на Планету) через update_publish_sources.
+    """
     return _sign(
         {
             "sub": identity,
@@ -67,6 +85,7 @@ def participant_token(*, room: str, identity: str, name: str, metadata: dict[str
                 "room": room,
                 "roomJoin": True,
                 "canPublish": True,
+                "canPublishSources": [SOURCE_MICROPHONE.lower()],
                 "canSubscribe": True,
                 "canPublishData": False,
             },
@@ -131,14 +150,18 @@ class RoomService:
     async def remove_participant(self, room: str, identity: str) -> None:
         await self._call("RemoveParticipant", {"room": room, "identity": identity}, room=room)
 
-    async def set_can_publish(self, room: str, identity: str, can_publish: bool) -> None:
+    async def update_publish_sources(self, room: str, identity: str, sources: list[str]) -> None:
+        """Что участнику можно публиковать. Отозванные источники LiveKit снимает с публикации."""
         await self._call(
             "UpdateParticipant",
             {
                 "room": room,
                 "identity": identity,
                 "permission": {
-                    "can_publish": can_publish,
+                    # Пустой список источников у LiveKit значит «можно всё» — поэтому
+                    # «ничего нельзя» выражаем через can_publish=False.
+                    "can_publish": bool(sources),
+                    "can_publish_sources": sources,
                     "can_subscribe": True,
                     "can_publish_data": False,
                 },

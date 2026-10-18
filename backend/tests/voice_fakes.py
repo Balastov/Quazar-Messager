@@ -42,20 +42,32 @@ class FakeRoomService:
     def __init__(self):
         self.rooms: dict[str, set[str]] = {}
         self.calls: list[tuple] = []
+        # (room, identity) -> опубликованные треки, как их отдаёт ListParticipants.
+        self.tracks: dict[tuple[str, str], list[dict]] = {}
 
     async def create_room(self, name, *, max_participants, empty_timeout=120):
         self.calls.append(("create_room", name, max_participants))
         self.rooms.setdefault(name, set())
 
     async def list_participants(self, room):
-        return [{"identity": i} for i in self.rooms.get(room, set())]
+        return [
+            {"identity": i, "tracks": self.tracks.get((room, i), [])}
+            for i in self.rooms.get(room, set())
+        ]
 
     async def remove_participant(self, room, identity):
         self.calls.append(("remove_participant", room, identity))
         self.rooms.get(room, set()).discard(identity)
 
-    async def set_can_publish(self, room, identity, can_publish):
-        self.calls.append(("set_can_publish", room, identity, can_publish))
+    async def update_publish_sources(self, room, identity, sources):
+        self.calls.append(("update_publish_sources", room, identity, list(sources)))
+
+    def sources(self, room, identity):
+        """Последние выданные участнику источники (None — права не меняли)."""
+        for call in reversed(self.calls):
+            if call[0] == "update_publish_sources" and call[1:3] == (room, identity):
+                return call[3]
+        return None
 
     async def delete_room(self, room):
         self.calls.append(("delete_room", room))

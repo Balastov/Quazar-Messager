@@ -3,12 +3,18 @@
  *
  * Микрофон проходит через то же шумоподавление RNNoise, что и в звонках.
  * Одновременно можно быть только на одной Планете и не в личном звонке.
+ *
+ * Показ экрана: на Планете показывает не больше одного человека. Токен LiveKit разрешает
+ * публиковать только микрофон; право на экран выдаёт бэкенд (POST …/screen) и отзывает,
+ * когда показ закончен — тогда LiveKit сам снимает трек.
  */
 import type {
+  LocalTrack,
   LocalTrackPublication,
   Participant,
   RemoteTrack,
   Room,
+  Track,
 } from "livekit-client";
 import { create } from "zustand";
 import axios from "axios";
@@ -32,6 +38,14 @@ export interface VoicePeer {
   isLocal: boolean;
   speaking: boolean;
   micOn: boolean;
+  screenSharing: boolean;
+}
+
+/** Видео показа экрана, которое сейчас есть в комнате. */
+export interface VoiceScreen {
+  userId: string;
+  isLocal: boolean;
+  track: Track;
 }
 
 interface VoiceState {
@@ -46,6 +60,12 @@ interface VoiceState {
   micError: string | null;
   /** Модератор выключил микрофон. */
   serverMuted: boolean;
+  /** Треки показа экрана в комнате (обычно один). */
+  screens: VoiceScreen[];
+  /** Я показываю экран. */
+  sharingScreen: boolean;
+  /** Выбираем экран / занимаем слот. */
+  screenStarting: boolean;
   noiseSuppression: boolean;
   noiseActive: boolean;
   /** Браузер не дал включить звук без нажатия. */
@@ -65,6 +85,8 @@ interface VoiceState {
   /** Выбрали другой динамик — переводим звук собеседников. */
   applyOutput: () => Promise<void>;
   toggleNoise: () => Promise<void>;
+  startScreenShare: () => Promise<void>;
+  stopScreenShare: () => Promise<void>;
   unlockAudio: () => Promise<void>;
   dismissNotice: () => void;
 }
@@ -77,10 +99,44 @@ interface Mic {
 
 type LiveKit = typeof import("livekit-client");
 
+/** enum TrackSource протокола LiveKit — в permissions.canPublishSources приходят числа. */
+const PROTO_SOURCE = { microphone: 2, screen_share: 3 } as const;
+
+/** Та же проверка, что делает LiveKit перед публикацией (hasPermissionsToPublish). */
+function canPublishSource(p: Participant, source: keyof typeof PROTO_SOURCE): boolean {
+  const perms = p.permissions;
+  if (!perms) return source === "microphone";
+  const sources = (perms.canPublishSources ?? []) as unknown as number[];
+  return perms.canPublish && (sources.length === 0 || sources.includes(PROTO_SOURCE[source]));
+}
+
+/** Показ экрана есть только в десктопных браузерах. */
+export function canShareScreen(): boolean {
+  return typeof navigator !== "undefined" && !!navigator.mediaDevices?.getDisplayMedia;
+}
+
+/** Почему не удалось начать показ экрана. null — человек сам закрыл выбор экрана. */
+export function screenErrorText(err: unknown): string | null {
+  const name = err instanceof DOMException || err instanceof Error ? err.name : "";
+  const message = err instanceof Error ? err.message : "";
+  if (name === "NotAllowedError" && /system/i.test(message)) {
+    return (
+      "Система не дала браузеру записывать экран. На Mac: Системные настройки → " +
+      "Конфиденциальность и безопасность → Запись экрана и системного звука → включите ваш " +
+      "браузер и перезапустите его."
+    );
+  }
+  if (name === "NotAllowedError" || name === "AbortError") return null;
+  if (name === "NotReadableError") return "Не удалось захватить экран — попробуйте выбрать другое окно";
+  return "Не удалось начать показ экрана. Попробуйте ещё раз.";
+}
+
 /** Библиотека LiveKit (~600 КБ) грузится только при входе на Планету. */
 let lk: LiveKit | null = null;
 let room: Room | null = null;
 let mic: Mic | null = null;
+/** Сами останавливаем показ — не пишем «остановил модератор». */
+let stoppingScreen = false;
 /** Мы сами вышли — не показываем «связь прервалась». */
 let leavingOnPurpose = false;
 const audioElements = new Map<string, HTMLMediaElement[]>();
@@ -119,7 +175,19 @@ function peerOf(p: Participant, isLocal: boolean): VoicePeer {
     isLocal,
     speaking: p.isSpeaking,
     micOn: p.isMicrophoneEnabled,
+    screenSharing: p.isScreenShareEnabled,
   };
+}
+
+/** Захваченные треки экрана, которые мы публикуем (видео и, если дали, звук). */
+function localScreenTracks(r: Room): LocalTrack[] {
+  const out: LocalTrack[] = [];
+  for (const pub of r.localParticipant.trackPublications.values()) {
+    if (pub.track && (pub.source === "screen_share" || pub.source === "screen_share_audio")) {
+      out.push(pub.track);
+    }
+  }
+  return out;
 }
 
 /** Понятная причина, почему не удалось взять микрофон, и что с этим сделать. */
@@ -175,10 +243,51 @@ export const useVoiceStore = create<VoiceState>((set, get) => {
     }
     const local = peerOf(room.localParticipant, true);
     const remote = [...room.remoteParticipants.values()].map((p) => peerOf(p, false));
+    const screens: VoiceScreen[] = [];
+    const localScreen = room.localParticipant.getTrackPublication(lk!.Track.Source.ScreenShare);
+    if (localScreen?.track) {
+      screens.push({ userId: room.localParticipant.identity, isLocal: true, track: localScreen.track });
+    }
+    for (const p of room.remoteParticipants.values()) {
+      const pub = p.getTrackPublication(lk!.Track.Source.ScreenShare);
+      if (pub?.track) screens.push({ userId: p.identity, isLocal: false, track: pub.track });
+    }
     set({
       peers: [local, ...remote.sort((a, b) => a.name.localeCompare(b.name, "ru"))],
       micOn: local.micOn,
+      screens,
+      sharingScreen: !!localScreen?.track,
     });
+  }
+
+  /** Право на экран приходит от LiveKit чуть позже ответа бэкенда — ждём его. */
+  function waitForScreenPermission(r: Room): Promise<void> {
+    if (canPublishSource(r.localParticipant, "screen_share")) return Promise.resolve();
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        r.off(lk!.RoomEvent.ParticipantPermissionsChanged, onChange);
+        reject(new Error("screen permission timeout"));
+      }, 5000);
+      function onChange() {
+        if (!canPublishSource(r.localParticipant, "screen_share")) return;
+        clearTimeout(timer);
+        r.off(lk!.RoomEvent.ParticipantPermissionsChanged, onChange);
+        resolve();
+      }
+      r.on(lk!.RoomEvent.ParticipantPermissionsChanged, onChange);
+    });
+  }
+
+  /** Показ закончился (сами, кнопкой браузера или модератор): гасим захват, отпускаем слот. */
+  function onLocalUnpublished(pub: LocalTrackPublication) {
+    if (pub.source !== "screen_share" && pub.source !== "screen_share_audio") return;
+    pub.track?.stop();
+    if (pub.source !== "screen_share" || !room) return;
+    const r = room;
+    // Звук экрана без картинки не нужен.
+    for (const track of localScreenTracks(r)) void r.localParticipant.unpublishTrack(track);
+    const { starId, channelId } = get();
+    if (starId && channelId) void starsApi.stopScreen(starId, channelId).catch(() => {});
   }
 
   async function publishMic(r: Room) {
@@ -196,7 +305,10 @@ export const useVoiceStore = create<VoiceState>((set, get) => {
     room = null;
     if (r) {
       r.removeAllListeners();
+      const screenTracks = localScreenTracks(r);
       await r.disconnect().catch(() => {});
+      // stopLocalTrackOnUnpublish: false — захват экрана гасим сами.
+      screenTracks.forEach((t) => t.stop());
     }
     for (const els of audioElements.values()) els.forEach((el) => el.remove());
     audioElements.clear();
@@ -210,6 +322,9 @@ export const useVoiceStore = create<VoiceState>((set, get) => {
       micUnavailable: false,
       micError: null,
       serverMuted: false,
+      screens: [],
+      sharingScreen: false,
+      screenStarting: false,
       noiseActive: false,
       needsAudioUnlock: false,
       ...(notice ? { notice } : {}),
@@ -278,7 +393,10 @@ export const useVoiceStore = create<VoiceState>((set, get) => {
       .on(RoomEvent.TrackMuted, syncPeers)
       .on(RoomEvent.TrackUnmuted, syncPeers)
       .on(RoomEvent.LocalTrackPublished, syncPeers)
-      .on(RoomEvent.LocalTrackUnpublished, syncPeers)
+      .on(RoomEvent.LocalTrackUnpublished, (pub) => {
+        onLocalUnpublished(pub);
+        syncPeers();
+      })
       .on(RoomEvent.TrackPublished, syncPeers)
       .on(RoomEvent.TrackUnpublished, syncPeers)
       .on(RoomEvent.TrackSubscribed, (track) => {
@@ -299,15 +417,24 @@ export const useVoiceStore = create<VoiceState>((set, get) => {
       })
       .on(RoomEvent.ParticipantPermissionsChanged, (_prev, participant) => {
         if (participant !== r.localParticipant) return;
-        const canPublish = participant.permissions?.canPublish ?? true;
-        set({ serverMuted: !canPublish });
+        const micAllowed = canPublishSource(participant, "microphone");
+        set({ serverMuted: !micAllowed });
         // Модератор вернул микрофон — публикуем его снова (выключенным, включит сам человек).
-        if (canPublish && mic && !mic.publication) {
+        if (micAllowed && mic && !mic.publication) {
           void publishMic(r)
             .then(() => mic?.publication?.mute())
             .then(syncPeers);
         }
-        if (!canPublish && mic) mic.publication = null;
+        if (!micAllowed && mic) mic.publication = null;
+        // Право на экран отозвали, а мы его не останавливали — это модератор.
+        // Трек LiveKit снимет сам; на всякий случай снимаем и мы.
+        if (!canPublishSource(participant, "screen_share") && !stoppingScreen) {
+          const screenTracks = localScreenTracks(r);
+          if (screenTracks.length) {
+            set({ notice: "Модератор остановил ваш показ экрана" });
+            for (const track of screenTracks) void r.localParticipant.unpublishTrack(track);
+          }
+        }
         syncPeers();
       })
       .on(RoomEvent.Disconnected, (reason) => {
@@ -333,6 +460,9 @@ export const useVoiceStore = create<VoiceState>((set, get) => {
     micUnavailable: false,
     micError: null,
     serverMuted: false,
+    screens: [],
+    sharingScreen: false,
+    screenStarting: false,
     noiseSuppression: getNoiseSuppressionPref(),
     noiseActive: false,
     needsAudioUnlock: false,
@@ -364,8 +494,10 @@ export const useVoiceStore = create<VoiceState>((set, get) => {
         return;
       }
       r = new lk.Room({
-        adaptiveStream: false,
-        dynacast: false,
+        // Показ экрана: зрителю приходит слой качества по размеру окна, ненужные слои
+        // у показывающего выключаются.
+        adaptiveStream: true,
+        dynacast: true,
         disconnectOnPageLeave: true,
         // Когда модератор выключает микрофон, сервер снимает трек с публикации. Трек не
         // останавливаем: его вернут, а освобождаем микрофон сами при выходе (releaseMic).
@@ -477,6 +609,73 @@ export const useVoiceStore = create<VoiceState>((set, get) => {
       watchDenoiser(denoiser);
       await mic.publication?.audioTrack?.replaceTrack(denoiser.track, true);
       set({ noiseActive: true });
+    },
+
+    startScreenShare: async () => {
+      const r = room;
+      const { starId, channelId, status, sharingScreen, screenStarting } = get();
+      if (!r || !lk || !starId || !channelId || status !== "connected") return;
+      if (sharingScreen || screenStarting) return;
+      set({ screenStarting: true });
+
+      // Сначала выбор экрана: браузер разрешает его только сразу после нажатия кнопки.
+      let tracks: LocalTrack[];
+      try {
+        tracks = await r.localParticipant.createScreenTracks({
+          audio: true,
+          systemAudio: "include",
+          selfBrowserSurface: "exclude",
+          surfaceSwitching: "include",
+          contentHint: "detail",
+          resolution: lk.ScreenSharePresets.h1080fps15.resolution,
+        });
+      } catch (err) {
+        set({ screenStarting: false });
+        const text = screenErrorText(err);
+        if (text) set({ notice: text });
+        return;
+      }
+
+      const published: LocalTrack[] = [];
+      try {
+        await starsApi.startScreen(starId, channelId);
+        await waitForScreenPermission(r);
+        if (room !== r) throw new Error("left the planet");
+        for (const track of tracks) {
+          await r.localParticipant.publishTrack(track, {
+            screenShareEncoding: lk.ScreenSharePresets.h1080fps15.encoding,
+            // Текст на экране важнее плавности.
+            degradationPreference: "maintain-resolution",
+          });
+          published.push(track);
+        }
+      } catch (err) {
+        stoppingScreen = true;
+        for (const track of published) await r.localParticipant.unpublishTrack(track).catch(() => {});
+        stoppingScreen = false;
+        tracks.forEach((t) => t.stop());
+        if (room === r) {
+          void starsApi.stopScreen(starId, channelId).catch(() => {});
+          set({ notice: apiError(err, "Не удалось начать показ экрана. Попробуйте ещё раз.") });
+        }
+      }
+      set({ screenStarting: false });
+      syncPeers();
+    },
+
+    stopScreenShare: async () => {
+      const r = room;
+      if (!r) return;
+      stoppingScreen = true;
+      try {
+        // Слот освобождает onLocalUnpublished (там же гасится захват).
+        for (const track of localScreenTracks(r)) {
+          await r.localParticipant.unpublishTrack(track).catch(() => {});
+        }
+      } finally {
+        stoppingScreen = false;
+      }
+      syncPeers();
     },
 
     unlockAudio: async () => {

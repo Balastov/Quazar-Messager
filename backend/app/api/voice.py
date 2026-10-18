@@ -1,4 +1,4 @@
-"""Голос на Планетах: вход, модерация, вебхуки LiveKit."""
+"""Голос на Планетах: вход, показ экрана, модерация, вебхуки LiveKit."""
 
 from typing import Annotated
 
@@ -14,6 +14,7 @@ from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.core.stars import Perm
 from app.models.user import User
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 router = APIRouter(prefix="/stars", tags=["voice"])
@@ -114,11 +115,9 @@ async def mute_participant(
 ):
     await _moderation_target(db, star_id, channel_id, current_user, user_id)
     try:
-        await livekit.room_service.set_can_publish(voice.room_name(channel_id), user_id, not body.muted)
+        await voice.set_server_muted(star_id, channel_id, user_id, body.muted)
     except livekit.LiveKitError as exc:
         raise _unavailable("Голосовой сервер сейчас недоступен.") from exc
-    voice.set_server_muted(channel_id, user_id, body.muted)
-    await voice.broadcast(star_id, channel_id)
 
 
 @router.post(
@@ -129,6 +128,50 @@ async def remove_participant(
 ):
     await _moderation_target(db, star_id, channel_id, current_user, user_id)
     await voice.remove_from_planet(star_id, channel_id, user_id)
+
+
+@router.post("/{star_id}/planets/{channel_id}/screen", status_code=status.HTTP_204_NO_CONTENT)
+async def start_screen(star_id: str, channel_id: str, current_user: CurrentUser, db: Db):
+    """Занять слот показа экрана: на Планете показывает не больше одного человека."""
+    await _load_membership(db, star_id, current_user.id)
+    await _planet(db, star_id, channel_id)
+    if not livekit.configured():
+        raise _unavailable()
+    try:
+        started = await voice.start_screen(star_id, channel_id, current_user.id)
+    except voice.ScreenBusy as busy:
+        name = (
+            await db.execute(select(User.username).where(User.id == busy.user_id))
+        ).scalar_one_or_none()
+        raise HTTPException(
+            status_code=409, detail=f"Сейчас экран показывает {name or 'другой участник'}"
+        ) from None
+    except livekit.LiveKitError as exc:
+        raise _unavailable("Голосовой сервер сейчас недоступен.") from exc
+    if not started:
+        raise HTTPException(status_code=409, detail="Сначала зайдите на Планету")
+
+
+@router.delete("/{star_id}/planets/{channel_id}/screen", status_code=status.HTTP_204_NO_CONTENT)
+async def stop_my_screen(star_id: str, channel_id: str, current_user: CurrentUser, db: Db):
+    await _load_membership(db, star_id, current_user.id)
+    await voice.stop_screen(star_id, channel_id, current_user.id)
+
+
+@router.post(
+    "/{star_id}/planets/{channel_id}/voice/{user_id}/screen/stop",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def stop_screen_of(
+    star_id: str, channel_id: str, user_id: str, current_user: CurrentUser, db: Db
+):
+    """Модератор, админ или владелец останавливает чужой показ экрана."""
+    _, me = await _load_membership(db, star_id, current_user.id)
+    await _planet(db, star_id, channel_id)
+    target = await _target_member(db, star_id, user_id)
+    if not rules.can_stop_screen(me.role, target.role):
+        raise HTTPException(status_code=403, detail="Недостаточно прав")
+    await voice.stop_screen(star_id, channel_id, user_id)
 
 
 @webhook_router.post("/livekit/webhook", include_in_schema=False)

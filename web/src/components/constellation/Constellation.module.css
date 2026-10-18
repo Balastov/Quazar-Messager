@@ -1247,3 +1247,114 @@
   font-size: 12px;
   opacity: 0.85;
 }
+
+/* --- Показ экрана на Планете --- */
+
+.screenStage {
+  flex-shrink: 0;
+  width: 100%;
+}
+
+.screenFrame {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  max-height: 62vh;
+  border-radius: var(--qz-radius);
+  border: 1px solid var(--qz-glass-border);
+  background: #05040b;
+  overflow: hidden;
+  box-shadow: var(--qz-glass-shine), 0 16px 40px rgba(0, 0, 0, 0.45);
+}
+
+.screenFrameFull {
+  max-height: none;
+  border-radius: 0;
+  border: none;
+}
+
+.screenVideo {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+  background: #05040b;
+}
+
+.screenWaiting {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  text-align: center;
+  font-size: 14px;
+  color: var(--qz-text-muted);
+}
+
+.screenBar {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 6px 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--qz-glass-border);
+  background: var(--qz-glass-bg-strong);
+  backdrop-filter: var(--qz-glass-filter);
+  -webkit-backdrop-filter: var(--qz-glass-filter);
+  box-shadow: var(--qz-glass-shine);
+  opacity: 0.92;
+  transition: opacity 0.2s;
+}
+
+/* В полноэкранном режиме панель не мешает смотреть — появляется при наведении. */
+.screenFrameFull .screenBar {
+  opacity: 0;
+}
+
+.screenFrameFull:hover .screenBar,
+.screenFrameFull:focus-within .screenBar {
+  opacity: 0.92;
+}
+
+.screenLabel {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.screenMine {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 22px 16px;
+  border-radius: var(--qz-radius);
+  border: 1px solid rgba(168, 85, 247, 0.45);
+  background: var(--qz-glass-sheen), var(--qz-glass-inner);
+  box-shadow: var(--qz-glass-shine), 0 0 28px rgba(168, 85, 247, 0.2);
+  text-align: center;
+}
+
+.screenMineIcon {
+  font-size: 30px;
+}
+
+.screenMineTitle {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.screenActive {
+  border-color: rgba(168, 85, 247, 0.6);
+  background: rgba(168, 85, 247, 0.22);
+}

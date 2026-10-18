@@ -170,6 +170,7 @@ class VoiceParticipantOut(BaseModel):
     user_id: str
     joined_at: datetime
     server_muted: bool
+    screen_sharing: bool = False
 
 
 class StarDetailOut(StarSummaryOut):

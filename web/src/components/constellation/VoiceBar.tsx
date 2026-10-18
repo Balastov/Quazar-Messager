@@ -16,6 +16,8 @@ export function VoiceBar({ floating = false }: { floating?: boolean }) {
   const toggleMic = useVoiceStore((st) => st.toggleMic);
   const retryMic = useVoiceStore((st) => st.retryMic);
   const leave = useVoiceStore((st) => st.leave);
+  const sharingScreen = useVoiceStore((st) => st.sharingScreen);
+  const stopScreenShare = useVoiceStore((st) => st.stopScreenShare);
   const detail = useStarsStore((st) => (starId ? st.details[starId] : undefined));
 
   if (status === "idle" || !starId || !channelId) return null;
@@ -50,6 +52,17 @@ export function VoiceBar({ floating = false }: { floating?: boolean }) {
       >
         {micOn ? "🎙" : "🔇"}
       </button>
+      {sharingScreen && (
+        <button
+          type="button"
+          className={`${s.secondary} ${s.small} ${s.screenActive}`}
+          onClick={() => void stopScreenShare()}
+          aria-label="Остановить показ экрана"
+          title="Вы показываете экран — остановить"
+        >
+          🖥
+        </button>
+      )}
       <button
         type="button"
         className={`${s.danger} ${s.small}`}

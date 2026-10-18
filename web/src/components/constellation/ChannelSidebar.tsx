@@ -95,6 +95,7 @@ export default function ChannelSidebar({
                         <span className={s.presenceDot}>{initials(name)}</span>
                         <span className={s.presenceName}>{name}</span>
                         {p.server_muted && <span title="Микрофон выключил модератор">🔇</span>}
+                        {p.screen_sharing && <span title="Показывает экран">🖥</span>}
                       </div>
                     );
                   })}

@@ -3,6 +3,10 @@
 Источник правды — LiveKit: его вебхуки (participant_joined / participant_left / room_finished)
 обновляют реестр в памяти, а при старте бэкенда реестр восстанавливается запросом к LiveKit.
 Бэкенд работает одним процессом, поэтому реестра в памяти достаточно.
+
+Показ экрана: на Планете его ведёт не больше одного человека. Токен разрешает публиковать
+только микрофон; право на экран бэкенд выдаёт через UpdateParticipant тому, кто занял слот,
+и отзывает, когда показ закончен (сам, модератором или ушёл с Планеты).
 """
 
 from __future__ import annotations
@@ -42,13 +46,32 @@ class VoiceParticipant:
     joined_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     # Модератор выключил микрофон (участник не может включить его сам).
     server_muted: bool = False
+    # Занял слот показа экрана на этой Планете.
+    screen_sharing: bool = False
+    # sid опубликованного трека экрана (из вебхука): по нему узнаём, что показ закончился.
+    screen_track_sid: str | None = None
 
     def out(self) -> dict:
         return {
             "user_id": self.user_id,
             "joined_at": self.joined_at.isoformat(),
             "server_muted": self.server_muted,
+            "screen_sharing": self.screen_sharing,
         }
+
+    def publish_sources(self) -> list[str]:
+        sources = [] if self.server_muted else [livekit.SOURCE_MICROPHONE]
+        if self.screen_sharing:
+            sources += [livekit.SOURCE_SCREEN_SHARE, livekit.SOURCE_SCREEN_SHARE_AUDIO]
+        return sources
+
+
+class ScreenBusy(Exception):
+    """Экран на этой Планете уже показывает другой участник."""
+
+    def __init__(self, user_id: str):
+        super().__init__(user_id)
+        self.user_id = user_id
 
 
 @dataclass
@@ -118,13 +141,89 @@ def _remove(channel_id: str, user_id: str) -> bool:
     return True
 
 
-def set_server_muted(channel_id: str, user_id: str, muted: bool) -> bool:
+def _participant(channel_id: str, user_id: str) -> VoiceParticipant | None:
     planet = _planets.get(channel_id)
-    participant = planet.participants.get(user_id) if planet else None
+    return planet.participants.get(user_id) if planet else None
+
+
+def screen_sharer(channel_id: str) -> VoiceParticipant | None:
+    return next((p for p in participants(channel_id) if p.screen_sharing), None)
+
+
+async def _apply_permissions(channel_id: str, participant: VoiceParticipant) -> None:
+    await livekit.room_service.update_publish_sources(
+        room_name(channel_id), participant.user_id, participant.publish_sources()
+    )
+
+
+async def set_server_muted(star_id: str, channel_id: str, user_id: str, muted: bool) -> bool:
+    """Модератор выключил или вернул микрофон. Показ экрана это не трогает."""
+    participant = _participant(channel_id, user_id)
     if not participant:
         return False
+    previous = participant.server_muted
     participant.server_muted = muted
+    try:
+        await _apply_permissions(channel_id, participant)
+    except livekit.LiveKitError:
+        participant.server_muted = previous
+        raise
+    await broadcast(star_id, channel_id)
     return True
+
+
+async def start_screen(star_id: str, channel_id: str, user_id: str) -> bool:
+    """Занять слот показа экрана. False — участника нет на Планете; ScreenBusy — слот занят."""
+    participant = _participant(channel_id, user_id)
+    if not participant:
+        return False
+    if participant.screen_sharing:
+        return True
+    current = screen_sharer(channel_id)
+    if current:
+        raise ScreenBusy(current.user_id)
+    # Слот занимаем до первого await: два одновременных запроса не пройдут оба.
+    participant.screen_sharing = True
+    participant.screen_track_sid = None
+    try:
+        await _apply_permissions(channel_id, participant)
+    except livekit.LiveKitError:
+        participant.screen_sharing = False
+        raise
+    await broadcast(star_id, channel_id)
+    return True
+
+
+async def stop_screen(star_id: str, channel_id: str, user_id: str) -> bool:
+    """Закончить показ: отзываем право — LiveKit сам снимает трек экрана у всех."""
+    participant = _participant(channel_id, user_id)
+    if not participant or not participant.screen_sharing:
+        return False
+    participant.screen_sharing = False
+    participant.screen_track_sid = None
+    try:
+        await _apply_permissions(channel_id, participant)
+    except livekit.LiveKitError as exc:
+        # Клиенты всё равно показывают только того, у кого есть слот; ушедший трек
+        # освободится вместе с участником.
+        logger.warning("revoke screen of %s on %s failed: %s", user_id, channel_id, exc)
+    await broadcast(star_id, channel_id)
+    return True
+
+
+async def _on_track(kind: str, channel_id: str, identity: str, track: dict) -> None:
+    if livekit.track_source(track.get("source")) != livekit.SOURCE_SCREEN_SHARE:
+        return
+    planet = _planets.get(channel_id)
+    participant = planet.participants.get(identity) if planet else None
+    if not participant or not participant.screen_sharing:
+        return
+    sid = track.get("sid")
+    if kind == "track_published":
+        participant.screen_track_sid = sid
+    elif sid and sid == participant.screen_track_sid:
+        # Нажали «Остановить показ» в браузере, а клиент не успел сказать бэкенду.
+        await stop_screen(planet.star_id, channel_id, identity)
 
 
 async def _planet_star(channel_id: str) -> str | None:
@@ -154,7 +253,9 @@ async def handle_webhook(event: dict) -> None:
     if not identity:
         return
 
-    if kind == "participant_joined":
+    if kind in ("track_published", "track_unpublished"):
+        await _on_track(kind, channel_id, identity, event.get("track") or {})
+    elif kind == "participant_joined":
         star_id = _planets[channel_id].star_id if channel_id in _planets else await _planet_star(channel_id)
         if not star_id:
             return
@@ -216,8 +317,21 @@ async def resync() -> None:
                 continue
             for p in await livekit.room_service.list_participants(room["name"]):
                 identity = p.get("identity")
-                if identity:
-                    _add(star_id, channel_id, identity)
+                if not identity:
+                    continue
+                _add(star_id, channel_id, identity)
+                screen = next(
+                    (
+                        t
+                        for t in p.get("tracks") or []
+                        if livekit.track_source(t.get("source")) == livekit.SOURCE_SCREEN_SHARE
+                    ),
+                    None,
+                )
+                if screen and not screen_sharer(channel_id):
+                    restored = _planets[channel_id].participants[identity]
+                    restored.screen_sharing = True
+                    restored.screen_track_sid = screen.get("sid")
         logger.info("voice presence restored: %d planets", len(_planets))
     except Exception as exc:  # noqa: BLE001
         logger.warning("voice resync failed: %s", exc)

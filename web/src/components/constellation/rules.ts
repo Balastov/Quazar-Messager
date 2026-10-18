@@ -63,6 +63,11 @@ export function outranks(a: StarRole, b: StarRole): boolean {
   return roleRank(a) > roleRank(b);
 }
 
+/** Чужой показ экрана останавливают модератор, админ и владелец — у тех, кто ниже рангом. */
+export function canStopScreen(detail: StarDetail, target: StarRole): boolean {
+  return roleRank(detail.my_role) >= roleRank("moderator") && outranks(detail.my_role, target);
+}
+
 export function canKick(detail: StarDetail, target: StarRole): boolean {
   return can(detail, "kick") && outranks(detail.my_role, target);
 }

@@ -11,7 +11,11 @@ vi.stubGlobal("localStorage", {
 
 const handlers: ((e: unknown) => void)[] = [];
 vi.mock("../../ws/socket", () => ({
-  socket: { on: (h: (e: unknown) => void) => handlers.push(h), send: () => {} },
+  socket: {
+    on: (h: (e: unknown) => void) => handlers.push(h),
+    onStatus: () => () => {},
+    send: () => {},
+  },
 }));
 
 const ME = "me";

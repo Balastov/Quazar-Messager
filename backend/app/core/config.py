@@ -33,6 +33,10 @@ class Settings(BaseSettings):
 
     # Ringing timeout before call becomes missed (seconds)
     CALL_RING_TIMEOUT_SEC: int = 45
+    # A participant whose connection dropped mid-call has this long to come back.
+    CALL_RECONNECT_GRACE_SEC: int = 10
+    # Clients that send heartbeats are treated as gone after this much silence mid-call.
+    CALL_HEARTBEAT_TIMEOUT_SEC: int = 6
 
     # LiveKit — медиасервер голосовых Планет. Пусто = голос на Планетах выключен.
     # LIVEKIT_URL — адрес для бэкенда внутри docker-сети, LIVEKIT_PUBLIC_URL — для браузеров.

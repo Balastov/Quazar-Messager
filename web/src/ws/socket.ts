@@ -1,6 +1,7 @@
 import type { WsEvent } from "../api/types";
 
 type Handler = (event: WsEvent) => void;
+type StatusHandler = (open: boolean) => void;
 
 function wsUrl(token: string): string {
   const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
@@ -10,8 +11,17 @@ function wsUrl(token: string): string {
 class SocketManager {
   private ws: WebSocket | null = null;
   private handlers = new Set<Handler>();
+  private statusHandlers = new Set<StatusHandler>();
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private token: string | null = null;
+  /** Во время звонка переподключаемся чаще: на возврат даётся 10 секунд. */
+  private fastReconnect = false;
+
+  constructor() {
+    if (typeof window !== "undefined") {
+      window.addEventListener("online", () => this.reconnectNow());
+    }
+  }
 
   connect(token: string) {
     this.token = token;
@@ -60,11 +70,42 @@ class SocketManager {
     return () => this.handlers.delete(handler);
   }
 
+  /** Соединение открылось (true) или оборвалось (false). */
+  onStatus(handler: StatusHandler) {
+    this.statusHandlers.add(handler);
+    return () => this.statusHandlers.delete(handler);
+  }
+
+  setFastReconnect(fast: boolean) {
+    this.fastReconnect = fast;
+  }
+
+  /** Бросить текущее соединение (возможно, «зависшее») и сразу открыть новое. */
+  reconnectNow() {
+    if (!this.token) return;
+    if (this.ws?.readyState === WebSocket.CONNECTING) return;
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = null;
+    const old = this.ws;
+    if (old) {
+      old.onclose = null;
+      old.onmessage = null;
+      old.close();
+      if (old.readyState !== WebSocket.CLOSED) this.statusHandlers.forEach((h) => h(false));
+    }
+    this._open();
+  }
+
   private _open() {
     if (!this.token) return;
-    this.ws = new WebSocket(wsUrl(this.token));
+    const ws = new WebSocket(wsUrl(this.token));
+    this.ws = ws;
 
-    this.ws.onmessage = (e) => {
+    ws.onopen = () => {
+      if (this.ws === ws) this.statusHandlers.forEach((h) => h(true));
+    };
+
+    ws.onmessage = (e) => {
       try {
         const data = JSON.parse(e.data) as WsEvent;
         this.handlers.forEach((h) => h(data));
@@ -73,9 +114,12 @@ class SocketManager {
       }
     };
 
-    this.ws.onclose = () => {
+    ws.onclose = () => {
+      if (this.ws !== ws) return;
+      this.statusHandlers.forEach((h) => h(false));
       if (this.token) {
-        this.reconnectTimer = setTimeout(() => this._open(), 3000);
+        if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+        this.reconnectTimer = setTimeout(() => this._open(), this.fastReconnect ? 1000 : 3000);
       }
     };
   }

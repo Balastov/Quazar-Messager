@@ -102,7 +102,14 @@ export type WsEvent =
       chat_id: string;
       callee_id: string;
     }
-  | { type: "call_error"; error: string; call_id?: string; detail?: string };
+  | { type: "call_error"; error: string; call_id?: string; detail?: string }
+  /** Собеседник потерял связь с сервером / вернулся. */
+  | { type: "call_reconnecting"; call_id: string; user_id: string }
+  | { type: "call_reconnected"; call_id: string; user_id: string }
+  /** Ответ на call_resume после переподключения. */
+  | { type: "call_resumed"; call_id: string }
+  | { type: "call_resume_failed"; call_id: string }
+  | { type: "pong" };
 
 // Re-export existing domain types from the previous types file content
 export interface User {

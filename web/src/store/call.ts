@@ -5,7 +5,7 @@ import { CallPeer } from "../calls/peer";
 import { getNoiseSuppressionPref, setNoiseSuppressionPref } from "../calls/noiseSuppression";
 import { applyIosRoute } from "../calls/devices";
 import { clearCallNotification, notifyIncomingCall } from "../notifications/notify";
-import { startCallRingtone } from "../notifications/sound";
+import { startCallRingtone, startConnectionLostTone } from "../notifications/sound";
 import { socket } from "../ws/socket";
 import { useAuthStore } from "./auth";
 import { useChatStore } from "./chat";
@@ -21,6 +21,12 @@ type EndReason =
   | "disconnect"
   | "timeout"
   | null;
+
+/**
+ * Связь прервалась посреди разговора: self — у нас нет сети, peer — у собеседника,
+ * media — пропал звук, а чья сеть виновата, неизвестно.
+ */
+export type Reconnecting = "self" | "peer" | "media" | null;
 
 interface CallState {
   phase: CallPhase;
@@ -40,6 +46,9 @@ interface CallState {
   localStream: MediaStream | null;
   error: string | null;
   endReason: EndReason;
+  reconnecting: Reconnecting;
+  /** Когда звонок завершится, если связь не вернётся (Date.now()). */
+  reconnectDeadline: number | null;
   history: CallHistoryItem[];
 
   startAudioCall: (chatId: string, peerUserId: string) => Promise<void>;
@@ -67,6 +76,123 @@ interface CallState {
 let peer: CallPeer | null = null;
 let endClearTimer: ReturnType<typeof setTimeout> | null = null;
 let stopRingtone: (() => void) | null = null;
+
+/** Сколько ждём возвращения связи посреди звонка (столько же ждёт сервер). */
+export const RECONNECT_GRACE_MS = 10_000;
+const HEARTBEAT_MS = 2500;
+const PONG_TIMEOUT_MS = 6000;
+const RESTART_THROTTLE_MS = 3000;
+
+/** Id вкладки: по нему сервер узнаёт вернувшееся устройство. */
+const deviceId =
+  typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+/** Звонок начали мы — значит, и маршрут после обрыва пересобираем мы (без встречных offer). */
+let iAmCaller = false;
+let selfOffline = false;
+let peerLost = false;
+let mediaLost = false;
+let graceTimer: ReturnType<typeof setTimeout> | null = null;
+let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+let lastPong = 0;
+let lastRestartAt = 0;
+let stopLostTone: (() => void) | null = null;
+
+function inCall(): boolean {
+  const phase = useCallStore.getState().phase;
+  return phase === "connecting" || phase === "active";
+}
+
+function updateReconnecting() {
+  const st = useCallStore.getState();
+  const reason: Reconnecting =
+    st.phase !== "active"
+      ? null
+      : selfOffline
+        ? "self"
+        : peerLost
+          ? "peer"
+          : mediaLost
+            ? "media"
+            : null;
+
+  // Мягкие сигналы — только тому, у кого пропала сеть.
+  if (reason === "self") {
+    if (!stopLostTone) stopLostTone = startConnectionLostTone();
+  } else {
+    stopLostTone?.();
+    stopLostTone = null;
+  }
+
+  if (reason && !graceTimer) {
+    graceTimer = setTimeout(onReconnectExpired, RECONNECT_GRACE_MS);
+    useCallStore.setState({ reconnecting: reason, reconnectDeadline: Date.now() + RECONNECT_GRACE_MS });
+  } else if (!reason && graceTimer) {
+    clearTimeout(graceTimer);
+    graceTimer = null;
+    useCallStore.setState({ reconnecting: null, reconnectDeadline: null });
+  } else if (reason !== st.reconnecting) {
+    useCallStore.setState({ reconnecting: reason });
+  }
+}
+
+function onReconnectExpired() {
+  graceTimer = null;
+  const { callId, reconnecting } = useCallStore.getState();
+  if (callId) socket.send({ type: "call_hangup", call_id: callId, reason: "disconnect" });
+  finishCall(
+    "disconnect",
+    reconnecting === "self" ? "Нет связи — звонок завершён" : "Связь прервалась"
+  );
+}
+
+function resetReconnect() {
+  selfOffline = false;
+  peerLost = false;
+  mediaLost = false;
+  iAmCaller = false;
+  if (graceTimer) clearTimeout(graceTimer);
+  graceTimer = null;
+  if (heartbeatTimer) clearInterval(heartbeatTimer);
+  heartbeatTimer = null;
+  stopLostTone?.();
+  stopLostTone = null;
+  socket.setFastReconnect(false);
+}
+
+/** Пересобрать маршрут звука (ICE restart). Делает только звонивший. */
+async function restartIce(force = false) {
+  const callId = useCallStore.getState().callId;
+  if (!iAmCaller || !peer || !callId || !socket.isOpen()) return;
+  const state = peer.connectionState();
+  if (state === null || state === "connected" || state === "closed") return;
+  if (!force && Date.now() - lastRestartAt < RESTART_THROTTLE_MS) return;
+  lastRestartAt = Date.now();
+  try {
+    const sdp = await peer.restartIce();
+    if (sdp) socket.send({ type: "call_offer", call_id: callId, sdp });
+  } catch {
+    // следующая попытка — по таймеру или при возврате собеседника
+  }
+}
+
+/** Пока идёт звонок, проверяем связь с сервером: «зависший» сокет иначе не заметить. */
+function startHeartbeat() {
+  if (heartbeatTimer) return;
+  socket.setFastReconnect(true);
+  lastPong = Date.now();
+  heartbeatTimer = setInterval(() => {
+    if (socket.isOpen()) socket.send({ type: "ping" });
+    if (!selfOffline && Date.now() - lastPong > PONG_TIMEOUT_MS) {
+      selfOffline = true;
+      updateReconnecting();
+      socket.reconnectNow();
+    }
+    if (mediaLost) void restartIce();
+  }, HEARTBEAT_MS);
+}
 
 function resolvePeerMeta(chatId: string, peerUserId: string) {
   const chat = useChatStore.getState().chats.find((c) => c.id === chatId);
@@ -112,8 +238,18 @@ async function ensurePeer(media: CallMedia): Promise<CallPeer> {
       useCallStore.setState({ remoteStream: stream });
     },
     onConnectionState: (state) => {
+      const phase = useCallStore.getState().phase;
       if (state === "connected") {
-        useCallStore.setState({ phase: "active", error: null });
+        mediaLost = false;
+        if (phase === "connecting" || phase === "active") {
+          useCallStore.setState({ phase: "active", error: null });
+        }
+        updateReconnecting();
+      } else if ((state === "disconnected" || state === "failed") && phase === "active") {
+        // Разговор уже шёл — ждём возвращения связи, а не кладём трубку.
+        mediaLost = true;
+        updateReconnecting();
+        void restartIce();
       } else if (state === "failed") {
         useCallStore.getState().hangup();
         useCallStore.setState({
@@ -131,6 +267,7 @@ async function ensurePeer(media: CallMedia): Promise<CallPeer> {
       useCallStore.setState({ noiseSuppressionActive: active });
     },
   }, useCallStore.getState().noiseSuppression);
+  startHeartbeat();
   return peer;
 }
 
@@ -139,10 +276,13 @@ function finishCall(reason: EndReason, error: string | null = null) {
   stopRing();
   void clearCallNotification(callId);
   cleanupPeer();
+  resetReconnect();
   useCallStore.setState({
     phase: "ended",
     endReason: reason,
     error,
+    reconnecting: null,
+    reconnectDeadline: null,
     remoteStream: null,
     localStream: null,
     muted: false,
@@ -172,6 +312,7 @@ async function beginOutgoingCall(
       : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
   const meta = resolvePeerMeta(chatId, peerUserId);
+  iAmCaller = true;
 
   set({
     phase: "outgoing",
@@ -212,6 +353,7 @@ async function beginOutgoingCall(
     chat_id: chatId,
     callee_id: peerUserId,
     media,
+    device_id: deviceId,
   });
 }
 
@@ -222,6 +364,29 @@ function answeredElsewhere() {
 }
 
 export const useCallStore = create<CallState>((set, get) => {
+  socket.onStatus((open) => {
+    const callId = get().callId;
+    if (!callId || !inCall()) return;
+    if (open) {
+      lastPong = Date.now();
+      selfOffline = false;
+      socket.send({ type: "call_resume", call_id: callId, device_id: deviceId });
+      updateReconnecting();
+      void restartIce(true);
+    } else {
+      selfOffline = true;
+      updateReconnecting();
+    }
+  });
+
+  if (typeof window !== "undefined") {
+    window.addEventListener("offline", () => {
+      if (!inCall()) return;
+      selfOffline = true;
+      updateReconnecting();
+    });
+  }
+
   socket.on((event: WsEvent) => {
     void (async () => {
       const myId = useAuthStore.getState().user?.id;
@@ -300,8 +465,10 @@ export const useCallStore = create<CallState>((set, get) => {
           if (event.call_id !== get().callId) return;
           // Звонок принят на другом устройстве — этому отвечать нельзя.
           if (get().phase === "incoming") return;
+          // Во время разговора offer — это пересборка маршрута после обрыва связи.
+          const renegotiation = get().phase === "active";
           try {
-            set({ phase: "connecting" });
+            if (!renegotiation) set({ phase: "connecting" });
             const p = await ensurePeer(get().media);
             if (!get().localStream) {
               const local = await p.startLocalMedia();
@@ -310,6 +477,7 @@ export const useCallStore = create<CallState>((set, get) => {
             const answer = await p.handleRemoteOffer(event.sdp);
             socket.send({ type: "call_answer", call_id: event.call_id, sdp: answer });
           } catch (err) {
+            if (renegotiation) break; // звонивший попробует ещё раз
             finishCall(
               "error",
               err instanceof Error ? err.message : "Ошибка установки звонка"
@@ -324,6 +492,7 @@ export const useCallStore = create<CallState>((set, get) => {
             const p = await ensurePeer(get().media);
             await p.handleRemoteAnswer(event.sdp);
           } catch (err) {
+            if (get().phase === "active") break; // ответ на устаревший offer после обрыва
             finishCall(
               "error",
               err instanceof Error ? err.message : "Ошибка ответа SDP"
@@ -350,8 +519,44 @@ export const useCallStore = create<CallState>((set, get) => {
             answeredElsewhere();
           } else if (event.reason === "timeout") {
             finishCall("timeout", "Нет ответа");
+          } else if (event.reason === "disconnect") {
+            finishCall(
+              "disconnect",
+              event.ended_by === myId ? "Связь прервалась" : "Связь с собеседником прервалась"
+            );
           } else {
-            finishCall(event.reason === "disconnect" ? "disconnect" : "hangup");
+            finishCall("hangup");
+          }
+          break;
+        }
+
+        case "call_reconnecting": {
+          if (event.call_id !== get().callId || event.user_id === myId) return;
+          peerLost = true;
+          updateReconnecting();
+          break;
+        }
+
+        case "call_reconnected": {
+          if (event.call_id !== get().callId || event.user_id === myId) return;
+          peerLost = false;
+          updateReconnecting();
+          void restartIce(true);
+          break;
+        }
+
+        case "call_resume_failed": {
+          if (event.call_id !== get().callId) return;
+          // Сервер звонка уже не знает; если и звук не идёт — продолжать нечего.
+          if (peer?.connectionState() !== "connected") finishCall("disconnect", "Связь прервалась");
+          break;
+        }
+
+        case "pong": {
+          lastPong = Date.now();
+          if (selfOffline && socket.isOpen()) {
+            selfOffline = false;
+            updateReconnecting();
           }
           break;
         }
@@ -394,6 +599,8 @@ export const useCallStore = create<CallState>((set, get) => {
     localStream: null,
     error: null,
     endReason: null,
+    reconnecting: null,
+    reconnectDeadline: null,
     history: [],
 
     prepareIncomingFromPush: (info) => {
@@ -442,7 +649,7 @@ export const useCallStore = create<CallState>((set, get) => {
         const p = await ensurePeer(media);
         const local = await p.startLocalMedia();
         set({ localStream: local });
-        socket.send({ type: "call_accept", call_id: callId });
+        socket.send({ type: "call_accept", call_id: callId, device_id: deviceId });
       } catch (err) {
         socket.send({ type: "call_reject", call_id: callId, reason: "media_error" });
         const needCam = media.video;

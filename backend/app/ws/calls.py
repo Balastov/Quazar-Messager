@@ -9,16 +9,24 @@ Protocol (extensible):
     call_offer   { call_id, sdp }
     call_answer  { call_id, sdp }
     call_ice     { call_id, candidate }
+    call_resume  { call_id, device_id? } — the device is back after a dropped connection
+  (call_invite / call_accept may carry device_id — a per-tab id that lets a device resume
+  even before the server notices its old connection is dead)
 
   server → client (relay / control):
     call_invite | call_ringing | call_accept | call_reject | call_hangup
     call_offer | call_answer | call_ice
     call_unavailable | call_busy | call_error
+    call_reconnecting | call_reconnected { call_id, user_id } — the peer lost / regained connection
+    call_resumed | call_resume_failed { call_id } — reply to call_resume
 
   Multi-device: a call is bound to the caller's connection that sent the invite and the
   callee's connection that accepted it. Offer/answer/ICE go only to those connections, the
   callee's other devices get call_hangup { reason: "answered_elsewhere" }, and signaling or
   hangups from a participant's other devices are ignored.
+
+  Reconnect: when the device an active call runs on disconnects, the call waits
+  CALL_RECONNECT_GRACE_SEC for call_resume from a new connection before hanging up.
 """
 
 from __future__ import annotations
@@ -54,6 +62,10 @@ class ActiveCall:
     # WebSocket the call runs on for each side (None — not bound yet: any device).
     caller_ws: Any = field(default=None, repr=False, compare=False)
     callee_ws: Any = field(default=None, repr=False, compare=False)
+    caller_device: str | None = None
+    callee_device: str | None = None
+    # user_id → task that hangs up unless the user comes back in time.
+    reconnect_tasks: dict[str, asyncio.Task] = field(default_factory=dict, repr=False, compare=False)
 
 
 # call_id → ActiveCall
@@ -101,6 +113,11 @@ def _unregister(call_id: str) -> ActiveCall | None:
     if not call:
         return None
     _cancel_timeout(call)
+    current = asyncio.current_task()
+    for task in call.reconnect_tasks.values():
+        if task is not current and not task.done():
+            task.cancel()
+    call.reconnect_tasks.clear()
     if _user_call.get(call.caller_id) == call_id:
         _user_call.pop(call.caller_id, None)
     if _user_call.get(call.callee_id) == call_id:
@@ -124,6 +141,19 @@ def _bound_ws(call: ActiveCall, user_id: str) -> Any:
     return None
 
 
+def _device_id(data: dict) -> str | None:
+    device = data.get("device_id")
+    return device if isinstance(device, str) and 0 < len(device) <= 64 else None
+
+
+def _bound_device(call: ActiveCall, user_id: str) -> str | None:
+    if user_id == call.caller_id:
+        return call.caller_device
+    if user_id == call.callee_id:
+        return call.callee_device
+    return None
+
+
 def _from_other_device(call: ActiveCall, user_id: str, ws: Any) -> bool:
     """The event came from a participant's device that is not the one the call runs on."""
     bound = _bound_ws(call, user_id)
@@ -132,10 +162,25 @@ def _from_other_device(call: ActiveCall, user_id: str, ws: Any) -> bool:
 
 async def _send_to_call_device(call: ActiveCall, user_id: str, event: dict) -> None:
     bound = _bound_ws(call, user_id)
-    if bound is not None and bound in manager.user_connections.get(user_id, []):
-        await manager.send(bound, event)
-    else:
+    if bound is None:
         await manager.send_to_user(user_id, event)
+    elif bound in manager.user_connections.get(user_id, []):
+        await manager.send(bound, event)
+    # Otherwise the device is reconnecting: it renegotiates after call_resume.
+
+
+def _bind(call: ActiveCall, user_id: str, ws: Any) -> None:
+    if user_id == call.caller_id:
+        call.caller_ws = ws
+    elif user_id == call.callee_id:
+        call.callee_ws = ws
+
+
+def ws_in_active_call(user_id: str, ws: Any) -> bool:
+    """This connection carries an active call (heartbeat silence there means the device is gone)."""
+    call_id = _user_call.get(user_id)
+    call = get_active_call(call_id) if call_id else None
+    return bool(call and call.status == "active" and _bound_ws(call, user_id) is ws)
 
 
 def _invite_payload(call: ActiveCall) -> dict:
@@ -249,6 +294,8 @@ async def handle_call_event(data: dict, user_id: str, ws: Any = None) -> None:
         await _handle_hangup(data, user_id, ws)
     elif event_type in ("call_offer", "call_answer", "call_ice"):
         await _relay_signaling(data, user_id, ws)
+    elif event_type == "call_resume":
+        await _handle_resume(data, user_id, ws)
     else:
         await manager.send_to_user(
             user_id,
@@ -325,6 +372,7 @@ async def _handle_invite(data: dict, caller_id: str, ws: Any = None) -> None:
         callee_id=callee_id,
         media=media,
         caller_ws=ws,
+        caller_device=_device_id(data),
     )
     _register(call)
     await _persist_create(call)
@@ -409,6 +457,7 @@ async def _handle_accept(data: dict, user_id: str, ws: Any = None) -> None:
     _cancel_timeout(call)
     call.status = "active"
     call.callee_ws = ws
+    call.callee_device = _device_id(data)
     await _persist_status(call_id, "active", answered=True)
     event = {
         "type": "call_accept",
@@ -518,9 +567,66 @@ async def _relay_signaling(data: dict, user_id: str, ws: Any = None) -> None:
         )
 
 
+def _reconnect_grace() -> float:
+    return max(1, int(settings.CALL_RECONNECT_GRACE_SEC))
+
+
+async def _reconnect_timeout(call_id: str, user_id: str) -> None:
+    try:
+        await asyncio.sleep(_reconnect_grace())
+    except asyncio.CancelledError:
+        return
+    call = get_active_call(call_id)
+    if not call or call.reconnect_tasks.pop(user_id, None) is None:
+        return
+    await _handle_hangup(
+        {"call_id": call_id, "reason": "disconnect"}, user_id, _bound_ws(call, user_id)
+    )
+
+
+async def _handle_resume(data: dict, user_id: str, ws: Any = None) -> None:
+    call_id = data.get("call_id")
+    if not isinstance(call_id, str):
+        return
+    call = get_active_call(call_id)
+    failed = {"type": "call_resume_failed", "call_id": call_id}
+    if not call or user_id not in (call.caller_id, call.callee_id) or ws is None:
+        if ws is not None:
+            await manager.send(ws, failed)
+        return
+    bound = _bound_ws(call, user_id)
+    stale = None
+    if bound is not None and bound is not ws and bound in manager.user_connections.get(user_id, []):
+        device = _device_id(data)
+        if device is None or device != _bound_device(call, user_id):
+            # The call is alive on another device of this user.
+            await manager.send(ws, failed)
+            return
+        stale = bound  # same device, its old connection just has not timed out yet
+
+    _bind(call, user_id, ws)
+    if stale is not None:
+        try:
+            await stale.close()
+        except Exception:
+            pass
+    task = call.reconnect_tasks.pop(user_id, None)
+    if task is not None:
+        task.cancel()
+    await manager.send(ws, {"type": "call_resumed", "call_id": call_id})
+    if bound is not ws:
+        # The peer renegotiates the media path towards the new connection.
+        peer = _peer_id(call, user_id)
+        if peer:
+            await _send_to_call_device(
+                call, peer, {"type": "call_reconnected", "call_id": call_id, "user_id": user_id}
+            )
+
+
 async def on_user_offline(user_id: str, ws: Any = None) -> None:
-    """End an active call when the device it runs on disconnects; keep ringing so push can
-    wake the callee. Closing another device of the same user does not touch the call."""
+    """When the device an active call runs on disconnects, give it CALL_RECONNECT_GRACE_SEC to
+    come back (call_resume) before hanging up; keep ringing so push can wake the callee.
+    Closing another device of the same user does not touch the call."""
     call_id = _user_call.get(user_id)
     if not call_id:
         return
@@ -533,7 +639,14 @@ async def on_user_offline(user_id: str, ws: Any = None) -> None:
             return
     elif manager.user_connections.get(user_id):
         return
-    await _handle_hangup({"call_id": call_id, "reason": "disconnect"}, user_id, bound)
+    if user_id in call.reconnect_tasks:
+        return
+    call.reconnect_tasks[user_id] = asyncio.create_task(_reconnect_timeout(call_id, user_id))
+    peer = _peer_id(call, user_id)
+    if peer:
+        await _send_to_call_device(
+            call, peer, {"type": "call_reconnecting", "call_id": call_id, "user_id": user_id}
+        )
 
 
 async def list_history_for_user(db: AsyncSession, user_id: str, limit: int = 50) -> list[Call]:

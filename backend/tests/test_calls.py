@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import unittest
 from unittest import mock
@@ -32,6 +33,10 @@ class FakeWs:
     def __init__(self, name: str):
         self.name = name
         self.sent: list[dict] = []
+        self.closed = False
+
+    async def close(self, code: int = 1000) -> None:
+        self.closed = True
 
     async def send_text(self, text: str) -> None:
         self.sent.append(json.loads(text))
@@ -83,6 +88,10 @@ class TestMultiDeviceCalls(unittest.IsolatedAsyncioTestCase):
         self.addCleanup(calls._active.clear)
         self.addCleanup(calls._user_call.clear)
 
+        grace = mock.patch.object(calls, "_reconnect_grace", lambda: 0.05)
+        grace.start()
+        self.addCleanup(grace.stop)
+
         await calls.handle_call_event(
             {"type": "call_invite", "call_id": "c1", "chat_id": "chat", "callee_id": "bob"},
             "alice",
@@ -90,7 +99,22 @@ class TestMultiDeviceCalls(unittest.IsolatedAsyncioTestCase):
         )
 
     async def accept_on_phone(self):
-        await calls.handle_call_event({"type": "call_accept", "call_id": "c1"}, "bob", self.bob_phone)
+        await calls.handle_call_event(
+            {"type": "call_accept", "call_id": "c1", "device_id": "phone-tab"}, "bob", self.bob_phone
+        )
+
+    async def drop(self, user_id: str, ws: FakeWs):
+        manager.disconnect(ws, user_id)
+        await calls.on_user_offline(user_id, ws)
+
+    async def come_back(self, user_id: str, name: str, device_id: str | None = None) -> FakeWs:
+        ws = FakeWs(name)
+        manager.user_connections.setdefault(user_id, []).append(ws)
+        payload = {"type": "call_resume", "call_id": "c1"}
+        if device_id:
+            payload["device_id"] = device_id
+        await calls.handle_call_event(payload, user_id, ws)
+        return ws
 
     async def test_both_devices_ring(self):
         self.assertIn("call_invite", self.bob_phone.types())
@@ -136,13 +160,70 @@ class TestMultiDeviceCalls(unittest.IsolatedAsyncioTestCase):
         await calls.on_user_offline("bob", self.bob_pc)
         self.assertIsNotNone(calls.get_active_call("c1"))
 
-    async def test_losing_the_answering_device_ends_the_call(self):
+    async def test_losing_the_answering_device_ends_the_call_after_the_grace(self):
         await self.accept_on_phone()
-        manager.disconnect(self.bob_phone, "bob")
-        await calls.on_user_offline("bob", self.bob_phone)
+        await self.drop("bob", self.bob_phone)
+        self.assertIsNotNone(calls.get_active_call("c1"))
+        self.assertEqual(self.alice.sent[-1], {"type": "call_reconnecting", "call_id": "c1", "user_id": "bob"})
+        await asyncio.sleep(0.1)
         self.assertIsNone(calls.get_active_call("c1"))
         self.assertEqual(self.alice.sent[-1]["type"], "call_hangup")
         self.assertEqual(self.alice.sent[-1]["reason"], "disconnect")
+        self.assertIn(("c1", "ended"), self.statuses)
+
+    async def test_device_that_comes_back_in_time_keeps_the_call(self):
+        await self.accept_on_phone()
+        await self.drop("bob", self.bob_phone)
+        phone = await self.come_back("bob", "bob-phone-2")
+        self.assertEqual(phone.sent[-1], {"type": "call_resumed", "call_id": "c1"})
+        self.assertEqual(self.alice.sent[-1], {"type": "call_reconnected", "call_id": "c1", "user_id": "bob"})
+        await asyncio.sleep(0.1)
+        self.assertIsNotNone(calls.get_active_call("c1"))
+        # Signaling now goes to the new connection.
+        await calls.handle_call_event(
+            {"type": "call_offer", "call_id": "c1", "sdp": {"type": "offer", "sdp": "restart"}},
+            "alice",
+            self.alice,
+        )
+        self.assertEqual(phone.sent[-1]["type"], "call_offer")
+
+    async def test_caller_can_come_back_too(self):
+        await self.accept_on_phone()
+        await self.drop("alice", self.alice)
+        self.assertEqual(self.bob_phone.sent[-1]["type"], "call_reconnecting")
+        alice = await self.come_back("alice", "alice-2")
+        self.assertEqual(alice.sent[-1]["type"], "call_resumed")
+        self.assertEqual(self.bob_phone.sent[-1]["type"], "call_reconnected")
+
+    async def test_same_device_resumes_before_its_old_connection_times_out(self):
+        await self.accept_on_phone()
+        phone = await self.come_back("bob", "bob-phone-2", device_id="phone-tab")
+        self.assertEqual(phone.sent[-1]["type"], "call_resumed")
+        self.assertTrue(self.bob_phone.closed)
+        await self.drop("bob", self.bob_phone)  # the old connection finally goes away
+        self.assertIsNotNone(calls.get_active_call("c1"))
+        self.assertNotIn("call_reconnecting", self.alice.types())
+
+    async def test_another_device_cannot_take_over_a_live_call(self):
+        await self.accept_on_phone()
+        await calls.handle_call_event(
+            {"type": "call_resume", "call_id": "c1", "device_id": "pc-tab"}, "bob", self.bob_pc
+        )
+        self.assertEqual(self.bob_pc.sent[-1]["type"], "call_resume_failed")
+        self.assertFalse(self.bob_phone.closed)
+
+    async def test_resume_of_a_finished_call_fails(self):
+        await self.accept_on_phone()
+        await calls.handle_call_event({"type": "call_hangup", "call_id": "c1"}, "alice", self.alice)
+        phone = await self.come_back("bob", "bob-phone-2")
+        self.assertEqual(phone.sent[-1]["type"], "call_resume_failed")
+
+    async def test_heartbeat_watch_applies_only_to_the_call_connection(self):
+        self.assertFalse(calls.ws_in_active_call("bob", self.bob_phone))  # still ringing
+        await self.accept_on_phone()
+        self.assertTrue(calls.ws_in_active_call("bob", self.bob_phone))
+        self.assertFalse(calls.ws_in_active_call("bob", self.bob_pc))
+        self.assertTrue(calls.ws_in_active_call("alice", self.alice))
 
     async def test_hangup_from_the_answering_device_ends_the_call(self):
         await self.accept_on_phone()

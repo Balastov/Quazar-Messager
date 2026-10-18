@@ -1,12 +1,35 @@
 import { useEffect, useRef, useState } from "react";
 import { applyOutput } from "../calls/devices";
-import { useCallStore } from "../store/call";
+import { useCallStore, type Reconnecting } from "../store/call";
 import { useDevicesStore } from "../store/devices";
 import AudioDevices from "./AudioDevices";
 import Dialog from "./constellation/Dialog";
 import UserAvatar from "./UserAvatar";
 import { IconPhone, IconVideo } from "./icons";
 import s from "./CallOverlay.module.css";
+
+/** «Переподключение… 7 с» и пояснение, чья связь пропала. */
+function ReconnectNotice({ reason, deadline }: { reason: Reconnecting; deadline: number | null }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!reason) return;
+    const timer = setInterval(() => setNow(Date.now()), 250);
+    return () => clearInterval(timer);
+  }, [reason]);
+  if (!reason) return null;
+  const left = deadline ? Math.max(0, Math.ceil((deadline - now) / 1000)) : null;
+  return (
+    <div className={s.reconnect} role="status" aria-live="polite">
+      <div className={s.reconnectTitle}>
+        Переподключение…{left !== null ? ` ${left} с` : ""}
+      </div>
+      {reason === "self" && (
+        <div className={s.reconnectHint}>Пропала связь с интернетом. Ждём, когда сеть вернётся</div>
+      )}
+      {reason === "peer" && <div className={s.reconnectHint}>У собеседника пропала связь</div>}
+    </div>
+  );
+}
 
 function statusLabel(
   phase: string,
@@ -47,6 +70,8 @@ export default function CallOverlay() {
   const localStream = useCallStore((st) => st.localStream);
   const error = useCallStore((st) => st.error);
   const endReason = useCallStore((st) => st.endReason);
+  const reconnecting = useCallStore((st) => st.reconnecting);
+  const reconnectDeadline = useCallStore((st) => st.reconnectDeadline);
   const accept = useCallStore((st) => st.accept);
   const reject = useCallStore((st) => st.reject);
   const hangup = useCallStore((st) => st.hangup);
@@ -161,7 +186,11 @@ export default function CallOverlay() {
             <div className={s.videoPlaceholder}>
               <UserAvatar username={name} avatarUrl={peerAvatarUrl} size="lg" />
               <div className={s.name}>{name}</div>
-              <div className={s.status}>{statusLabel(phase, error, endReason, isVideo)}</div>
+              {reconnecting ? (
+                <ReconnectNotice reason={reconnecting} deadline={reconnectDeadline} />
+              ) : (
+                <div className={s.status}>{statusLabel(phase, error, endReason, isVideo)}</div>
+              )}
             </div>
           )}
 
@@ -176,7 +205,11 @@ export default function CallOverlay() {
           <div className={s.videoChrome}>
             <div className={s.videoMeta}>
               <div className={s.name}>{name}</div>
-              <div className={s.status}>{statusLabel(phase, error, endReason, isVideo)}</div>
+              {reconnecting ? (
+                <ReconnectNotice reason={reconnecting} deadline={reconnectDeadline} />
+              ) : (
+                <div className={s.status}>{statusLabel(phase, error, endReason, isVideo)}</div>
+              )}
             </div>
 
             <div className={s.actions}>
@@ -239,7 +272,11 @@ export default function CallOverlay() {
           <div className={s.pulse} aria-hidden />
           <UserAvatar username={name} avatarUrl={peerAvatarUrl} size="lg" />
           <div className={s.name}>{name}</div>
-          <div className={s.status}>{statusLabel(phase, error, endReason, isVideo)}</div>
+          {reconnecting ? (
+            <ReconnectNotice reason={reconnecting} deadline={reconnectDeadline} />
+          ) : (
+            <div className={s.status}>{statusLabel(phase, error, endReason, isVideo)}</div>
+          )}
           <div className={s.hint}>{isVideo ? "Видеозвонок" : "Аудиозвонок"}</div>
 
           <div className={s.actions}>

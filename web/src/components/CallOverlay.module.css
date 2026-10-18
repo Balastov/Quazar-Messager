@@ -68,6 +68,27 @@
   font-size: 12px;
 }
 
+.reconnect {
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 280px;
+}
+
+.reconnectTitle {
+  color: #f5b14c;
+  font-size: 14px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.reconnectHint {
+  color: var(--qz-text-muted);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
 .actions {
   margin-top: 18px;
   display: flex;

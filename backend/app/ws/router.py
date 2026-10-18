@@ -1,9 +1,11 @@
+import asyncio
 import json
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.core.security import decode_token
 from app.models.chat import ChatMember
@@ -25,9 +27,19 @@ async def websocket_endpoint(websocket: WebSocket, token: str):
 
     await manager.connect(websocket, user_id)
     await call_signaling.deliver_pending_invites(user_id)
+    heartbeats = False  # the client sends pings — silence mid-call then means it is gone
     try:
         while True:
-            raw = await websocket.receive_text()
+            timeout = (
+                settings.CALL_HEARTBEAT_TIMEOUT_SEC
+                if heartbeats and call_signaling.ws_in_active_call(user_id, websocket)
+                else None
+            )
+            try:
+                raw = await asyncio.wait_for(websocket.receive_text(), timeout)
+            except asyncio.TimeoutError:
+                await websocket.close(code=4008)
+                break
             try:
                 data = json.loads(raw)
             except json.JSONDecodeError:
@@ -35,7 +47,11 @@ async def websocket_endpoint(websocket: WebSocket, token: str):
 
             event_type = data.get("type")
 
-            if event_type == "send_message":
+            if event_type == "ping":
+                heartbeats = True
+                await manager.send(websocket, {"type": "pong"})
+
+            elif event_type == "send_message":
                 await _handle_send_message(data, user_id)
 
             elif event_type == "message_status":

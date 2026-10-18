@@ -80,3 +80,64 @@ export function startCallRingtone(): () => void {
     if (timer) clearTimeout(timer);
   };
 }
+
+/** Два тихих низких тона вниз — «связь пропала». */
+async function playSoftLostTone(): Promise<void> {
+  const ctx = getCtx();
+  if (!ctx) return;
+  if (ctx.state === "suspended") {
+    try {
+      await ctx.resume();
+    } catch {
+      return;
+    }
+  }
+
+  const now = ctx.currentTime;
+  const notes = [
+    { freq: 392.0, t: 0 }, // G4
+    { freq: 293.66, t: 0.32 }, // D4
+  ];
+  const master = ctx.createGain();
+  master.gain.value = 0.35;
+  master.connect(ctx.destination);
+
+  for (const note of notes) {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    const filter = ctx.createBiquadFilter();
+    osc.type = "sine";
+    osc.frequency.value = note.freq;
+    filter.type = "lowpass";
+    filter.frequency.value = 1200;
+
+    const t0 = now + note.t;
+    gain.gain.setValueAtTime(0.0001, t0);
+    gain.gain.exponentialRampToValueAtTime(0.1, t0 + 0.06);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.7);
+
+    osc.connect(filter);
+    filter.connect(gain);
+    gain.connect(master);
+    osc.start(t0);
+    osc.stop(t0 + 0.75);
+  }
+}
+
+/** Мягкие повторяющиеся сигналы, пока у нас нет связи во время звонка. */
+export function startConnectionLostTone(): () => void {
+  let stopped = false;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+
+  const tick = () => {
+    if (stopped) return;
+    void playSoftLostTone();
+    timer = setTimeout(tick, 2500);
+  };
+  tick();
+
+  return () => {
+    stopped = true;
+    if (timer) clearTimeout(timer);
+  };
+}

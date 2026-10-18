@@ -243,6 +243,19 @@ export class CallPeer {
     return pc.localDescription!.toJSON();
   }
 
+  /** Пересобрать ICE-маршрут после смены сети (новый offer тем же каналом сигналинга). */
+  async restartIce(): Promise<RTCSessionDescriptionInit | null> {
+    const pc = this.pc;
+    if (!pc || pc.signalingState === "closed") return null;
+    const offer = await pc.createOffer({ iceRestart: true });
+    await pc.setLocalDescription(offer);
+    return pc.localDescription!.toJSON();
+  }
+
+  connectionState(): RTCPeerConnectionState | null {
+    return this.pc?.connectionState ?? null;
+  }
+
   async handleRemoteOffer(sdp: RTCSessionDescriptionInit): Promise<RTCSessionDescriptionInit> {
     const pc = await this.ensurePeer();
     await pc.setRemoteDescription(sdp);

@@ -189,6 +189,12 @@ async function beginOutgoingCall(
   });
 }
 
+/** Звонок принят на другом устройстве этого же аккаунта — молча закрываем входящий. */
+function answeredElsewhere() {
+  finishCall('hangup');
+  useCallStore.getState().clearEnded();
+}
+
 export const useCallStore = create<CallState>((set, get) => {
   socket.on((event: WsEvent) => {
     void (async () => {
@@ -249,6 +255,10 @@ export const useCallStore = create<CallState>((set, get) => {
           if (event.call_id !== get().callId) {
             return;
           }
+          if (event.accepted_by === myId && get().phase === 'incoming') {
+            answeredElsewhere();
+            return;
+          }
           set({phase: 'connecting'});
           if (event.accepted_by !== myId) {
             try {
@@ -269,6 +279,10 @@ export const useCallStore = create<CallState>((set, get) => {
 
         case 'call_offer': {
           if (event.call_id !== get().callId) {
+            return;
+          }
+          // Звонок принят на другом устройстве — этому отвечать нельзя.
+          if (get().phase === 'incoming') {
             return;
           }
           try {
@@ -325,7 +339,9 @@ export const useCallStore = create<CallState>((set, get) => {
           if (event.call_id !== get().callId) {
             return;
           }
-          if (event.reason === 'timeout') {
+          if (event.reason === 'answered_elsewhere') {
+            answeredElsewhere();
+          } else if (event.reason === 'timeout') {
             finishCall('timeout', 'Нет ответа');
           } else {
             finishCall(event.reason === 'disconnect' ? 'disconnect' : 'hangup');

@@ -14,6 +14,11 @@ Protocol (extensible):
     call_invite | call_ringing | call_accept | call_reject | call_hangup
     call_offer | call_answer | call_ice
     call_unavailable | call_busy | call_error
+
+  Multi-device: a call is bound to the caller's connection that sent the invite and the
+  callee's connection that accepted it. Offer/answer/ICE go only to those connections, the
+  callee's other devices get call_hangup { reason: "answered_elsewhere" }, and signaling or
+  hangups from a participant's other devices are ignored.
 """
 
 from __future__ import annotations
@@ -22,6 +27,7 @@ import asyncio
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from typing import Any
 
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -45,6 +51,9 @@ class ActiveCall:
     status: str = "ringing"  # ringing | active
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     timeout_task: asyncio.Task | None = field(default=None, repr=False)
+    # WebSocket the call runs on for each side (None — not bound yet: any device).
+    caller_ws: Any = field(default=None, repr=False, compare=False)
+    callee_ws: Any = field(default=None, repr=False, compare=False)
 
 
 # call_id → ActiveCall
@@ -105,6 +114,28 @@ def _peer_id(call: ActiveCall, user_id: str) -> str | None:
     if user_id == call.callee_id:
         return call.caller_id
     return None
+
+
+def _bound_ws(call: ActiveCall, user_id: str) -> Any:
+    if user_id == call.caller_id:
+        return call.caller_ws
+    if user_id == call.callee_id:
+        return call.callee_ws
+    return None
+
+
+def _from_other_device(call: ActiveCall, user_id: str, ws: Any) -> bool:
+    """The event came from a participant's device that is not the one the call runs on."""
+    bound = _bound_ws(call, user_id)
+    return ws is not None and bound is not None and bound is not ws
+
+
+async def _send_to_call_device(call: ActiveCall, user_id: str, event: dict) -> None:
+    bound = _bound_ws(call, user_id)
+    if bound is not None and bound in manager.user_connections.get(user_id, []):
+        await manager.send(bound, event)
+    else:
+        await manager.send_to_user(user_id, event)
 
 
 def _invite_payload(call: ActiveCall) -> dict:
@@ -206,18 +237,18 @@ def _schedule_timeout(call: ActiveCall) -> None:
     call.timeout_task = asyncio.create_task(_ring_timeout(call.id))
 
 
-async def handle_call_event(data: dict, user_id: str) -> None:
+async def handle_call_event(data: dict, user_id: str, ws: Any = None) -> None:
     event_type = data.get("type")
     if event_type == "call_invite":
-        await _handle_invite(data, user_id)
+        await _handle_invite(data, user_id, ws)
     elif event_type == "call_accept":
-        await _handle_accept(data, user_id)
+        await _handle_accept(data, user_id, ws)
     elif event_type == "call_reject":
-        await _handle_reject(data, user_id)
+        await _handle_reject(data, user_id, ws)
     elif event_type == "call_hangup":
-        await _handle_hangup(data, user_id)
+        await _handle_hangup(data, user_id, ws)
     elif event_type in ("call_offer", "call_answer", "call_ice"):
-        await _relay_signaling(data, user_id)
+        await _relay_signaling(data, user_id, ws)
     else:
         await manager.send_to_user(
             user_id,
@@ -236,7 +267,7 @@ async def deliver_pending_invites(user_id: str) -> None:
     await manager.send_to_user(user_id, _invite_payload(call))
 
 
-async def _handle_invite(data: dict, caller_id: str) -> None:
+async def _handle_invite(data: dict, caller_id: str, ws: Any = None) -> None:
     chat_id = data.get("chat_id")
     callee_id = data.get("callee_id")
     if not isinstance(chat_id, str) or not isinstance(callee_id, str):
@@ -293,6 +324,7 @@ async def _handle_invite(data: dict, caller_id: str) -> None:
         caller_id=caller_id,
         callee_id=callee_id,
         media=media,
+        caller_ws=ws,
     )
     _register(call)
     await _persist_create(call)
@@ -363,7 +395,7 @@ async def _persist_missed(
         await db.commit()
 
 
-async def _handle_accept(data: dict, user_id: str) -> None:
+async def _handle_accept(data: dict, user_id: str, ws: Any = None) -> None:
     call_id = data.get("call_id")
     if not isinstance(call_id, str):
         return
@@ -376,6 +408,7 @@ async def _handle_accept(data: dict, user_id: str) -> None:
 
     _cancel_timeout(call)
     call.status = "active"
+    call.callee_ws = ws
     await _persist_status(call_id, "active", answered=True)
     event = {
         "type": "call_accept",
@@ -384,15 +417,29 @@ async def _handle_accept(data: dict, user_id: str) -> None:
         "accepted_by": user_id,
     }
     await manager.send_to_user(call.caller_id, event)
-    await manager.send_to_user(call.callee_id, event)
+    if ws is None:
+        await manager.send_to_user(call.callee_id, event)
+        return
+    await manager.send(ws, event)
+    # The callee's other devices stop ringing and stay out of the call.
+    elsewhere = {
+        "type": "call_hangup",
+        "call_id": call_id,
+        "chat_id": call.chat_id,
+        "ended_by": user_id,
+        "reason": "answered_elsewhere",
+    }
+    for other in list(manager.user_connections.get(call.callee_id, [])):
+        if other is not ws:
+            await manager.send(other, elsewhere)
 
 
-async def _handle_reject(data: dict, user_id: str) -> None:
+async def _handle_reject(data: dict, user_id: str, ws: Any = None) -> None:
     call_id = data.get("call_id")
     if not isinstance(call_id, str):
         return
     call = get_active_call(call_id)
-    if not call or call.callee_id != user_id:
+    if not call or call.callee_id != user_id or _from_other_device(call, user_id, ws):
         return
     reason = data.get("reason") if isinstance(data.get("reason"), str) else "rejected"
     _unregister(call_id)
@@ -408,12 +455,14 @@ async def _handle_reject(data: dict, user_id: str) -> None:
     await manager.send_to_user(call.callee_id, event)
 
 
-async def _handle_hangup(data: dict, user_id: str) -> None:
+async def _handle_hangup(data: dict, user_id: str, ws: Any = None) -> None:
     call_id = data.get("call_id")
     if not isinstance(call_id, str):
         return
     call = get_active_call(call_id)
     if not call or user_id not in (call.caller_id, call.callee_id):
+        return
+    if _from_other_device(call, user_id, ws):
         return
 
     was_ringing = call.status == "ringing"
@@ -434,12 +483,12 @@ async def _handle_hangup(data: dict, user_id: str) -> None:
     await manager.send_to_user(call.callee_id, event)
 
 
-async def _relay_signaling(data: dict, user_id: str) -> None:
+async def _relay_signaling(data: dict, user_id: str, ws: Any = None) -> None:
     call_id = data.get("call_id")
     if not isinstance(call_id, str):
         return
     call = get_active_call(call_id)
-    if not call:
+    if not call or _from_other_device(call, user_id, ws):
         return
     peer = _peer_id(call, user_id)
     if not peer:
@@ -450,13 +499,15 @@ async def _relay_signaling(data: dict, user_id: str) -> None:
         sdp = data.get("sdp")
         if not isinstance(sdp, dict):
             return
-        await manager.send_to_user(
+        await _send_to_call_device(
+            call,
             peer,
             {"type": event_type, "call_id": call_id, "sdp": sdp, "from_user_id": user_id},
         )
     elif event_type == "call_ice":
         candidate = data.get("candidate")
-        await manager.send_to_user(
+        await _send_to_call_device(
+            call,
             peer,
             {
                 "type": "call_ice",
@@ -467,19 +518,22 @@ async def _relay_signaling(data: dict, user_id: str) -> None:
         )
 
 
-async def on_user_offline(user_id: str) -> None:
-    """End active media calls on disconnect; keep ringing so push can wake the callee."""
-    if manager.user_connections.get(user_id):
-        return
+async def on_user_offline(user_id: str, ws: Any = None) -> None:
+    """End an active call when the device it runs on disconnects; keep ringing so push can
+    wake the callee. Closing another device of the same user does not touch the call."""
     call_id = _user_call.get(user_id)
     if not call_id:
         return
     call = get_active_call(call_id)
-    if not call:
+    if not call or call.status == "ringing":
         return
-    if call.status == "ringing":
+    bound = _bound_ws(call, user_id)
+    if bound is not None and ws is not None:
+        if bound is not ws:
+            return
+    elif manager.user_connections.get(user_id):
         return
-    await _handle_hangup({"call_id": call_id, "reason": "disconnect"}, user_id)
+    await _handle_hangup({"call_id": call_id, "reason": "disconnect"}, user_id, bound)
 
 
 async def list_history_for_user(db: AsyncSession, user_id: str, limit: int = 50) -> list[Call]:

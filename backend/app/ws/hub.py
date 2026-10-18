@@ -25,6 +25,12 @@ class ConnectionManager:
         if not conns:
             self.user_connections.pop(user_id, None)
 
+    async def send(self, websocket: WebSocket, event: dict):
+        try:
+            await websocket.send_text(json.dumps(event))
+        except Exception:
+            pass
+
     async def send_to_user(self, user_id: str, event: dict):
         for ws in list(self.user_connections.get(user_id, [])):
             try:

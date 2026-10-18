@@ -42,11 +42,13 @@ async def websocket_endpoint(websocket: WebSocket, token: str):
                 await _handle_status(data, user_id)
 
             elif isinstance(event_type, str) and event_type.startswith("call_"):
-                await call_signaling.handle_call_event(data, user_id)
+                await call_signaling.handle_call_event(data, user_id, websocket)
 
     except WebSocketDisconnect:
+        pass
+    finally:
         manager.disconnect(websocket, user_id)
-        await call_signaling.on_user_offline(user_id)
+        await call_signaling.on_user_offline(user_id, websocket)
 
 
 async def _handle_send_message(data: dict, sender_id: str):

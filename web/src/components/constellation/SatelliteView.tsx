@@ -6,6 +6,7 @@ import UserAvatar from "../UserAvatar";
 import { IconBack, IconGear, IconSatellite, IconSend } from "../icons";
 import { apiError, can, formatTime, outranks } from "./rules";
 import s from "./Constellation.module.css";
+import LinkifiedText from "../LinkifiedText";
 
 const EMPTY: StarMessage[] = [];
 
@@ -129,7 +130,9 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
                 <span className={s.messageAuthor}>{m.sender?.username ?? "Бывший участник"}</span>
                 <span className={s.messageTime}>{formatTime(m.created_at)}</span>
               </div>
-              <div className={s.messageText}>{m.text}</div>
+              <div className={s.messageText}>
+                <LinkifiedText text={m.text} linkClassName={s.messageLink} />
+              </div>
             </div>
             {canDelete(m) && (
               <button

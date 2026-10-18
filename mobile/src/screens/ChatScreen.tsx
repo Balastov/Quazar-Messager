@@ -2,6 +2,7 @@ import React, {useEffect, useRef, useState} from 'react';
 import {
   FlatList,
   KeyboardAvoidingView,
+  Linking,
   Platform,
   Pressable,
   StyleSheet,
@@ -16,8 +17,31 @@ import {useAuthStore} from '../store/auth';
 import {useCallStore} from '../store/call';
 import type {RootStackParamList} from '../navigation';
 import type {Message} from '../api/types';
+import {splitLinks} from '../utils/linkify';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Chat'>;
+
+/** Текст сообщения, где ссылки нажимаются и открываются в браузере. */
+function MessageText({text, isOwn}: {text: string; isOwn: boolean}) {
+  const parts = React.useMemo(() => splitLinks(text), [text]);
+  return (
+    <Text style={s.text}>
+      {parts.map((part, i) =>
+        part.type === 'link' ? (
+          <Text
+            key={i}
+            style={[s.link, isOwn ? s.linkOwn : s.linkOther]}
+            onPress={() => void Linking.openURL(part.href).catch(() => {})}
+            accessibilityRole="link">
+            {part.text}
+          </Text>
+        ) : (
+          part.text
+        ),
+      )}
+    </Text>
+  );
+}
 
 export default function ChatScreen({route, navigation}: Props) {
   const {chatId} = route.params;
@@ -125,7 +149,7 @@ export default function ChatScreen({route, navigation}: Props) {
     const isOwn = item.sender_id === currentUser?.id;
     return (
       <View style={[s.bubble, isOwn ? s.own : s.other]}>
-        <Text style={s.text}>{item.payload}</Text>
+        <MessageText text={item.payload} isOwn={isOwn} />
         <View style={s.meta}>
           <Text style={s.time}>
             {new Date(item.created_at).toLocaleTimeString('ru', {
@@ -204,6 +228,9 @@ const s = StyleSheet.create({
     borderBottomLeftRadius: 4,
   },
   text: {color: '#fff', fontSize: 14, lineHeight: 20},
+  link: {textDecorationLine: 'underline'},
+  linkOwn: {color: '#fff'},
+  linkOther: {color: '#d8c8ff'},
   meta: {flexDirection: 'row', gap: 4, alignSelf: 'flex-end', marginTop: 2},
   time: {color: 'rgba(255,255,255,0.6)', fontSize: 11},
   status: {fontSize: 11, letterSpacing: -1},

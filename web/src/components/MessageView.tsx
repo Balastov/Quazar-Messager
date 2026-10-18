@@ -16,6 +16,7 @@ import {
   IconVideo,
 } from "./icons";
 import s from "./MessageView.module.css";
+import LinkifiedText from "./LinkifiedText";
 
 interface Props {
   showBack?: boolean;
@@ -226,7 +227,9 @@ export default function MessageView({ showBack = false }: Props) {
           const unavailable = msg.payload.startsWith("Сообщение недоступно");
           return (
             <div key={msg.id} className={isOwn ? s.ownBubble : s.otherBubble}>
-              <span className={unavailable ? s.textMuted : s.text}>{msg.payload}</span>
+              <span className={unavailable ? s.textMuted : s.text}>
+                {unavailable ? msg.payload : <LinkifiedText text={msg.payload} linkClassName={s.link} />}
+              </span>
               <span className={s.meta}>
                 {new Date(msg.created_at).toLocaleTimeString("ru", {
                   hour: "2-digit",

@@ -249,6 +249,23 @@
   color: #fff;
 }
 
+.link {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: rgba(255, 255, 255, 0.55);
+  text-underline-offset: 2px;
+  overflow-wrap: anywhere;
+}
+
+.link:hover {
+  text-decoration-color: #fff;
+}
+
+.otherBubble .link {
+  color: #d8c8ff;
+  text-decoration-color: rgba(216, 200, 255, 0.5);
+}
+
 .textMuted {
   font-size: 13px;
   color: rgba(255, 255, 255, 0.65);

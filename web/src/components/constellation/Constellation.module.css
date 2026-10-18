@@ -383,6 +383,17 @@
   overflow-wrap: anywhere;
 }
 
+.messageLink {
+  color: #d8c8ff;
+  text-decoration: underline;
+  text-decoration-color: rgba(216, 200, 255, 0.5);
+  text-underline-offset: 2px;
+}
+
+.messageLink:hover {
+  text-decoration-color: #d8c8ff;
+}
+
 .messageDelete {
   align-self: flex-start;
   border: none;

@@ -165,7 +165,11 @@ export default function MessengerPage() {
     <div className={s.root}>
       <AppNav />
 
-      <div className={`${s.main} ${showMobileChat ? s.mainChatOpen : ""}`}>
+      <div
+        className={`${s.main} ${showMobileChat ? s.mainChatOpen : ""} ${
+          tab === "stars" ? "" : s.mainUnderNav
+        }`}
+      >
         {(tab === "contacts" || tab === "chats") && (
           <>
             <div className={s.listPane}>

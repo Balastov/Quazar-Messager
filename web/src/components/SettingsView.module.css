@@ -3,8 +3,10 @@
   min-width: 0;
   overflow-y: auto;
   padding: calc(12px + var(--qz-safe-top)) 16px calc(88px + var(--qz-safe-bottom));
-  background: rgba(12, 10, 22, 0.78);
-  backdrop-filter: blur(16px);
+  background: var(--qz-glass-bg);
+  backdrop-filter: var(--qz-glass-filter);
+  -webkit-backdrop-filter: var(--qz-glass-filter);
+  box-shadow: var(--qz-glass-shine);
 }
 
 @media (min-width: 768px) {
@@ -29,8 +31,9 @@
 
 .card {
   border-radius: var(--qz-radius);
-  border: 1px solid var(--qz-border);
-  background: rgba(18, 14, 32, 0.65);
+  border: 1px solid var(--qz-glass-border);
+  background: var(--qz-glass-sheen), var(--qz-glass-inner);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14);
   padding: 16px;
   display: flex;
   flex-direction: column;
@@ -173,7 +176,7 @@
   padding: 11px 12px;
   border-radius: 12px;
   border: 1px solid var(--qz-border);
-  background: rgba(7, 6, 15, 0.7);
+  background: var(--qz-glass-inner);
   color: var(--qz-text);
   font-size: 16px;
   outline: none;
@@ -191,4 +194,82 @@
 .statusErr {
   font-size: 13px;
   color: #f87171;
+}
+
+.sliderHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.sliderValue {
+  font-size: 13px;
+  font-weight: 600;
+  color: #c4b5fd;
+  font-variant-numeric: tabular-nums;
+}
+
+.slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 28px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.slider::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 999px;
+  background:
+    linear-gradient(90deg, #c084fc, #7c3aed) 0 / var(--fill, 50%) 100% no-repeat,
+    rgba(255, 255, 255, 0.1);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.slider::-moz-range-track {
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.slider::-moz-range-progress {
+  height: 6px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #c084fc, #7c3aed);
+}
+
+/* Ползунок — маленькая стеклянная капля. */
+.slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 26px;
+  height: 26px;
+  margin-top: -10px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  background: radial-gradient(circle at 35% 30%, rgba(255, 255, 255, 0.95), rgba(233, 222, 255, 0.75) 60%, rgba(196, 181, 253, 0.7));
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45), 0 0 16px rgba(168, 85, 247, 0.45);
+}
+
+.slider::-moz-range-thumb {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  background: radial-gradient(circle at 35% 30%, rgba(255, 255, 255, 0.95), rgba(233, 222, 255, 0.75) 60%, rgba(196, 181, 253, 0.7));
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45), 0 0 16px rgba(168, 85, 247, 0.45);
+}
+
+.slider:focus-visible {
+  outline: 2px solid var(--qz-accent);
+  outline-offset: 4px;
+  border-radius: 999px;
+}
+
+.sliderScale {
+  display: flex;
+  justify-content: space-between;
+  margin-top: -6px;
+  font-size: 11px;
+  color: var(--qz-text-muted);
 }

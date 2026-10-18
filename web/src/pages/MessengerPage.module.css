@@ -1,7 +1,6 @@
 .root {
   height: 100%;
   display: flex;
-  background: var(--qz-bg);
   overflow: hidden;
   position: relative;
 }
@@ -34,7 +33,7 @@
   z-index: 50;
   display: flex;
   flex-direction: column;
-  background: var(--qz-bg);
+  background: var(--qz-wallpaper);
 }
 
 .fullPane {
@@ -65,10 +64,15 @@
 /* На мобиле список с bottom nav + home indicator */
 @media (max-width: 767px) {
   .main {
-    padding-bottom: calc(64px + var(--qz-safe-bottom));
+    padding-bottom: calc(72px + var(--qz-safe-bottom));
   }
 
   .mainChatOpen {
+    padding-bottom: 0;
+  }
+
+  /* Стеклянные панели уходят под плавающую навигацию; отступ — у их списков. */
+  .mainUnderNav {
     padding-bottom: 0;
   }
 

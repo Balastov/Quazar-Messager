@@ -29,6 +29,49 @@
   --qz-safe-bottom: env(safe-area-inset-bottom, 0px);
   --qz-safe-left: env(safe-area-inset-left, 0px);
   --qz-safe-right: env(safe-area-inset-right, 0px);
+
+  /*
+   * Liquid glass. --qz-glass-a (плотность тонировки) и --qz-glass-blur
+   * выставляются из настроек «Прозрачность» — см. styles/glass.ts.
+   */
+  --qz-glass-a: 0.53;
+  --qz-glass-blur: 24px;
+  --qz-glass-tint: 14, 10, 30;
+  --qz-glass-sheen: linear-gradient(
+    155deg,
+    rgba(255, 255, 255, 0.11) 0%,
+    rgba(255, 255, 255, 0.03) 30%,
+    rgba(255, 255, 255, 0) 55%,
+    rgba(255, 255, 255, 0.05) 100%
+  );
+  --qz-glass-bg: var(--qz-glass-sheen), rgba(var(--qz-glass-tint), var(--qz-glass-a));
+  /* Тосты и баннеры: всегда читаемы, даже на максимальной прозрачности. */
+  --qz-glass-bg-strong: var(--qz-glass-sheen),
+    rgba(var(--qz-glass-tint), calc(0.45 + var(--qz-glass-a) * 0.5));
+  /* Элементы на стекле: карточки, поля ввода, входящие сообщения. */
+  --qz-glass-inner: rgba(var(--qz-glass-tint), calc(var(--qz-glass-a) * 0.7));
+  --qz-glass-filter: blur(var(--qz-glass-blur)) saturate(180%) brightness(1.06);
+  --qz-glass-border: rgba(255, 255, 255, 0.13);
+  /* Блик по верхней кромке + мягкое внутреннее свечение, как у стекла iOS. */
+  --qz-glass-shine:
+    inset 0 1px 0 rgba(255, 255, 255, 0.24),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.06),
+    inset 1px 0 0 rgba(255, 255, 255, 0.05),
+    inset 0 0 28px rgba(190, 160, 255, 0.07);
+
+  --qz-wallpaper:
+    linear-gradient(180deg, rgba(7, 6, 15, 0.12), rgba(7, 6, 15, 0.38)),
+    url("/bg-desktop.jpg") center / cover no-repeat,
+    #07060f;
+}
+
+@media (max-width: 767px) {
+  :root {
+    --qz-wallpaper:
+      linear-gradient(180deg, rgba(7, 6, 15, 0.12), rgba(7, 6, 15, 0.38)),
+      url("/bg-mobile.jpg") center top / cover no-repeat,
+      #07060f;
+  }
 }
 
 html,
@@ -40,7 +83,7 @@ body,
 
 body {
   font-family: var(--qz-font);
-  background: var(--qz-bg);
+  background: var(--qz-wallpaper);
   color: var(--qz-text);
   -webkit-font-smoothing: antialiased;
   overflow: hidden;
@@ -74,10 +117,11 @@ textarea {
 }
 
 .qzGlass {
-  background: var(--qz-bg-glass);
-  backdrop-filter: blur(22px) saturate(140%);
-  -webkit-backdrop-filter: blur(22px) saturate(140%);
-  border: 1px solid var(--qz-border);
+  background: var(--qz-glass-bg);
+  backdrop-filter: var(--qz-glass-filter);
+  -webkit-backdrop-filter: var(--qz-glass-filter);
+  border: 1px solid var(--qz-glass-border);
+  box-shadow: var(--qz-glass-shine);
 }
 
 .qzGradientBtn {

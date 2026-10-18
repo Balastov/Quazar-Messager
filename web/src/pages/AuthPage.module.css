@@ -4,10 +4,7 @@
   align-items: center;
   justify-content: center;
   padding: calc(24px + var(--qz-safe-top)) 16px calc(24px + var(--qz-safe-bottom));
-  background:
-    radial-gradient(ellipse 80% 60% at 70% 90%, rgba(124, 58, 237, 0.35), transparent 55%),
-    radial-gradient(ellipse 50% 40% at 20% 20%, rgba(168, 85, 247, 0.18), transparent 50%),
-    #07060f;
+  background: var(--qz-wallpaper);
   overflow: auto;
 }
 
@@ -73,7 +70,10 @@
 }
 
 .ghost {
-  background: rgba(12, 10, 22, 0.45);
+  background: var(--qz-glass-bg);
+  backdrop-filter: var(--qz-glass-filter);
+  -webkit-backdrop-filter: var(--qz-glass-filter);
+  box-shadow: var(--qz-glass-shine);
   color: var(--qz-text);
   border: 1px solid rgba(168, 85, 247, 0.55);
 }
@@ -95,9 +95,11 @@
   width: 100%;
   padding: 22px 18px;
   border-radius: var(--qz-radius-lg);
-  background: rgba(18, 14, 32, 0.72);
-  border: 1px solid var(--qz-border);
-  backdrop-filter: blur(20px);
+  background: var(--qz-glass-bg);
+  border: 1px solid var(--qz-glass-border);
+  backdrop-filter: var(--qz-glass-filter);
+  -webkit-backdrop-filter: var(--qz-glass-filter);
+  box-shadow: var(--qz-glass-shine), var(--qz-shadow);
   display: flex;
   flex-direction: column;
   gap: 14px;
@@ -135,7 +137,7 @@
   padding: 13px 14px;
   border-radius: 14px;
   border: 1px solid var(--qz-border);
-  background: rgba(7, 6, 15, 0.75);
+  background: var(--qz-glass-inner);
   color: var(--qz-text);
   font-size: 16px;
   outline: none;

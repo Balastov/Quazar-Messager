@@ -16,6 +16,8 @@ import { downloadBackupFile, BackupError } from "../crypto/backup";
 import { fetchKeyBackup } from "../crypto/keys";
 import { useE2EStore } from "../store/e2e";
 import { useCallStore } from "../store/call";
+import { useUiStore } from "../store/ui";
+import { DEFAULT_GLASS_TRANSPARENCY } from "../styles/glass";
 import UserAvatar from "./UserAvatar";
 import MicCheck from "./MicCheck";
 import AudioDevices from "./AudioDevices";
@@ -42,6 +44,8 @@ export default function SettingsView() {
   const hasServerBackup = useE2EStore((st) => st.hasServerBackup);
   const noiseSuppression = useCallStore((st) => st.noiseSuppression);
   const toggleNoiseSuppression = useCallStore((st) => st.toggleNoiseSuppression);
+  const glassTransparency = useUiStore((st) => st.glassTransparency);
+  const setGlassTransparency = useUiStore((st) => st.setGlassTransparency);
 
   const [prefs, setPrefs] = useState<NotifyPrefs>(() => getNotifyPrefs());
   const [permission, setPermission] = useState(browserPermission);
@@ -140,6 +144,42 @@ export default function SettingsView() {
               });
             }}
           />
+        </section>
+
+        <section className={s.card}>
+          <h3 className={s.sectionTitle}>Оформление</h3>
+          <div className={s.sliderHead}>
+            <label htmlFor="glass-transparency" className={s.toggleLabel}>
+              Прозрачность
+            </label>
+            <span className={s.sliderValue}>{glassTransparency}%</span>
+          </div>
+          <input
+            id="glass-transparency"
+            type="range"
+            min={0}
+            max={100}
+            step={1}
+            value={glassTransparency}
+            onChange={(e) => setGlassTransparency(Number(e.target.value))}
+            className={s.slider}
+            style={{ "--fill": `${glassTransparency}%` } as React.CSSProperties}
+          />
+          <div className={s.sliderScale}>
+            <span>Матовое стекло</span>
+            <span>Прозрачное</span>
+          </div>
+          {glassTransparency !== DEFAULT_GLASS_TRANSPARENCY && (
+            <div className={s.rowBtns}>
+              <button
+                type="button"
+                className={s.secondary}
+                onClick={() => setGlassTransparency(DEFAULT_GLASS_TRANSPARENCY)}
+              >
+                По умолчанию
+              </button>
+            </div>
+          )}
         </section>
 
         <section className={s.card}>

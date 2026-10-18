@@ -3,9 +3,11 @@
   height: 100%;
   display: flex;
   flex-direction: column;
-  background: rgba(12, 10, 22, 0.78);
-  border-right: 1px solid var(--qz-border);
-  backdrop-filter: blur(16px);
+  background: var(--qz-glass-bg);
+  backdrop-filter: var(--qz-glass-filter);
+  -webkit-backdrop-filter: var(--qz-glass-filter);
+  box-shadow: var(--qz-glass-shine);
+  border-right: 1px solid var(--qz-glass-border);
   min-width: 0;
 }
 
@@ -45,7 +47,7 @@
   gap: 8px;
   padding: 10px 12px;
   border-radius: var(--qz-radius-pill);
-  background: rgba(7, 6, 15, 0.65);
+  background: var(--qz-glass-inner);
   border: 1px solid var(--qz-border);
   color: var(--qz-text-dim);
 }
@@ -118,6 +120,13 @@
   flex: 1;
   overflow-y: auto;
   padding: 4px 8px 16px;
+}
+
+/* Последний чат не должен прятаться под плавающей навигацией. */
+@media (max-width: 767px) {
+  .list {
+    padding-bottom: calc(84px + var(--qz-safe-bottom));
+  }
 }
 
 .item,

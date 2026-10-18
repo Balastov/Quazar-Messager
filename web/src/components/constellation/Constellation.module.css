@@ -5,7 +5,6 @@
   min-width: 0;
   height: 100%;
   display: flex;
-  background: var(--qz-bg);
 }
 
 /* --- Столбик Звёзд --- */
@@ -18,7 +17,10 @@
   align-items: center;
   gap: 10px;
   padding: calc(12px + var(--qz-safe-top)) 0 12px;
-  background: rgba(7, 6, 15, 0.85);
+  background: var(--qz-glass-bg);
+  backdrop-filter: var(--qz-glass-filter);
+  -webkit-backdrop-filter: var(--qz-glass-filter);
+  box-shadow: var(--qz-glass-shine);
   border-right: 1px solid var(--qz-border);
   overflow-y: auto;
 }
@@ -97,7 +99,10 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
-  background: rgba(12, 10, 22, 0.78);
+  background: var(--qz-glass-bg);
+  backdrop-filter: var(--qz-glass-filter);
+  -webkit-backdrop-filter: var(--qz-glass-filter);
+  box-shadow: var(--qz-glass-shine);
   border-right: 1px solid var(--qz-border);
 }
 
@@ -272,7 +277,7 @@
   z-index: 50;
   display: flex;
   flex-direction: column;
-  background: var(--qz-bg);
+  background: var(--qz-wallpaper);
   padding-left: var(--qz-safe-left);
   padding-right: var(--qz-safe-right);
 }
@@ -289,7 +294,10 @@
   gap: 10px;
   padding: calc(12px + var(--qz-safe-top)) 16px 12px;
   border-bottom: 1px solid var(--qz-border);
-  background: rgba(12, 10, 22, 0.78);
+  background: var(--qz-glass-bg);
+  backdrop-filter: var(--qz-glass-filter);
+  -webkit-backdrop-filter: var(--qz-glass-filter);
+  box-shadow: var(--qz-glass-shine);
 }
 
 .channelTitle {
@@ -409,7 +417,10 @@
   gap: 8px;
   padding: 10px 12px calc(10px + var(--qz-safe-bottom));
   border-top: 1px solid var(--qz-border);
-  background: rgba(12, 10, 22, 0.78);
+  background: var(--qz-glass-bg);
+  backdrop-filter: var(--qz-glass-filter);
+  -webkit-backdrop-filter: var(--qz-glass-filter);
+  box-shadow: var(--qz-glass-shine);
 }
 
 .composerInput {
@@ -418,7 +429,7 @@
   padding: 12px 14px;
   border-radius: var(--qz-radius-pill);
   border: 1px solid var(--qz-border);
-  background: rgba(7, 6, 15, 0.65);
+  background: var(--qz-glass-inner);
   color: var(--qz-text);
   font-size: 15px;
   outline: none;
@@ -511,7 +522,7 @@
   padding: 11px 14px;
   border-radius: var(--qz-radius-sm);
   border: 1px solid var(--qz-border);
-  background: rgba(7, 6, 15, 0.65);
+  background: var(--qz-glass-inner);
   color: var(--qz-text);
   font-size: 15px;
   outline: none;
@@ -842,7 +853,10 @@
   gap: 10px;
   padding: 12px 16px calc(12px + var(--qz-safe-bottom));
   border-top: 1px solid var(--qz-border);
-  background: rgba(12, 10, 22, 0.78);
+  background: var(--qz-glass-bg);
+  backdrop-filter: var(--qz-glass-filter);
+  -webkit-backdrop-filter: var(--qz-glass-filter);
+  box-shadow: var(--qz-glass-shine);
 }
 
 .voiceToggle,

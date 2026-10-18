@@ -20,9 +20,10 @@
   padding: 0;
   border: 1px solid rgba(168, 140, 255, 0.28);
   border-radius: 16px;
-  background: rgba(18, 14, 32, 0.92);
-  backdrop-filter: blur(18px);
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4), 0 0 24px rgba(168, 85, 247, 0.15);
+  background: var(--qz-glass-bg-strong);
+  backdrop-filter: var(--qz-glass-filter);
+  -webkit-backdrop-filter: var(--qz-glass-filter);
+  box-shadow: var(--qz-glass-shine), 0 12px 40px rgba(0, 0, 0, 0.4), 0 0 24px rgba(168, 85, 247, 0.15);
   color: #f4f1ff;
   text-align: left;
   cursor: pointer;

@@ -3,9 +3,11 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
-  background: rgba(12, 10, 22, 0.78);
-  backdrop-filter: blur(16px);
-  padding-bottom: calc(72px + var(--qz-safe-bottom));
+  background: var(--qz-glass-bg);
+  backdrop-filter: var(--qz-glass-filter);
+  -webkit-backdrop-filter: var(--qz-glass-filter);
+  box-shadow: var(--qz-glass-shine);
+  padding-bottom: calc(84px + var(--qz-safe-bottom));
 }
 
 @media (min-width: 768px) {

@@ -2,7 +2,7 @@
   position: fixed;
   left: 12px;
   right: 12px;
-  bottom: calc(72px + var(--qz-safe-bottom));
+  bottom: calc(82px + var(--qz-safe-bottom));
   z-index: 50;
   display: flex;
   align-items: center;
@@ -10,10 +10,11 @@
   gap: 10px;
   padding: 12px 14px;
   border-radius: 16px;
-  background: rgba(18, 14, 32, 0.92);
+  background: var(--qz-glass-bg-strong);
   border: 1px solid rgba(168, 85, 247, 0.35);
-  backdrop-filter: blur(16px);
-  box-shadow: var(--qz-shadow);
+  backdrop-filter: var(--qz-glass-filter);
+  -webkit-backdrop-filter: var(--qz-glass-filter);
+  box-shadow: var(--qz-glass-shine), var(--qz-shadow);
 }
 
 @media (min-width: 768px) {

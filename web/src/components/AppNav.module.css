@@ -6,9 +6,11 @@
   align-items: center;
   padding: 18px 10px 14px;
   gap: 8px;
-  background: rgba(10, 8, 20, 0.72);
-  border-right: 1px solid var(--qz-border);
-  backdrop-filter: blur(18px);
+  background: var(--qz-glass-bg);
+  backdrop-filter: var(--qz-glass-filter);
+  -webkit-backdrop-filter: var(--qz-glass-filter);
+  box-shadow: var(--qz-glass-shine);
+  border-right: 1px solid var(--qz-glass-border);
 }
 
 .logo {
@@ -78,15 +80,18 @@
 .bottom {
   display: flex;
   position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  left: calc(10px + var(--qz-safe-left));
+  right: calc(10px + var(--qz-safe-right));
+  bottom: max(10px, calc(var(--qz-safe-bottom) - 6px));
   z-index: 40;
-  padding: 8px 10px calc(8px + var(--qz-safe-bottom));
-  background: rgba(10, 8, 20, 0.92);
-  border-top: 1px solid var(--qz-border);
-  backdrop-filter: blur(18px);
-  gap: 4px;
+  padding: 5px;
+  border-radius: 28px;
+  border: 1px solid var(--qz-glass-border);
+  background: var(--qz-glass-bg);
+  backdrop-filter: var(--qz-glass-filter);
+  -webkit-backdrop-filter: var(--qz-glass-filter);
+  box-shadow: var(--qz-glass-shine), 0 12px 36px rgba(0, 0, 0, 0.45);
+  gap: 2px;
 }
 
 .bottomItem,
@@ -96,9 +101,9 @@
   flex-direction: column;
   align-items: center;
   gap: 3px;
-  padding: 8px 4px;
+  padding: 6px 4px;
   border: none;
-  border-radius: 14px;
+  border-radius: 22px;
   background: transparent;
   color: var(--qz-text-muted);
   font-size: 10px;

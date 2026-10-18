@@ -3,7 +3,16 @@ import { createRoot } from "react-dom/client";
 import App from "./App";
 import { capturePendingInvite } from "./api/stars";
 import { registerNotifyServiceWorker } from "./notifications/notify";
+import { useUiStore } from "./store/ui";
+import { applyGlassTransparency } from "./styles/glass";
 import "./index.css";
+
+applyGlassTransparency(useUiStore.getState().glassTransparency);
+useUiStore.subscribe((st, prev) => {
+  if (st.glassTransparency !== prev.glassTransparency) {
+    applyGlassTransparency(st.glassTransparency);
+  }
+});
 
 // Ссылка-приглашение в Звезду могла открыться до входа — запоминаем её.
 capturePendingInvite();

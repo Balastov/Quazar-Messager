@@ -4,9 +4,11 @@
   flex-shrink: 0;
   flex-direction: column;
   padding: 22px 18px;
-  background: rgba(12, 10, 22, 0.78);
-  border-left: 1px solid var(--qz-border);
-  backdrop-filter: blur(16px);
+  background: var(--qz-glass-bg);
+  backdrop-filter: var(--qz-glass-filter);
+  -webkit-backdrop-filter: var(--qz-glass-filter);
+  box-shadow: var(--qz-glass-shine);
+  border-left: 1px solid var(--qz-glass-border);
   overflow-y: auto;
   gap: 18px;
 }

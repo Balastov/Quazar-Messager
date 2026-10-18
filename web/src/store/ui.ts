@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { DEFAULT_GLASS_TRANSPARENCY } from "../styles/glass";
 
 export type AppTab = "contacts" | "chats" | "stars" | "calls" | "settings";
 
@@ -10,9 +11,12 @@ interface UiState {
   /** ПК: правая панель собеседника. */
   peerPanelOpen: boolean;
   favoriteChatIds: string[];
+  /** Прозрачность liquid glass, 0..100 %. */
+  glassTransparency: number;
   setTab: (tab: AppTab) => void;
   setMobileChatOpen: (open: boolean) => void;
   setPeerPanelOpen: (open: boolean) => void;
+  setGlassTransparency: (value: number) => void;
   toggleFavorite: (chatId: string) => void;
   isFavorite: (chatId: string) => boolean;
 }
@@ -24,10 +28,12 @@ export const useUiStore = create<UiState>()(
       mobileChatOpen: false,
       peerPanelOpen: true,
       favoriteChatIds: [],
+      glassTransparency: DEFAULT_GLASS_TRANSPARENCY,
 
       setTab: (tab) => set({ tab, mobileChatOpen: false }),
       setMobileChatOpen: (mobileChatOpen) => set({ mobileChatOpen }),
       setPeerPanelOpen: (peerPanelOpen) => set({ peerPanelOpen }),
+      setGlassTransparency: (glassTransparency) => set({ glassTransparency }),
 
       toggleFavorite: (chatId) =>
         set((s) => ({
@@ -44,6 +50,7 @@ export const useUiStore = create<UiState>()(
         tab: state.tab,
         peerPanelOpen: state.peerPanelOpen,
         favoriteChatIds: state.favoriteChatIds,
+        glassTransparency: state.glassTransparency,
       }),
     }
   )

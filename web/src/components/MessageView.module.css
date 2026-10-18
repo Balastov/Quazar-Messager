@@ -7,9 +7,6 @@
   display: flex;
   flex-direction: column;
   position: relative;
-  background:
-    linear-gradient(180deg, rgba(7, 6, 15, 0.55), rgba(7, 6, 15, 0.72)),
-    url("/bg-cosmos.jpg") center / cover no-repeat;
 }
 
 .empty {
@@ -23,9 +20,6 @@
   color: var(--qz-text-muted);
   padding: 24px;
   text-align: center;
-  background:
-    linear-gradient(180deg, rgba(7, 6, 15, 0.55), rgba(7, 6, 15, 0.72)),
-    url("/bg-cosmos.jpg") center / cover no-repeat;
 }
 
 .emptyBack {
@@ -37,8 +31,11 @@
   align-items: center;
   gap: 6px;
   min-height: 44px;
-  border: 1px solid var(--qz-border);
-  background: rgba(18, 14, 32, 0.85);
+  border: 1px solid var(--qz-glass-border);
+  background: var(--qz-glass-bg);
+  backdrop-filter: var(--qz-glass-filter);
+  -webkit-backdrop-filter: var(--qz-glass-filter);
+  box-shadow: var(--qz-glass-shine);
   color: var(--qz-text);
   border-radius: 999px;
   padding: 8px 14px;
@@ -58,9 +55,11 @@
   gap: 10px;
   flex-shrink: 0;
   padding: calc(10px + var(--qz-safe-top)) 14px 12px;
-  background: rgba(12, 10, 22, 0.92);
-  border-bottom: 1px solid var(--qz-border);
-  backdrop-filter: blur(16px);
+  background: var(--qz-glass-bg);
+  backdrop-filter: var(--qz-glass-filter);
+  -webkit-backdrop-filter: var(--qz-glass-filter);
+  box-shadow: var(--qz-glass-shine);
+  border-bottom: 1px solid var(--qz-glass-border);
 }
 
 .back {
@@ -223,8 +222,11 @@
 
 .otherBubble {
   align-self: flex-start;
-  background: var(--qz-incoming);
-  border: 1px solid rgba(168, 140, 255, 0.12);
+  background: var(--qz-glass-sheen), rgba(var(--qz-glass-tint), calc(0.25 + var(--qz-glass-a) * 0.6));
+  border: 1px solid var(--qz-glass-border);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16);
+  backdrop-filter: blur(14px) saturate(160%);
+  -webkit-backdrop-filter: blur(14px) saturate(160%);
   border-bottom-left-radius: 6px;
 }
 
@@ -277,9 +279,11 @@
   gap: 8px;
   flex-shrink: 0;
   padding: 10px 12px calc(10px + var(--qz-safe-bottom));
-  background: rgba(12, 10, 22, 0.92);
-  border-top: 1px solid var(--qz-border);
-  backdrop-filter: blur(16px);
+  background: var(--qz-glass-bg);
+  backdrop-filter: var(--qz-glass-filter);
+  -webkit-backdrop-filter: var(--qz-glass-filter);
+  box-shadow: var(--qz-glass-shine);
+  border-top: 1px solid var(--qz-glass-border);
 }
 
 @media (min-width: 768px) {
@@ -319,7 +323,7 @@
   padding: 0 14px;
   height: 44px;
   border-radius: var(--qz-radius-pill);
-  background: rgba(7, 6, 15, 0.7);
+  background: var(--qz-glass-inner);
   border: 1px solid var(--qz-border);
 }
 

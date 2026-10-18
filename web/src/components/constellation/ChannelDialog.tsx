@@ -60,6 +60,7 @@ export default function ChannelDialog({
   const showFloors = kind === "planet" && starKind === "work" && floors.length > 0;
   const isLobby = channel?.room_kind === "lobby";
   const [access, setAccess] = useState<RoomAccess>(channel?.access ?? "open");
+  const [listenOnly, setListenOnly] = useState<boolean>(channel?.listen_only ?? false);
   const floorEditable = !channel || canEditMap;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -95,6 +96,7 @@ export default function ChannelDialog({
           capacity,
           ...(isWork && !isLobby ? { room_kind: roomKind } : {}),
           ...(isLobby ? {} : { access }),
+          listen_only: listenOnly,
           ...(floorChanged && floorEditable ? { floor_id: floorId } : {}),
         }
       : {};
@@ -191,6 +193,24 @@ export default function ChannelDialog({
               }
               disabled={busy}
             />
+          </label>
+        )}
+
+        {isPlanet && (
+          <label className={s.checkRow}>
+            <input
+              type="checkbox"
+              checked={listenOnly}
+              onChange={(e) => setListenOnly(e.target.checked)}
+              disabled={busy}
+            />
+            <span>
+              🎧 Только слушать
+              <span className={s.checkHint}>
+                Микрофоны на Планете не включаются вообще — браузер их даже не запрашивает.
+                Показывать экран можно. Подходит для кинозала, трансляций и тихой работы рядом.
+              </span>
+            </span>
           </label>
         )}
 

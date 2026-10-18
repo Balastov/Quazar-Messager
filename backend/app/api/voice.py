@@ -88,6 +88,7 @@ async def join_planet(star_id: str, channel_id: str, current_user: CurrentUser, 
         identity=current_user.id,
         name=current_user.username,
         metadata={"star_id": star_id, "channel_id": channel_id},
+        sources=() if channel.listen_only else (livekit.SOURCE_MICROPHONE,),
     )
     return PlanetJoinOut(url=settings.LIVEKIT_PUBLIC_URL, token=token, room=room)
 

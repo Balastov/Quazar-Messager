@@ -620,6 +620,7 @@ async def create_channel(star_id: str, body: CreateChannel, current_user: Curren
         channel.room_kind = body.room_kind if star.kind == "work" else None
         channel.capacity = body.capacity or rules.default_capacity(channel.room_kind)
         channel.access = body.access
+        channel.listen_only = body.listen_only
     db.add(channel)
 
     floor = None
@@ -651,6 +652,13 @@ async def update_channel(
             channel.room_kind = body.room_kind
         if body.access is not None and channel.room_kind != "lobby":
             channel.access = body.access
+    listen_only_changed = (
+        channel.kind == "planet"
+        and body.listen_only is not None
+        and body.listen_only != channel.listen_only
+    )
+    if listen_only_changed:
+        channel.listen_only = body.listen_only
 
     moved = False
     if (
@@ -673,6 +681,9 @@ async def update_channel(
 
     await db.commit()
     await _broadcast(db, star_id, _channel_event(channel))
+    if listen_only_changed:
+        # Кто уже внутри — сразу забираем (или возвращаем) право на микрофон.
+        await voice.set_listen_only(star_id, channel_id, channel.listen_only)
     if moved:
         await _broadcast(db, star_id, floors_event(await floors_svc.list_floors(db, star_id)))
     return channel

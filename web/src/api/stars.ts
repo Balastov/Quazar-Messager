@@ -36,6 +36,8 @@ export interface StarChannel {
   capacity: number | null;
   room_kind: RoomKind | null;
   access: RoomAccess;
+  /** «Только слушать»: микрофоны на Планете не открываются (показ экрана работает). */
+  listen_only?: boolean;
   /** Этаж карты офиса (Звёзды «Работа»). */
   floor_id: string | null;
   map_x: number | null;
@@ -257,6 +259,7 @@ export const starsApi = {
       capacity?: number;
       room_kind?: RoomKind;
       access?: RoomAccess;
+      listen_only?: boolean;
       floor_id?: string;
     }
   ) => http.post<StarChannel>(`${base(starId)}/channels`, body).then((r) => r.data),
@@ -268,6 +271,7 @@ export const starsApi = {
       capacity?: number;
       room_kind?: RoomKind;
       access?: RoomAccess;
+      listen_only?: boolean;
       floor_id?: string;
     }
   ) => http.patch<StarChannel>(`${base(starId)}/channels/${channelId}`, body).then((r) => r.data),

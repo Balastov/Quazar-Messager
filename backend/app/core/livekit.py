@@ -70,11 +70,18 @@ def _sign(claims: dict[str, Any], ttl: int) -> str:
     return jwt.encode(payload, settings.LIVEKIT_API_SECRET, algorithm="HS256")
 
 
-def participant_token(*, room: str, identity: str, name: str, metadata: dict[str, Any]) -> str:
+def participant_token(
+    *,
+    room: str,
+    identity: str,
+    name: str,
+    metadata: dict[str, Any],
+    sources: tuple[str, ...] = (SOURCE_MICROPHONE,),
+) -> str:
     """Токен для браузера: зайти в одну комнату, говорить и слушать.
 
-    Публиковать можно только микрофон: показ экрана бэкенд разрешает отдельно
-    (не больше одного на Планету) через update_publish_sources.
+    Публиковать можно только микрофон (на Планете «Только слушать» — ничего): показ экрана
+    бэкенд разрешает отдельно (не больше одного на Планету) через update_publish_sources.
     """
     return _sign(
         {
@@ -84,8 +91,10 @@ def participant_token(*, room: str, identity: str, name: str, metadata: dict[str
             "video": {
                 "room": room,
                 "roomJoin": True,
-                "canPublish": True,
-                "canPublishSources": [SOURCE_MICROPHONE.lower()],
+                # Пустой список источников у LiveKit значит «можно всё» — поэтому «ничего»
+                # выражаем через canPublish=False.
+                "canPublish": bool(sources),
+                "canPublishSources": [s.lower() for s in sources],
                 "canSubscribe": True,
                 "canPublishData": False,
             },

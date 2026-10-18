@@ -1369,3 +1369,46 @@
   border-color: rgba(168, 85, 247, 0.6);
   background: rgba(168, 85, 247, 0.22);
 }
+
+/* Галочка с пояснением в диалогах */
+.checkRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.checkRow input {
+  margin-top: 3px;
+  width: 16px;
+  height: 16px;
+  accent-color: var(--qz-accent);
+  flex-shrink: 0;
+}
+
+.checkHint {
+  display: block;
+  margin-top: 3px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--qz-text-muted);
+}
+
+.listenOnlyBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 14px;
+  min-height: 40px;
+  border-radius: 999px;
+  border: 1px solid rgba(168, 85, 247, 0.45);
+  background: rgba(168, 85, 247, 0.14);
+  color: #e9d5ff;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.voiceBarListen {
+  font-size: 18px;
+  padding: 0 4px;
+}

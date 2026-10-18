@@ -7,6 +7,10 @@
  * Показ экрана: на Планете показывает не больше одного человека. Токен LiveKit разрешает
  * публиковать только микрофон; право на экран выдаёт бэкенд (POST …/screen) и отзывает,
  * когда показ закончен — тогда LiveKit сам снимает трек.
+ *
+ * Планета «Только слушать»: микрофон не открываем вообще (браузер его даже не запрашивает),
+ * сервер и не пустит. Режим могут переключить на ходу — тогда микрофон освобождаем или
+ * возвращаем выключенным.
  */
 import type {
   LocalTrack,
@@ -60,6 +64,8 @@ interface VoiceState {
   micError: string | null;
   /** Модератор выключил микрофон. */
   serverMuted: boolean;
+  /** Планета «Только слушать»: микрофон не используется. */
+  listenOnly: boolean;
   /** Треки показа экрана в комнате (обычно один). */
   screens: VoiceScreen[];
   /** Я показываю экран. */
@@ -135,6 +141,8 @@ export function screenErrorText(err: unknown): string | null {
 let lk: LiveKit | null = null;
 let room: Room | null = null;
 let mic: Mic | null = null;
+/** Отписка от стора Созвездия (следим за режимом «Только слушать» текущей Планеты). */
+let unwatchPlanet: (() => void) | null = null;
 /** Сами останавливаем показ — не пишем «остановил модератор». */
 let stoppingScreen = false;
 /** Мы сами вышли — не показываем «связь прервалась». */
@@ -228,6 +236,18 @@ function apiError(err: unknown, fallback: string): string {
   return fallback;
 }
 
+type StarsStore = typeof import("./stars").useStarsStore;
+
+/** Стор Созвездия — динамически: иначе цикл импортов (stars → auth → voice). */
+async function starsStore(): Promise<StarsStore> {
+  return (await import("./stars")).useStarsStore;
+}
+
+function planetListenOnly(stars: StarsStore, starId: string, channelId: string): boolean {
+  const channel = stars.getState().details[starId]?.channels.find((c) => c.id === channelId);
+  return !!channel?.listen_only;
+}
+
 async function releaseMic() {
   if (!mic) return;
   mic.denoiser?.close();
@@ -303,6 +323,8 @@ export const useVoiceStore = create<VoiceState>((set, get) => {
   async function cleanup(notice: string | null = null) {
     const r = room;
     room = null;
+    unwatchPlanet?.();
+    unwatchPlanet = null;
     if (r) {
       r.removeAllListeners();
       const screenTracks = localScreenTracks(r);
@@ -322,6 +344,7 @@ export const useVoiceStore = create<VoiceState>((set, get) => {
       micUnavailable: false,
       micError: null,
       serverMuted: false,
+      listenOnly: false,
       screens: [],
       sharingScreen: false,
       screenStarting: false,
@@ -367,7 +390,7 @@ export const useVoiceStore = create<VoiceState>((set, get) => {
   }
 
   /** Берёт микрофон (через RNNoise, если можно) и публикует его. Ошибку объясняет на экране. */
-  async function acquireMic(r: Room) {
+  async function acquireMic(r: Room, { startMuted = false } = {}) {
     try {
       const { raw, denoiser } = await openMicrophone();
       if (room !== r) {
@@ -378,12 +401,42 @@ export const useVoiceStore = create<VoiceState>((set, get) => {
       mic = { raw, denoiser, publication: null };
       if (denoiser) watchDenoiser(denoiser);
       await publishMic(r);
+      if (startMuted) await mic?.publication?.mute();
       set({ noiseActive: !!denoiser, micUnavailable: false, micError: null });
     } catch (err) {
       console.error("Planet microphone failed", err);
       await releaseMic();
       set({ micUnavailable: true, micError: micErrorText(err) });
     }
+  }
+
+  let acquiringAfterListenOnly = false;
+
+  /** Режим «Только слушать» включили или выключили, пока мы на Планете. */
+  async function applyListenOnly(r: Room, listenOnly: boolean) {
+    if (room !== r) return;
+    set({ listenOnly });
+    if (listenOnly) {
+      // Сервер снимет трек сам; мы освобождаем устройство — гаснет индикатор микрофона.
+      await releaseMic();
+      set({ micUnavailable: false, micError: null, noiseActive: false, serverMuted: false });
+      syncPeers();
+      return;
+    }
+    await restoreMicAfterListenOnly(r);
+  }
+
+  /** Режим выключили: как только сервер разрешит, берём микрофон — выключенным. */
+  async function restoreMicAfterListenOnly(r: Room) {
+    if (room !== r || get().listenOnly || mic || acquiringAfterListenOnly) return;
+    if (!canPublishSource(r.localParticipant, "microphone")) return;
+    acquiringAfterListenOnly = true;
+    try {
+      await acquireMic(r, { startMuted: true });
+    } finally {
+      acquiringAfterListenOnly = false;
+    }
+    syncPeers();
   }
 
   function wire(r: Room, { RoomEvent, DisconnectReason }: LiveKit) {
@@ -418,7 +471,9 @@ export const useVoiceStore = create<VoiceState>((set, get) => {
       .on(RoomEvent.ParticipantPermissionsChanged, (_prev, participant) => {
         if (participant !== r.localParticipant) return;
         const micAllowed = canPublishSource(participant, "microphone");
-        set({ serverMuted: !micAllowed });
+        // В «Только слушать» микрофона нет ни у кого — это не мьют модератором.
+        set({ serverMuted: !micAllowed && !get().listenOnly });
+        if (micAllowed && !mic) void restoreMicAfterListenOnly(r);
         // Модератор вернул микрофон — публикуем его снова (выключенным, включит сам человек).
         if (micAllowed && mic && !mic.publication) {
           void publishMic(r)
@@ -460,6 +515,7 @@ export const useVoiceStore = create<VoiceState>((set, get) => {
     micUnavailable: false,
     micError: null,
     serverMuted: false,
+    listenOnly: false,
     screens: [],
     sharingScreen: false,
     screenStarting: false,
@@ -519,8 +575,17 @@ export const useVoiceStore = create<VoiceState>((set, get) => {
         return;
       }
 
+      // «Только слушать» — микрофон не трогаем вовсе. Следим, не переключат ли режим.
+      const stars = await starsStore();
+      const listenOnly = planetListenOnly(stars, starId, channelId);
+      set({ listenOnly });
+      unwatchPlanet = stars.subscribe((st) => {
+        const next = !!st.details[starId]?.channels.find((c) => c.id === channelId)?.listen_only;
+        if (next !== get().listenOnly) void applyListenOnly(r, next);
+      });
+
       // Микрофон. Если его нет или не разрешили — остаёмся слушать, причину покажем на экране.
-      await acquireMic(r);
+      if (!listenOnly) await acquireMic(r);
 
       await r.startAudio().catch(() => {});
       set({ status: "connected", needsAudioUnlock: !r.canPlaybackAudio });
@@ -542,7 +607,7 @@ export const useVoiceStore = create<VoiceState>((set, get) => {
 
     switchMicrophone: async () => {
       const r = room;
-      if (!r || get().status === "idle") return;
+      if (!r || get().status === "idle" || get().listenOnly) return;
       if (!mic) {
         // Микрофона не было (не разрешили) — пробуем взять выбранный.
         await acquireMic(r);
@@ -580,7 +645,7 @@ export const useVoiceStore = create<VoiceState>((set, get) => {
 
     retryMic: async () => {
       const r = room;
-      if (!r || get().status === "idle" || mic) return;
+      if (!r || get().status === "idle" || mic || get().listenOnly) return;
       set({ micError: null });
       await acquireMic(r);
       syncPeers();

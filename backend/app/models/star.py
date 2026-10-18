@@ -6,7 +6,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, JSON, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -82,6 +82,11 @@ class StarChannel(Base):
     room_kind: Mapped[str | None] = mapped_column(String(16), nullable=True)
     # Доступ к Планете: "open" (свободный вход) | "invite" (по приглашениям — стучаться).
     access: Mapped[str] = mapped_column(String(16), nullable=False, default="open", server_default="open")
+    # «Только слушать»: микрофоны на Планете не открываются вообще (сервер их и не пропустит).
+    # Показ экрана остаётся.
+    listen_only: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
     # Этаж и положение на карте офиса в клетках сетки.
     floor_id: Mapped[str | None] = mapped_column(
         ForeignKey("star_floors.id", ondelete="SET NULL"), nullable=True, index=True

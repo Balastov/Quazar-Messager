@@ -77,6 +77,7 @@ export default function ChannelSidebar({
                   {c.room_kind === "lobby" ? "🛋 " : ""}
                   {c.name}
                   {c.access === "invite" && c.room_kind !== "lobby" ? " 🔒" : ""}
+                  {c.listen_only ? " 🎧" : ""}
                 </span>
                 {kind === "planet" && (
                   <span className={s.channelHint}>

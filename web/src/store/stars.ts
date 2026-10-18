@@ -94,6 +94,7 @@ interface StarsState {
     capacity?: number;
     room_kind?: RoomKind;
     access?: RoomAccess;
+    listen_only?: boolean;
     floor_id?: string;
   }) => Promise<void>;
   updateChannel: (
@@ -103,6 +104,7 @@ interface StarsState {
       capacity?: number;
       room_kind?: RoomKind;
       access?: RoomAccess;
+      listen_only?: boolean;
       floor_id?: string;
     }
   ) => Promise<void>;

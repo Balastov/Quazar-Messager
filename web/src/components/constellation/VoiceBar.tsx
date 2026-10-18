@@ -13,6 +13,7 @@ export function VoiceBar({ floating = false }: { floating?: boolean }) {
   const micOn = useVoiceStore((st) => st.micOn);
   const micUnavailable = useVoiceStore((st) => st.micUnavailable);
   const serverMuted = useVoiceStore((st) => st.serverMuted);
+  const listenOnly = useVoiceStore((st) => st.listenOnly);
   const toggleMic = useVoiceStore((st) => st.toggleMic);
   const retryMic = useVoiceStore((st) => st.retryMic);
   const leave = useVoiceStore((st) => st.leave);
@@ -42,16 +43,22 @@ export function VoiceBar({ floating = false }: { floating?: boolean }) {
           {detail ? ` · ${detail.name}` : ""}
         </span>
       </button>
-      <button
-        type="button"
-        className={`${s.secondary} ${s.small} ${micOn ? "" : s.voiceToggleOff}`}
-        onClick={() => void (micUnavailable ? retryMic() : toggleMic())}
-        disabled={serverMuted || status !== "connected"}
-        aria-label={micOn ? "Выключить микрофон" : "Включить микрофон"}
-        title={micOn ? "Выключить микрофон" : "Включить микрофон"}
-      >
-        {micOn ? "🎙" : "🔇"}
-      </button>
+      {listenOnly ? (
+        <span className={s.voiceBarListen} title="Планета «Только слушать»: микрофон не используется">
+          🎧
+        </span>
+      ) : (
+        <button
+          type="button"
+          className={`${s.secondary} ${s.small} ${micOn ? "" : s.voiceToggleOff}`}
+          onClick={() => void (micUnavailable ? retryMic() : toggleMic())}
+          disabled={serverMuted || status !== "connected"}
+          aria-label={micOn ? "Выключить микрофон" : "Включить микрофон"}
+          title={micOn ? "Выключить микрофон" : "Включить микрофон"}
+        >
+          {micOn ? "🎙" : "🔇"}
+        </button>
+      )}
       {sharingScreen && (
         <button
           type="button"

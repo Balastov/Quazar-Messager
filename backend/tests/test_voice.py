@@ -14,7 +14,7 @@ from app.api import stars as api
 from app.api import voice as voice_api
 from app.core import livekit, voice
 from app.core.config import settings
-from app.schemas.star import CreateChannel, UpdateRolePermissions
+from app.schemas.star import CreateChannel, UpdateChannel, UpdateRolePermissions
 from tests.stars_base import StarsTestBase
 from tests.voice_fakes import LK, FakeRoomService, configure_livekit, signed_webhook
 
@@ -301,6 +301,59 @@ class VoiceApiTest(StarsTestBase):
         voice.reset()
         await voice.resync()
         self.assertEqual(self.sharing(), {self.users["alice"].id})
+
+    # --- «Только слушать» ----------------------------------------------------
+
+    async def test_listen_only_token_has_no_microphone(self):
+        quiet = await self.call(
+            api.create_channel,
+            self.star.id,
+            CreateChannel(kind="planet", name="Кинозал", listen_only=True),
+            user="owner",
+        )
+        self.assertTrue(quiet.listen_only)
+        out = await self.call(voice_api.join_planet, self.star.id, quiet.id, user="alice")
+        video = jwt.decode(out.token, LK["LIVEKIT_API_SECRET"], algorithms=["HS256"])["video"]
+        self.assertFalse(video["canPublish"])
+        self.assertEqual(video["canPublishSources"], [])
+        # Обычная Планета — как раньше.
+        out = await self.call(voice_api.join_planet, self.star.id, self.planet.id, user="alice")
+        video = jwt.decode(out.token, LK["LIVEKIT_API_SECRET"], algorithms=["HS256"])["video"]
+        self.assertEqual(video["canPublishSources"], ["microphone"])
+
+    async def test_switching_listen_only_updates_everyone_inside(self):
+        await self.enter("alice")
+        await self.enter("bob")
+        room = voice.room_name(self.planet.id)
+        alice, bob = self.users["alice"].id, self.users["bob"].id
+
+        await self.call(api.update_channel, self.star.id, self.planet.id, UpdateChannel(listen_only=True), user="owner")
+        self.assertEqual(self.lk.sources(room, alice), [])
+        self.assertEqual(self.lk.sources(room, bob), [])
+        # Экран показывать можно, микрофон — нет.
+        await self.call(voice_api.start_screen, self.star.id, self.planet.id, user="alice")
+        self.assertEqual(self.lk.sources(room, alice), ["SCREEN_SHARE", "SCREEN_SHARE_AUDIO"])
+        # Мьют модератором в тихой комнате микрофон не вернёт.
+        await self.call(
+            voice_api.mute_participant, self.star.id, self.planet.id, bob, voice_api.VoiceMute(muted=False), user="mod"
+        )
+        self.assertEqual(self.lk.sources(room, bob), [])
+
+        await self.call(api.update_channel, self.star.id, self.planet.id, UpdateChannel(listen_only=False), user="owner")
+        self.assertEqual(self.lk.sources(room, alice), ["MICROPHONE", "SCREEN_SHARE", "SCREEN_SHARE_AUDIO"])
+        self.assertEqual(self.lk.sources(room, bob), ["MICROPHONE"])
+        # Участники Звезды без права управлять каналами режим не меняют.
+        await self.expect_error(
+            403, api.update_channel, self.star.id, self.planet.id, UpdateChannel(listen_only=True), user="bob"
+        )
+
+    async def test_joining_with_an_old_token_loses_the_microphone(self):
+        await self.call(voice_api.join_planet, self.star.id, self.planet.id, user="alice")  # токен с микрофоном
+        await self.call(api.update_channel, self.star.id, self.planet.id, UpdateChannel(listen_only=True), user="owner")
+        uid = self.users["alice"].id
+        room = voice.room_name(self.planet.id)
+        await voice.handle_webhook({"event": "participant_joined", "room": {"name": room}, "participant": {"identity": uid}})
+        self.assertEqual(self.lk.sources(room, uid), [])
 
     async def test_voice_moderation_can_be_revoked(self):
         await self.enter("alice")

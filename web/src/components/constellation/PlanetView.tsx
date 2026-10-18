@@ -40,6 +40,7 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
   const room = channel.room_kind ? ROOM_LABEL[channel.room_kind] : null;
   // Дверь «По приглашениям»: кто может впускать — входит без стука.
   const closed = channel.access === "invite" && channel.room_kind !== "lobby";
+  const listenOnly = !!channel.listen_only;
   const canAdmit = can(detail, "admit");
   const mustKnock = closed && !canAdmit && !iAmInside;
   const myKnockHere = myKnock?.channelId === channel.id ? myKnock : null;
@@ -81,6 +82,7 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
         <span className={s.channelTitleName}>{channel.name}</span>
         <span className={s.channelTitleSub}>
           {closed ? "🔒 по приглашениям · " : "Планета · "}
+          {listenOnly ? "🎧 только слушать · " : ""}
           {room ? `${room} · ` : ""}
           {presence.length} из {capacity}
         </span>
@@ -140,6 +142,12 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
           )}
           {voice.error && <div className={s.error}>{voice.error}</div>}
           {inCall && <p className={s.hint}>Сначала завершите личный звонок.</p>}
+          {listenOnly && (
+            <p className={s.hint}>
+              🎧 Только слушать: микрофон здесь не включается — браузер его даже не запросит.
+              Показывать экран можно.
+            </p>
+          )}
           {closed && !canAdmit && (
             <p className={s.hint}>
               🔒 Комната по приглашениям: постучитесь — модератор впустит вас, отправит в зал
@@ -205,6 +213,7 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
         : null;
 
   const peerState = (peer: VoicePeer) => {
+    if (listenOnly) return { text: peer.speaking ? "звук экрана" : "слушает", muted: false };
     if (serverMuted(peer.userId)) return { text: "микрофон выключил модератор", muted: true };
     if (!peer.micOn) return { text: "микрофон выключен", muted: true };
     if (peer.speaking) return { text: "говорит", muted: false };
@@ -305,17 +314,19 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
                 {peer.userId === sharerId && <span className={s.voicePeerState}>🖥 показывает экран</span>}
                 {canModerate(peer.userId) && (
                   <div className={s.row} style={{ justifyContent: "center" }}>
-                    <button
-                      type="button"
-                      className={`${s.secondary} ${s.small}`}
-                      onClick={() =>
-                        void moderate(() =>
-                          starsApi.voiceMute(detail.id, channel.id, peer.userId, !serverMuted(peer.userId))
-                        )
-                      }
-                    >
-                      {serverMuted(peer.userId) ? "Вернуть микрофон" : "Выключить микрофон"}
-                    </button>
+                    {!listenOnly && (
+                      <button
+                        type="button"
+                        className={`${s.secondary} ${s.small}`}
+                        onClick={() =>
+                          void moderate(() =>
+                            starsApi.voiceMute(detail.id, channel.id, peer.userId, !serverMuted(peer.userId))
+                          )
+                        }
+                      >
+                        {serverMuted(peer.userId) ? "Вернуть микрофон" : "Выключить микрофон"}
+                      </button>
+                    )}
                     <button
                       type="button"
                       className={`${s.danger} ${s.small}`}
@@ -338,28 +349,36 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
       </div>
 
       <div className={s.voiceControls}>
-        <button
-          type="button"
-          className={`${s.secondary} ${voice.micOn ? s.voiceToggle : s.voiceToggleOff}`}
-          onClick={() => void (voice.micUnavailable ? voice.retryMic() : voice.toggleMic())}
-          disabled={voice.serverMuted || voice.status !== "connected"}
-          aria-pressed={voice.micOn}
-        >
-          {voice.micUnavailable
-            ? "🎙 Включить микрофон"
-            : voice.micOn
-              ? "🎙 Микрофон вкл"
-              : "🔇 Микрофон выкл"}
-        </button>
-        <button
-          type="button"
-          className={s.secondary}
-          onClick={() => void voice.toggleNoise()}
-          aria-pressed={voice.noiseSuppression}
-          title="Шумоподавление: убирает клавиатуру, вентилятор, улицу"
-        >
-          {voice.noiseSuppression ? (voice.noiseActive || voice.micUnavailable ? "Шум: вкл" : "Шум: —") : "Шум: выкл"}
-        </button>
+        {voice.listenOnly ? (
+          <span className={s.listenOnlyBadge} title="Микрофон на этой Планете не используется">
+            🎧 Только слушать
+          </span>
+        ) : (
+          <>
+            <button
+              type="button"
+              className={`${s.secondary} ${voice.micOn ? s.voiceToggle : s.voiceToggleOff}`}
+              onClick={() => void (voice.micUnavailable ? voice.retryMic() : voice.toggleMic())}
+              disabled={voice.serverMuted || voice.status !== "connected"}
+              aria-pressed={voice.micOn}
+            >
+              {voice.micUnavailable
+                ? "🎙 Включить микрофон"
+                : voice.micOn
+                  ? "🎙 Микрофон вкл"
+                  : "🔇 Микрофон выкл"}
+            </button>
+            <button
+              type="button"
+              className={s.secondary}
+              onClick={() => void voice.toggleNoise()}
+              aria-pressed={voice.noiseSuppression}
+              title="Шумоподавление: убирает клавиатуру, вентилятор, улицу"
+            >
+              {voice.noiseSuppression ? (voice.noiseActive || voice.micUnavailable ? "Шум: вкл" : "Шум: —") : "Шум: выкл"}
+            </button>
+          </>
+        )}
         {canShareScreen() &&
           (voice.sharingScreen || sharerId === myId ? (
             <button

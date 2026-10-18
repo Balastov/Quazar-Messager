@@ -59,8 +59,8 @@ class VoiceParticipant:
             "screen_sharing": self.screen_sharing,
         }
 
-    def publish_sources(self) -> list[str]:
-        sources = [] if self.server_muted else [livekit.SOURCE_MICROPHONE]
+    def publish_sources(self, listen_only: bool = False) -> list[str]:
+        sources = [] if self.server_muted or listen_only else [livekit.SOURCE_MICROPHONE]
         if self.screen_sharing:
             sources += [livekit.SOURCE_SCREEN_SHARE, livekit.SOURCE_SCREEN_SHARE_AUDIO]
         return sources
@@ -77,6 +77,8 @@ class ScreenBusy(Exception):
 @dataclass
 class Planet:
     star_id: str
+    # «Только слушать»: микрофоны запрещены всем.
+    listen_only: bool = False
     participants: dict[str, VoiceParticipant] = field(default_factory=dict)
 
 
@@ -126,8 +128,8 @@ async def broadcast(star_id: str, channel_id: str) -> None:
     )
 
 
-def _add(star_id: str, channel_id: str, user_id: str) -> None:
-    planet = _planets.setdefault(channel_id, Planet(star_id=star_id))
+def _add(star_id: str, channel_id: str, user_id: str, listen_only: bool = False) -> None:
+    planet = _planets.setdefault(channel_id, Planet(star_id=star_id, listen_only=listen_only))
     planet.participants.setdefault(user_id, VoiceParticipant(user_id=user_id))
 
 
@@ -151,9 +153,25 @@ def screen_sharer(channel_id: str) -> VoiceParticipant | None:
 
 
 async def _apply_permissions(channel_id: str, participant: VoiceParticipant) -> None:
+    planet = _planets.get(channel_id)
     await livekit.room_service.update_publish_sources(
-        room_name(channel_id), participant.user_id, participant.publish_sources()
+        room_name(channel_id),
+        participant.user_id,
+        participant.publish_sources(listen_only=bool(planet and planet.listen_only)),
     )
+
+
+async def set_listen_only(star_id: str, channel_id: str, listen_only: bool) -> None:
+    """Режим Планеты поменяли — права на микрофон у всех, кто внутри, меняются сразу."""
+    planet = _planets.get(channel_id)
+    if not planet:
+        return
+    planet.listen_only = listen_only
+    for participant in list(planet.participants.values()):
+        try:
+            await _apply_permissions(channel_id, participant)
+        except livekit.LiveKitError as exc:
+            logger.warning("listen-only %s on %s failed: %s", participant.user_id, channel_id, exc)
 
 
 async def set_server_muted(star_id: str, channel_id: str, user_id: str, muted: bool) -> bool:
@@ -226,15 +244,17 @@ async def _on_track(kind: str, channel_id: str, identity: str, track: dict) -> N
         await stop_screen(planet.star_id, channel_id, identity)
 
 
-async def _planet_star(channel_id: str) -> str | None:
+async def _planet_info(channel_id: str) -> tuple[str, bool] | None:
+    """Звезда Планеты и режим «Только слушать»."""
     async with session_factory() as db:
-        return (
+        row = (
             await db.execute(
-                select(StarChannel.star_id).where(
+                select(StarChannel.star_id, StarChannel.listen_only).where(
                     StarChannel.id == channel_id, StarChannel.kind == "planet"
                 )
             )
-        ).scalar_one_or_none()
+        ).first()
+    return (row[0], bool(row[1])) if row else None
 
 
 async def handle_webhook(event: dict) -> None:
@@ -256,11 +276,19 @@ async def handle_webhook(event: dict) -> None:
     if kind in ("track_published", "track_unpublished"):
         await _on_track(kind, channel_id, identity, event.get("track") or {})
     elif kind == "participant_joined":
-        star_id = _planets[channel_id].star_id if channel_id in _planets else await _planet_star(channel_id)
-        if not star_id:
+        planet = _planets.get(channel_id)
+        info = (planet.star_id, planet.listen_only) if planet else await _planet_info(channel_id)
+        if not info:
             return
-        _add(star_id, channel_id, identity)
+        star_id, listen_only = info
+        _add(star_id, channel_id, identity, listen_only)
         doors.consume_pass(identity, channel_id)
+        if listen_only:
+            # Токен выдали до того, как Планету сделали «Только слушать», — забираем микрофон.
+            try:
+                await _apply_permissions(channel_id, _planets[channel_id].participants[identity])
+            except livekit.LiveKitError as exc:
+                logger.warning("listen-only %s on %s failed: %s", identity, channel_id, exc)
         await broadcast(star_id, channel_id)
     elif kind in ("participant_left", "participant_connection_aborted"):
         planet = _planets.get(channel_id)
@@ -312,14 +340,15 @@ async def resync() -> None:
             channel_id = channel_from_room(room.get("name"))
             if not channel_id:
                 continue
-            star_id = await _planet_star(channel_id)
-            if not star_id:
+            info = await _planet_info(channel_id)
+            if not info:
                 continue
+            star_id, listen_only = info
             for p in await livekit.room_service.list_participants(room["name"]):
                 identity = p.get("identity")
                 if not identity:
                     continue
-                _add(star_id, channel_id, identity)
+                _add(star_id, channel_id, identity, listen_only)
                 screen = next(
                     (
                         t

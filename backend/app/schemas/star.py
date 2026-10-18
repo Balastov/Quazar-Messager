@@ -62,6 +62,8 @@ class CreateChannel(_Named):
     capacity: int | None = Field(default=None, ge=1, le=PLANET_MAX_CAPACITY)
     room_kind: RoomKind | None = None
     access: Access = "open"
+    # «Только слушать»: без микрофонов.
+    listen_only: bool = False
     # Этаж для комнаты в Звезде «Работа»; по умолчанию — первый.
     floor_id: str | None = None
 
@@ -71,6 +73,7 @@ class UpdateChannel(_Named):
     capacity: int | None = Field(default=None, ge=1, le=PLANET_MAX_CAPACITY)
     room_kind: RoomKind | None = None
     access: Access | None = None
+    listen_only: bool | None = None
     # Перенести комнату на другой этаж (нужно право «Редактировать карту офиса»).
     floor_id: str | None = None
 
@@ -133,6 +136,7 @@ class StarChannelOut(BaseModel):
     capacity: int | None
     room_kind: str | None
     access: str = "open"
+    listen_only: bool = False
     floor_id: str | None = None
     map_x: int | None
     map_y: int | None

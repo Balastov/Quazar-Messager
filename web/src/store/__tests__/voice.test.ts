@@ -156,11 +156,31 @@ vi.mock("../../api/stars", () => ({
 const callState = { phase: "idle" };
 vi.mock("../call", () => ({ useCallStore: { getState: () => callState } }));
 
+/** Стор Созвездия: только режим «Только слушать» Планеты p1. */
+type StarsState = { details: Record<string, { channels: { id: string; listen_only?: boolean }[] }> };
+const starsState: StarsState = { details: {} };
+const starsListeners = new Set<(st: StarsState) => void>();
+vi.mock("../stars", () => ({
+  useStarsStore: {
+    getState: () => starsState,
+    subscribe: (fn: (st: StarsState) => void) => {
+      starsListeners.add(fn);
+      return () => starsListeners.delete(fn);
+    },
+  },
+}));
+function setListenOnly(on: boolean) {
+  starsState.details = { s1: { channels: [{ id: "p1", listen_only: on }] } };
+  starsListeners.forEach((fn) => fn(starsState));
+}
+
 let mic: FakeTrack;
 let micDenied = false;
+let micRequests = 0;
 vi.stubGlobal("navigator", {
   mediaDevices: {
     getUserMedia: async () => {
+      micRequests++;
       if (micDenied) throw new DOMException("denied", "NotAllowedError");
       return { getAudioTracks: () => [mic] };
     },
@@ -178,6 +198,8 @@ beforeEach(async () => {
   callState.phase = "idle";
   mic = new FakeTrack("mic");
   joinPlanet.mockClear();
+  starsState.details = {};
+  micRequests = 0;
   startScreen.mockClear();
   stopScreen.mockClear();
 });
@@ -375,6 +397,46 @@ describe("screen share", () => {
     const r = room();
     await useVoiceStore.getState().leave();
     expect(r.screenTracks.every((t) => t.stopped)).toBe(true);
+  });
+});
+
+describe("listen-only planet", () => {
+  it("never asks for the microphone", async () => {
+    setListenOnly(true);
+    await useVoiceStore.getState().join("s1", "p1");
+    const room = FakeRoom.last!;
+    expect(micRequests).toBe(0);
+    expect(room.published).toHaveLength(0);
+    room.grant([]);
+    const st = useVoiceStore.getState();
+    expect(st.listenOnly).toBe(true);
+    expect(st.serverMuted).toBe(false); // это не мьют модератором
+    expect(st.micUnavailable).toBe(false);
+    await useVoiceStore.getState().retryMic();
+    expect(micRequests).toBe(0);
+  });
+
+  it("releases the microphone when the planet becomes listen-only", async () => {
+    await useVoiceStore.getState().join("s1", "p1");
+    const denoiser = FakeDenoiser.last!;
+    setListenOnly(true);
+    FakeRoom.last!.grant([]);
+    await vi.waitFor(() => expect(mic.stopped).toBe(true));
+    expect(denoiser.closed).toBe(true);
+    expect(useVoiceStore.getState().listenOnly).toBe(true);
+    expect(useVoiceStore.getState().serverMuted).toBe(false);
+  });
+
+  it("gives the microphone back muted when listen-only is switched off", async () => {
+    setListenOnly(true);
+    await useVoiceStore.getState().join("s1", "p1");
+    const room = FakeRoom.last!;
+    setListenOnly(false);
+    room.grant([2]);
+    await vi.waitFor(() => expect(room.published).toHaveLength(1));
+    await vi.waitFor(() => expect(room.published[0].isMuted).toBe(true));
+    expect(micRequests).toBe(1);
+    expect(useVoiceStore.getState().listenOnly).toBe(false);
   });
 });
 

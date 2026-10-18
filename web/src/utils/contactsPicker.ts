@@ -39,6 +39,26 @@ export async function pickPhoneFromDeviceContacts(): Promise<PickedContact | nul
   }
 }
 
+/**
+ * Выбор нескольких контактов сразу (для поиска знакомых в Quazar).
+ * null — API нет или человек закрыл выбор.
+ */
+export async function pickManyContacts(): Promise<{ name: string; phones: string[] }[] | null> {
+  const contacts = getContactsManager();
+  if (!contacts?.select) return null;
+  try {
+    const selected = await contacts.select(["name", "tel"], { multiple: true });
+    return (selected ?? [])
+      .map((c) => ({
+        name: (Array.isArray(c.name) ? c.name[0] : "") ?? "",
+        phones: [...new Set(Array.isArray(c.tel) ? c.tel : [])].slice(0, 10),
+      }))
+      .filter((c) => c.phones.length > 0);
+  } catch {
+    return null;
+  }
+}
+
 /** Minimal typings — lib.dom may not include ContactsManager everywhere. */
 interface ContactsManager {
   select(

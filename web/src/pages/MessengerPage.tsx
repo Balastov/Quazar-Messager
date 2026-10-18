@@ -21,7 +21,9 @@ import type { DoorLink } from "../notifications/notify";
 import { takePendingInvite } from "../api/stars";
 import { useStarsStore } from "../store/stars";
 import { useStickersStore } from "../store/stickers";
+import { useContactsStore } from "../store/contacts";
 import E2EKeyGate from "../components/E2EKeyGate";
+import ContactsPrompt from "../components/ContactsPrompt";
 import s from "./MessengerPage.module.css";
 
 type CallEventDetail = {
@@ -49,6 +51,7 @@ export default function MessengerPage() {
     }
     useUiStore.setState({ mobileChatOpen: false });
     void useStickersStore.getState().load();
+    void useContactsStore.getState().load();
 
     // Открыли по уведомлению двери комнаты: ?star=…&planet=…&door=…
     const params = new URLSearchParams(window.location.search);
@@ -212,6 +215,7 @@ export default function MessengerPage() {
       {!showMobileChat && <NotifyPrompt />}
       <ToastStack />
       <E2EKeyGate />
+      <ContactsPrompt />
       <VoiceBarHost />
       <DoorToasts />
       <CallOverlay />

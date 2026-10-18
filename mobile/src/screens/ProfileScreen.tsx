@@ -1,0 +1,145 @@
+import React from 'react';
+import {
+  ActivityIndicator,
+  Linking,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Switch,
+  Text,
+  View,
+} from 'react-native';
+import type {NativeStackScreenProps} from '@react-navigation/native-stack';
+import type {RootStackParamList} from '../navigation';
+import {useAuthStore} from '../store/auth';
+import {useContactsStore} from '../store/contacts';
+
+type Props = NativeStackScreenProps<RootStackParamList, 'Profile'>;
+
+function plural(n: number, one: string, few: string, many: string): string {
+  const m10 = n % 10;
+  const m100 = n % 100;
+  if (m10 === 1 && m100 !== 11) {
+    return one;
+  }
+  if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) {
+    return few;
+  }
+  return many;
+}
+
+export default function ProfileScreen({navigation}: Props) {
+  const user = useAuthStore(st => st.user);
+  const logout = useAuthStore(st => st.logout);
+  const {pref, contacts, total, lastSyncAt, syncing, error, blocked, enable, disable, syncNow} =
+    useContactsStore();
+  const on = pref === 'on';
+
+  const toggle = (value: boolean) => {
+    if (value) {
+      void enable();
+    } else {
+      void disable();
+    }
+  };
+
+  return (
+    <ScrollView style={s.root} contentContainerStyle={s.content}>
+      <View style={s.card}>
+        <View style={s.avatar}>
+          <Text style={s.avatarText}>{user?.username?.[0]?.toUpperCase() ?? '?'}</Text>
+        </View>
+        <Text style={s.name}>{user?.username}</Text>
+        <Text style={s.muted}>{user?.phone}</Text>
+      </View>
+
+      <View style={s.card}>
+        <View style={s.row}>
+          <View style={{flex: 1}}>
+            <Text style={s.title}>Контакты из телефонной книги</Text>
+            <Text style={s.muted}>
+              Показывать, кто из ваших контактов уже в Quazar. Список обновляется сам при
+              открытии приложения.
+            </Text>
+          </View>
+          <Switch value={on} onValueChange={toggle} disabled={syncing} />
+        </View>
+
+        {on && (
+          <View style={s.status}>
+            {syncing ? (
+              <ActivityIndicator color="#6c63ff" />
+            ) : (
+              <Text style={s.muted}>
+                {`Нашли ${contacts.length} ${plural(contacts.length, 'человека', 'человек', 'человек')}` +
+                  (total ? ` из ${total} ${plural(total, 'контакта', 'контактов', 'контактов')}` : '') +
+                  (lastSyncAt ? ` · обновлено ${new Date(lastSyncAt).toLocaleString('ru')}` : '')}
+              </Text>
+            )}
+            <Pressable onPress={() => void syncNow()} disabled={syncing} hitSlop={6}>
+              <Text style={s.link}>Обновить сейчас</Text>
+            </Pressable>
+          </View>
+        )}
+        {blocked && (
+          <View style={s.status}>
+            <Text style={s.warn}>
+              Доступ к контактам выключен в настройках телефона. Разрешите его там — и включите
+              переключатель снова.
+            </Text>
+            <Pressable onPress={() => void Linking.openSettings()} hitSlop={6}>
+              <Text style={s.link}>Открыть настройки</Text>
+            </Pressable>
+          </View>
+        )}
+        {error && <Text style={s.warn}>{error}</Text>}
+        <Text style={s.note}>
+          Номера сверяются на сервере и не сохраняются. Хранятся только найденные пользователи
+          Quazar и имена, под которыми они записаны у вас. Выключите — и они удалятся с сервера.
+        </Text>
+      </View>
+
+      <Pressable style={s.card} onPress={() => navigation.navigate('Keys')}>
+        <Text style={s.title}>Ключи шифрования</Text>
+        <Text style={s.muted}>Резервная копия и восстановление на другом устройстве</Text>
+      </Pressable>
+
+      <Pressable style={[s.card, s.logout]} onPress={logout}>
+        <Text style={s.logoutText}>Выйти</Text>
+      </Pressable>
+    </ScrollView>
+  );
+}
+
+const s = StyleSheet.create({
+  root: {flex: 1, backgroundColor: '#0f1117'},
+  content: {padding: 14, gap: 12},
+  card: {
+    backgroundColor: '#1a1d27',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#2a2d3a',
+    padding: 16,
+    gap: 8,
+  },
+  avatar: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: '#6c63ff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    alignSelf: 'center',
+  },
+  avatarText: {color: '#fff', fontSize: 26, fontWeight: '700'},
+  name: {color: '#fff', fontSize: 18, fontWeight: '700', textAlign: 'center'},
+  row: {flexDirection: 'row', alignItems: 'center', gap: 12},
+  title: {color: '#fff', fontSize: 15, fontWeight: '600'},
+  muted: {color: '#9b93b8', fontSize: 13, lineHeight: 18},
+  status: {gap: 6},
+  link: {color: '#c4b5fd', fontSize: 14, fontWeight: '600'},
+  warn: {color: '#fbbf24', fontSize: 13, lineHeight: 18},
+  note: {color: '#6f678c', fontSize: 12, lineHeight: 16},
+  logout: {alignItems: 'center'},
+  logoutText: {color: '#ff6b6b', fontSize: 15, fontWeight: '600'},
+});

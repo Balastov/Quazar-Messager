@@ -5,6 +5,7 @@ import {setAuthToken} from '../api/client';
 import {usersApi} from '../api/users';
 import {socket} from '../ws/socket';
 import {useE2EStore} from './e2e';
+import {useContactsStore} from './contacts';
 import type {User} from '../api/types';
 
 interface AuthState {
@@ -34,6 +35,7 @@ export const useAuthStore = create<AuthState>()(
         setAuthToken(null);
         socket.disconnect();
         useE2EStore.getState().reset();
+        useContactsStore.getState().reset();
         set({token: null, user: null});
       },
     }),

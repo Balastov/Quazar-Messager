@@ -1,0 +1,62 @@
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: calc(16px + var(--qz-safe-top)) 16px calc(16px + var(--qz-safe-bottom));
+  background: rgba(4, 3, 12, 0.55);
+}
+
+.card {
+  width: min(420px, 100%);
+  max-height: 100%;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 22px 18px 16px;
+  border-radius: var(--qz-radius-lg);
+  border: 1px solid var(--qz-glass-border);
+  background: var(--qz-glass-bg-strong);
+  backdrop-filter: var(--qz-glass-filter);
+  -webkit-backdrop-filter: var(--qz-glass-filter);
+  box-shadow: var(--qz-glass-shine), var(--qz-shadow);
+}
+
+.icon {
+  font-size: 40px;
+  text-align: center;
+}
+
+.title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.text {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--qz-text-muted);
+}
+
+.later {
+  align-self: center;
+  border: none;
+  background: transparent;
+  color: #c4b5fd;
+  font-size: 14px;
+  padding: 8px 12px;
+  cursor: pointer;
+}
+
+.note {
+  margin: 0;
+  font-size: 12px;
+  text-align: center;
+  color: var(--qz-text-dim);
+}

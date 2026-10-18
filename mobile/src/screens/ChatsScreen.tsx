@@ -16,13 +16,15 @@ import {useE2EStore} from '../store/e2e';
 import {usersApi} from '../api/users';
 import type {RootStackParamList} from '../navigation';
 import type {Chat, User} from '../api/types';
+import {useContactsStore} from '../store/contacts';
+import ContactsPrompt from '../contacts/ContactsPrompt';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Chats'>;
 
 export default function ChatsScreen({navigation}: Props) {
   const {chats, loadChats, openDirectChat} = useChatStore();
   const currentUser = useAuthStore(s => s.user);
-  const logout = useAuthStore(s => s.logout);
+  const contacts = useContactsStore(s => s.contacts);
   const e2eStatus = useE2EStore(s => s.status);
   const hasServerBackup = useE2EStore(s => s.hasServerBackup);
   const restorePromptPending = useE2EStore(s => s.restorePromptPending);
@@ -40,17 +42,12 @@ export default function ChatsScreen({navigation}: Props) {
   useEffect(() => {
     navigation.setOptions({
       headerRight: () => (
-        <View style={{flexDirection: 'row', gap: 16, marginRight: 4}}>
-          <Pressable onPress={() => navigation.navigate('Keys')} hitSlop={8}>
-            <Text style={{color: '#c4b5fd', fontSize: 14, fontWeight: '600'}}>Ключи</Text>
-          </Pressable>
-          <Pressable onPress={logout} hitSlop={8}>
-            <Text style={{color: '#ff6b6b', fontSize: 14, fontWeight: '600'}}>Выйти</Text>
-          </Pressable>
-        </View>
+        <Pressable onPress={() => navigation.navigate('Profile')} hitSlop={8} style={{marginRight: 4}}>
+          <Text style={{color: '#c4b5fd', fontSize: 14, fontWeight: '600'}}>Профиль</Text>
+        </Pressable>
       ),
     });
-  }, [navigation, logout]);
+  }, [navigation]);
 
   // Ключ аккаунта есть на другом устройстве — сразу предлагаем восстановить его здесь.
   useEffect(() => {
@@ -79,18 +76,35 @@ export default function ChatsScreen({navigation}: Props) {
   const chatName = (chat: Chat) => {
     if (chat.type === 'group') {return chat.name ?? 'Группа';}
     const other = chat.members.find(m => m.user.id !== currentUser?.id);
-    return other?.user.username ?? 'Неизвестный';
+    // Как человек записан в телефонной книге — так и показываем.
+    const fromPhonebook = contacts.find(c => c.user.id === other?.user.id)?.name;
+    return fromPhonebook || other?.user.username || 'Неизвестный';
   };
+
+  // Контакты из книги, с которыми ещё нет чата, — в начале списка.
+  const chatPeers = new Set(
+    chats
+      .filter(c => c.type === 'direct')
+      .flatMap(c => c.members.map(m => m.user.id)),
+  );
+  const newContacts = contacts.filter(c => !chatPeers.has(c.user.id));
+  const q = search.trim().toLowerCase();
+  const contactMatches =
+    q.length >= 2
+      ? contacts.filter(
+          c => c.name.toLowerCase().includes(q) || c.user.username.toLowerCase().includes(q),
+        )
+      : [];
 
   const openChat = (chat: Chat) => {
     navigation.navigate('Chat', {chatId: chat.id, title: chatName(chat)});
   };
 
-  const startDirectChat = async (user: User) => {
+  const startDirectChat = async (user: User, title = user.username) => {
     setSearch('');
     setResults([]);
     const chatId = await openDirectChat(user.id);
-    navigation.navigate('Chat', {chatId, title: user.username});
+    navigation.navigate('Chat', {chatId, title});
   };
 
   return (
@@ -122,13 +136,25 @@ export default function ChatsScreen({navigation}: Props) {
         />
       </View>
 
+      <ContactsPrompt />
       {search.length >= 2 && (
         <View style={s.dropdown}>
+          {contactMatches.map(c => (
+            <Pressable key={`c-${c.user.id}`} style={s.userRow} onPress={() => startDirectChat(c.user, c.name)}>
+              <View style={s.avatar}>
+                <Text style={s.avatarText}>{(c.name || c.user.username)[0].toUpperCase()}</Text>
+              </View>
+              <View>
+                <Text style={s.userName}>{c.name}</Text>
+                <Text style={s.contactSub}>📇 из контактов · {c.user.username}</Text>
+              </View>
+            </Pressable>
+          ))}
           {searching && <ActivityIndicator color="#6c63ff" style={{padding: 12}} />}
-          {!searching && results.length === 0 && (
+          {!searching && results.length === 0 && contactMatches.length === 0 && (
             <Text style={s.hint}>Никого не найдено</Text>
           )}
-          {results.map(u => (
+          {results.filter(u => !contactMatches.some(c => c.user.id === u.id)).map(u => (
             <Pressable key={u.id} style={s.userRow} onPress={() => startDirectChat(u)}>
               <View style={s.avatar}>
                 <Text style={s.avatarText}>{u.username[0].toUpperCase()}</Text>
@@ -151,6 +177,25 @@ export default function ChatsScreen({navigation}: Props) {
           </Pressable>
         )}
         contentContainerStyle={{paddingTop: 4}}
+        ListHeaderComponent={
+          newContacts.length > 0 ? (
+            <View>
+              <Text style={s.sectionTitle}>Из телефонной книги</Text>
+              {newContacts.map(c => (
+                <Pressable key={c.user.id} style={s.chatItem} onPress={() => startDirectChat(c.user, c.name)}>
+                  <View style={s.avatar}>
+                    <Text style={s.avatarText}>{(c.name || c.user.username)[0].toUpperCase()}</Text>
+                  </View>
+                  <View>
+                    <Text style={s.chatName}>{c.name}</Text>
+                    <Text style={s.contactSub}>в Quazar · {c.user.username}</Text>
+                  </View>
+                </Pressable>
+              ))}
+              {chats.length > 0 && <Text style={s.sectionTitle}>Чаты</Text>}
+            </View>
+          ) : null
+        }
       />
     </View>
   );
@@ -206,6 +251,16 @@ const s = StyleSheet.create({
     borderBottomColor: '#1a1d27',
   },
   chatName: {color: '#e0e0e0', fontSize: 15, fontWeight: '500'},
+  contactSub: {color: '#9b93b8', fontSize: 12, marginTop: 2},
+  sectionTitle: {
+    color: '#6f678c',
+    fontSize: 12,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    paddingHorizontal: 14,
+    paddingTop: 12,
+    paddingBottom: 4,
+  },
   avatar: {
     width: 42,
     height: 42,

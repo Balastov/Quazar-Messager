@@ -20,8 +20,9 @@ import UserAvatar from "./UserAvatar";
 import { IconAddressBook, IconSearch, IconStar } from "./icons";
 import s from "./ContactsPane.module.css";
 import { messagePreview, useStickersStore } from "../store/stickers";
+import { useContactsStore } from "../store/contacts";
 
-type Filter = "all" | "favorites";
+type Filter = "all" | "favorites" | "phonebook";
 
 export default function ContactsPane() {
   const { chats, activeChatId, loadChats, selectChat, openDirectChat, messages } =
@@ -34,6 +35,9 @@ export default function ContactsPane() {
   const favoriteChatIds = useUiStore((st) => st.favoriteChatIds);
   const toggleFavorite = useUiStore((st) => st.toggleFavorite);
   const unreadCounts = useUnreadStore((st) => st.counts);
+  // Найденные в телефонной книге (синхронизирует мобильное приложение).
+  const phonebook = useContactsStore((st) => st.contacts);
+  const phonebookNames = useContactsStore((st) => st.names);
 
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
@@ -74,7 +78,8 @@ export default function ContactsPane() {
     }
     const other = chat.members.find((m) => m.user.id !== currentUser?.id)?.user;
     return {
-      username: other?.username ?? "Неизвестный",
+      // Как человек записан в телефонной книге — так и показываем.
+      username: (other && phonebookNames[other.id]) || other?.username || "Неизвестный",
       avatar_url: other?.avatar_url ?? null,
       phone: other?.phone ?? null,
     };
@@ -110,7 +115,22 @@ export default function ContactsPane() {
     });
     // chatPeer depends on currentUser; chats/messages identity is enough here
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chats, filter, favoriteChatIds, search, currentUser?.id]);
+  }, [chats, filter, favoriteChatIds, search, currentUser?.id, phonebookNames]);
+
+  const phonebookFiltered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return phonebook;
+    return phonebook.filter(
+      (c) => c.name.toLowerCase().includes(q) || c.user.username.toLowerCase().includes(q)
+    );
+  }, [phonebook, search]);
+
+  const openContact = async (userId: string) => {
+    setSearch("");
+    await openDirectChat(userId);
+    setTab("chats");
+    setMobileChatOpen(true);
+  };
 
   const openChat = async (chatId: string) => {
     await selectChat(chatId);
@@ -197,6 +217,16 @@ export default function ContactsPane() {
         >
           Избранные
         </button>
+        {phonebook.length > 0 && (
+          <button
+            type="button"
+            className={filter === "phonebook" ? s.chipActive : s.chip}
+            onClick={() => setFilter("phonebook")}
+            title="Кто из контактов вашего телефона уже в Quazar"
+          >
+            Из телефона {phonebook.length}
+          </button>
+        )}
       </div>
 
       {showSearchPanel && (
@@ -233,6 +263,29 @@ export default function ContactsPane() {
         </div>
       )}
 
+      {filter === "phonebook" ? (
+        <div className={s.list}>
+          {phonebookFiltered.length === 0 && <div className={s.hint}>Никого не найдено</div>}
+          {phonebookFiltered.map((c) => (
+            <button
+              key={c.user.id}
+              type="button"
+              className={s.item}
+              onClick={() => void openContact(c.user.id)}
+            >
+              <UserAvatar username={c.name || c.user.username} avatarUrl={c.user.avatar_url} />
+              <div className={s.meta}>
+                <div className={s.nameRow}>
+                  <span className={s.name}>{c.name || c.user.username}</span>
+                </div>
+                <span className={s.preview}>
+                  {c.user.username} · {formatRuPhoneDisplay(c.user.phone)}
+                </span>
+              </div>
+            </button>
+          ))}
+        </div>
+      ) : (
       <div className={s.list}>
         {filtered.length === 0 && (
           <div className={s.hint}>
@@ -292,6 +345,7 @@ export default function ContactsPane() {
           );
         })}
       </div>
+      )}
     </div>
   );
 }

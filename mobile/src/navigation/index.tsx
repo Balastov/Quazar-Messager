@@ -7,12 +7,14 @@ import AuthScreen from '../screens/AuthScreen';
 import ChatsScreen from '../screens/ChatsScreen';
 import ChatScreen from '../screens/ChatScreen';
 import KeysScreen from '../screens/KeysScreen';
+import ProfileScreen from '../screens/ProfileScreen';
 
 export type RootStackParamList = {
   Auth: undefined;
   Chats: undefined;
   Chat: {chatId: string; title: string};
   Keys: undefined;
+  Profile: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -56,6 +58,7 @@ export default function Navigation() {
               component={KeysScreen}
               options={{title: 'Ключи шифрования'}}
             />
+            <Stack.Screen name="Profile" component={ProfileScreen} options={{title: 'Профиль'}} />
           </>
         )}
       </Stack.Navigator>

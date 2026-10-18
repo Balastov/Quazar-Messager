@@ -18,6 +18,8 @@ import { useE2EStore } from "../store/e2e";
 import { useCallStore } from "../store/call";
 import { useUiStore } from "../store/ui";
 import { DEFAULT_GLASS_TRANSPARENCY } from "../styles/glass";
+import { useContactsStore } from "../store/contacts";
+import ContactsImport from "./ContactsImport";
 import UserAvatar from "./UserAvatar";
 import MicCheck from "./MicCheck";
 import AudioDevices from "./AudioDevices";
@@ -46,6 +48,10 @@ export default function SettingsView() {
   const toggleNoiseSuppression = useCallStore((st) => st.toggleNoiseSuppression);
   const glassTransparency = useUiStore((st) => st.glassTransparency);
   const setGlassTransparency = useUiStore((st) => st.setGlassTransparency);
+  const phonebook = useContactsStore((st) => st.contacts);
+  const phonebookSyncedAt = useContactsStore((st) => st.syncedAt);
+  const phonebookTotal = useContactsStore((st) => st.total);
+  const forgetPhonebook = useContactsStore((st) => st.forget);
 
   const [prefs, setPrefs] = useState<NotifyPrefs>(() => getNotifyPrefs());
   const [permission, setPermission] = useState(browserPermission);
@@ -179,6 +185,45 @@ export default function SettingsView() {
                 По умолчанию
               </button>
             </div>
+          )}
+        </section>
+
+        <section className={s.card}>
+          <h3 className={s.sectionTitle}>Контакты из телефона</h3>
+          <p className={s.hint}>
+            Покажем, кто из ваших контактов уже в Quazar. Номера сверяются на сервере и не
+            сохраняются: остаются только найденные люди и имена, под которыми они у вас записаны.
+          </p>
+          <ContactsImport />
+          {phonebookSyncedAt && (
+            <>
+              <p className={s.hint}>
+                Найдено в Quazar: {phonebook.length} (сверено контактов: {phonebookTotal}) ·
+                обновлено {new Date(phonebookSyncedAt).toLocaleString("ru")}. Список — во вкладке
+                «Контакты» → «Из телефона».
+              </p>
+              <div className={s.rowBtns}>
+                <button
+                  type="button"
+                  className={s.secondary}
+                  disabled={busy}
+                  onClick={() => {
+                    if (
+                      window.confirm(
+                        "Удалить найденные контакты с сервера? Люди останутся в Quazar, просто пропадут из списка «Из телефона»."
+                      )
+                    ) {
+                      void run(async () => {
+                        await forgetPhonebook();
+                        setStatus("Контакты удалены с сервера");
+                      });
+                    }
+                  }}
+                >
+                  Очистить список
+                </button>
+              </div>
+            </>
           )}
         </section>
 

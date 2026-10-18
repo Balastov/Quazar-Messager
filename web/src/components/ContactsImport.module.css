@@ -1,0 +1,73 @@
+.root {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.primary,
+.secondary {
+  border-radius: 12px;
+  padding: 10px 14px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.primary {
+  border: none;
+  color: #fff;
+  background: linear-gradient(135deg, #c084fc, #7c3aed);
+  box-shadow: var(--qz-accent-glow);
+}
+
+.secondary {
+  color: var(--qz-text);
+  border: 1px solid var(--qz-border);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.primary:disabled,
+.secondary:disabled {
+  opacity: 0.45;
+  cursor: wait;
+}
+
+.hidden {
+  display: none;
+}
+
+.status {
+  font-size: 13px;
+  color: #6ee7a0;
+}
+
+.error {
+  font-size: 13px;
+  color: #f87171;
+}
+
+.howto {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--qz-text-muted);
+}
+
+.howto summary {
+  cursor: pointer;
+  color: #c4b5fd;
+}
+
+.howto ol {
+  margin: 6px 0 4px;
+  padding-left: 18px;
+}
+
+.howto p {
+  margin: 4px 0 0;
+}

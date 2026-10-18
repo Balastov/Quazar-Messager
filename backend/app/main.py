@@ -30,6 +30,7 @@ from app.api.voice import webhook_router as livekit_webhook_router
 from app.api.stickers import FILES_PATH as STICKER_FILES_PATH
 from app.api.stickers import StickerFiles
 from app.api.stickers import router as stickers_router
+from app.api.contacts import router as contacts_router
 from app.core.stickers import STICKERS_DIR
 from app.ws.router import router as ws_router
 
@@ -140,6 +141,7 @@ app.include_router(office_router)
 app.include_router(doors_router)
 app.include_router(livekit_webhook_router)
 app.include_router(stickers_router)
+app.include_router(contacts_router)
 app.include_router(ws_router)
 
 _media = Path(media_root())

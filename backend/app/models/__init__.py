@@ -3,6 +3,7 @@ from app.models.message import Message
 from app.models.user import User
 from app.models.call import Call
 from app.models.push import PushSubscription
+from app.models.contact import ContactSync, UserContact
 from app.models.star import (
     Star,
     StarBan,
@@ -20,6 +21,8 @@ __all__ = [
     "Message",
     "Call",
     "PushSubscription",
+    "UserContact",
+    "ContactSync",
     "Star",
     "StarMember",
     "StarChannel",

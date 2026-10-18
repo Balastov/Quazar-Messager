@@ -7,6 +7,9 @@
   display: flex;
   flex-direction: column;
   position: relative;
+  background: var(--qz-glass-backdrop);
+  backdrop-filter: var(--qz-glass-filter);
+  -webkit-backdrop-filter: var(--qz-glass-filter);
 }
 
 .empty {
@@ -20,6 +23,9 @@
   color: var(--qz-text-muted);
   padding: 24px;
   text-align: center;
+  background: var(--qz-glass-backdrop);
+  backdrop-filter: var(--qz-glass-filter);
+  -webkit-backdrop-filter: var(--qz-glass-filter);
 }
 
 .emptyBack {

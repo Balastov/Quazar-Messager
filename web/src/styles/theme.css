@@ -50,6 +50,8 @@
     rgba(var(--qz-glass-tint), calc(0.45 + var(--qz-glass-a) * 0.5));
   /* Элементы на стекле: карточки, поля ввода, входящие сообщения. */
   --qz-glass-inner: rgba(var(--qz-glass-tint), calc(var(--qz-glass-a) * 0.7));
+  /* Большие области контента (лента чата, канал): размытый фон, лёгкая тонировка. */
+  --qz-glass-backdrop: rgba(var(--qz-glass-tint), calc(var(--qz-glass-a) * 0.45));
   --qz-glass-filter: blur(var(--qz-glass-blur)) saturate(180%) brightness(1.06);
   --qz-glass-border: rgba(255, 255, 255, 0.13);
   /* Блик по верхней кромке + мягкое внутреннее свечение, как у стекла iOS. */

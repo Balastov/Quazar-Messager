@@ -263,6 +263,9 @@
   flex: 1;
   min-width: 0;
   flex-direction: column;
+  background: var(--qz-glass-backdrop);
+  backdrop-filter: var(--qz-glass-filter);
+  -webkit-backdrop-filter: var(--qz-glass-filter);
 }
 
 @media (min-width: 768px) {
@@ -280,6 +283,18 @@
   background: var(--qz-wallpaper);
   padding-left: var(--qz-safe-left);
   padding-right: var(--qz-safe-right);
+  isolation: isolate;
+}
+
+/* Свой фон через backdrop-filter не размыть — кладём стеклянный слой поверх него. */
+.mobileContent::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: var(--qz-glass-backdrop);
+  backdrop-filter: var(--qz-glass-filter);
+  -webkit-backdrop-filter: var(--qz-glass-filter);
 }
 
 @media (min-width: 768px) {

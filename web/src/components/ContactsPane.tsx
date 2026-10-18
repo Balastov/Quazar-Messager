@@ -19,6 +19,7 @@ import {
 import UserAvatar from "./UserAvatar";
 import { IconAddressBook, IconSearch, IconStar } from "./icons";
 import s from "./ContactsPane.module.css";
+import { messagePreview, useStickersStore } from "../store/stickers";
 
 type Filter = "all" | "favorites";
 
@@ -26,6 +27,8 @@ export default function ContactsPane() {
   const { chats, activeChatId, loadChats, selectChat, openDirectChat, messages } =
     useChatStore();
   const currentUser = useAuthStore((st) => st.user);
+  // Превью «Стикер 😂» обновится, когда загрузится каталог стикеров.
+  useStickersStore((st) => st.loaded);
   const setMobileChatOpen = useUiStore((st) => st.setMobileChatOpen);
   const setTab = useUiStore((st) => st.setTab);
   const favoriteChatIds = useUiStore((st) => st.favoriteChatIds);
@@ -82,7 +85,7 @@ export default function ContactsPane() {
     if (!list?.length) return "Нет сообщений";
     const last = list[list.length - 1];
     if (last.payload.startsWith("Сообщение недоступно")) return "🔒 зашифровано";
-    return last.payload;
+    return messagePreview(last.payload);
   };
 
   const lastTime = (chatId: string, fallback: string) => {

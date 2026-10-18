@@ -1,0 +1,19 @@
+.sticker {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.canvas {
+  position: absolute;
+  inset: 0;
+}
+
+.placeholder {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  opacity: 0.55;
+}

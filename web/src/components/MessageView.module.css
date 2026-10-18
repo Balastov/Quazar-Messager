@@ -236,6 +236,29 @@
   border-bottom-left-radius: 6px;
 }
 
+.ownSticker,
+.otherSticker {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.otherSticker {
+  align-self: flex-start;
+}
+
+.ownSticker {
+  align-self: flex-end;
+}
+
+/* Время под стикером — на стеклянной плашке, чтобы читалось на любом фоне. */
+.ownSticker .meta,
+.otherSticker .meta {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(var(--qz-glass-tint), 0.6);
+}
+
 .ownBubble {
   align-self: flex-end;
   background: var(--qz-outgoing);
@@ -348,6 +371,39 @@
   border-radius: var(--qz-radius-pill);
   background: var(--qz-glass-inner);
   border: 1px solid var(--qz-border);
+}
+
+.composerWrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.stickerBtn,
+.stickerBtnActive {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  margin-right: -8px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--qz-text-muted);
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+}
+
+.stickerBtn:hover,
+.stickerBtnActive {
+  color: #fff;
+  background: rgba(168, 85, 247, 0.22);
+}
+
+.stickerBtn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 .textInput {

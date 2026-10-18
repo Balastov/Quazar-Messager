@@ -1,0 +1,452 @@
+{
+  "id": "noto",
+  "version": 1,
+  "title": "Noto Emoji",
+  "author": "Google",
+  "license": "CC BY 4.0",
+  "license_url": "https://creativecommons.org/licenses/by/4.0/",
+  "source_url": "https://googlefonts.github.io/noto-emoji-animation/",
+  "default": true,
+  "stickers": [
+    {
+      "id": "1f600",
+      "emoji": "😀",
+      "file": "1f600.json"
+    },
+    {
+      "id": "1f601",
+      "emoji": "😁",
+      "file": "1f601.json"
+    },
+    {
+      "id": "1f602",
+      "emoji": "😂",
+      "file": "1f602.json"
+    },
+    {
+      "id": "1f923",
+      "emoji": "🤣",
+      "file": "1f923.json"
+    },
+    {
+      "id": "1f605",
+      "emoji": "😅",
+      "file": "1f605.json"
+    },
+    {
+      "id": "1f60a",
+      "emoji": "😊",
+      "file": "1f60a.json"
+    },
+    {
+      "id": "1f609",
+      "emoji": "😉",
+      "file": "1f609.json"
+    },
+    {
+      "id": "1f60d",
+      "emoji": "😍",
+      "file": "1f60d.json"
+    },
+    {
+      "id": "1f970",
+      "emoji": "🥰",
+      "file": "1f970.json"
+    },
+    {
+      "id": "1f618",
+      "emoji": "😘",
+      "file": "1f618.json"
+    },
+    {
+      "id": "1f60b",
+      "emoji": "😋",
+      "file": "1f60b.json"
+    },
+    {
+      "id": "1f61c",
+      "emoji": "😜",
+      "file": "1f61c.json"
+    },
+    {
+      "id": "1f92a",
+      "emoji": "🤪",
+      "file": "1f92a.json"
+    },
+    {
+      "id": "1f60e",
+      "emoji": "😎",
+      "file": "1f60e.json"
+    },
+    {
+      "id": "1f913",
+      "emoji": "🤓",
+      "file": "1f913.json"
+    },
+    {
+      "id": "1f973",
+      "emoji": "🥳",
+      "file": "1f973.json"
+    },
+    {
+      "id": "1f929",
+      "emoji": "🤩",
+      "file": "1f929.json"
+    },
+    {
+      "id": "1f60f",
+      "emoji": "😏",
+      "file": "1f60f.json"
+    },
+    {
+      "id": "1f643",
+      "emoji": "🙃",
+      "file": "1f643.json"
+    },
+    {
+      "id": "1fae0",
+      "emoji": "🫠",
+      "file": "1fae0.json"
+    },
+    {
+      "id": "1f972",
+      "emoji": "🥲",
+      "file": "1f972.json"
+    },
+    {
+      "id": "1f979",
+      "emoji": "🥹",
+      "file": "1f979.json"
+    },
+    {
+      "id": "1f607",
+      "emoji": "😇",
+      "file": "1f607.json"
+    },
+    {
+      "id": "1f917",
+      "emoji": "🤗",
+      "file": "1f917.json"
+    },
+    {
+      "id": "1f914",
+      "emoji": "🤔",
+      "file": "1f914.json"
+    },
+    {
+      "id": "1fae1",
+      "emoji": "🫡",
+      "file": "1fae1.json"
+    },
+    {
+      "id": "1f92b",
+      "emoji": "🤫",
+      "file": "1f92b.json"
+    },
+    {
+      "id": "1f92d",
+      "emoji": "🤭",
+      "file": "1f92d.json"
+    },
+    {
+      "id": "1fae3",
+      "emoji": "🫣",
+      "file": "1fae3.json"
+    },
+    {
+      "id": "1f644",
+      "emoji": "🙄",
+      "file": "1f644.json"
+    },
+    {
+      "id": "1f62c",
+      "emoji": "😬",
+      "file": "1f62c.json"
+    },
+    {
+      "id": "1f634",
+      "emoji": "😴",
+      "file": "1f634.json"
+    },
+    {
+      "id": "1f971",
+      "emoji": "🥱",
+      "file": "1f971.json"
+    },
+    {
+      "id": "1f610",
+      "emoji": "😐",
+      "file": "1f610.json"
+    },
+    {
+      "id": "1f636",
+      "emoji": "😶",
+      "file": "1f636.json"
+    },
+    {
+      "id": "1f612",
+      "emoji": "😒",
+      "file": "1f612.json"
+    },
+    {
+      "id": "1f61e",
+      "emoji": "😞",
+      "file": "1f61e.json"
+    },
+    {
+      "id": "1f622",
+      "emoji": "😢",
+      "file": "1f622.json"
+    },
+    {
+      "id": "1f62d",
+      "emoji": "😭",
+      "file": "1f62d.json"
+    },
+    {
+      "id": "1f97a",
+      "emoji": "🥺",
+      "file": "1f97a.json"
+    },
+    {
+      "id": "1f624",
+      "emoji": "😤",
+      "file": "1f624.json"
+    },
+    {
+      "id": "1f620",
+      "emoji": "😠",
+      "file": "1f620.json"
+    },
+    {
+      "id": "1f621",
+      "emoji": "😡",
+      "file": "1f621.json"
+    },
+    {
+      "id": "1f92c",
+      "emoji": "🤬",
+      "file": "1f92c.json"
+    },
+    {
+      "id": "1f92f",
+      "emoji": "🤯",
+      "file": "1f92f.json"
+    },
+    {
+      "id": "1f633",
+      "emoji": "😳",
+      "file": "1f633.json"
+    },
+    {
+      "id": "1f631",
+      "emoji": "😱",
+      "file": "1f631.json"
+    },
+    {
+      "id": "1f628",
+      "emoji": "😨",
+      "file": "1f628.json"
+    },
+    {
+      "id": "1f976",
+      "emoji": "🥶",
+      "file": "1f976.json"
+    },
+    {
+      "id": "1f975",
+      "emoji": "🥵",
+      "file": "1f975.json"
+    },
+    {
+      "id": "1f922",
+      "emoji": "🤢",
+      "file": "1f922.json"
+    },
+    {
+      "id": "1f92e",
+      "emoji": "🤮",
+      "file": "1f92e.json"
+    },
+    {
+      "id": "1f912",
+      "emoji": "🤒",
+      "file": "1f912.json"
+    },
+    {
+      "id": "1f635_200d_1f4ab",
+      "emoji": "😵‍💫",
+      "file": "1f635_200d_1f4ab.json"
+    },
+    {
+      "id": "1f921",
+      "emoji": "🤡",
+      "file": "1f921.json"
+    },
+    {
+      "id": "1f4a9",
+      "emoji": "💩",
+      "file": "1f4a9.json"
+    },
+    {
+      "id": "1f47b",
+      "emoji": "👻",
+      "file": "1f47b.json"
+    },
+    {
+      "id": "1f480",
+      "emoji": "💀",
+      "file": "1f480.json"
+    },
+    {
+      "id": "1f47d",
+      "emoji": "👽",
+      "file": "1f47d.json"
+    },
+    {
+      "id": "1f916",
+      "emoji": "🤖",
+      "file": "1f916.json"
+    },
+    {
+      "id": "1f608",
+      "emoji": "😈",
+      "file": "1f608.json"
+    },
+    {
+      "id": "1f648",
+      "emoji": "🙈",
+      "file": "1f648.json"
+    },
+    {
+      "id": "1f639",
+      "emoji": "😹",
+      "file": "1f639.json"
+    },
+    {
+      "id": "1f640",
+      "emoji": "🙀",
+      "file": "1f640.json"
+    },
+    {
+      "id": "1f44d",
+      "emoji": "👍",
+      "file": "1f44d.json"
+    },
+    {
+      "id": "1f44e",
+      "emoji": "👎",
+      "file": "1f44e.json"
+    },
+    {
+      "id": "1f44f",
+      "emoji": "👏",
+      "file": "1f44f.json"
+    },
+    {
+      "id": "1f64f",
+      "emoji": "🙏",
+      "file": "1f64f.json"
+    },
+    {
+      "id": "1f4aa",
+      "emoji": "💪",
+      "file": "1f4aa.json"
+    },
+    {
+      "id": "1f91d",
+      "emoji": "🤝",
+      "file": "1f91d.json"
+    },
+    {
+      "id": "1f44b",
+      "emoji": "👋",
+      "file": "1f44b.json"
+    },
+    {
+      "id": "270c",
+      "emoji": "✌️",
+      "file": "270c.json"
+    },
+    {
+      "id": "1f91e",
+      "emoji": "🤞",
+      "file": "1f91e.json"
+    },
+    {
+      "id": "1f44c",
+      "emoji": "👌",
+      "file": "1f44c.json"
+    },
+    {
+      "id": "1faf6",
+      "emoji": "🫶",
+      "file": "1faf6.json"
+    },
+    {
+      "id": "2764",
+      "emoji": "❤️",
+      "file": "2764.json"
+    },
+    {
+      "id": "1f494",
+      "emoji": "💔",
+      "file": "1f494.json"
+    },
+    {
+      "id": "2764_fe0f_200d_1f525",
+      "emoji": "❤️‍🔥",
+      "file": "2764_fe0f_200d_1f525.json"
+    },
+    {
+      "id": "1f4af",
+      "emoji": "💯",
+      "file": "1f4af.json"
+    },
+    {
+      "id": "1f525",
+      "emoji": "🔥",
+      "file": "1f525.json"
+    },
+    {
+      "id": "2728",
+      "emoji": "✨",
+      "file": "2728.json"
+    },
+    {
+      "id": "1f389",
+      "emoji": "🎉",
+      "file": "1f389.json"
+    },
+    {
+      "id": "1f382",
+      "emoji": "🎂",
+      "file": "1f382.json"
+    },
+    {
+      "id": "2615",
+      "emoji": "☕",
+      "file": "2615.json"
+    },
+    {
+      "id": "1f37b",
+      "emoji": "🍻",
+      "file": "1f37b.json"
+    },
+    {
+      "id": "1f680",
+      "emoji": "🚀",
+      "file": "1f680.json"
+    },
+    {
+      "id": "1f984",
+      "emoji": "🦄",
+      "file": "1f984.json"
+    },
+    {
+      "id": "1f438",
+      "emoji": "🐸",
+      "file": "1f438.json"
+    }
+  ]
+}

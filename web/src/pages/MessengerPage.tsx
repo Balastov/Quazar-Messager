@@ -20,6 +20,7 @@ import { useDoorsStore } from "../store/doors";
 import type { DoorLink } from "../notifications/notify";
 import { takePendingInvite } from "../api/stars";
 import { useStarsStore } from "../store/stars";
+import { useStickersStore } from "../store/stickers";
 import E2EKeyGate from "../components/E2EKeyGate";
 import s from "./MessengerPage.module.css";
 
@@ -47,6 +48,7 @@ export default function MessengerPage() {
       useChatStore.setState({ showMigrationNotice: true });
     }
     useUiStore.setState({ mobileChatOpen: false });
+    void useStickersStore.getState().load();
 
     // Открыли по уведомлению двери комнаты: ?star=…&planet=…&door=…
     const params = new URLSearchParams(window.location.search);

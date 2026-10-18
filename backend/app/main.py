@@ -27,6 +27,10 @@ from app.api.stars import invites_router as star_invites_router
 from app.api.stars import router as stars_router
 from app.api.voice import router as voice_router
 from app.api.voice import webhook_router as livekit_webhook_router
+from app.api.stickers import FILES_PATH as STICKER_FILES_PATH
+from app.api.stickers import StickerFiles
+from app.api.stickers import router as stickers_router
+from app.core.stickers import STICKERS_DIR
 from app.ws.router import router as ws_router
 
 
@@ -135,7 +139,13 @@ app.include_router(voice_router)
 app.include_router(office_router)
 app.include_router(doors_router)
 app.include_router(livekit_webhook_router)
+app.include_router(stickers_router)
 app.include_router(ws_router)
 
 _media = Path(media_root())
 app.mount("/media", StaticFiles(directory=str(_media)), name="media")
+app.mount(
+    STICKER_FILES_PATH,
+    StickerFiles(directory=str(STICKERS_DIR), check_dir=False),
+    name="sticker-files",
+)

@@ -13,10 +13,18 @@ import {
   IconMic,
   IconPlus,
   IconSend,
+  IconSticker,
   IconVideo,
 } from "./icons";
 import s from "./MessageView.module.css";
 import LinkifiedText from "./LinkifiedText";
+import Sticker from "./Sticker";
+import StickerPicker from "./StickerPicker";
+import { useStickersStore } from "../store/stickers";
+import { stickerFileUrl, type StickerInfo } from "../api/stickers";
+import { encodeSticker, parseSticker } from "../stickers/format";
+
+const STICKER_SIZE = 160;
 
 interface Props {
   showBack?: boolean;
@@ -47,12 +55,19 @@ export default function MessageView({ showBack = false }: Props) {
   const callPhase = useCallStore((st) => st.phase);
   const [text, setText] = useState("");
   const [sendError, setSendError] = useState<string | null>(null);
+  const [stickersOpen, setStickersOpen] = useState(false);
+  const stickersByKey = useStickersStore((st) => st.byKey);
+  const stickersLoaded = useStickersStore((st) => st.loaded);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const chat = chats.find((c) => c.id === activeChatId);
   const msgs = activeChatId ? (messages[activeChatId] ?? []) : [];
   const isDirect = chat?.type === "direct";
   const inputDisabled = isDirect && e2eReady === false;
+
+  useEffect(() => {
+    setStickersOpen(false);
+  }, [activeChatId]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -117,6 +132,18 @@ export default function MessageView({ showBack = false }: Props) {
       if (err instanceof E2EError) setSendError(err.message);
       else setSendError("Не удалось отправить сообщение");
       setText(payload);
+    }
+  };
+
+  const handleSticker = async (packId: string, sticker: StickerInfo) => {
+    if (!activeChatId || inputDisabled) return;
+    setStickersOpen(false);
+    setSendError(null);
+    try {
+      await sendMessage(activeChatId, encodeSticker(packId, sticker.id));
+    } catch (err) {
+      if (err instanceof E2EError) setSendError(err.message);
+      else setSendError("Не удалось отправить стикер");
     }
   };
 
@@ -225,11 +252,30 @@ export default function MessageView({ showBack = false }: Props) {
         {msgs.map((msg) => {
           const isOwn = msg.sender_id === currentUser?.id;
           const unavailable = msg.payload.startsWith("Сообщение недоступно");
+          const stickerRef = unavailable ? null : parseSticker(msg.payload);
+          const sticker = stickerRef ? stickersByKey[`${stickerRef.pack}/${stickerRef.id}`] : undefined;
+          // Стикер без пузыря; неизвестный (пак убрали с сервера) — обычной строкой.
+          const asSticker = !!stickerRef && (!!sticker || !stickersLoaded);
           return (
-            <div key={msg.id} className={isOwn ? s.ownBubble : s.otherBubble}>
-              <span className={unavailable ? s.textMuted : s.text}>
-                {unavailable ? msg.payload : <LinkifiedText text={msg.payload} linkClassName={s.link} />}
-              </span>
+            <div
+              key={msg.id}
+              className={
+                asSticker ? (isOwn ? s.ownSticker : s.otherSticker) : isOwn ? s.ownBubble : s.otherBubble
+              }
+            >
+              {asSticker ? (
+                sticker ? (
+                  <Sticker url={stickerFileUrl(sticker)} emoji={sticker.emoji} size={STICKER_SIZE} mode="loop" />
+                ) : (
+                  <div style={{ width: STICKER_SIZE, height: STICKER_SIZE }} />
+                )
+              ) : stickerRef ? (
+                <span className={s.textMuted}>Стикер недоступен</span>
+              ) : (
+                <span className={unavailable ? s.textMuted : s.text}>
+                  {unavailable ? msg.payload : <LinkifiedText text={msg.payload} linkClassName={s.link} />}
+                </span>
+              )}
               <span className={s.meta}>
                 {new Date(msg.created_at).toLocaleTimeString("ru", {
                   hour: "2-digit",
@@ -247,6 +293,13 @@ export default function MessageView({ showBack = false }: Props) {
         <div ref={bottomRef} />
       </div>
 
+      <div className={s.composerWrap}>
+      {stickersOpen && (
+        <StickerPicker
+          onPick={(packId, st) => void handleSticker(packId, st)}
+          onClose={() => setStickersOpen(false)}
+        />
+      )}
       <form className={s.composer} onSubmit={(e) => void handleSend(e)}>
         <button type="button" className={s.attachBtn} title="Вложения скоро" disabled>
           <IconPlus size={20} />
@@ -261,6 +314,18 @@ export default function MessageView({ showBack = false }: Props) {
             onChange={(e) => setText(e.target.value)}
             disabled={inputDisabled}
           />
+          <button
+            type="button"
+            className={stickersOpen ? s.stickerBtnActive : s.stickerBtn}
+            onClick={() => setStickersOpen((open) => !open)}
+            disabled={inputDisabled}
+            aria-label="Стикеры"
+            aria-expanded={stickersOpen}
+            title="Стикеры"
+            data-sticker-toggle
+          >
+            <IconSticker size={20} />
+          </button>
         </div>
         {text.trim() ? (
           <button
@@ -277,6 +342,7 @@ export default function MessageView({ showBack = false }: Props) {
           </button>
         )}
       </form>
+      </div>
 
       {showE2ePanel && isDirect && (
         <E2EStatusPanel

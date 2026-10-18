@@ -28,6 +28,7 @@ import {
 import { useAuthStore } from "./auth";
 import { useE2EStore } from "./e2e";
 import { useUnreadStore } from "./unread";
+import { messagePreview } from "./stickers";
 import type { Chat, Message } from "../api/types";
 
 function isTabVisible(): boolean {
@@ -223,7 +224,7 @@ export const useChatStore = create<ChatState>((set, get) => {
             "Новое сообщение";
           void notifyIncomingMessage({
             title: sender,
-            body: decryptedPayload,
+            body: messagePreview(decryptedPayload),
             chatId: event.chat_id,
             isActiveChat,
           });

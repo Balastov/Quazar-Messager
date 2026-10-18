@@ -1,0 +1,101 @@
+.picker {
+  position: absolute;
+  right: 12px;
+  bottom: calc(100% + 8px);
+  z-index: 20;
+  width: min(380px, calc(100vw - 24px));
+  height: min(360px, 52vh);
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--qz-radius-lg);
+  border: 1px solid var(--qz-glass-border);
+  background: var(--qz-glass-bg-strong);
+  backdrop-filter: var(--qz-glass-filter);
+  -webkit-backdrop-filter: var(--qz-glass-filter);
+  box-shadow: var(--qz-glass-shine), 0 18px 48px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+  animation: pop 0.18s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes pop {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+}
+
+.tabs {
+  display: flex;
+  gap: 6px;
+  padding: 10px 10px 0;
+  overflow-x: auto;
+  flex-shrink: 0;
+}
+
+.tab,
+.tabActive {
+  border: 1px solid var(--qz-border);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+  color: var(--qz-text-muted);
+  background: transparent;
+}
+
+.tabActive {
+  color: #fff;
+  border-color: transparent;
+  background: linear-gradient(135deg, #c084fc, #7c3aed);
+}
+
+.grid {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(76px, 1fr));
+  align-content: start;
+  gap: 4px;
+  padding: 10px;
+}
+
+.cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 1;
+  border: none;
+  border-radius: 16px;
+  background: transparent;
+  cursor: pointer;
+  transition: background 0.15s, transform 0.15s;
+}
+
+.cell:hover,
+.cell:focus-visible {
+  background: rgba(255, 255, 255, 0.08);
+  transform: scale(1.06);
+  outline: none;
+}
+
+.hint {
+  grid-column: 1 / -1;
+  padding: 24px 0;
+  text-align: center;
+  font-size: 13px;
+  color: var(--qz-text-muted);
+}
+
+.credit {
+  flex-shrink: 0;
+  padding: 6px 12px 8px;
+  font-size: 10px;
+  color: var(--qz-text-dim);
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.credit a {
+  color: inherit;
+}

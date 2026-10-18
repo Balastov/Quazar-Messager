@@ -1,6 +1,7 @@
 import React, {useEffect, useRef, useState} from 'react';
 import {
   FlatList,
+  Keyboard,
   KeyboardAvoidingView,
   Linking,
   Platform,
@@ -18,6 +19,13 @@ import {useCallStore} from '../store/call';
 import type {RootStackParamList} from '../navigation';
 import type {Message} from '../api/types';
 import {splitLinks} from '../utils/linkify';
+import type {StickerInfo} from '../api/stickers';
+import {useStickersStore} from '../store/stickers';
+import {encodeSticker, parseSticker} from '../stickers/format';
+import Sticker from '../components/Sticker';
+import StickerPanel from '../components/StickerPanel';
+
+const STICKER_SIZE = 150;
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Chat'>;
 
@@ -54,6 +62,10 @@ export default function ChatScreen({route, navigation}: Props) {
   const callBusy = callPhase !== 'idle' && callPhase !== 'ended';
   const [text, setText] = useState('');
   const [sendError, setSendError] = useState<string | null>(null);
+  const [stickersOpen, setStickersOpen] = useState(false);
+  const stickersByKey = useStickersStore(st => st.byKey);
+  const stickersLoaded = useStickersStore(st => st.loaded);
+  const loadStickers = useStickersStore(st => st.load);
   const listRef = useRef<FlatList<Message>>(null);
 
   const msgs = messages[chatId] ?? [];
@@ -67,6 +79,26 @@ export default function ChatScreen({route, navigation}: Props) {
   useEffect(() => {
     selectChat(chatId);
   }, [chatId, selectChat]);
+
+  useEffect(() => {
+    void loadStickers();
+  }, [loadStickers]);
+
+  const toggleStickers = () => {
+    if (!stickersOpen) {
+      Keyboard.dismiss();
+    }
+    setStickersOpen(open => !open);
+  };
+
+  const handleSticker = async (packId: string, sticker: StickerInfo) => {
+    setSendError(null);
+    try {
+      await sendMessage(chatId, encodeSticker(packId, sticker.id));
+    } catch (err) {
+      setSendError(err instanceof Error ? err.message : 'Не удалось отправить стикер');
+    }
+  };
 
   useEffect(() => {
     navigation.setOptions({
@@ -147,9 +179,23 @@ export default function ChatScreen({route, navigation}: Props) {
 
   const renderItem = ({item}: {item: Message}) => {
     const isOwn = item.sender_id === currentUser?.id;
+    const ref = parseSticker(item.payload);
+    const sticker = ref ? stickersByKey[`${ref.pack}/${ref.id}`] : undefined;
+    // Стикер без пузыря; неизвестный (пак убрали с сервера) — строкой в пузыре.
+    const asSticker = !!ref && (!!sticker || !stickersLoaded);
     return (
-      <View style={[s.bubble, isOwn ? s.own : s.other]}>
-        <MessageText text={item.payload} isOwn={isOwn} />
+      <View style={asSticker ? [s.stickerMsg, isOwn ? s.stickerOwn : s.stickerOther] : [s.bubble, isOwn ? s.own : s.other]}>
+        {asSticker ? (
+          sticker ? (
+            <Sticker sticker={sticker} size={STICKER_SIZE} animate />
+          ) : (
+            <View style={{width: STICKER_SIZE, height: STICKER_SIZE}} />
+          )
+        ) : ref ? (
+          <Text style={s.textMuted}>Стикер недоступен</Text>
+        ) : (
+          <MessageText text={item.payload} isOwn={isOwn} />
+        )}
         <View style={s.meta}>
           <Text style={s.time}>
             {new Date(item.created_at).toLocaleTimeString('ru', {
@@ -189,12 +235,20 @@ export default function ChatScreen({route, navigation}: Props) {
 
       {sendError && <Text style={s.sendError}>{sendError}</Text>}
       <View style={s.inputRow}>
+        <Pressable
+          style={[s.stickerBtn, stickersOpen && s.stickerBtnActive]}
+          onPress={toggleStickers}
+          accessibilityLabel={stickersOpen ? 'Клавиатура' : 'Стикеры'}
+          hitSlop={6}>
+          <Text style={s.stickerIcon}>{stickersOpen ? '⌨️' : '🙂'}</Text>
+        </Pressable>
         <TextInput
           style={s.input}
           placeholder="Написать сообщение..."
           placeholderTextColor="#555"
           value={text}
           onChangeText={setText}
+          onFocus={() => setStickersOpen(false)}
           multiline
         />
         <Pressable
@@ -204,6 +258,9 @@ export default function ChatScreen({route, navigation}: Props) {
           <Text style={s.sendIcon}>➤</Text>
         </Pressable>
       </View>
+      {stickersOpen && (
+        <StickerPanel onPick={(packId, st) => void handleSticker(packId, st)} />
+      )}
     </KeyboardAvoidingView>
   );
 }
@@ -228,6 +285,19 @@ const s = StyleSheet.create({
     borderBottomLeftRadius: 4,
   },
   text: {color: '#fff', fontSize: 14, lineHeight: 20},
+  textMuted: {color: 'rgba(255,255,255,0.65)', fontSize: 13, fontStyle: 'italic'},
+  stickerMsg: {gap: 2},
+  stickerOwn: {alignSelf: 'flex-end', alignItems: 'flex-end'},
+  stickerOther: {alignSelf: 'flex-start', alignItems: 'flex-start'},
+  stickerBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stickerBtnActive: {backgroundColor: 'rgba(108,99,255,0.25)'},
+  stickerIcon: {fontSize: 22},
   link: {textDecorationLine: 'underline'},
   linkOwn: {color: '#fff'},
   linkOther: {color: '#d8c8ff'},

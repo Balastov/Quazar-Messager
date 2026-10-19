@@ -65,7 +65,7 @@ self.addEventListener("push", (event) => {
     const door = data.door || "invite";
     const actions =
       door === "invite"
-        ? [{ action: "join", title: "Зайти" }]
+        ? [{ action: "join", title: data.action_title || "Войти" }]
         : door === "knock"
           ? [
               { action: "admit", title: "Впустить" },

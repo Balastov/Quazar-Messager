@@ -166,15 +166,8 @@ export default function OfficeMap({ detail, onBack, onOpenPlanet, onAddRoom }: P
       onOpenPlanet(c);
       return;
     }
-    const inside = detail.voice?.[c.id] ?? [];
-    if (inside.length >= (c.capacity ?? 10)) return;
-    if (mustKnock(c) && !inside.some((p) => p.user_id === myId)) {
-      if (myKnock?.channelId === c.id) return;
-      // Закрытая комната — нажатие означает «постучаться».
-      void useDoorsStore.getState().knock(detail.id, c.id, c.name);
-      return;
-    }
-    void voice.join(detail.id, c.id);
+    // Войти — или постучаться, если дверь закрыта.
+    void useDoorsStore.getState().enterRoom(detail, c);
   };
 
   const addFloor = async () => {
@@ -223,7 +216,7 @@ export default function OfficeMap({ detail, onBack, onOpenPlanet, onAddRoom }: P
           <span className={s.channelTitleSub}>
             {editing
               ? "Перетаскивайте комнаты, растягивайте за правый нижний угол"
-              : "Нажмите на комнату, чтобы зайти"}
+              : "Нажмите на комнату, чтобы войти"}
           </span>
         </div>
       </div>
@@ -348,7 +341,7 @@ export default function OfficeMap({ detail, onBack, onOpenPlanet, onAddRoom }: P
                           ? `${c.name} — вы постучались, ждём ответа`
                           : locked
                             ? `${c.name} — ${doorKind(c) === "personal" ? "личный кабинет" : "по приглашениям"}, нажмите, чтобы постучаться`
-                            : `${c.name} — нажмите, чтобы зайти`
+                            : `Войти в ${c.name}`
                 }
                 onPointerDown={(e) => onPointerDown(e, c, "move")}
                 onClick={() => onRoomClick(c)}

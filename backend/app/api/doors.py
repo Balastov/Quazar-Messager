@@ -102,6 +102,25 @@ def can_answer(star: Star, member: StarMember, channel: StarChannel) -> bool:
     return False
 
 
+def enter_words(star: Star, room_name: str) -> dict[str, str]:
+    """Как называть вход: «Войти в …» в Звёздах «Работа», «Отправиться на планету …» в игровых."""
+    if star.kind == "work":
+        return {
+            "enter": f"Войти в {room_name}",
+            "free": "можно войти",
+            "open": "Комната открыта — входите без стука",
+            "empty": "В комнате никого нет — входите",
+            "inside": "Вы уже в комнате",
+        }
+    return {
+        "enter": f"Отправиться на планету {room_name}",
+        "free": "можно отправиться",
+        "open": "Планета открыта — отправляйтесь на неё без стука",
+        "empty": "На планете никого нет — отправляйтесь на неё",
+        "inside": "Вы уже на планете",
+    }
+
+
 def _who_answers(channel: StarChannel) -> str:
     if door(channel) == PERSONAL:
         return "Звать и впускать в личный кабинет могут его хозяин, админы и владелец Звезды"
@@ -232,6 +251,8 @@ async def invite_to_planet(star_id: str, channel_id: str, body: InviteBody, curr
             "door": "invite",
             "title": f"{current_user.username} зовёт вас",
             "body": f"в «{channel.name}» · {star.name}",
+            # Кнопка уведомления: «Войти в …» / «Отправиться на планету …».
+            "action_title": enter_words(star, channel.name)["enter"],
             "star_id": star_id,
             "channel_id": channel_id,
         },
@@ -245,14 +266,15 @@ async def invite_to_planet(star_id: str, channel_id: str, body: InviteBody, curr
 async def knock_on_planet(star_id: str, channel_id: str, current_user: CurrentUser, db: Db):
     star, me = await _load_membership(db, star_id, current_user.id)
     channel = await _channel(db, star_id, channel_id)
+    words = enter_words(star, channel.name)
     if channel.kind != "planet" or not is_closed(channel):
-        raise HTTPException(status_code=400, detail="Комната открыта — просто заходите")
+        raise HTTPException(status_code=400, detail=words["open"])
     if door(channel) == INVITE and not voice.participants(channel_id):
-        raise HTTPException(status_code=409, detail="В комнате никого нет — просто заходите")
+        raise HTTPException(status_code=409, detail=words["empty"])
     if enters_freely(star, me, channel):
-        raise HTTPException(status_code=400, detail="Вы можете войти без стука")
+        raise HTTPException(status_code=400, detail="Вам можно без стука")
     if current_user.id in {p.user_id for p in voice.participants(channel_id)}:
-        raise HTTPException(status_code=400, detail="Вы уже в комнате")
+        raise HTTPException(status_code=400, detail=words["inside"])
 
     knock, created = doors.knock(star_id, channel_id, current_user.id)
     if created:
@@ -395,7 +417,9 @@ async def on_room_changed(db: AsyncSession, star: Star, channel_id: str) -> None
             },
             push={
                 "star_id": star.id, "channel_id": channel.id, "knock_id": knock.id, "door": "free",
-                "title": "Комната освободилась", "body": f"«{channel.name}» · {star.name} — можно заходить",
+                "title": "Комната освободилась" if star.kind == "work" else "Планета освободилась",
+                "body": f"«{channel.name}» · {star.name} — {enter_words(star, channel.name)['free']}",
+                "action_title": enter_words(star, channel.name)["enter"],
             },
         )
         await _close_knock(db, star, knock)

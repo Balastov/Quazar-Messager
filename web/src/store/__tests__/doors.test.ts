@@ -33,7 +33,7 @@ vi.mock("../stars", () => ({ useStarsStore: { getState: () => ({ selectStar }) }
 
 const join = vi.fn(async () => {});
 vi.mock("../voice", () => ({
-  useVoiceStore: { getState: () => ({ join }), setState: () => {} },
+  useVoiceStore: { getState: () => ({ join, channelId: null, status: "idle" }), setState: () => {} },
 }));
 
 const { useDoorsStore } = await import("../doors");
@@ -51,6 +51,47 @@ beforeEach(() => {
   join.mockClear();
   selectStar.mockClear();
   answerApi.mockClear();
+});
+
+describe("entering a room (double click, office map)", () => {
+  const room = {
+    id: "room", star_id: "s1", kind: "planet", name: "Переговорная", position: 0, capacity: 2,
+    room_kind: "meeting", access: "open", floor_id: null, map_x: null, map_y: null, map_w: null, map_h: null,
+  };
+  const detail = (access: string, inside: string[] = [], extra: Record<string, unknown> = {}) =>
+    ({
+      id: "s1", kind: "work", my_role: "member", my_permissions: [],
+      voice: { room: inside.map((id, i) => ({ user_id: id, joined_at: "", server_muted: false, is_host: i === 0 })) },
+      ...extra,
+    }) as never;
+
+  it("walks into an open room", async () => {
+    await useDoorsStore.getState().enterRoom(detail("open"), room as never);
+    expect(join).toHaveBeenCalledWith("s1", "room");
+    expect(knockApi).not.toHaveBeenCalled();
+  });
+
+  it("knocks when the door is closed to me", async () => {
+    knockApi.mockClear();
+    await useDoorsStore.getState().enterRoom(detail("invite", ["anna"]), { ...room, access: "invite" } as never);
+    expect(join).not.toHaveBeenCalled();
+    expect(knockApi).toHaveBeenCalledWith("s1", "room");
+    expect(useDoorsStore.getState().myKnock?.channelId).toBe("room");
+  });
+
+  it("enters an empty invite room and the own cabinet without knocking", async () => {
+    await useDoorsStore.getState().enterRoom(detail("invite"), { ...room, access: "invite" } as never);
+    await useDoorsStore
+      .getState()
+      .enterRoom(detail("personal"), { ...room, access: "personal", cabinet_owner_id: "me" } as never);
+    expect(join).toHaveBeenCalledTimes(2);
+  });
+
+  it("says the room is full", async () => {
+    await useDoorsStore.getState().enterRoom(detail("open", ["a", "b"]), room as never);
+    expect(join).not.toHaveBeenCalled();
+    expect(useDoorsStore.getState().notice).toBe("Комната заполнена: Переговорная");
+  });
 });
 
 describe("doors store", () => {

@@ -33,6 +33,7 @@ import {
 } from "../calls/noiseSuppression";
 import { applyIosRoute, applyOutput, getMicrophone, getPreferredOutput } from "../calls/devices";
 import { useCallStore } from "./call";
+import { roomWords, type RoomWords } from "../components/constellation/words";
 
 export type VoiceStatus = "idle" | "connecting" | "connected" | "reconnecting";
 
@@ -241,6 +242,15 @@ type StarsStore = typeof import("./stars").useStarsStore;
 /** Стор Созвездия — динамически: иначе цикл импортов (stars → auth → voice). */
 async function starsStore(): Promise<StarsStore> {
   return (await import("./stars")).useStarsStore;
+}
+
+let words: RoomWords | null = null;
+
+/** Формулировки текущей Планеты/комнаты (тип Звезды и название — из стора Созвездия). */
+async function wordsFor(starId: string, channelId: string): Promise<RoomWords> {
+  const detail = (await starsStore()).getState().details[starId];
+  const name = detail?.channels.find((c) => c.id === channelId)?.name ?? "";
+  return roomWords(detail?.kind, name);
 }
 
 function planetListenOnly(stars: StarsStore, starId: string, channelId: string): boolean {
@@ -496,11 +506,11 @@ export const useVoiceStore = create<VoiceState>((set, get) => {
         if (room !== r) return;
         let notice: string | null = null;
         if (!leavingOnPurpose) {
-          if (reason === DisconnectReason.PARTICIPANT_REMOVED) notice = "Вас вывели с Планеты";
-          else if (reason === DisconnectReason.ROOM_DELETED) notice = "Планету закрыли";
-          else if (reason === DisconnectReason.DUPLICATE_IDENTITY)
-            notice = "Вы зашли на Планету с другого устройства";
-          else notice = "Связь с Планетой прервалась";
+          const w = words ?? roomWords(undefined, "");
+          if (reason === DisconnectReason.PARTICIPANT_REMOVED) notice = w.removed;
+          else if (reason === DisconnectReason.ROOM_DELETED) notice = w.closed;
+          else if (reason === DisconnectReason.DUPLICATE_IDENTITY) notice = w.otherDevice;
+          else notice = w.lost;
         }
         void cleanup(notice);
       });
@@ -537,6 +547,8 @@ export const useVoiceStore = create<VoiceState>((set, get) => {
       if (status !== "idle") await get().leave();
 
       set({ status: "connecting", starId, channelId, error: null, notice: null, locked: null });
+      const roomText = await wordsFor(starId, channelId);
+      words = roomText;
       applyIosRoute(); // iPhone: «у уха» или громкая связь — до того, как пойдёт звук
       const wantDenoiser = get().noiseSuppression && isNoiseSuppressionSupported();
       if (wantDenoiser) void preloadNoiseSuppression().catch(() => {});
@@ -571,7 +583,7 @@ export const useVoiceStore = create<VoiceState>((set, get) => {
           set({ locked: { starId, channelId } });
           return;
         }
-        set({ error: apiError(err, "Не удалось подключиться к Планете. Попробуйте ещё раз.") });
+        set({ error: apiError(err, roomText.failed) });
         return;
       }
 

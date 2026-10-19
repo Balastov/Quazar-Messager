@@ -3,6 +3,7 @@ import { useStarsStore } from "../../store/stars";
 import { useUiStore } from "../../store/ui";
 import { useVoiceStore } from "../../store/voice";
 import { IconPlanet } from "../icons";
+import { roomWords } from "./words";
 import s from "./Constellation.module.css";
 
 /** «Вы на Планете …» с микрофоном и выходом. floating — поверх других вкладок. */
@@ -23,6 +24,7 @@ export function VoiceBar({ floating = false }: { floating?: boolean }) {
 
   if (status === "idle" || !starId || !channelId) return null;
   const planet = detail?.channels.find((c) => c.id === channelId);
+  const words = roomWords(detail?.kind, planet?.name ?? "");
 
   const open = () => {
     useUiStore.getState().setTab("stars");
@@ -36,7 +38,7 @@ export function VoiceBar({ floating = false }: { floating?: boolean }) {
       <IconPlanet />
       <button type="button" className={s.voiceBarInfo} onClick={open}>
         <span className={s.voiceBarTitle}>
-          {status === "connected" ? "Вы на Планете" : "Подключаемся…"}
+          {status === "connected" ? words.here : words.entering}
         </span>
         <span className={s.voiceBarSub}>
           {planet?.name ?? "Планета"}
@@ -74,8 +76,8 @@ export function VoiceBar({ floating = false }: { floating?: boolean }) {
         type="button"
         className={`${s.danger} ${s.small}`}
         onClick={() => void leave()}
-        aria-label="Выйти с Планеты"
-        title="Выйти с Планеты"
+        aria-label={words.leave}
+        title={words.leave}
       >
         ✕
       </button>

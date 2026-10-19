@@ -10,6 +10,7 @@ import Dialog from "./Dialog";
 import AudioDevices from "../AudioDevices";
 import ScreenStage from "./ScreenStage";
 import { apiError, can, canStopScreen, outranks, ROOM_LABEL, roomDoor } from "./rules";
+import { roomWords } from "./words";
 import s from "./Constellation.module.css";
 
 interface Props {
@@ -31,7 +32,6 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
   const doors = useDoorsStore.getState();
 
   const here = voice.channelId === channel.id && voice.status !== "idle";
-  const elsewhere = voice.status !== "idle" && !here;
   const presence = detail.voice?.[channel.id] ?? [];
   const capacity = channel.capacity ?? 10;
   const iAmInside = presence.some((p) => p.user_id === myId);
@@ -43,6 +43,7 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
   const closed = door.kind !== "open";
   const personal = door.kind === "personal";
   const listenOnly = !!channel.listen_only;
+  const words = roomWords(detail.kind, channel.name);
   const mustKnock = !door.entersFreely && !iAmInside;
   const myKnockHere = myKnock?.channelId === channel.id ? myKnock : null;
   const knocksHere = Object.values(allKnocks).filter((k) => k.knock.channel_id === channel.id);
@@ -201,7 +202,7 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
               disabled={full || inCall}
               onClick={() => void doors.knock(detail.id, channel.id, channel.name)}
             >
-              {full ? "Планета заполнена" : "✊ Постучаться"}
+              {full ? words.full : "✊ Постучаться"}
             </button>
           ) : (
             <button
@@ -211,12 +212,10 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
               onClick={() => void voice.join(detail.id, channel.id)}
             >
               {full
-                ? "Планета заполнена"
+                ? words.full
                 : voice.status === "connecting" && voice.channelId === channel.id
-                  ? "Подключаемся…"
-                  : elsewhere
-                    ? "Перейти на эту Планету"
-                    : "Зайти на Планету"}
+                  ? words.entering
+                  : words.enter}
             </button>
           )}
         </div>
@@ -226,7 +225,7 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
 
   const statusText =
     voice.status === "connecting"
-      ? "Подключаемся…"
+      ? words.entering
       : voice.status === "reconnecting"
         ? "Связь прерывается — восстанавливаем…"
         : null;
@@ -366,7 +365,7 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
                       className={`${s.danger} ${s.small}`}
                       onClick={() => {
                         const name = m?.user.username ?? peer.name;
-                        if (window.confirm(`Вывести ${name} с Планеты?`)) {
+                        if (window.confirm(words.removeConfirm(name))) {
                           void moderate(() => starsApi.voiceRemove(detail.id, channel.id, peer.userId));
                         }
                       }}
@@ -443,7 +442,7 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
           </button>
         )}
         <button type="button" className={s.danger} onClick={() => void voice.leave()}>
-          Выйти с Планеты
+          {words.leave}
         </button>
       </div>
       {devicesOpen && (

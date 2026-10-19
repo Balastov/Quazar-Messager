@@ -3,7 +3,16 @@
  */
 import { create } from "zustand";
 import axios from "axios";
-import { starsApi, type KnockAnswer, type KnockEvent, type StarEvent } from "../api/stars";
+import {
+  starsApi,
+  type KnockAnswer,
+  type KnockEvent,
+  type StarChannel,
+  type StarDetail,
+  type StarEvent,
+} from "../api/stars";
+import { roomDoor } from "../components/constellation/rules";
+import { roomWords } from "../components/constellation/words";
 import { notifyDoor, type DoorLink } from "../notifications/notify";
 import { socket } from "../ws/socket";
 import { useAuthStore } from "./auth";
@@ -40,6 +49,8 @@ interface DoorsState {
   cancelKnock: () => Promise<void>;
   answer: (knockId: string, action: KnockAnswer) => Promise<void>;
   invite: (starId: string, channelId: string, userId: string) => Promise<void>;
+  /** Войти в комнату / отправиться на планету — или постучаться, если дверь закрыта. */
+  enterRoom: (detail: StarDetail, channel: StarChannel) => Promise<void>;
   acceptInvite: (invite: Invite) => Promise<void>;
   dismissInvite: (invite: Invite) => void;
   loadKnocks: (starId: string) => Promise<void>;
@@ -56,6 +67,11 @@ function errorText(err: unknown, fallback: string): string {
     if (typeof detail === "string") return detail;
   }
   return fallback;
+}
+
+/** Тип Звезды — от него зависит, «войти в комнату» или «отправиться на планету». */
+function starKind(starId: string) {
+  return useStarsStore.getState().details?.[starId]?.kind;
 }
 
 /** Открыть Звезду и войти на Планету. */
@@ -99,7 +115,12 @@ export const useDoorsStore = create<DoorsState>((set, get) => {
           {
             title: `${invite.fromName} зовёт вас`,
             body: `в «${invite.roomName}» · ${invite.starName}`,
-            actions: [{ action: "join", title: "Зайти" }],
+            actions: [
+              {
+                action: "join",
+                title: roomWords(starKind(invite.starId), invite.roomName).enter,
+              },
+            ],
           }
         );
         break;
@@ -148,11 +169,13 @@ export const useDoorsStore = create<DoorsState>((set, get) => {
               : event.action === "wait"
                 ? "Подождите в зале ожидания"
                 : event.action === "free"
-                  ? "Комната освободилась"
+                  ? roomWords(starKind(event.star_id), event.room_name).freed
                   : "Вам отказали",
           body:
             event.action === "free"
-              ? `«${event.room_name}» · ${event.star_name} — можно заходить`
+              ? `«${event.room_name}» · ${event.star_name} — ${
+                  roomWords(starKind(event.star_id), event.room_name).freeHint
+                }`
               : `«${event.room_name}» · ${event.star_name}`,
         });
         break;
@@ -222,6 +245,25 @@ export const useDoorsStore = create<DoorsState>((set, get) => {
 
     invite: async (starId, channelId, userId) => {
       await starsApi.invite(starId, channelId, userId);
+    },
+
+    enterRoom: async (detail, channel) => {
+      if (channel.kind !== "planet") return;
+      const voice = useVoiceStore.getState();
+      if (voice.channelId === channel.id && voice.status !== "idle") return;
+      const myId = useAuthStore.getState().user?.id;
+      const inside = detail.voice?.[channel.id] ?? [];
+      if (inside.length >= (channel.capacity ?? 10) && !inside.some((p) => p.user_id === myId)) {
+        set({ notice: `${roomWords(detail.kind, channel.name).full}: ${channel.name}` });
+        return;
+      }
+      if (!roomDoor(detail, channel, myId).entersFreely && !inside.some((p) => p.user_id === myId)) {
+        // Закрытая дверь — вход означает «постучаться».
+        if (get().myKnock?.channelId === channel.id) return;
+        await get().knock(detail.id, channel.id, channel.name);
+        return;
+      }
+      await voice.join(detail.id, channel.id);
     },
 
     acceptInvite: async (invite) => {
@@ -295,7 +337,12 @@ export const useDoorsStore = create<DoorsState>((set, get) => {
           break;
         case "free": {
           // В комнате никого не осталось — дверь открыта, заходит человек сам.
-          set({ myKnock: null, notice: "Комната освободилась — можно заходить" });
+          const detail = useStarsStore.getState().details?.[link.starId];
+          const words = roomWords(
+            detail?.kind,
+            detail?.channels.find((c) => c.id === link.channelId)?.name ?? ""
+          );
+          set({ myKnock: null, notice: `${words.freed} — ${words.freeHint}` });
           useUiStore.getState().setTab("stars");
           const stars = useStarsStore.getState();
           await stars.selectStar(link.starId);

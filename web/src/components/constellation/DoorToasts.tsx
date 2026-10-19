@@ -3,6 +3,7 @@ import { useAuthStore } from "../../store/auth";
 import { useDoorsStore } from "../../store/doors";
 import { useStarsStore } from "../../store/stars";
 import { roomDoor } from "./rules";
+import { roomWords } from "./words";
 import s from "./Constellation.module.css";
 
 /** Приглашения «Позвать», стуки в двери и статус своего стука — поверх любой вкладки. */
@@ -51,7 +52,7 @@ export default function DoorToasts() {
           <div className={s.doorSub}>{invite.starName}</div>
           <div className={s.doorActions}>
             <button type="button" className={`${s.primary} ${s.small}`} onClick={() => void acceptInvite(invite)}>
-              Зайти
+              {roomWords(details[invite.starId]?.kind, invite.roomName).enter}
             </button>
             <button type="button" className={`${s.secondary} ${s.small}`} onClick={() => dismissInvite(invite)}>
               Не сейчас

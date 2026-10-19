@@ -65,7 +65,8 @@ async def join_planet(star_id: str, channel_id: str, current_user: CurrentUser, 
     already_inside = current_user.id in identities
     if not already_inside and len(identities) >= capacity:
         raise HTTPException(
-            status_code=409, detail=f"Планета заполнена: {len(identities)} из {capacity}"
+            status_code=409,
+            detail=f"{'Комната' if star.kind == 'work' else 'Планета'} заполнена: {len(identities)} из {capacity}",
         )
 
     # Закрытая дверь: кто не входит свободно, тому нужен пропуск (позвали или впустили).
@@ -133,7 +134,7 @@ async def remove_participant(
 @router.post("/{star_id}/planets/{channel_id}/screen", status_code=status.HTTP_204_NO_CONTENT)
 async def start_screen(star_id: str, channel_id: str, current_user: CurrentUser, db: Db):
     """Занять слот показа экрана: на Планете показывает не больше одного человека."""
-    await _load_membership(db, star_id, current_user.id)
+    star, _ = await _load_membership(db, star_id, current_user.id)
     await _planet(db, star_id, channel_id)
     if not livekit.configured():
         raise _unavailable()
@@ -149,7 +150,10 @@ async def start_screen(star_id: str, channel_id: str, current_user: CurrentUser,
     except livekit.LiveKitError as exc:
         raise _unavailable("Голосовой сервер сейчас недоступен.") from exc
     if not started:
-        raise HTTPException(status_code=409, detail="Сначала зайдите на Планету")
+        raise HTTPException(
+            status_code=409,
+            detail="Сначала войдите в комнату" if star.kind == "work" else "Сначала отправьтесь на планету",
+        )
 
 
 @router.delete("/{star_id}/planets/{channel_id}/screen", status_code=status.HTTP_204_NO_CONTENT)

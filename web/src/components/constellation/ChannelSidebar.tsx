@@ -1,8 +1,10 @@
 import type { ChannelKind, StarChannel, StarDetail } from "../../api/stars";
+import { useDoorsStore } from "../../store/doors";
 import { sortChannels, useStarsStore } from "../../store/stars";
 import { IconGear, IconPlanet, IconSatellite } from "../icons";
 import { can, GAMING_LIMITS, initials, KIND_LABEL, ROLE_LABEL } from "./rules";
 import { VoiceBar } from "./VoiceBar";
+import { roomWords } from "./words";
 import s from "./Constellation.module.css";
 
 interface Props {
@@ -70,7 +72,18 @@ export default function ChannelSidebar({
                 type="button"
                 className={c.id === activeChannelId && !mapActive ? s.channelActive : s.channel}
                 onClick={() => onOpenChannel(c)}
-                onDoubleClick={manage ? () => onEditChannel(c) : undefined}
+                onDoubleClick={
+                  kind === "planet"
+                    ? () => void useDoorsStore.getState().enterRoom(detail, c)
+                    : manage
+                      ? () => onEditChannel(c)
+                      : undefined
+                }
+                title={
+                  kind === "planet"
+                    ? `Двойной клик — ${roomWords(detail.kind, c.name).enter}`
+                    : undefined
+                }
               >
                 {kind === "satellite" ? <IconSatellite /> : <IconPlanet />}
                 <span className={`${s.channelName} ${count ? s.channelUnread : ""}`}>

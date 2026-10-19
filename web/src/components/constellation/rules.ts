@@ -3,7 +3,7 @@
  * Решает всё равно сервер (backend/app/core/stars.py).
  */
 import axios from "axios";
-import type { RoomKind, StarDetail, StarKind, StarPerm, StarRole } from "../../api/stars";
+import type { RoomKind, StarChannel, StarDetail, StarKind, StarPerm, StarRole } from "../../api/stars";
 import { roleRank } from "../../store/stars";
 
 export const ROLE_LABEL: Record<StarRole, string> = {
@@ -37,7 +37,7 @@ export const PERM_LABEL: Record<StarPerm, string> = {
   manage_channels: "Создавать и удалять Спутники и Планеты",
   voice_moderate: "Выключать микрофон и выводить с Планет",
   edit_map: "Редактировать карту офиса",
-  admit: "Впускать в закрытые комнаты и входить в них без стука",
+  admit: "Впускать в комнаты «По приглашениям» и входить в них без стука",
 };
 
 export const PERM_ORDER: StarPerm[] = [
@@ -82,6 +82,50 @@ export function assignableRoles(me: StarRole, target: StarRole): Exclude<StarRol
   const roles: Exclude<StarRole, "owner">[] = me === "owner" ? ["admin", "moderator", "member"] : [];
   if (me === "admin" && target !== "admin") roles.push("moderator", "member");
   return roles.filter((r) => r !== target);
+}
+
+export type DoorKind = "open" | "invite" | "personal";
+
+export function doorKind(channel: StarChannel): DoorKind {
+  if (channel.kind !== "planet" || channel.room_kind === "lobby") return "open";
+  return channel.access === "invite" || channel.access === "personal" ? channel.access : "open";
+}
+
+export interface RoomDoor {
+  kind: DoorKind;
+  /** Главный в комнате «По приглашениям» (первый вошедший). */
+  hostId: string | null;
+  /** Можно войти без стука и приглашения. */
+  entersFreely: boolean;
+  /** Отвечать на стук и звать (звать — находясь в комнате). */
+  canAnswer: boolean;
+}
+
+/** Правила двери комнаты для меня. Повторяют backend/app/api/doors.py. */
+export function roomDoor(detail: StarDetail, channel: StarChannel, myId: string | undefined): RoomDoor {
+  const kind = doorKind(channel);
+  const presence = detail.voice?.[channel.id] ?? [];
+  const hostId = kind === "invite" ? (presence.find((p) => p.is_host)?.user_id ?? null) : null;
+  if (kind === "personal") {
+    const isOwner = !!myId && channel.cabinet_owner_id === myId;
+    return {
+      kind,
+      hostId,
+      entersFreely: isOwner,
+      canAnswer: isOwner || detail.my_role === "owner" || detail.my_role === "admin",
+    };
+  }
+  if (kind === "invite") {
+    const admit = can(detail, "admit");
+    const othersInside = presence.some((p) => p.user_id !== myId);
+    return {
+      kind,
+      hostId,
+      entersFreely: admit || !othersInside,
+      canAnswer: admit || (!!myId && hostId === myId),
+    };
+  }
+  return { kind, hostId, entersFreely: true, canAnswer: false };
 }
 
 export function initials(name: string): string {

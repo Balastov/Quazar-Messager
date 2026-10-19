@@ -244,6 +244,7 @@ export default function ConstellationView() {
           floors={detail.floors}
           defaultFloorId={channelDialog.floorId}
           canEditMap={detail.my_permissions.includes("edit_map")}
+          members={detail.members}
           onClose={() => setChannelDialog(null)}
         />
       )}

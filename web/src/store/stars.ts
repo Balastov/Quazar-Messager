@@ -94,6 +94,7 @@ interface StarsState {
     capacity?: number;
     room_kind?: RoomKind;
     access?: RoomAccess;
+    cabinet_owner_id?: string;
     listen_only?: boolean;
     floor_id?: string;
   }) => Promise<void>;
@@ -104,6 +105,7 @@ interface StarsState {
       capacity?: number;
       room_kind?: RoomKind;
       access?: RoomAccess;
+      cabinet_owner_id?: string;
       listen_only?: boolean;
       floor_id?: string;
     }

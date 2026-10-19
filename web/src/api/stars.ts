@@ -4,8 +4,8 @@ export type StarKind = "gaming" | "work";
 export type StarRole = "owner" | "admin" | "moderator" | "member";
 export type ChannelKind = "satellite" | "planet";
 export type RoomKind = "coworking" | "meeting" | "smoking" | "kitchen" | "custom" | "lobby";
-/** Вход в Планету: свободный или по приглашениям (стучаться). */
-export type RoomAccess = "open" | "invite";
+/** Вход в Планету: свободный, по приглашениям (стучаться) или личный кабинет (Звёзды «Работа»). */
+export type RoomAccess = "open" | "invite" | "personal";
 export type StarPerm =
   | "invite"
   | "delete_messages"
@@ -36,6 +36,8 @@ export interface StarChannel {
   capacity: number | null;
   room_kind: RoomKind | null;
   access: RoomAccess;
+  /** Хозяин личного кабинета (access === "personal"). */
+  cabinet_owner_id?: string | null;
   /** «Только слушать»: микрофоны на Планете не открываются (показ экрана работает). */
   listen_only?: boolean;
   /** Этаж карты офиса (Звёзды «Работа»). */
@@ -78,6 +80,8 @@ export interface LayoutRoom {
 }
 
 export type KnockAnswer = "admit" | "wait" | "deny";
+/** Ответ на стук от сервера: ещё и «комната освободилась — заходите». */
+export type KnockOutcome = KnockAnswer | "free";
 
 export interface Knock {
   id: string;
@@ -105,6 +109,8 @@ export interface VoicePresence {
   server_muted: boolean;
   /** Показывает экран (на Планете — не больше одного). */
   screen_sharing?: boolean;
+  /** Главный в комнате «По приглашениям». */
+  is_host?: boolean;
 }
 
 export interface StarDetail extends StarSummary {
@@ -196,7 +202,7 @@ export type StarEvent =
       star_id: string;
       channel_id: string;
       knock_id: string;
-      action: KnockAnswer;
+      action: KnockOutcome;
       room_name: string;
       star_name: string;
       by_name: string;
@@ -259,6 +265,7 @@ export const starsApi = {
       capacity?: number;
       room_kind?: RoomKind;
       access?: RoomAccess;
+      cabinet_owner_id?: string;
       listen_only?: boolean;
       floor_id?: string;
     }
@@ -271,6 +278,7 @@ export const starsApi = {
       capacity?: number;
       room_kind?: RoomKind;
       access?: RoomAccess;
+      cabinet_owner_id?: string;
       listen_only?: boolean;
       floor_id?: string;
     }
@@ -312,6 +320,8 @@ export const starsApi = {
     http.delete(`${base(starId)}/knocks/${knockId}`),
   answerKnock: (starId: string, knockId: string, action: KnockAnswer) =>
     http.post(`${base(starId)}/knocks/${knockId}/answer`, { action }),
+  makeHost: (starId: string, channelId: string, userId: string) =>
+    http.post(`${base(starId)}/planets/${channelId}/host`, { user_id: userId }),
   knocks: (starId: string) =>
     http.get<KnockEvent[]>(`${base(starId)}/knocks`).then((r) => r.data),
 

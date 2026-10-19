@@ -147,8 +147,13 @@ export const useDoorsStore = create<DoorsState>((set, get) => {
               ? "Вас впустили"
               : event.action === "wait"
                 ? "Подождите в зале ожидания"
-                : "Вам отказали",
-          body: `«${event.room_name}» · ${event.star_name}`,
+                : event.action === "free"
+                  ? "Комната освободилась"
+                  : "Вам отказали",
+          body:
+            event.action === "free"
+              ? `«${event.room_name}» · ${event.star_name} — можно заходить`
+              : `«${event.room_name}» · ${event.star_name}`,
         });
         break;
       }
@@ -288,6 +293,16 @@ export const useDoorsStore = create<DoorsState>((set, get) => {
         case "deny":
           set({ myKnock: null, notice: "Вам отказали во входе в комнату" });
           break;
+        case "free": {
+          // В комнате никого не осталось — дверь открыта, заходит человек сам.
+          set({ myKnock: null, notice: "Комната освободилась — можно заходить" });
+          useUiStore.getState().setTab("stars");
+          const stars = useStarsStore.getState();
+          await stars.selectStar(link.starId);
+          await stars.selectChannel(link.channelId);
+          stars.setMobileChannelOpen(true);
+          break;
+        }
       }
     },
 

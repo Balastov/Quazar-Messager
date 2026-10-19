@@ -7,6 +7,10 @@
 Показ экрана: на Планете его ведёт не больше одного человека. Токен разрешает публиковать
 только микрофон; право на экран бэкенд выдаёт через UpdateParticipant тому, кто занял слот,
 и отзывает, когда показ закончен (сам, модератором или ушёл с Планеты).
+
+Главный в комнате: первый вошедший в пустую Планету. Ушёл — главным становится тот, кто
+внутри дольше всех; главный может передать звание другому присутствующему. Права главного
+действуют в комнатах «По приглашениям» (впускать, звать) — см. app/api/doors.py.
 """
 
 from __future__ import annotations
@@ -80,6 +84,7 @@ class Planet:
     # «Только слушать»: микрофоны запрещены всем.
     listen_only: bool = False
     participants: dict[str, VoiceParticipant] = field(default_factory=dict)
+    host_id: str | None = None
 
 
 # channel_id -> Planet
@@ -93,9 +98,19 @@ def participants(channel_id: str) -> list[VoiceParticipant]:
     return sorted(planet.participants.values(), key=lambda p: p.joined_at)
 
 
+def host(channel_id: str) -> str | None:
+    planet = _planets.get(channel_id)
+    return planet.host_id if planet else None
+
+
+def presence(channel_id: str) -> list[dict]:
+    host_id = host(channel_id)
+    return [{**p.out(), "is_host": p.user_id == host_id} for p in participants(channel_id)]
+
+
 def star_presence(star_id: str) -> dict[str, list[dict]]:
     return {
-        channel_id: [p.out() for p in participants(channel_id)]
+        channel_id: presence(channel_id)
         for channel_id, planet in _planets.items()
         if planet.star_id == star_id and planet.participants
     }
@@ -123,7 +138,7 @@ async def broadcast(star_id: str, channel_id: str) -> None:
             "type": "star_voice",
             "star_id": star_id,
             "channel_id": channel_id,
-            "participants": [p.out() for p in participants(channel_id)],
+            "participants": presence(channel_id),
         },
     )
 
@@ -131,6 +146,8 @@ async def broadcast(star_id: str, channel_id: str) -> None:
 def _add(star_id: str, channel_id: str, user_id: str, listen_only: bool = False) -> None:
     planet = _planets.setdefault(channel_id, Planet(star_id=star_id, listen_only=listen_only))
     planet.participants.setdefault(user_id, VoiceParticipant(user_id=user_id))
+    if planet.host_id not in planet.participants:
+        planet.host_id = user_id
 
 
 def _remove(channel_id: str, user_id: str) -> bool:
@@ -140,7 +157,27 @@ def _remove(channel_id: str, user_id: str) -> bool:
     del planet.participants[user_id]
     if not planet.participants:
         _planets.pop(channel_id, None)
+    elif planet.host_id == user_id:
+        planet.host_id = participants(channel_id)[0].user_id
     return True
+
+
+async def set_host(star_id: str, channel_id: str, user_id: str) -> bool:
+    """Передать звание главного другому присутствующему."""
+    planet = _planets.get(channel_id)
+    if not planet or user_id not in planet.participants:
+        return False
+    planet.host_id = user_id
+    await broadcast(star_id, channel_id)
+    return True
+
+
+async def _after_leave(star_id: str, channel_id: str, user_id: str | None) -> None:
+    """Зал ожидания, стуки и новый главный (импорт здесь: иначе цикл модулей)."""
+    from app.api.doors import on_participant_left
+
+    async with session_factory() as db:
+        await on_participant_left(db, star_id, channel_id, user_id)
 
 
 def _participant(channel_id: str, user_id: str) -> VoiceParticipant | None:
@@ -267,6 +304,7 @@ async def handle_webhook(event: dict) -> None:
         planet = _planets.pop(channel_id, None)
         if planet:
             await broadcast(planet.star_id, channel_id)
+            await _after_leave(planet.star_id, channel_id, None)
         return
 
     identity = (event.get("participant") or {}).get("identity")
@@ -294,11 +332,7 @@ async def handle_webhook(event: dict) -> None:
         planet = _planets.get(channel_id)
         if planet and _remove(channel_id, identity):
             await broadcast(planet.star_id, channel_id)
-            # Ушёл из зала ожидания — ожидание снимается (импорт здесь: иначе цикл модулей).
-            from app.api.doors import on_participant_left
-
-            async with session_factory() as db:
-                await on_participant_left(db, planet.star_id, channel_id, identity)
+            await _after_leave(planet.star_id, channel_id, identity)
 
 
 async def remove_from_planet(star_id: str, channel_id: str, user_id: str) -> None:
@@ -310,6 +344,7 @@ async def remove_from_planet(star_id: str, channel_id: str, user_id: str) -> Non
             logger.warning("remove %s from %s failed: %s", user_id, channel_id, exc)
     if _remove(channel_id, user_id):
         await broadcast(star_id, channel_id)
+        await _after_leave(star_id, channel_id, user_id)
 
 
 async def evict_user(star_id: str, user_id: str) -> None:

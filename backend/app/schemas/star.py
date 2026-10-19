@@ -10,7 +10,7 @@ ChannelKind = Literal["satellite", "planet"]
 Role = Literal["owner", "admin", "moderator", "member"]
 AssignableRole = Literal["admin", "moderator", "member"]
 RoomKind = Literal["coworking", "meeting", "smoking", "kitchen", "custom"]
-Access = Literal["open", "invite"]
+Access = Literal["open", "invite", "personal"]
 
 assert set(ROOM_KINDS) == {"coworking", "meeting", "smoking", "kitchen", "custom"}
 
@@ -62,6 +62,8 @@ class CreateChannel(_Named):
     capacity: int | None = Field(default=None, ge=1, le=PLANET_MAX_CAPACITY)
     room_kind: RoomKind | None = None
     access: Access = "open"
+    # Чей личный кабинет (access == "personal").
+    cabinet_owner_id: str | None = None
     # «Только слушать»: без микрофонов.
     listen_only: bool = False
     # Этаж для комнаты в Звезде «Работа»; по умолчанию — первый.
@@ -73,6 +75,7 @@ class UpdateChannel(_Named):
     capacity: int | None = Field(default=None, ge=1, le=PLANET_MAX_CAPACITY)
     room_kind: RoomKind | None = None
     access: Access | None = None
+    cabinet_owner_id: str | None = None
     listen_only: bool | None = None
     # Перенести комнату на другой этаж (нужно право «Редактировать карту офиса»).
     floor_id: str | None = None
@@ -136,6 +139,7 @@ class StarChannelOut(BaseModel):
     capacity: int | None
     room_kind: str | None
     access: str = "open"
+    cabinet_owner_id: str | None = None
     listen_only: bool = False
     floor_id: str | None = None
     map_x: int | None
@@ -175,6 +179,8 @@ class VoiceParticipantOut(BaseModel):
     joined_at: datetime
     server_muted: bool
     screen_sharing: bool = False
+    # Главный в комнате «По приглашениям»: первый вошедший, пока не выйдет или не передаст.
+    is_host: bool = False
 
 
 class StarDetailOut(StarSummaryOut):

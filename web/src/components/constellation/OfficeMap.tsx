@@ -16,7 +16,7 @@ import {
   sameRect,
   type Rect,
 } from "./office";
-import { apiError, can, initials } from "./rules";
+import { apiError, can, doorKind, initials, roomDoor } from "./rules";
 import s from "./Constellation.module.css";
 
 interface Props {
@@ -68,8 +68,8 @@ export default function OfficeMap({ detail, onBack, onOpenPlanet, onAddRoom }: P
 
   const canEdit = can(detail, "edit_map");
   const canAddRooms = can(detail, "manage_channels");
-  const canAdmit = can(detail, "admit");
-  const isClosed = (c: StarChannel) => c.access === "invite" && c.room_kind !== "lobby";
+  const isClosed = (c: StarChannel) => doorKind(c) !== "open";
+  const mustKnock = (c: StarChannel) => !roomDoor(detail, c, myId).entersFreely;
 
   useEffect(() => {
     if (floorId && !floors.some((f) => f.id === floorId)) setFloorId(floors[0]?.id ?? null);
@@ -168,14 +168,8 @@ export default function OfficeMap({ detail, onBack, onOpenPlanet, onAddRoom }: P
     }
     const inside = detail.voice?.[c.id] ?? [];
     if (inside.length >= (c.capacity ?? 10)) return;
-    if (isClosed(c) && !canAdmit && !inside.some((p) => p.user_id === myId)) {
+    if (mustKnock(c) && !inside.some((p) => p.user_id === myId)) {
       if (myKnock?.channelId === c.id) return;
-      if (!inside.length) {
-        useDoorsStore.setState({
-          notice: `«${c.name}» закрыта и сейчас пустая. Войти могут модераторы, админы и владелец.`,
-        });
-        return;
-      }
       // Закрытая комната — нажатие означает «постучаться».
       void useDoorsStore.getState().knock(detail.id, c.id, c.name);
       return;
@@ -325,7 +319,7 @@ export default function OfficeMap({ detail, onBack, onOpenPlanet, onAddRoom }: P
             const capacity = c.capacity ?? 10;
             const mine = iAmIn(c) || inside.some((p) => p.user_id === myId);
             const full = inside.length >= capacity && !mine;
-            const locked = isClosed(c) && !canAdmit && !mine;
+            const locked = mustKnock(c) && !mine;
             const knocking = myKnock?.channelId === c.id;
             const classes = [
               s.room,
@@ -353,7 +347,7 @@ export default function OfficeMap({ detail, onBack, onOpenPlanet, onAddRoom }: P
                         : knocking
                           ? `${c.name} — вы постучались, ждём ответа`
                           : locked
-                            ? `${c.name} — по приглашениям, нажмите, чтобы постучаться`
+                            ? `${c.name} — ${doorKind(c) === "personal" ? "личный кабинет" : "по приглашениям"}, нажмите, чтобы постучаться`
                             : `${c.name} — нажмите, чтобы зайти`
                 }
                 onPointerDown={(e) => onPointerDown(e, c, "move")}
@@ -365,7 +359,14 @@ export default function OfficeMap({ detail, onBack, onOpenPlanet, onAddRoom }: P
                 <div className={s.roomHead}>
                   <span aria-hidden>{ROOM_ICON[c.room_kind ?? "custom"]}</span>
                   <span className={s.roomName}>{c.name}</span>
-                  {isClosed(c) && <span className={s.lock} aria-label="по приглашениям">{knocking ? "✊" : "🔒"}</span>}
+                  {isClosed(c) && (
+                    <span
+                      className={s.lock}
+                      aria-label={doorKind(c) === "personal" ? "личный кабинет" : "по приглашениям"}
+                    >
+                      {knocking ? "✊" : doorKind(c) === "personal" ? "🔑" : "🔒"}
+                    </span>
+                  )}
                   <span className={s.roomCount}>
                     {inside.length}/{capacity}
                   </span>

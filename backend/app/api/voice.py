@@ -5,7 +5,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 
-from app.api.doors import can_admit, is_closed
+from app.api.doors import enters_freely, is_closed
 from app.api.stars import _channel, _load_membership, _target_member
 from app.core import doors, livekit, voice
 from app.core import stars as rules
@@ -68,19 +68,18 @@ async def join_planet(star_id: str, channel_id: str, current_user: CurrentUser, 
             status_code=409, detail=f"Планета заполнена: {len(identities)} из {capacity}"
         )
 
-    # Дверь «По приглашениям»: без права впускать нужен пропуск (позвали или впустили).
-    if is_closed(channel) and not already_inside and not can_admit(star, me):
+    # Закрытая дверь: кто не входит свободно, тому нужен пропуск (позвали или впустили).
+    occupied = bool(identities - {current_user.id})
+    if is_closed(channel) and not already_inside and not enters_freely(star, me, channel, occupied):
         # Пропуск гасится, когда LiveKit подтвердит вход (вебхук): сорвалось подключение —
         # можно повторить, пока пропуск не истёк.
         if not doors.has_pass(current_user.id, channel_id):
-            if not identities:
-                raise HTTPException(
-                    status_code=403,
-                    detail="Комната закрыта и сейчас пустая. Войти в неё могут модераторы, админы и владелец.",
-                )
             # 423 — клиент предложит постучаться.
             raise HTTPException(
-                status_code=423, detail="Комната по приглашениям — постучитесь, чтобы вас впустили"
+                status_code=423,
+                detail="Это личный кабинет — постучитесь, чтобы вас впустили"
+                if channel.access == "personal"
+                else "Комната по приглашениям — постучитесь, чтобы вас впустили",
             )
 
     token = livekit.participant_token(

@@ -9,7 +9,7 @@ import { IconBack, IconGear, IconPlanet } from "../icons";
 import Dialog from "./Dialog";
 import AudioDevices from "../AudioDevices";
 import ScreenStage from "./ScreenStage";
-import { apiError, can, canStopScreen, outranks, ROOM_LABEL } from "./rules";
+import { apiError, can, canStopScreen, outranks, ROOM_LABEL, roomDoor } from "./rules";
 import s from "./Constellation.module.css";
 
 interface Props {
@@ -38,16 +38,28 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
   const full = presence.length >= capacity && !iAmInside;
   const inCall = callPhase !== "idle" && callPhase !== "ended";
   const room = channel.room_kind ? ROOM_LABEL[channel.room_kind] : null;
-  // Дверь «По приглашениям»: кто может впускать — входит без стука.
-  const closed = channel.access === "invite" && channel.room_kind !== "lobby";
+  // Дверь: «По приглашениям» (главный — первый вошедший) или личный кабинет.
+  const door = roomDoor(detail, channel, myId);
+  const closed = door.kind !== "open";
+  const personal = door.kind === "personal";
   const listenOnly = !!channel.listen_only;
-  const canAdmit = can(detail, "admit");
-  const mustKnock = closed && !canAdmit && !iAmInside;
+  const mustKnock = !door.entersFreely && !iAmInside;
   const myKnockHere = myKnock?.channelId === channel.id ? myKnock : null;
   const knocksHere = Object.values(allKnocks).filter((k) => k.knock.channel_id === channel.id);
-  const canInvite = !closed || canAdmit;
+  const canInvite = !closed || door.canAnswer;
+  const iAmHost = door.kind === "invite" && door.hostId === myId;
 
   const member = (userId: string) => detail.members.find((m) => m.user.id === userId);
+  const cabinetOwnerName = personal
+    ? (member(channel.cabinet_owner_id ?? "")?.user.username ?? "без хозяина")
+    : "";
+  /** «главный» в комнате по приглашениям, «хозяин» — в своём кабинете. */
+  const badge = (userId: string) =>
+    door.kind === "invite" && userId === door.hostId
+      ? "👑 главный"
+      : personal && userId === channel.cabinet_owner_id
+        ? "🔑 хозяин кабинета"
+        : null;
   const serverMuted = (userId: string) =>
     presence.find((p) => p.user_id === userId)?.server_muted ?? false;
   // Кто показывает экран — решает сервер; чужие треки экрана без слота не показываем.
@@ -81,7 +93,11 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
       <div className={s.channelTitle}>
         <span className={s.channelTitleName}>{channel.name}</span>
         <span className={s.channelTitleSub}>
-          {closed ? "🔒 по приглашениям · " : "Планета · "}
+          {personal
+            ? `🔑 кабинет ${cabinetOwnerName} · `
+            : closed
+              ? "🔒 по приглашениям · "
+              : "Планета · "}
           {listenOnly ? "🎧 только слушать · " : ""}
           {room ? `${room} · ` : ""}
           {presence.length} из {capacity}
@@ -128,6 +144,7 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
                     />
                     <div className={s.listMain}>
                       <span className={s.listTitle}>{m?.user.username ?? "Участник"}</span>
+                      {badge(p.user_id) && <span className={s.listSub}>{badge(p.user_id)}</span>}
                       {p.server_muted && (
                         <span className={`${s.listSub} ${s.voicePeerMuted}`}>
                           микрофон выключил модератор
@@ -148,10 +165,22 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
               Показывать экран можно.
             </p>
           )}
-          {closed && !canAdmit && (
+          {personal && channel.cabinet_owner_id !== myId && (
             <p className={s.hint}>
-              🔒 Комната по приглашениям: постучитесь — модератор впустит вас, отправит в зал
-              ожидания или откажет. Или попросите кого-то позвать вас.
+              🔑 Личный кабинет {cabinetOwnerName}: постучитесь — впустить может хозяин кабинета,
+              админ или владелец Звезды. Или попросите кого-то из них позвать вас.
+            </p>
+          )}
+          {door.kind === "invite" && mustKnock && (
+            <p className={s.hint}>
+              🔒 Комната по приглашениям, внутри уже есть люди: постучитесь — главный в комнате
+              впустит вас, отправит в зал ожидания или откажет. Или попросите позвать вас.
+            </p>
+          )}
+          {door.kind === "invite" && !mustKnock && presence.length === 0 && (
+            <p className={s.hint}>
+              🔒 Комната по приглашениям. Сейчас пусто — заходите, и вы станете в ней главным:
+              будете впускать тех, кто стучится, и звать людей.
             </p>
           )}
           {mustKnock && myKnockHere ? (
@@ -164,16 +193,6 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
               <button type="button" className={s.secondary} onClick={() => void doors.cancelKnock()}>
                 {myKnockHere.status === "pending" ? "Отменить стук" : "Больше не ждать"}
               </button>
-            </>
-          ) : mustKnock && presence.length === 0 ? (
-            <>
-              <button type="button" className={s.primary} disabled>
-                🔒 Комната закрыта
-              </button>
-              <p className={s.hint}>
-                Сейчас внутри никого. Войти в пустую закрытую комнату могут модераторы, админы и
-                владелец.
-              </p>
             </>
           ) : mustKnock || voice.locked?.channelId === channel.id ? (
             <button
@@ -241,7 +260,7 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
             </button>
           </div>
         )}
-        {canAdmit && knocksHere.length > 0 && (
+        {door.canAnswer && knocksHere.length > 0 && (
           <div className={s.list}>
             {knocksHere.map((k) => (
               <div key={k.knock.id} className={s.listItem}>
@@ -311,7 +330,22 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
                 <span className={`${s.voicePeerState} ${state.muted ? s.voicePeerMuted : ""}`}>
                   {state.text}
                 </span>
+                {badge(peer.userId) && <span className={s.voicePeerState}>{badge(peer.userId)}</span>}
                 {peer.userId === sharerId && <span className={s.voicePeerState}>🖥 показывает экран</span>}
+                {iAmHost && !peer.isLocal && (
+                  <button
+                    type="button"
+                    className={`${s.secondary} ${s.small}`}
+                    onClick={() => {
+                      const name = m?.user.username ?? peer.name;
+                      if (window.confirm(`Сделать ${name} главным в комнате? Впускать и звать будет он.`)) {
+                        void moderate(() => starsApi.makeHost(detail.id, channel.id, peer.userId));
+                      }
+                    }}
+                  >
+                    👑 Сделать главным
+                  </button>
+                )}
                 {canModerate(peer.userId) && (
                   <div className={s.row} style={{ justifyContent: "center" }}>
                     {!listenOnly && (

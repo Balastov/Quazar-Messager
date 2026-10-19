@@ -75,15 +75,22 @@ class DoorsTest(StarsTestBase):
 
     # --- Доступ ---
 
+    def host(self) -> str | None:
+        return voice.host(self.room.id)
+
     async def test_closed_room_entry_rules(self):
-        # Пустую закрытую комнату открывают только те, кто может впускать.
-        await self.expect_error(403, voice_api.join_planet, self.star.id, self.room.id, user="alice")
-        await self.enter("mod")
+        # В пустую комнату «По приглашениям» входит кто угодно — и становится главным.
+        await self.enter("alice")
+        self.assertEqual(self.host(), self.uid("alice"))
+        presence = voice.presence(self.room.id)
+        self.assertEqual([(p["user_id"], p["is_host"]) for p in presence], [(self.uid("alice"), True)])
         # Внутри кто-то есть — участнику предлагают постучаться.
-        await self.expect_error(423, voice_api.join_planet, self.star.id, self.room.id, user="alice")
-        # Владелец и админы входят без стука.
+        await self.expect_error(423, voice_api.join_planet, self.star.id, self.room.id, user="bob")
+        # Те, у кого есть право впускать, входят без стука.
+        await self.enter("mod")
         await self.enter("admin")
         await self.enter("owner")
+        self.assertEqual(self.host(), self.uid("alice"))
 
     async def test_owner_can_take_free_entry_from_moderators(self):
         await self.enter("admin")
@@ -161,6 +168,149 @@ class DoorsTest(StarsTestBase):
         self.assertEqual(self.events_for("alice", "planet_knock_answer")[-1]["action"], "deny")
         self.assertIsNone(doors.get(knock.id))
         await self.expect_error(423, voice_api.join_planet, self.star.id, self.room.id, user="alice")
+
+    # --- Главный в комнате «По приглашениям» ---
+
+    async def test_host_answers_knocks_and_invites(self):
+        await self.enter("alice")
+        self.events.clear()
+        knock = await self.call(doors_api.knock_on_planet, self.star.id, self.room.id, user="bob")
+        # Стук видит главная и те, у кого есть право впускать.
+        self.assertTrue(self.events_for("alice", "planet_knock"))
+        self.assertTrue(self.events_for("mod", "planet_knock"))
+        self.assertFalse(self.events_for("bob", "planet_knock"))
+        listed = await self.call(doors_api.list_knocks, self.star.id, user="alice")
+        self.assertEqual([k["knock"]["id"] for k in listed], [knock.id])
+
+        await self.call(doors_api.answer_knock, self.star.id, knock.id, doors_api.AnswerBody(action="admit"), user="alice")
+        await self.enter("bob")
+        # Боб внутри, но не главный: впускать и звать не может.
+        await self.join(self.star.id, "carol")
+        await self.expect_error(403, doors_api.invite_to_planet, self.star.id, self.room.id,
+                                doors_api.InviteBody(user_id=self.uid("carol")), user="bob")
+        await self.call(doors_api.invite_to_planet, self.star.id, self.room.id,
+                        doors_api.InviteBody(user_id=self.uid("carol")), user="alice")
+        await self.enter("carol")
+
+    async def test_member_cannot_answer_without_being_host(self):
+        await self.enter("alice")
+        await self.call(doors_api.invite_to_planet, self.star.id, self.room.id,
+                        doors_api.InviteBody(user_id=self.uid("bob")), user="alice")
+        await self.enter("bob")
+        await self.join(self.star.id, "carol")
+        knock = await self.call(doors_api.knock_on_planet, self.star.id, self.room.id, user="carol")
+        await self.expect_error(403, doors_api.answer_knock, self.star.id, knock.id,
+                                doors_api.AnswerBody(action="admit"), user="bob")
+
+    async def test_make_host(self):
+        await self.enter("alice")
+        await self.call(doors_api.invite_to_planet, self.star.id, self.room.id,
+                        doors_api.InviteBody(user_id=self.uid("bob")), user="alice")
+        await self.enter("bob")
+        # Не главный передать звание не может; передать можно только тому, кто внутри.
+        await self.expect_error(403, doors_api.make_host, self.star.id, self.room.id,
+                                doors_api.HostBody(user_id=self.uid("bob")), user="bob")
+        await self.expect_error(409, doors_api.make_host, self.star.id, self.room.id,
+                                doors_api.HostBody(user_id=self.uid("mod")), user="alice")
+
+        await self.join(self.star.id, "carol")
+        knock = await self.call(doors_api.knock_on_planet, self.star.id, self.room.id, user="carol")
+        self.events.clear()
+        await self.call(doors_api.make_host, self.star.id, self.room.id,
+                        doors_api.HostBody(user_id=self.uid("bob")), user="alice")
+        self.assertEqual(self.host(), self.uid("bob"))
+        voice_events = [e for _, e in self.events if e["type"] == "star_voice"]
+        self.assertTrue(any(p["is_host"] and p["user_id"] == self.uid("bob") for p in voice_events[-1]["participants"]))
+        # Ждущий стук приходит новому главному, и тот может ответить; прежний — уже нет.
+        self.assertEqual(self.events_for("bob", "planet_knock")[-1]["knock"]["id"], knock.id)
+        await self.expect_error(403, doors_api.answer_knock, self.star.id, knock.id,
+                                doors_api.AnswerBody(action="admit"), user="alice")
+        await self.call(doors_api.answer_knock, self.star.id, knock.id, doors_api.AnswerBody(action="admit"), user="bob")
+
+    async def test_host_passes_to_the_longest_present_when_leaving(self):
+        await self.enter("alice")
+        await self.enter("mod")
+        await self.call(doors_api.invite_to_planet, self.star.id, self.room.id,
+                        doors_api.InviteBody(user_id=self.uid("bob")), user="alice")
+        await self.enter("bob")
+        await self.leave("alice", self.room.id)
+        self.assertEqual(self.host(), self.uid("mod"))
+        await self.leave("mod", self.room.id)
+        self.assertEqual(self.host(), self.uid("bob"))
+
+    async def test_empty_room_frees_waiting_knocks(self):
+        await self.enter("alice")
+        knock = await self.call(doors_api.knock_on_planet, self.star.id, self.room.id, user="bob")
+        self.events.clear()
+        await self.leave("alice", self.room.id)
+        self.assertIsNone(doors.get(knock.id))
+        answer = self.events_for("bob", "planet_knock_answer")[-1]
+        self.assertEqual(answer["action"], "free")
+        self.assertTrue(any(uid == self.uid("bob") and p["door"] == "free" for uid, p in self.pushes))
+        await self.enter("bob")
+        self.assertEqual(self.host(), self.uid("bob"))
+
+    # --- Личный кабинет ---
+
+    async def cabinet(self, owner: str = "alice"):
+        return await self.call(
+            api.update_channel, self.star.id, self.room.id,
+            UpdateChannel(access="personal", cabinet_owner_id=self.uid(owner)), user="owner",
+        )
+
+    async def test_cabinet_needs_an_owner_from_the_star(self):
+        await self.expect_error(400, api.update_channel, self.star.id, self.room.id,
+                                UpdateChannel(access="personal"), user="owner")
+        await self.expect_error(404, api.update_channel, self.star.id, self.room.id,
+                                UpdateChannel(access="personal", cabinet_owner_id=self.uid("carol")), user="owner")
+        room = await self.cabinet()
+        self.assertEqual((room.access, room.cabinet_owner_id), ("personal", self.uid("alice")))
+        # Другой режим входа — хозяин кабинета больше не нужен.
+        room = await self.call(api.update_channel, self.star.id, self.room.id, UpdateChannel(access="open"), user="owner")
+        self.assertIsNone(room.cabinet_owner_id)
+
+        gaming = await self.make_star("gaming", name="Игры")
+        await self.join(gaming.id, "alice")
+        await self.expect_error(400, api.create_channel, gaming.id, CreateChannel(
+            kind="planet", name="Кабинет", access="personal", cabinet_owner_id=self.uid("alice")), user="owner")
+
+    async def test_cabinet_entry(self):
+        await self.cabinet()
+        # Без стука — только хозяин; даже владелец Звезды стучится, и в пустой кабинет тоже.
+        for name in ("owner", "admin", "mod", "bob"):
+            await self.expect_error(423, voice_api.join_planet, self.star.id, self.room.id, user=name)
+        self.events.clear()
+        knock = await self.call(doors_api.knock_on_planet, self.star.id, self.room.id, user="bob")
+        # Стук видят хозяин, админы и владелец — модератор нет.
+        for name in ("alice", "admin", "owner"):
+            self.assertTrue(self.events_for(name, "planet_knock"), name)
+        self.assertFalse(self.events_for("mod", "planet_knock"))
+        await self.expect_error(403, doors_api.answer_knock, self.star.id, knock.id,
+                                doors_api.AnswerBody(action="admit"), user="mod")
+        await self.call(doors_api.answer_knock, self.star.id, knock.id, doors_api.AnswerBody(action="admit"), user="admin")
+        await self.enter("bob")
+        await self.enter("alice")
+        await self.expect_error(400, doors_api.knock_on_planet, self.star.id, self.room.id, user="alice")
+
+    async def test_cabinet_invites(self):
+        await self.cabinet()
+        await self.enter("alice")
+        await self.call(doors_api.invite_to_planet, self.star.id, self.room.id,
+                        doors_api.InviteBody(user_id=self.uid("bob")), user="alice")
+        await self.enter("bob")
+        # Гость кабинета звать не может, админ внутри — может.
+        await self.expect_error(403, doors_api.invite_to_planet, self.star.id, self.room.id,
+                                doors_api.InviteBody(user_id=self.uid("mod")), user="bob")
+        knock = await self.call(doors_api.knock_on_planet, self.star.id, self.room.id, user="admin")
+        await self.call(doors_api.answer_knock, self.star.id, knock.id, doors_api.AnswerBody(action="admit"), user="alice")
+        await self.enter("admin")
+        await self.call(doors_api.invite_to_planet, self.star.id, self.room.id,
+                        doors_api.InviteBody(user_id=self.uid("mod")), user="admin")
+        # Хозяин ушёл — кабинет не открывается: стуки ждут хозяина, админов и владельца.
+        await self.leave("alice", self.room.id)
+        await self.leave("bob", self.room.id)
+        await self.leave("admin", self.room.id)
+        await self.expect_error(423, voice_api.join_planet, self.star.id, self.room.id, user="bob")
 
     async def test_knock_refusals(self):
         coworking = next(c for c in self.star.channels if c.room_kind == "coworking")

@@ -199,7 +199,7 @@ export async function registerNotifyServiceWorker(): Promise<void> {
 export interface DoorLink {
   starId: string;
   channelId: string;
-  door: "invite" | "knock" | "admit" | "wait" | "deny";
+  door: "invite" | "knock" | "admit" | "wait" | "deny" | "free";
   knockId?: string | null;
   lobbyChannelId?: string | null;
   /** Кнопка в уведомлении: join / admit / deny. */

@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
+import { useAuthStore } from "../../store/auth";
 import { useDoorsStore } from "../../store/doors";
 import { useStarsStore } from "../../store/stars";
-import { useVoiceStore } from "../../store/voice";
+import { roomDoor } from "./rules";
 import s from "./Constellation.module.css";
 
 /** Приглашения «Позвать», стуки в двери и статус своего стука — поверх любой вкладки. */
@@ -12,7 +13,7 @@ export default function DoorToasts() {
   const notice = useDoorsStore((st) => st.notice);
   const { acceptInvite, dismissInvite, answer, cancelKnock, dismissNotice } = useDoorsStore.getState();
   const details = useStarsStore((st) => st.details);
-  const voiceChannelId = useVoiceStore((st) => (st.status !== "idle" ? st.channelId : null));
+  const myId = useAuthStore((st) => st.user?.id);
   const [now, setNow] = useState(Date.now());
 
   useEffect(() => {
@@ -27,14 +28,16 @@ export default function DoorToasts() {
   }, [notice, dismissNotice]);
 
   const liveInvites = invites.filter((i) => i.expiresAt > now);
-  // Карточки стука: тем, кто может впускать, — с кнопками; кто просто в комнате — для сведения.
+  // Карточки стука — тем, кто может впустить в эту комнату (главный, хозяин кабинета, админы…).
   const pending = Object.values(knocks).filter(
     (k) => k.knock.status === "pending" && k.receivedAt + k.expires_in * 1000 > now
   );
-  const canAnswer = (starId: string) => details[starId]?.my_permissions.includes("admit") ?? true;
-  const visibleKnocks = pending.filter(
-    (k) => canAnswer(k.star_id) || voiceChannelId === k.knock.channel_id
-  );
+  const canAnswer = (starId: string, channelId: string) => {
+    const detail = details[starId];
+    const channel = detail?.channels.find((c) => c.id === channelId);
+    return detail && channel ? roomDoor(detail, channel, myId).canAnswer : true;
+  };
+  const visibleKnocks = pending.filter((k) => canAnswer(k.star_id, k.knock.channel_id));
 
   if (!liveInvites.length && !visibleKnocks.length && !myKnock && !notice) return null;
 
@@ -63,21 +66,17 @@ export default function DoorToasts() {
             ✊ {k.user_name} стучится в «{k.room_name}»
           </div>
           <div className={s.doorSub}>{k.star_name}</div>
-          {canAnswer(k.star_id) ? (
-            <div className={s.doorActions}>
-              <button type="button" className={`${s.primary} ${s.small}`} onClick={() => void answer(k.knock.id, "admit")}>
-                Впустить
-              </button>
-              <button type="button" className={`${s.secondary} ${s.small}`} onClick={() => void answer(k.knock.id, "wait")}>
-                В зал ожидания
-              </button>
-              <button type="button" className={`${s.danger} ${s.small}`} onClick={() => void answer(k.knock.id, "deny")}>
-                Отказать
-              </button>
-            </div>
-          ) : (
-            <div className={s.doorSub}>Впустить могут модераторы и админы</div>
-          )}
+          <div className={s.doorActions}>
+            <button type="button" className={`${s.primary} ${s.small}`} onClick={() => void answer(k.knock.id, "admit")}>
+              Впустить
+            </button>
+            <button type="button" className={`${s.secondary} ${s.small}`} onClick={() => void answer(k.knock.id, "wait")}>
+              В зал ожидания
+            </button>
+            <button type="button" className={`${s.danger} ${s.small}`} onClick={() => void answer(k.knock.id, "deny")}>
+              Отказать
+            </button>
+          </div>
         </div>
       ))}
 

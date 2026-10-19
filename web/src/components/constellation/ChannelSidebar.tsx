@@ -76,7 +76,8 @@ export default function ChannelSidebar({
                 <span className={`${s.channelName} ${count ? s.channelUnread : ""}`}>
                   {c.room_kind === "lobby" ? "🛋 " : ""}
                   {c.name}
-                  {c.access === "invite" && c.room_kind !== "lobby" ? " 🔒" : ""}
+                  {c.room_kind !== "lobby" && c.access === "invite" ? " 🔒" : ""}
+                  {c.room_kind !== "lobby" && c.access === "personal" ? " 🔑" : ""}
                   {c.listen_only ? " 🎧" : ""}
                 </span>
                 {kind === "planet" && (
@@ -95,6 +96,9 @@ export default function ChannelSidebar({
                       <div key={p.user_id} className={s.presenceRow}>
                         <span className={s.presenceDot}>{initials(name)}</span>
                         <span className={s.presenceName}>{name}</span>
+                        {p.is_host && c.access === "invite" && c.room_kind !== "lobby" && (
+                          <span title="Главный в комнате: впускает и зовёт">👑</span>
+                        )}
                         {p.server_muted && <span title="Микрофон выключил модератор">🔇</span>}
                         {p.screen_sharing && <span title="Показывает экран">🖥</span>}
                       </div>

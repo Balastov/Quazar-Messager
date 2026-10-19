@@ -117,6 +117,12 @@ async def lifespan(app: FastAPI):
                 "NOT NULL DEFAULT false"
             )
         )
+        await conn.execute(
+            text(
+                "ALTER TABLE star_channels ADD COLUMN IF NOT EXISTS cabinet_owner_id VARCHAR(36) "
+                "REFERENCES users(id) ON DELETE SET NULL"
+            )
+        )
     # Кто сейчас на Планетах — восстанавливаем из LiveKit после перезапуска (в фоне).
     app.state.voice_resync = asyncio.create_task(voice.resync())
     yield

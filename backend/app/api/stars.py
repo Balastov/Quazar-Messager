@@ -579,6 +579,20 @@ async def _channel(db: AsyncSession, star_id: str, channel_id: str) -> StarChann
     return channel
 
 
+async def _cabinet_owner(
+    db: AsyncSession, star: Star, access: str, owner_id: str | None
+) -> str | None:
+    """Хозяин личного кабинета: только в Звёздах «Работа» и только из участников."""
+    if access != "personal":
+        return None
+    if star.kind != "work":
+        raise HTTPException(status_code=400, detail="Личные кабинеты есть только в Звёздах «Работа»")
+    if not owner_id:
+        raise HTTPException(status_code=400, detail="Укажите, чей это кабинет")
+    await _target_member(db, star.id, owner_id)
+    return owner_id
+
+
 def _channel_event(channel: StarChannel) -> dict:
     return {
         "type": "star_channel_upsert",
@@ -620,6 +634,7 @@ async def create_channel(star_id: str, body: CreateChannel, current_user: Curren
         channel.room_kind = body.room_kind if star.kind == "work" else None
         channel.capacity = body.capacity or rules.default_capacity(channel.room_kind)
         channel.access = body.access
+        channel.cabinet_owner_id = await _cabinet_owner(db, star, body.access, body.cabinet_owner_id)
         channel.listen_only = body.listen_only
     db.add(channel)
 
@@ -650,8 +665,11 @@ async def update_channel(
             channel.capacity = body.capacity
         if body.room_kind is not None and star.kind == "work" and channel.room_kind != "lobby":
             channel.room_kind = body.room_kind
-        if body.access is not None and channel.room_kind != "lobby":
-            channel.access = body.access
+        if (body.access is not None or body.cabinet_owner_id is not None) and channel.room_kind != "lobby":
+            access = body.access or channel.access
+            owner_id = body.cabinet_owner_id or channel.cabinet_owner_id
+            channel.cabinet_owner_id = await _cabinet_owner(db, star, access, owner_id)
+            channel.access = access
     listen_only_changed = (
         channel.kind == "planet"
         and body.listen_only is not None

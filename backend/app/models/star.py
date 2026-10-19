@@ -80,8 +80,13 @@ class StarChannel(Base):
     capacity: Mapped[int | None] = mapped_column(Integer, nullable=True)
     # Тип комнаты: coworking | meeting | smoking | kitchen | custom | lobby (зал ожидания, системный)
     room_kind: Mapped[str | None] = mapped_column(String(16), nullable=True)
-    # Доступ к Планете: "open" (свободный вход) | "invite" (по приглашениям — стучаться).
+    # Доступ к Планете: "open" (свободный вход) | "invite" (по приглашениям — стучаться) |
+    # "personal" (личный кабинет, только в Звёздах «Работа»).
     access: Mapped[str] = mapped_column(String(16), nullable=False, default="open", server_default="open")
+    # Хозяин личного кабинета: входит без стука, зовёт и впускает (вместе с админами и владельцем).
+    cabinet_owner_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
     # «Только слушать»: микрофоны на Планете не открываются вообще (сервер их и не пропустит).
     # Показ экрана остаётся.
     listen_only: Mapped[bool] = mapped_column(

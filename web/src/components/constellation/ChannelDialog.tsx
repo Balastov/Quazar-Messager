@@ -6,6 +6,7 @@ import type {
   StarChannel,
   StarFloor,
   StarKind,
+  StarMember,
 } from "../../api/stars";
 import { useStarsStore } from "../../store/stars";
 import Dialog from "./Dialog";
@@ -24,6 +25,8 @@ interface Props {
   defaultFloorId?: string;
   /** Переносить комнату между этажами может тот, кто редактирует карту. */
   canEditMap?: boolean;
+  /** Участники Звезды — из них выбирают хозяина личного кабинета. */
+  members?: StarMember[];
   onClose: () => void;
 }
 
@@ -34,6 +37,7 @@ export default function ChannelDialog({
   floors = [],
   defaultFloorId,
   canEditMap = false,
+  members = [],
   onClose,
 }: Props) {
   const limits = useStarsStore((st) => st.limits);
@@ -60,7 +64,9 @@ export default function ChannelDialog({
   const showFloors = kind === "planet" && starKind === "work" && floors.length > 0;
   const isLobby = channel?.room_kind === "lobby";
   const [access, setAccess] = useState<RoomAccess>(channel?.access ?? "open");
+  const [cabinetOwnerId, setCabinetOwnerId] = useState<string>(channel?.cabinet_owner_id ?? "");
   const [listenOnly, setListenOnly] = useState<boolean>(channel?.listen_only ?? false);
+  const sortedMembers = [...members].sort((a, b) => a.user.username.localeCompare(b.user.username, "ru"));
   const floorEditable = !channel || canEditMap;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -90,12 +96,17 @@ export default function ChannelDialog({
     e.preventDefault();
     const trimmed = name.trim();
     if (!trimmed) return;
+    if (access === "personal" && !cabinetOwnerId) {
+      setError("Выберите, чей это кабинет");
+      return;
+    }
     const floorChanged = showFloors && floorId && floorId !== (channel?.floor_id ?? "");
     const planetFields = isPlanet
       ? {
           capacity,
           ...(isWork && !isLobby ? { room_kind: roomKind } : {}),
           ...(isLobby ? {} : { access }),
+          ...(!isLobby && access === "personal" ? { cabinet_owner_id: cabinetOwnerId } : {}),
           listen_only: listenOnly,
           ...(floorChanged && floorEditable ? { floor_id: floorId } : {}),
         }
@@ -134,6 +145,36 @@ export default function ChannelDialog({
             >
               <option value="open">Свободный вход</option>
               <option value="invite">По приглашениям — стучаться</option>
+              {isWork && <option value="personal">Личный кабинет</option>}
+            </select>
+            <span className={s.checkHint}>
+              {access === "invite"
+                ? "В пустую комнату заходит кто угодно и становится главным. Пока внутри кто-то есть, остальные стучатся — впускает и зовёт главный."
+                : access === "personal"
+                  ? "Без стука входит только хозяин кабинета. Звать и впускать могут хозяин, админы и владелец Звезды."
+                  : "Заходит любой участник Звезды."}
+            </span>
+          </label>
+        )}
+
+        {isPlanet && !isLobby && access === "personal" && (
+          <label className={s.label}>
+            Чей кабинет
+            <select
+              className={s.select}
+              value={cabinetOwnerId}
+              onChange={(e) => setCabinetOwnerId(e.target.value)}
+              disabled={busy}
+              required
+            >
+              <option value="" disabled>
+                Выберите хозяина кабинета
+              </option>
+              {sortedMembers.map((m) => (
+                <option key={m.user.id} value={m.user.id}>
+                  {m.user.username}
+                </option>
+              ))}
             </select>
           </label>
         )}

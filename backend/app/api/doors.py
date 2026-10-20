@@ -25,6 +25,7 @@ from app.core import stars as rules
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.core.push import send_push_to_user
+from app.core import presence
 from app.core.stars import Perm
 from app.models.star import Star, StarChannel, StarMember
 from app.models.user import User
@@ -147,7 +148,8 @@ async def _notify(user_ids: list[str], event: dict, push: dict | None = None) ->
     await manager.broadcast_to_users(targets, event)
     if push:
         for uid in targets:
-            if not manager.user_connections.get(uid):
+            # «Не беспокоить» — без push (в открытом приложении стук всё равно виден).
+            if not manager.user_connections.get(uid) and not await presence.do_not_disturb(uid):
                 await send_push_to_user(uid, {"type": "star_door", **push})
 
 

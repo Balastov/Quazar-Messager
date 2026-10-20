@@ -291,3 +291,19 @@
   font-size: 12px;
   font-weight: 500;
 }
+
+.selectRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.select {
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--qz-border);
+  background: var(--qz-glass-inner);
+  color: var(--qz-text);
+  font-size: 14px;
+}

@@ -1,6 +1,7 @@
 import { browserPermission, getNotifyPrefs } from "./prefs";
 import { playSoftChime } from "./sound";
 import { useToastStore } from "./toastStore";
+import { isDoNotDisturb } from "../store/presence";
 
 export interface IncomingNotify {
   title: string;
@@ -141,6 +142,8 @@ export async function clearCallNotification(callId: string | null): Promise<void
 export async function notifyIncomingMessage(info: IncomingNotify): Promise<void> {
   const prefs = getNotifyPrefs();
   if (!prefs.enabled) return;
+  // «Не беспокоить»: без всплывашек, звука и системных уведомлений (счётчик непрочитанных растёт).
+  if (isDoNotDisturb()) return;
 
   const tabHidden = typeof document !== "undefined" && document.visibilityState === "hidden";
   // Чат уже на экране — сообщение появится само, без toast/звука.
@@ -220,7 +223,7 @@ export async function notifyDoor(
   opts: { title: string; body: string; actions?: { action: string; title: string }[] }
 ): Promise<void> {
   const tabVisible = typeof document !== "undefined" && document.visibilityState === "visible";
-  if (tabVisible || browserPermission() !== "granted") return;
+  if (tabVisible || browserPermission() !== "granted" || isDoNotDisturb()) return;
   const options: NotificationOptions & { actions?: { action: string; title: string }[] } = {
     body: opts.body,
     tag: `quazar-door-${link.knockId ?? link.channelId}`,

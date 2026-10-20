@@ -21,6 +21,8 @@ import { DEFAULT_GLASS_TRANSPARENCY } from "../styles/glass";
 import { useContactsStore } from "../store/contacts";
 import ContactsImport from "./ContactsImport";
 import { playStarSound, type StarSoundEvent } from "../sounds/starSounds";
+import { activityTracker, IDLE_MINUTES_OPTIONS, systemIdleSupported } from "../presence/activity";
+import StatusPicker from "./StatusPicker";
 
 const STAR_SOUNDS: { kind: "gaming" | "work"; title: string; items: [StarSoundEvent, string][] }[] = [
   {
@@ -77,6 +79,10 @@ export default function SettingsView() {
   const glassTransparency = useUiStore((st) => st.glassTransparency);
   const setGlassTransparency = useUiStore((st) => st.setGlassTransparency);
   const starSounds = useUiStore((st) => st.starSounds);
+  const systemIdle = useUiStore((st) => st.systemIdle);
+  const setSystemIdle = useUiStore((st) => st.setSystemIdle);
+  const idleMinutes = useUiStore((st) => st.idleMinutes);
+  const setIdleMinutes = useUiStore((st) => st.setIdleMinutes);
   const setStarSounds = useUiStore((st) => st.setStarSounds);
   const phonebook = useContactsStore((st) => st.contacts);
   const phonebookSyncedAt = useContactsStore((st) => st.syncedAt);
@@ -339,6 +345,63 @@ export default function SettingsView() {
             >
               Проверить уведомление
             </button>
+          )}
+        </section>
+
+        <section className={s.card}>
+          <h3 className={s.sectionTitle}>Статус «в сети»</h3>
+          <p className={s.hint}>
+            🟢 в сети — вы работаете с Quazar или вы в звонке, на Планете, в Комнате. 🟡 отошёл(ла) —
+            на компьютере долго не трогали мышь и клавиатуру, на телефоне приложение свёрнуто или
+            экран погас. 🔴 на встрече или не беспокоить — вы поставили сами. Иначе — «был(а) …».
+          </p>
+          <StatusPicker />
+          <label className={s.selectRow}>
+            <span className={s.toggleLabel}>Считать, что я отошёл, через</span>
+            <select
+              className={s.select}
+              value={idleMinutes}
+              onChange={(e) => setIdleMinutes(Number(e.target.value))}
+            >
+              {IDLE_MINUTES_OPTIONS.map((m) => (
+                <option key={m} value={m}>
+                  {m} мин
+                </option>
+              ))}
+            </select>
+          </label>
+          <p className={s.hint}>
+            Без мыши и клавиатуры на этом устройстве. Больше — если часто сидите на встречах в
+            Zoom или Телемосте и не хотите выглядеть «отошедшим».
+          </p>
+          {systemIdleSupported() && (
+            <>
+              <label className={s.toggle}>
+                <input
+                  type="checkbox"
+                  checked={systemIdle}
+                  onChange={(e) => {
+                    const on = e.target.checked;
+                    if (!on) {
+                      setSystemIdle(false);
+                      activityTracker?.stopSystemIdle();
+                      return;
+                    }
+                    void activityTracker?.startSystemIdle(true).then((ok) => {
+                      setSystemIdle(ok);
+                      if (!ok) setError("Браузер не дал доступ к определению простоя");
+                    });
+                  }}
+                />
+                <span className={s.toggleUi} />
+                <span className={s.toggleLabel}>Точнее определять, что я отошёл</span>
+              </label>
+              <p className={s.hint}>
+                Браузер сообщит, когда вы {idleMinutes} мин не пользуетесь компьютером вообще (в
+                любых программах) или заблокировали экран. Пока вы работаете в другом окне, вы
+                будете «в сети».
+              </p>
+            </>
           )}
         </section>
 

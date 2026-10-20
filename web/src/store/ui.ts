@@ -15,11 +15,17 @@ interface UiState {
   glassTransparency: number;
   /** Звуки Созвездия: вход и выход, стук, приглашения. */
   starSounds: boolean;
+  /** «Отошёл» по системному детектору простоя (Chrome/Edge на ПК, с разрешения). */
+  systemIdle: boolean;
+  /** Через сколько минут без действий — «отошёл». */
+  idleMinutes: number;
   setTab: (tab: AppTab) => void;
   setMobileChatOpen: (open: boolean) => void;
   setPeerPanelOpen: (open: boolean) => void;
   setGlassTransparency: (value: number) => void;
   setStarSounds: (on: boolean) => void;
+  setSystemIdle: (on: boolean) => void;
+  setIdleMinutes: (minutes: number) => void;
   toggleFavorite: (chatId: string) => void;
   isFavorite: (chatId: string) => boolean;
 }
@@ -33,12 +39,16 @@ export const useUiStore = create<UiState>()(
       favoriteChatIds: [],
       glassTransparency: DEFAULT_GLASS_TRANSPARENCY,
       starSounds: true,
+      systemIdle: false,
+      idleMinutes: 5,
 
       setTab: (tab) => set({ tab, mobileChatOpen: false }),
       setMobileChatOpen: (mobileChatOpen) => set({ mobileChatOpen }),
       setPeerPanelOpen: (peerPanelOpen) => set({ peerPanelOpen }),
       setGlassTransparency: (glassTransparency) => set({ glassTransparency }),
       setStarSounds: (starSounds) => set({ starSounds }),
+      setSystemIdle: (systemIdle) => set({ systemIdle }),
+      setIdleMinutes: (idleMinutes) => set({ idleMinutes }),
 
       toggleFavorite: (chatId) =>
         set((s) => ({
@@ -57,6 +67,8 @@ export const useUiStore = create<UiState>()(
         favoriteChatIds: state.favoriteChatIds,
         glassTransparency: state.glassTransparency,
         starSounds: state.starSounds,
+        systemIdle: state.systemIdle,
+        idleMinutes: state.idleMinutes,
       }),
     }
   )

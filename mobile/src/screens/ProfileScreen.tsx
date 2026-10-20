@@ -13,6 +13,23 @@ import type {NativeStackScreenProps} from '@react-navigation/native-stack';
 import type {RootStackParamList} from '../navigation';
 import {useAuthStore} from '../store/auth';
 import {useContactsStore} from '../store/contacts';
+import {setMyManualStatus, useMyManualStatus} from '../store/presence';
+import {MANUAL_LABEL, untilText, type ManualKind} from '../utils/presence';
+
+const DURATIONS: {label: string; until: () => Date | null}[] = [
+  {label: '30 мин', until: () => new Date(Date.now() + 30 * 60_000)},
+  {label: '1 час', until: () => new Date(Date.now() + 60 * 60_000)},
+  {label: '2 часа', until: () => new Date(Date.now() + 120 * 60_000)},
+  {
+    label: 'До конца дня',
+    until: () => {
+      const d = new Date();
+      d.setHours(23, 59, 0, 0);
+      return d;
+    },
+  },
+  {label: 'Пока не сниму', until: () => null},
+];
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Profile'>;
 
@@ -34,6 +51,8 @@ export default function ProfileScreen({navigation}: Props) {
   const {pref, contacts, total, lastSyncAt, syncing, error, blocked, enable, disable, syncNow} =
     useContactsStore();
   const on = pref === 'on';
+  const manual = useMyManualStatus();
+  const [statusKind, setStatusKind] = React.useState<ManualKind | null>(null);
 
   const toggle = (value: boolean) => {
     if (value) {
@@ -51,6 +70,53 @@ export default function ProfileScreen({navigation}: Props) {
         </View>
         <Text style={s.name}>{user?.username}</Text>
         <Text style={s.muted}>{user?.phone}</Text>
+      </View>
+
+      <View style={s.card}>
+        <Text style={s.title}>Статус</Text>
+        {manual ? (
+          <View style={s.row}>
+            <Text style={[s.muted, {flex: 1}]}>
+              {manual.kind === 'dnd' ? '⛔' : '📅'} Сейчас: {MANUAL_LABEL[manual.kind]}
+              {manual.until ? ` ${untilText(manual.until)}` : ''}
+            </Text>
+            <Pressable onPress={() => void setMyManualStatus(null, null)} hitSlop={6}>
+              <Text style={s.link}>Снять</Text>
+            </Pressable>
+          </View>
+        ) : (
+          <Text style={s.muted}>
+            Покажет собеседникам, что вы заняты, — например, пока вы в Zoom или Телемосте.
+          </Text>
+        )}
+        <View style={s.chips}>
+          {(['meeting', 'dnd'] as ManualKind[]).map(kind => (
+            <Pressable
+              key={kind}
+              style={[s.chip, statusKind === kind && s.chipActive]}
+              onPress={() => setStatusKind(statusKind === kind ? null : kind)}>
+              <Text style={s.chipText}>
+                {kind === 'dnd' ? '⛔ Не беспокоить' : '📅 На встрече'}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+        {statusKind && (
+          <View style={s.chips}>
+            {DURATIONS.map(d => (
+              <Pressable
+                key={d.label}
+                style={s.chip}
+                onPress={() => {
+                  const kind = statusKind;
+                  setStatusKind(null);
+                  void setMyManualStatus(kind, d.until());
+                }}>
+                <Text style={s.chipText}>{d.label}</Text>
+              </Pressable>
+            ))}
+          </View>
+        )}
       </View>
 
       <View style={s.card}>
@@ -141,5 +207,15 @@ const s = StyleSheet.create({
   warn: {color: '#fbbf24', fontSize: 13, lineHeight: 18},
   note: {color: '#6f678c', fontSize: 12, lineHeight: 16},
   logout: {alignItems: 'center'},
+  chips: {flexDirection: 'row', flexWrap: 'wrap', gap: 6},
+  chip: {
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#2a2d3a',
+  },
+  chipActive: {backgroundColor: 'rgba(108,99,255,0.25)', borderColor: '#6c63ff'},
+  chipText: {color: '#e0e0e0', fontSize: 13},
   logoutText: {color: '#ff6b6b', fontSize: 15, fontWeight: '600'},
 });

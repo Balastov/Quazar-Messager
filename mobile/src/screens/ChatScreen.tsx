@@ -87,7 +87,15 @@ export default function ChatScreen({route, navigation}: Props) {
             {route.params.title}
           </Text>
           {peerStatus && (
-            <Text style={[s.headerSub, peerStatus === 'в сети' && s.headerOnline]}>{peerStatus}</Text>
+            <Text
+              style={[
+                s.headerSub,
+                peerStatus === 'в сети' && s.headerOnline,
+                peerStatus?.startsWith('отошёл') && s.headerAway,
+                (peerStatus?.startsWith('на встрече') || peerStatus?.startsWith('не беспокоить')) && s.headerBusy,
+              ]}>
+              {peerStatus}
+            </Text>
           )}
         </View>
       ),
@@ -306,6 +314,8 @@ const s = StyleSheet.create({
   headerTitle: {color: '#e0e0e0', fontSize: 16, fontWeight: '600'},
   headerSub: {color: '#9b93b8', fontSize: 12},
   headerOnline: {color: '#34d399'},
+  headerAway: {color: '#fbbf24'},
+  headerBusy: {color: '#f87171'},
   textMuted: {color: 'rgba(255,255,255,0.65)', fontSize: 13, fontStyle: 'italic'},
   stickerMsg: {gap: 2},
   stickerOwn: {alignSelf: 'flex-end', alignItems: 'flex-end'},

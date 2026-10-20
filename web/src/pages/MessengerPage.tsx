@@ -22,6 +22,8 @@ import { takePendingInvite } from "../api/stars";
 import { useStarsStore } from "../store/stars";
 import { useStickersStore } from "../store/stickers";
 import { useContactsStore } from "../store/contacts";
+import { activityTracker } from "../presence/activity";
+import { useVoiceStore } from "../store/voice";
 import E2EKeyGate from "../components/E2EKeyGate";
 import ContactsPrompt from "../components/ContactsPrompt";
 import s from "./MessengerPage.module.css";
@@ -52,6 +54,22 @@ export default function MessengerPage() {
     useUiStore.setState({ mobileChatOpen: false });
     void useStickersStore.getState().load();
     void useContactsStore.getState().load();
+    // «В сети» / «отошёл»: следим, работают ли с этим устройством.
+    activityTracker?.start();
+    activityTracker?.setIdleAfter(useUiStore.getState().idleMinutes);
+    if (useUiStore.getState().systemIdle) void activityTracker?.startSystemIdle(false);
+    // Звонок или Планета/Комната — человек на встрече, а не «отошёл».
+    const syncInCall = () => {
+      const phase = useCallStore.getState().phase;
+      const inCall = phase !== "idle" && phase !== "ended";
+      activityTracker?.setInCall(inCall || useVoiceStore.getState().status !== "idle");
+    };
+    syncInCall();
+    const unsubCall = useCallStore.subscribe(syncInCall);
+    const unsubVoice = useVoiceStore.subscribe(syncInCall);
+    const unsubUi = useUiStore.subscribe((st, prev) => {
+      if (st.idleMinutes !== prev.idleMinutes) activityTracker?.setIdleAfter(st.idleMinutes);
+    });
 
     // Открыли по уведомлению двери комнаты: ?star=…&planet=…&door=…
     const params = new URLSearchParams(window.location.search);
@@ -80,7 +98,13 @@ export default function MessengerPage() {
       useUiStore.getState().setTab("stars");
       useStarsStore.getState().openJoinDialog(inviteCode);
     }
-    return () => window.removeEventListener("quazar-star-door", onDoor);
+    return () => {
+      window.removeEventListener("quazar-star-door", onDoor);
+      activityTracker?.stop();
+      unsubCall();
+      unsubVoice();
+      unsubUi();
+    };
   }, []);
 
   useEffect(() => {

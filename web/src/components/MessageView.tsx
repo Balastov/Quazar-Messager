@@ -18,6 +18,7 @@ import {
 } from "./icons";
 import s from "./MessageView.module.css";
 import { usePresence, usePresenceStore, usePresenceText } from "../store/presence";
+import { presenceTone } from "../utils/presence";
 import LinkifiedText from "./LinkifiedText";
 import Sticker from "./Sticker";
 import StickerPicker from "./StickerPicker";
@@ -212,7 +213,13 @@ export default function MessageView({ showBack = false }: Props) {
           <span className={s.name}>{peer.username}</span>
           <span className={s.sub}>
             {isDirect && peerStatus && (
-              <span className={peerPresence?.online ? s.presenceOnline : undefined}>
+              <span
+                className={
+                  { online: s.presenceOnline, away: s.presenceAway, busy: s.presenceBusy, none: "" }[
+                    presenceTone(peerPresence) ?? "none"
+                  ]
+                }
+              >
                 {peerStatus} ·{" "}
               </span>
             )}

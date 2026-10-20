@@ -179,3 +179,11 @@
 .statusOnline {
   color: var(--qz-online);
 }
+
+.statusAway {
+  color: #fbbf24;
+}
+
+.statusBusy {
+  color: #f87171;
+}

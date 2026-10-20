@@ -9,6 +9,7 @@
 import type { StarKind } from "../api/stars";
 import { getCtx } from "../notifications/sound";
 import { useUiStore } from "../store/ui";
+import { isDoNotDisturb } from "../store/presence";
 
 export type StarSoundEvent =
   /** Я вошёл на Планету / в Комнату. */
@@ -312,6 +313,8 @@ export async function playStarSound(
   { force = false }: { force?: boolean } = {}
 ): Promise<void> {
   if (!force && !useUiStore.getState().starSounds) return;
+  // «Не беспокоить»: не стучим и не зовём звуком (свои вход/выход — тоже тихо).
+  if (!force && isDoNotDisturb()) return;
   const ctx = getCtx();
   if (!ctx) return;
   if (ctx.state === "suspended") {

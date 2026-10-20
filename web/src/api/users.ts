@@ -1,7 +1,15 @@
 import { http } from "./client";
 import type { User } from "./types";
 
+export interface ManualStatusBody {
+  kind: "meeting" | "dnd" | null;
+  /** ISO; null — пока не сниму. */
+  until: string | null;
+}
+
 export const usersApi = {
+  /** «На встрече» / «Не беспокоить» с таймером; kind=null — снять. */
+  setStatus: (body: ManualStatusBody) => http.put("/users/me/status", body).then((r) => r.data),
   me: () => http.get<User>("/users/me").then((r) => r.data),
 
   search: (q: string) =>

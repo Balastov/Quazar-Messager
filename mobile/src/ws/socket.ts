@@ -3,6 +3,8 @@ import type {WsEvent} from '../api/types';
 
 type Handler = (event: WsEvent) => void;
 
+export type Activity = 'active' | 'idle';
+
 class SocketManager {
   private ws: WebSocket | null = null;
   private handlers = new Set<Handler>();
@@ -48,6 +50,17 @@ class SocketManager {
     });
   }
 
+  /** Работают ли с приложением (для «в сети» / «отошёл»). Уходит и при переподключении. */
+  private activity: Activity = 'active';
+
+  setActivity(activity: Activity) {
+    if (activity === this.activity) {
+      return;
+    }
+    this.activity = activity;
+    this.send({type: 'activity', state: activity});
+  }
+
   send(event: object) {
     if (this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(event));
@@ -63,7 +76,7 @@ class SocketManager {
     if (!this.token) {
       return;
     }
-    this.ws = new WebSocket(`${WS_BASE_URL}/ws?token=${this.token}`);
+    this.ws = new WebSocket(`${WS_BASE_URL}/ws?token=${this.token}&state=${this.activity}`);
 
     this.ws.onmessage = e => {
       try {

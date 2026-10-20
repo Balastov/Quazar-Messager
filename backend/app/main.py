@@ -67,6 +67,15 @@ async def lifespan(app: FastAPI):
                 "last_seen_at TIMESTAMP WITH TIME ZONE"
             )
         )
+        await conn.execute(
+            text("ALTER TABLE users ADD COLUMN IF NOT EXISTS manual_status VARCHAR(16)")
+        )
+        await conn.execute(
+            text(
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS "
+                "manual_status_until TIMESTAMP WITH TIME ZONE"
+            )
+        )
         # Phone auth migration (email → phone)
         await conn.execute(
             text("ALTER TABLE users ADD COLUMN IF NOT EXISTS phone VARCHAR(20)")

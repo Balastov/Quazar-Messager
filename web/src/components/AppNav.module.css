@@ -60,12 +60,52 @@
 }
 
 .profile {
+  position: relative;
   margin-top: auto;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 4px;
   padding-top: 10px;
+}
+
+.profileBtn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  border: none;
+  border-radius: 14px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.profileBtn:hover {
+  background: var(--qz-bg-soft);
+}
+
+.statusPopover {
+  position: absolute;
+  left: calc(100% + 12px);
+  bottom: 0;
+  z-index: 70;
+  width: 300px;
+  padding: 14px;
+  border-radius: var(--qz-radius-lg);
+  border: 1px solid var(--qz-glass-border);
+  background: var(--qz-glass-bg-strong);
+  backdrop-filter: var(--qz-glass-filter);
+  -webkit-backdrop-filter: var(--qz-glass-filter);
+  box-shadow: var(--qz-glass-shine), 0 18px 48px rgba(0, 0, 0, 0.5);
+  text-align: left;
+}
+
+.statusTitle {
+  font-size: 15px;
+  font-weight: 700;
+  margin-bottom: 10px;
 }
 
 .profileName {

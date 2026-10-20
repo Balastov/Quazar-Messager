@@ -1,14 +1,20 @@
 import React from 'react';
 import {StyleSheet, View} from 'react-native';
-import {useOnline} from '../store/presence';
+import {usePresenceKind} from '../store/presence';
 
-/** Зелёная точка «в сети» — кладётся внутрь круглого аватара. */
+/** Точка на аватаре: зелёная — в сети, жёлтая — отошёл(ла), красная — на встрече / не беспокоить. */
 export default function PresenceDot({userId}: {userId: string | null | undefined}) {
-  const online = useOnline(userId);
-  if (!online) {
-    return null;
+  const kind = usePresenceKind(userId);
+  if (kind === 'busy') {
+    return <View style={[s.dot, s.busy]} accessibilityLabel="занят" />;
   }
-  return <View style={s.dot} accessibilityLabel="в сети" />;
+  if (kind === 'online') {
+    return <View style={s.dot} accessibilityLabel="в сети" />;
+  }
+  if (kind === 'away') {
+    return <View style={[s.dot, s.away]} accessibilityLabel="отошёл(ла)" />;
+  }
+  return null;
 }
 
 const s = StyleSheet.create({
@@ -23,4 +29,6 @@ const s = StyleSheet.create({
     borderWidth: 2,
     borderColor: '#0f1117',
   },
+  away: {backgroundColor: '#fbbf24'},
+  busy: {backgroundColor: '#f87171'},
 });

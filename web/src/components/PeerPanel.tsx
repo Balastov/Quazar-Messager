@@ -5,6 +5,7 @@ import { useCallStore } from "../store/call";
 import { getNotifyPrefs, setNotifyPrefs } from "../notifications/prefs";
 import UserAvatar from "./UserAvatar";
 import { usePresence, usePresenceText } from "../store/presence";
+import { presenceTone } from "../utils/presence";
 import { IconChat, IconMore, IconPhone, IconVideo } from "./icons";
 import s from "./PeerPanel.module.css";
 
@@ -52,7 +53,11 @@ export default function PeerPanel() {
       <div className={s.profile}>
         <UserAvatar username={peer.username} avatarUrl={peer.avatar_url} size="lg" userId={peer.id} />
         <div className={s.name}>{peer.username}</div>
-        <div className={peerPresence?.online ? `${s.status} ${s.statusOnline}` : s.status}>
+        <div
+          className={`${s.status} ${
+            { online: s.statusOnline, away: s.statusAway, busy: s.statusBusy, none: "" }[presenceTone(peerPresence) ?? "none"] ?? ""
+          }`}
+        >
           {chat.type === "group" ? "Группа" : (peerStatusText ?? "В Quazar")}
         </div>
       </div>

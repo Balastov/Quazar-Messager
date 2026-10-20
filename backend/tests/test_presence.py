@@ -50,15 +50,23 @@ class TestPresence(StarsTestBase):
     def uid(self, name: str) -> str:
         return self.users[name].id
 
-    async def connect(self, name: str) -> FakeSocket:
+    async def connect(self, name: str, active: bool = True) -> FakeSocket:
         ws = FakeSocket()
         manager.user_connections[self.uid(name)].append(ws)
-        await presence.on_connect(self.uid(name), ws)
+        await presence.on_connect(self.uid(name), ws, active=active)
         return ws
 
     async def disconnect(self, name: str, ws: FakeSocket):
         manager.disconnect(ws, self.uid(name))
-        await presence.on_disconnect(self.uid(name))
+        await presence.on_disconnect(self.uid(name), ws)
+
+    def statuses(self, about: str) -> list[str]:
+        """Что объявляли о человеке (по одному на объявление — у bob из одной Звезды)."""
+        return [
+            e["status"]
+            for uid, e in self.events
+            if e["type"] == "presence" and e["user_id"] == self.uid(about) and uid == self.uid("bob")
+        ]
 
     def presence_events(self, about: str) -> list[tuple[str, bool]]:
         return [
@@ -78,7 +86,8 @@ class TestPresence(StarsTestBase):
         ws = await self.connect("alice")
         snapshot = next(e for sock, e in self.snapshots if sock is ws and e["type"] == "presence_snapshot")
         status = {s["user_id"]: s["online"] for s in snapshot["users"]}
-        self.assertEqual(status, {self.uid("owner"): False, self.uid("bob"): True})
+        # И свой статус — чтобы все устройства знали ручной статус.
+        self.assertEqual(status, {self.uid("owner"): False, self.uid("bob"): True, self.uid("alice"): True})
 
     async def test_offline_after_grace_with_last_seen(self):
         ws = await self.connect("alice")
@@ -113,6 +122,92 @@ class TestPresence(StarsTestBase):
         await asyncio.sleep(0.15)
         self.assertEqual(self.presence_events("alice"), [])
 
+    # --- «Отошёл(ла)» ---------------------------------------------------------
+
+    async def test_idle_and_back(self):
+        ws = await self.connect("alice")
+        self.events.clear()
+        await presence.on_activity(self.uid("alice"), ws, active=False)
+        await presence.on_activity(self.uid("alice"), ws, active=False)  # повтор — тишина
+        self.assertEqual(self.statuses("alice"), ["away"])
+        away = next(e for _, e in self.events if e["type"] == "presence")
+        self.assertTrue(away["online"])  # старые клиенты видят «есть соединение»
+        self.assertIsNotNone(away["away_since"])
+        await presence.on_activity(self.uid("alice"), ws, active=True)
+        self.assertEqual(self.statuses("alice"), ["away", "online"])
+
+    async def test_connecting_in_background_is_away_right_away(self):
+        await self.connect("alice", active=False)
+        self.assertEqual(self.statuses("alice"), ["away"])
+        snapshot_ws = await self.connect("bob")
+        snapshot = next(e for sock, e in self.snapshots if sock is snapshot_ws)
+        alice = next(s for s in snapshot["users"] if s["user_id"] == self.uid("alice"))
+        self.assertEqual(alice["status"], "away")
+        self.assertIsNotNone(alice["away_since"])
+
+    async def test_closing_the_active_device_leaves_the_idle_one(self):
+        pc = await self.connect("alice")
+        phone = await self.connect("alice", active=False)  # свёрнутый телефон
+        self.assertEqual(self.statuses("alice"), ["online"])
+        await self.disconnect("alice", pc)
+        self.assertEqual(self.statuses("alice"), ["online", "away"])
+        await self.disconnect("alice", phone)
+        await asyncio.sleep(0.15)
+        self.assertEqual(self.statuses("alice"), ["online", "away", "offline"])
+
+    # --- «На встрече» / «Не беспокоить» -------------------------------------
+
+    async def test_manual_status_goes_to_audience_and_my_devices(self):
+        from datetime import datetime, timedelta, timezone
+
+        from app.api import users as users_api
+
+        ws = await self.connect("alice")
+        self.events.clear()
+        until = datetime.now(timezone.utc) + timedelta(hours=1)
+        out = await users_api.set_my_status(users_api.ManualStatusIn(kind="meeting", until=until), current_user=self.users["alice"])
+        self.assertEqual(out.kind, "meeting")
+        sent_to = {uid for uid, e in self.events if e["type"] == "presence"}
+        self.assertEqual(sent_to, {self.uid("owner"), self.uid("bob"), self.uid("alice")})
+        event = next(e for _, e in self.events if e["type"] == "presence")
+        self.assertEqual((event["status"], event["manual"]["kind"]), ("online", "meeting"))
+
+        # Отошёл — ручной статус остаётся в событии.
+        self.events.clear()
+        await presence.on_activity(self.uid("alice"), ws, active=False)
+        away = next(e for _, e in self.events if e["type"] == "presence")
+        self.assertEqual((away["status"], away["manual"]["kind"]), ("away", "meeting"))
+
+        # В сводке у bob — тоже.
+        bob_ws = await self.connect("bob")
+        snapshot = next(e for sock, e in self.snapshots if sock is bob_ws)
+        alice = next(s for s in snapshot["users"] if s["user_id"] == self.uid("alice"))
+        self.assertEqual(alice["manual"]["kind"], "meeting")
+        self.assertFalse(await presence.do_not_disturb(self.uid("alice")))
+
+        await users_api.set_my_status(users_api.ManualStatusIn(kind="dnd"), current_user=self.users["alice"])
+        self.assertTrue(await presence.do_not_disturb(self.uid("alice")))
+        await users_api.set_my_status(users_api.ManualStatusIn(kind=None), current_user=self.users["alice"])
+        self.assertFalse(await presence.do_not_disturb(self.uid("alice")))
+        self.assertIsNone(self.events[-1][1]["manual"])
+
+    async def test_manual_status_limits_and_expiry(self):
+        from datetime import datetime, timedelta, timezone
+
+        from app.api import users as users_api
+
+        now = datetime.now(timezone.utc)
+        from fastapi import HTTPException
+
+        for until in (now - timedelta(minutes=1), now + timedelta(days=8)):
+            with self.assertRaises(HTTPException) as ctx:
+                await users_api.set_my_status(
+                    users_api.ManualStatusIn(kind="dnd", until=until), current_user=self.users["alice"]
+                )
+            self.assertEqual(ctx.exception.status_code, 422)
+        self.assertIsNone(presence._manual_out("dnd", now - timedelta(seconds=1)))
+        self.assertEqual(presence._manual_out("meeting", None), {"kind": "meeting", "until": None})
+
     async def test_chats_and_contacts_make_status_visible(self):
         async with self.Session() as db:
             chat = Chat(type="direct")
@@ -124,7 +219,7 @@ class TestPresence(StarsTestBase):
             await db.commit()
         self.assertIn(self.uid("carol"), await presence.audience(self.uid("alice")))
         self.assertIn(self.uid("mod"), await presence.audience(self.uid("alice")))
-        seen_by_alice = {s["user_id"] for s in await presence.visible_to(self.uid("alice"))}
+        seen_by_alice = {s["user_id"] for s in await presence.visible_to(self.uid("alice"))} - {self.uid("alice")}
         self.assertIn(self.uid("carol"), seen_by_alice)
         self.assertNotIn(self.uid("mod"), seen_by_alice)
         self.assertNotIn(self.uid("admin"), await presence.audience(self.uid("carol")))

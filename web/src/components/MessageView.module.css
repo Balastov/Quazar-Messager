@@ -432,3 +432,11 @@
 .presenceOnline {
   color: var(--qz-online);
 }
+
+.presenceAway {
+  color: #fbbf24;
+}
+
+.presenceBusy {
+  color: #f87171;
+}

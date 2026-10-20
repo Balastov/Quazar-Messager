@@ -1,6 +1,6 @@
 import re
-from datetime import datetime, timezone
-from typing import Annotated
+from datetime import datetime, timedelta, timezone
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from pydantic import BaseModel, Field
@@ -21,6 +21,7 @@ from app.core.security import verify_password
 from app.models.user import User
 from app.schemas.user import UserOut
 from app.ws.hub import manager
+from app.core import presence
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -266,3 +267,34 @@ async def get_public_key(
         public_key=user.public_key,
         public_key_updated_at=user.public_key_updated_at,
     )
+
+
+class ManualStatusIn(BaseModel):
+    # None — снять статус.
+    kind: Literal["meeting", "dnd"] | None = None
+    # До какого момента; None — пока не снимут.
+    until: datetime | None = None
+
+
+class ManualStatusOut(BaseModel):
+    kind: str | None
+    until: datetime | None
+
+
+@router.put("/me/status", response_model=ManualStatusOut)
+async def set_my_status(
+    body: ManualStatusIn,
+    current_user: Annotated[User, Depends(get_current_user)],
+):
+    """«На встрече» / «Не беспокоить» с таймером — виден собеседникам вместо «отошёл(ла)»."""
+    until = body.until
+    if body.kind and until is not None:
+        if until.tzinfo is None:
+            until = until.replace(tzinfo=timezone.utc)
+        now = datetime.now(timezone.utc)
+        if until <= now:
+            raise HTTPException(status_code=422, detail="Время окончания уже прошло")
+        if until - now > timedelta(days=7):
+            raise HTTPException(status_code=422, detail="Не дольше недели")
+    manual = await presence.set_manual(current_user.id, body.kind, until if body.kind else None)
+    return ManualStatusOut(kind=manual["kind"] if manual else None, until=until if manual else None)

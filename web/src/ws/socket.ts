@@ -3,9 +3,11 @@ import type { WsEvent } from "../api/types";
 type Handler = (event: WsEvent) => void;
 type StatusHandler = (open: boolean) => void;
 
-function wsUrl(token: string): string {
+export type Activity = "active" | "idle";
+
+function wsUrl(token: string, activity: Activity): string {
   const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
-  return `${proto}//${window.location.host}/ws?token=${encodeURIComponent(token)}`;
+  return `${proto}//${window.location.host}/ws?token=${encodeURIComponent(token)}&state=${activity}`;
 }
 
 class SocketManager {
@@ -16,6 +18,8 @@ class SocketManager {
   private token: string | null = null;
   /** Во время звонка переподключаемся чаще: на возврат даётся 10 секунд. */
   private fastReconnect = false;
+  /** Работают ли с этим устройством (для «в сети» / «отошёл»). */
+  private activity: Activity = "active";
 
   constructor() {
     if (typeof window !== "undefined") {
@@ -65,6 +69,13 @@ class SocketManager {
     }
   }
 
+  /** Сообщить серверу, активно ли устройство. Уходит и при каждом переподключении (?state=). */
+  setActivity(activity: Activity) {
+    if (activity === this.activity) return;
+    this.activity = activity;
+    this.send({ type: "activity", state: activity });
+  }
+
   on(handler: Handler) {
     this.handlers.add(handler);
     return () => this.handlers.delete(handler);
@@ -98,7 +109,7 @@ class SocketManager {
 
   private _open() {
     if (!this.token) return;
-    const ws = new WebSocket(wsUrl(this.token));
+    const ws = new WebSocket(wsUrl(this.token, this.activity));
     this.ws = ws;
 
     ws.onopen = () => {

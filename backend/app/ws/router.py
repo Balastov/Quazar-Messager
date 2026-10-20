@@ -20,14 +20,15 @@ _STATUS_RANK = {"sent": 0, "delivered": 1, "read": 2}
 
 
 @router.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket, token: str):
+async def websocket_endpoint(websocket: WebSocket, token: str, state: str = "active"):
     user_id = decode_token(token)
     if not user_id:
         await websocket.close(code=4001)
         return
 
     await manager.connect(websocket, user_id)
-    await presence.on_connect(user_id, websocket)
+    # state=idle — подключились в фоне (свёрнутый телефон): не мигаем «в сети».
+    await presence.on_connect(user_id, websocket, active=state != "idle")
     await call_signaling.deliver_pending_invites(user_id)
     heartbeats = False  # the client sends pings — silence mid-call then means it is gone
     try:
@@ -53,6 +54,9 @@ async def websocket_endpoint(websocket: WebSocket, token: str):
                 heartbeats = True
                 await manager.send(websocket, {"type": "pong"})
 
+            elif event_type == "activity":
+                await presence.on_activity(user_id, websocket, data.get("state") != "idle")
+
             elif event_type == "send_message":
                 await _handle_send_message(data, user_id)
 
@@ -67,7 +71,7 @@ async def websocket_endpoint(websocket: WebSocket, token: str):
     finally:
         manager.disconnect(websocket, user_id)
         await call_signaling.on_user_offline(user_id, websocket)
-        await presence.on_disconnect(user_id)
+        await presence.on_disconnect(user_id, websocket)
 
 
 async def _handle_send_message(data: dict, sender_id: str):

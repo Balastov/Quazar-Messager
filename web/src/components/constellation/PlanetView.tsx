@@ -13,6 +13,7 @@ import { apiError, can, canStopScreen, outranks, ROOM_LABEL, roomDoor } from "./
 import { placeNouns, roomWords } from "./words";
 import s from "./Constellation.module.css";
 import { usePresence, usePresenceText } from "../../store/presence";
+import { presenceTone } from "../../utils/presence";
 
 interface Props {
   detail: StarDetail;
@@ -525,5 +526,7 @@ function MemberPresence({ userId }: { userId: string }) {
   const status = usePresence(userId);
   const text = usePresenceText(userId);
   if (!text) return null;
-  return <span className={`${s.listSub} ${status?.online ? s.presenceOnline : ""}`}>{text}</span>;
+  const tone =
+    { online: s.presenceOnline, away: s.presenceAway, busy: s.presenceBusy, none: "" }[presenceTone(status) ?? "none"] ?? "";
+  return <span className={`${s.listSub} ${tone}`}>{text}</span>;
 }

@@ -14,7 +14,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.api import stars as api
-from app.core import voice
+from app.core import presence, voice
 from app.core.database import Base
 from app.models.user import User
 from app.schemas.star import CreateInvite, CreateStar, UpdateMemberRole
@@ -49,6 +49,10 @@ class StarsTestBase(unittest.IsolatedAsyncioTestCase):
         session_patch = mock.patch.object(voice, "session_factory", self.Session)
         session_patch.start()
         self.addCleanup(session_patch.stop)
+        # И реестр «кто в сети» (статусы, «не беспокоить»).
+        presence_patch = mock.patch.object(presence, "session_factory", self.Session)
+        presence_patch.start()
+        self.addCleanup(presence_patch.stop)
         voice.reset()
         self.addCleanup(voice.reset)
 

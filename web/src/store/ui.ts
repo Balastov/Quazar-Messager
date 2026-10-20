@@ -13,10 +13,13 @@ interface UiState {
   favoriteChatIds: string[];
   /** Прозрачность liquid glass, 0..100 %. */
   glassTransparency: number;
+  /** Звуки Созвездия: вход и выход, стук, приглашения. */
+  starSounds: boolean;
   setTab: (tab: AppTab) => void;
   setMobileChatOpen: (open: boolean) => void;
   setPeerPanelOpen: (open: boolean) => void;
   setGlassTransparency: (value: number) => void;
+  setStarSounds: (on: boolean) => void;
   toggleFavorite: (chatId: string) => void;
   isFavorite: (chatId: string) => boolean;
 }
@@ -29,11 +32,13 @@ export const useUiStore = create<UiState>()(
       peerPanelOpen: true,
       favoriteChatIds: [],
       glassTransparency: DEFAULT_GLASS_TRANSPARENCY,
+      starSounds: true,
 
       setTab: (tab) => set({ tab, mobileChatOpen: false }),
       setMobileChatOpen: (mobileChatOpen) => set({ mobileChatOpen }),
       setPeerPanelOpen: (peerPanelOpen) => set({ peerPanelOpen }),
       setGlassTransparency: (glassTransparency) => set({ glassTransparency }),
+      setStarSounds: (starSounds) => set({ starSounds }),
 
       toggleFavorite: (chatId) =>
         set((s) => ({
@@ -51,6 +56,7 @@ export const useUiStore = create<UiState>()(
         peerPanelOpen: state.peerPanelOpen,
         favoriteChatIds: state.favoriteChatIds,
         glassTransparency: state.glassTransparency,
+        starSounds: state.starSounds,
       }),
     }
   )

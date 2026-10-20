@@ -4,7 +4,8 @@
 
 let sharedCtx: AudioContext | null = null;
 
-function getCtx(): AudioContext | null {
+/** Общий AudioContext для всех звуков приложения (создаётся при первом звуке). */
+export function getCtx(): AudioContext | null {
   const AC =
     window.AudioContext ||
     (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;

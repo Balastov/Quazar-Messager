@@ -13,6 +13,7 @@ import {
 } from "../api/stars";
 import { roomDoor } from "../components/constellation/rules";
 import { roomWords } from "../components/constellation/words";
+import { playStarSound } from "../sounds/starSounds";
 import { notifyDoor, type DoorLink } from "../notifications/notify";
 import { socket } from "../ws/socket";
 import { useAuthStore } from "./auth";
@@ -69,9 +70,10 @@ function errorText(err: unknown, fallback: string): string {
   return fallback;
 }
 
-/** Тип Звезды — от него зависит, «войти в комнату» или «отправиться на планету». */
+/** Вид Звезды — от него зависят слова («Посетить Планету» / «Войти в Комнату») и звуки. */
 function starKind(starId: string) {
-  return useStarsStore.getState().details?.[starId]?.kind;
+  const stars = useStarsStore.getState();
+  return stars.details?.[starId]?.kind ?? stars.stars?.find((st) => st.id === starId)?.kind;
 }
 
 /** Открыть Звезду и войти на Планету. */
@@ -110,6 +112,7 @@ export const useDoorsStore = create<DoorsState>((set, get) => {
         set((s) => ({
           invites: [...s.invites.filter((i) => i.channelId !== invite.channelId), invite],
         }));
+        void playStarSound("invite", starKind(invite.starId));
         void notifyDoor(
           { starId: invite.starId, channelId: invite.channelId, door: "invite" },
           {
@@ -130,6 +133,7 @@ export const useDoorsStore = create<DoorsState>((set, get) => {
         const isNew = !get().knocks[event.knock.id];
         set((s) => ({ knocks: { ...s.knocks, [event.knock.id]: { ...event, receivedAt: Date.now() } } }));
         if (isNew && event.knock.status === "pending") {
+          void playStarSound("knock", starKind(event.star_id));
           void notifyDoor(
             { starId: event.star_id, channelId: event.knock.channel_id, door: "knock", knockId: event.knock.id },
             {
@@ -333,7 +337,13 @@ export const useDoorsStore = create<DoorsState>((set, get) => {
           break;
         }
         case "deny":
-          set({ myKnock: null, notice: "Вам отказали во входе в комнату" });
+          set({
+            myKnock: null,
+            notice:
+              starKind(link.starId) === "work"
+                ? "Вам отказали во входе в Комнату"
+                : "Вам отказали в посещении Планеты",
+          });
           break;
         case "free": {
           // В комнате никого не осталось — дверь открыта, заходит человек сам.

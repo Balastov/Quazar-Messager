@@ -20,6 +20,34 @@ import { useUiStore } from "../store/ui";
 import { DEFAULT_GLASS_TRANSPARENCY } from "../styles/glass";
 import { useContactsStore } from "../store/contacts";
 import ContactsImport from "./ContactsImport";
+import { playStarSound, type StarSoundEvent } from "../sounds/starSounds";
+
+const STAR_SOUNDS: { kind: "gaming" | "work"; title: string; items: [StarSoundEvent, string][] }[] = [
+  {
+    kind: "gaming",
+    title: "🎮 Игры",
+    items: [
+      ["enter", "Посетить Планету"],
+      ["leave", "Покинуть Планету"],
+      ["peerJoin", "Кто-то прилетел"],
+      ["peerLeave", "Кто-то улетел"],
+      ["knock", "Просят посетить"],
+      ["invite", "Приглашение"],
+    ],
+  },
+  {
+    kind: "work",
+    title: "💼 Работа",
+    items: [
+      ["enter", "Войти в Комнату"],
+      ["leave", "Выйти из Комнаты"],
+      ["peerJoin", "Кто-то вошёл"],
+      ["peerLeave", "Кто-то вышел"],
+      ["knock", "Стук в дверь"],
+      ["invite", "Приглашение"],
+    ],
+  },
+];
 import UserAvatar from "./UserAvatar";
 import MicCheck from "./MicCheck";
 import AudioDevices from "./AudioDevices";
@@ -48,6 +76,8 @@ export default function SettingsView() {
   const toggleNoiseSuppression = useCallStore((st) => st.toggleNoiseSuppression);
   const glassTransparency = useUiStore((st) => st.glassTransparency);
   const setGlassTransparency = useUiStore((st) => st.setGlassTransparency);
+  const starSounds = useUiStore((st) => st.starSounds);
+  const setStarSounds = useUiStore((st) => st.setStarSounds);
   const phonebook = useContactsStore((st) => st.contacts);
   const phonebookSyncedAt = useContactsStore((st) => st.syncedAt);
   const phonebookTotal = useContactsStore((st) => st.total);
@@ -310,6 +340,40 @@ export default function SettingsView() {
               Проверить уведомление
             </button>
           )}
+        </section>
+
+        <section className={s.card}>
+          <h3 className={s.sectionTitle}>Звуки Созвездия</h3>
+          <label className={s.toggle}>
+            <input
+              type="checkbox"
+              checked={starSounds}
+              onChange={(e) => {
+                setStarSounds(e.target.checked);
+                if (e.target.checked) void playStarSound("peerJoin", "work", { force: true });
+              }}
+            />
+            <span className={s.toggleUi} />
+            <span className={s.toggleLabel}>Вход и выход, стук, приглашения</span>
+          </label>
+          {STAR_SOUNDS.map((group) => (
+            <div key={group.kind} className={s.soundGroup}>
+              <span className={s.soundGroupTitle}>{group.title}</span>
+              <div className={s.rowBtns}>
+                {group.items.map(([event, label]) => (
+                  <button
+                    key={event}
+                    type="button"
+                    className={`${s.secondary} ${s.soundBtn}`}
+                    onClick={() => void playStarSound(event, group.kind, { force: true })}
+                    title="Прослушать"
+                  >
+                    ▶ {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
         </section>
 
         <section className={s.card}>

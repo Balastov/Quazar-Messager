@@ -194,7 +194,7 @@ export default function OfficeMap({ detail, onBack, onOpenPlanet, onAddRoom }: P
 
   const removeFloor = async () => {
     if (!floor) return;
-    if (!window.confirm(`Удалить «${floor.name}»? Его комнаты переедут на другой этаж.`)) return;
+    if (!window.confirm(`Удалить «${floor.name}»? Его Комнаты переедут на другой этаж.`)) return;
     try {
       await deleteFloor(floor.id);
     } catch (err) {
@@ -215,8 +215,8 @@ export default function OfficeMap({ detail, onBack, onOpenPlanet, onAddRoom }: P
           <span className={s.channelTitleName}>Карта офиса</span>
           <span className={s.channelTitleSub}>
             {editing
-              ? "Перетаскивайте комнаты, растягивайте за правый нижний угол"
-              : "Нажмите на комнату, чтобы войти"}
+              ? "Перетаскивайте Комнаты, растягивайте за правый нижний угол"
+              : "Нажмите на Комнату, чтобы войти"}
           </span>
         </div>
       </div>
@@ -378,7 +378,7 @@ export default function OfficeMap({ detail, onBack, onOpenPlanet, onAddRoom }: P
                   <button
                     type="button"
                     className={s.roomInfo}
-                    title="Кто внутри и настройки комнаты"
+                    title="Кто внутри и настройки Комнаты"
                     aria-label={`Открыть «${c.name}»`}
                     onClick={(e) => {
                       e.stopPropagation();
@@ -405,7 +405,7 @@ export default function OfficeMap({ detail, onBack, onOpenPlanet, onAddRoom }: P
         {unplaced.length > 0 && canEdit && (
           <p className={s.hint}>
             Не поместились на этаж: {unplaced.map((c) => `«${c.name}»`).join(", ")}. Освободите
-            место или перенесите их на другой этаж в настройках комнаты.
+            место или перенесите их на другой этаж в настройках Комнаты.
           </p>
         )}
         {voice.error && !editing && <div className={s.error}>{voice.error}</div>}

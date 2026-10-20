@@ -29,7 +29,11 @@ vi.mock("../../api/stars", () => ({
 }));
 
 const selectStar = vi.fn(async () => {});
-vi.mock("../stars", () => ({ useStarsStore: { getState: () => ({ selectStar }) } }));
+vi.mock("../stars", () => ({
+  useStarsStore: { getState: () => ({ selectStar, stars: [{ id: "s1", kind: "work" }, { id: "g1", kind: "gaming" }] }) },
+}));
+const playStarSound = vi.fn(async () => {});
+vi.mock("../../sounds/starSounds", () => ({ playStarSound: (...a: unknown[]) => playStarSound(...(a as [])) }));
 
 const join = vi.fn(async () => {});
 vi.mock("../voice", () => ({
@@ -58,7 +62,7 @@ describe("entering a room (double click, office map)", () => {
     id: "room", star_id: "s1", kind: "planet", name: "Переговорная", position: 0, capacity: 2,
     room_kind: "meeting", access: "open", floor_id: null, map_x: null, map_y: null, map_w: null, map_h: null,
   };
-  const detail = (access: string, inside: string[] = [], extra: Record<string, unknown> = {}) =>
+  const detail = (_access: string, inside: string[] = [], extra: Record<string, unknown> = {}) =>
     ({
       id: "s1", kind: "work", my_role: "member", my_permissions: [],
       voice: { room: inside.map((id, i) => ({ user_id: id, joined_at: "", server_muted: false, is_host: i === 0 })) },
@@ -91,6 +95,29 @@ describe("entering a room (double click, office map)", () => {
     await useDoorsStore.getState().enterRoom(detail("open", ["a", "b"]), room as never);
     expect(join).not.toHaveBeenCalled();
     expect(useDoorsStore.getState().notice).toBe("Комната заполнена: Переговорная");
+  });
+});
+
+describe("door sounds", () => {
+  it("plays the invite sound of the Star kind", () => {
+    playStarSound.mockClear();
+    emit({
+      type: "planet_invite", star_id: "g1", channel_id: "p1", from_user_id: "u2",
+      from_name: "Анна", room_name: "Рейд", star_name: "Клан", expires_in: 300,
+    });
+    expect(playStarSound).toHaveBeenCalledWith("invite", "gaming");
+  });
+
+  it("plays the knock sound once per new knock", () => {
+    playStarSound.mockClear();
+    const knock = {
+      type: "planet_knock", star_id: "s1", user_name: "Анна", room_name: "Переговорная", star_name: "Офис",
+      knock: { id: "kk", channel_id: "room", user_id: "u2", status: "pending" },
+    };
+    emit(knock);
+    emit(knock);
+    expect(playStarSound).toHaveBeenCalledTimes(1);
+    expect(playStarSound).toHaveBeenCalledWith("knock", "work");
   });
 });
 

@@ -12,6 +12,7 @@ import { useStarsStore } from "../../store/stars";
 import Dialog from "./Dialog";
 import { apiError, ROOM_LABEL, SELECTABLE_ROOM_KINDS } from "./rules";
 import s from "./Constellation.module.css";
+import { placeNouns } from "./words";
 
 const ROOM_KINDS = SELECTABLE_ROOM_KINDS;
 
@@ -47,6 +48,7 @@ export default function ChannelDialog({
 
   const isPlanet = kind === "planet";
   const isWork = starKind === "work";
+  const nouns = placeNouns(starKind);
   const maxCapacity = limits?.planet_max_capacity ?? 25;
   const defaultFor = (room: RoomKind | null) =>
     (room && limits?.room_kinds[room]) || 10;
@@ -73,10 +75,10 @@ export default function ChannelDialog({
 
   const title = channel
     ? isPlanet
-      ? "Изменить Планету"
+      ? `Изменить ${nouns.acc}`
       : "Изменить Спутник"
     : isPlanet
-      ? "Новая Планета"
+      ? nouns.created
       : "Новый Спутник";
 
   const run = async (fn: () => Promise<void>) => {
@@ -149,7 +151,7 @@ export default function ChannelDialog({
             </select>
             <span className={s.checkHint}>
               {access === "invite"
-                ? "В пустую комнату заходит кто угодно и становится главным. Пока внутри кто-то есть, остальные стучатся — впускает и зовёт главный."
+                ? `${isWork ? "В пустую Комнату" : "На пустую Планету"} заходит кто угодно и становится главным. Пока внутри кто-то есть, остальные стучатся — впускает и зовёт главный.`
                 : access === "personal"
                   ? "Без стука входит только хозяин кабинета. Звать и впускать могут хозяин, админы и владелец Звезды."
                   : "Заходит любой участник Звезды."}
@@ -248,7 +250,7 @@ export default function ChannelDialog({
             <span>
               🎧 Только слушать
               <span className={s.checkHint}>
-                Микрофоны на Планете не включаются вообще — браузер их даже не запрашивает.
+                Микрофоны {nouns.inside} не включаются вообще — браузер их даже не запрашивает.
                 Показывать экран можно. Подходит для кинозала, трансляций и тихой работы рядом.
               </span>
             </span>
@@ -267,7 +269,7 @@ export default function ChannelDialog({
             className={s.danger}
             disabled={busy}
             onClick={() => {
-              const what = isPlanet ? "Планету" : "Спутник и всю его переписку";
+              const what = isPlanet ? nouns.acc : "Спутник и всю его переписку";
               if (window.confirm(`Удалить ${what} «${channel.name}»? Это нельзя отменить.`)) {
                 void run(() => deleteChannel(channel.id));
               }

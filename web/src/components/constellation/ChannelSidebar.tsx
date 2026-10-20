@@ -4,7 +4,7 @@ import { sortChannels, useStarsStore } from "../../store/stars";
 import { IconGear, IconPlanet, IconSatellite } from "../icons";
 import { can, GAMING_LIMITS, initials, KIND_LABEL, ROLE_LABEL } from "./rules";
 import { VoiceBar } from "./VoiceBar";
-import { roomWords } from "./words";
+import { placeNouns, roomWords } from "./words";
 import s from "./Constellation.module.css";
 
 interface Props {
@@ -55,9 +55,9 @@ export default function ChannelSidebar({
                   ? `В игровой Звезде не больше ${limit}`
                   : kind === "satellite"
                     ? "Добавить Спутник"
-                    : "Добавить Планету"
+                    : `Добавить ${placeNouns(detail.kind).acc}`
               }
-              aria-label={kind === "satellite" ? "Добавить Спутник" : "Добавить Планету"}
+              aria-label={kind === "satellite" ? "Добавить Спутник" : `Добавить ${placeNouns(detail.kind).acc}`}
             >
               +
             </button>
@@ -124,7 +124,7 @@ export default function ChannelSidebar({
         })}
         {list.length === 0 && (
           <div className={s.channelHint} style={{ padding: "6px 10px" }}>
-            {kind === "satellite" ? "Спутников нет" : "Планет нет"}
+            {kind === "satellite" ? "Спутников нет" : `${placeNouns(detail.kind).manyGen} нет`}
           </div>
         )}
       </>

@@ -34,6 +34,8 @@ import {
 import { applyIosRoute, applyOutput, getMicrophone, getPreferredOutput } from "../calls/devices";
 import { useCallStore } from "./call";
 import { roomWords, type RoomWords } from "../components/constellation/words";
+import { playStarSound } from "../sounds/starSounds";
+import type { StarKind } from "../api/stars";
 
 export type VoiceStatus = "idle" | "connecting" | "connected" | "reconnecting";
 
@@ -245,11 +247,25 @@ async function starsStore(): Promise<StarsStore> {
 }
 
 let words: RoomWords | null = null;
+/** Вид Звезды текущей Планеты/Комнаты — от него зависят звуки. */
+let soundKind: StarKind | undefined;
+/** Переходим на другую Планету — звук выхода не играем, будет звук входа. */
+let switchingPlace = false;
+/** Чтобы несколько человек, вошедших разом, не дали какофонию. */
+let lastPeerSound = 0;
 
-/** Формулировки текущей Планеты/комнаты (тип Звезды и название — из стора Созвездия). */
+function peerSound(event: "peerJoin" | "peerLeave") {
+  const now = Date.now();
+  if (now - lastPeerSound < 700) return;
+  lastPeerSound = now;
+  void playStarSound(event, soundKind);
+}
+
+/** Формулировки текущей Планеты/Комнаты (тип Звезды и название — из стора Созвездия). */
 async function wordsFor(starId: string, channelId: string): Promise<RoomWords> {
   const detail = (await starsStore()).getState().details[starId];
   const name = detail?.channels.find((c) => c.id === channelId)?.name ?? "";
+  soundKind = detail?.kind;
   return roomWords(detail?.kind, name);
 }
 
@@ -450,8 +466,15 @@ export const useVoiceStore = create<VoiceState>((set, get) => {
   }
 
   function wire(r: Room, { RoomEvent, DisconnectReason }: LiveKit) {
-    r.on(RoomEvent.ParticipantConnected, syncPeers)
-      .on(RoomEvent.ParticipantDisconnected, syncPeers)
+    r.on(RoomEvent.ParticipantConnected, () => {
+      peerSound("peerJoin");
+      syncPeers();
+    })
+      .on(RoomEvent.ParticipantDisconnected, () => {
+        // При нашем собственном отключении LiveKit «отключает» и всех остальных — молчим.
+        if (room === r && r.state === "connected") peerSound("peerLeave");
+        syncPeers();
+      })
       .on(RoomEvent.ActiveSpeakersChanged, syncPeers)
       .on(RoomEvent.TrackMuted, syncPeers)
       .on(RoomEvent.TrackUnmuted, syncPeers)
@@ -506,6 +529,7 @@ export const useVoiceStore = create<VoiceState>((set, get) => {
         if (room !== r) return;
         let notice: string | null = null;
         if (!leavingOnPurpose) {
+          void playStarSound("leave", soundKind);
           const w = words ?? roomWords(undefined, "");
           if (reason === DisconnectReason.PARTICIPANT_REMOVED) notice = w.removed;
           else if (reason === DisconnectReason.ROOM_DELETED) notice = w.closed;
@@ -544,7 +568,14 @@ export const useVoiceStore = create<VoiceState>((set, get) => {
         set({ error: "Сначала завершите звонок" });
         return;
       }
-      if (status !== "idle") await get().leave();
+      if (status !== "idle") {
+        switchingPlace = true;
+        try {
+          await get().leave();
+        } finally {
+          switchingPlace = false;
+        }
+      }
 
       set({ status: "connecting", starId, channelId, error: null, notice: null, locked: null });
       const roomText = await wordsFor(starId, channelId);
@@ -602,10 +633,12 @@ export const useVoiceStore = create<VoiceState>((set, get) => {
       await r.startAudio().catch(() => {});
       set({ status: "connected", needsAudioUnlock: !r.canPlaybackAudio });
       syncPeers();
+      void playStarSound("enter", soundKind);
     },
 
     leave: async () => {
       leavingOnPurpose = true;
+      if (!switchingPlace && get().status !== "idle") void playStarSound("leave", soundKind);
       await cleanup();
     },
 

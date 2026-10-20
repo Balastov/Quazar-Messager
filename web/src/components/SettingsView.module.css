@@ -273,3 +273,21 @@
   font-size: 11px;
   color: var(--qz-text-muted);
 }
+
+.soundGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.soundGroupTitle {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--qz-text-muted);
+}
+
+.soundBtn {
+  padding: 7px 11px;
+  font-size: 12px;
+  font-weight: 500;
+}

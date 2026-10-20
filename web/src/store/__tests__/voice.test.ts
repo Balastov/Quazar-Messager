@@ -285,7 +285,7 @@ describe("voice store", () => {
     await useVoiceStore.getState().join("s1", "p1");
     FakeRoom.last!.emit("Disconnected", 4);
     await vi.waitFor(() => expect(useVoiceStore.getState().status).toBe("idle"));
-    expect(useVoiceStore.getState().notice).toBe("Вас вывели с планеты");
+    expect(useVoiceStore.getState().notice).toBe("Вас вывели с Планеты");
     expect(mic.stopped).toBe(true);
   });
 

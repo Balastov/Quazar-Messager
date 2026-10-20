@@ -3,7 +3,7 @@ import { useStarsStore } from "../../store/stars";
 import { useUiStore } from "../../store/ui";
 import { useVoiceStore } from "../../store/voice";
 import { IconPlanet } from "../icons";
-import { roomWords } from "./words";
+import { placeNouns, roomWords } from "./words";
 import s from "./Constellation.module.css";
 
 /** «Вы на Планете …» с микрофоном и выходом. floating — поверх других вкладок. */
@@ -41,12 +41,12 @@ export function VoiceBar({ floating = false }: { floating?: boolean }) {
           {status === "connected" ? words.here : words.entering}
         </span>
         <span className={s.voiceBarSub}>
-          {planet?.name ?? "Планета"}
+          {planet?.name ?? placeNouns(detail?.kind).one}
           {detail ? ` · ${detail.name}` : ""}
         </span>
       </button>
       {listenOnly ? (
-        <span className={s.voiceBarListen} title="Планета «Только слушать»: микрофон не используется">
+        <span className={s.voiceBarListen} title={`${placeNouns(detail?.kind).one} «Только слушать»: микрофон не используется`}>
           🎧
         </span>
       ) : (

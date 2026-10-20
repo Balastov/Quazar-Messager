@@ -10,7 +10,7 @@ import Dialog from "./Dialog";
 import AudioDevices from "../AudioDevices";
 import ScreenStage from "./ScreenStage";
 import { apiError, can, canStopScreen, outranks, ROOM_LABEL, roomDoor } from "./rules";
-import { roomWords } from "./words";
+import { placeNouns, roomWords } from "./words";
 import s from "./Constellation.module.css";
 
 interface Props {
@@ -44,6 +44,7 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
   const personal = door.kind === "personal";
   const listenOnly = !!channel.listen_only;
   const words = roomWords(detail.kind, channel.name);
+  const nouns = placeNouns(detail.kind);
   const mustKnock = !door.entersFreely && !iAmInside;
   const myKnockHere = myKnock?.channelId === channel.id ? myKnock : null;
   const knocksHere = Object.values(allKnocks).filter((k) => k.knock.channel_id === channel.id);
@@ -98,7 +99,7 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
             ? `🔑 кабинет ${cabinetOwnerName} · `
             : closed
               ? "🔒 по приглашениям · "
-              : "Планета · "}
+              : `${nouns.one} · `}
           {listenOnly ? "🎧 только слушать · " : ""}
           {room ? `${room} · ` : ""}
           {presence.length} из {capacity}
@@ -109,8 +110,8 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
           type="button"
           className={s.iconBtn}
           onClick={onEdit}
-          aria-label="Изменить Планету"
-          title="Изменить Планету"
+          aria-label={`Изменить ${nouns.acc}`}
+          title={`Изменить ${nouns.acc}`}
         >
           <IconGear />
         </button>
@@ -174,13 +175,14 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
           )}
           {door.kind === "invite" && mustKnock && (
             <p className={s.hint}>
-              🔒 Комната по приглашениям, внутри уже есть люди: постучитесь — главный в комнате
-              впустит вас, отправит в зал ожидания или откажет. Или попросите позвать вас.
+              🔒 {nouns.one} по приглашениям, внутри уже есть люди: постучитесь — главный{" "}
+              {nouns.inside} впустит вас, отправит в зал ожидания или откажет. Или попросите
+              позвать вас.
             </p>
           )}
           {door.kind === "invite" && !mustKnock && presence.length === 0 && (
             <p className={s.hint}>
-              🔒 Комната по приглашениям. Сейчас пусто — заходите, и вы станете в ней главным:
+              🔒 {nouns.one} по приглашениям. Сейчас пусто — заходите, и вы станете в ней главным:
               будете впускать тех, кто стучится, и звать людей.
             </p>
           )}
@@ -292,6 +294,7 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
         {sharerId && (
           <ScreenStage
             sharerName={sharerName}
+            placeInside={nouns.inside}
             screen={voice.screens.find((sc) => sc.userId === sharerId) ?? null}
             isMine={sharerId === myId}
             onStop={
@@ -337,7 +340,7 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
                     className={`${s.secondary} ${s.small}`}
                     onClick={() => {
                       const name = m?.user.username ?? peer.name;
-                      if (window.confirm(`Сделать ${name} главным в комнате? Впускать и звать будет он.`)) {
+                      if (window.confirm(`Сделать ${name} главным ${nouns.inside}? Впускать и звать будет он.`)) {
                         void moderate(() => starsApi.makeHost(detail.id, channel.id, peer.userId));
                       }
                     }}
@@ -383,7 +386,7 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
 
       <div className={s.voiceControls}>
         {voice.listenOnly ? (
-          <span className={s.listenOnlyBadge} title="Микрофон на этой Планете не используется">
+          <span className={s.listenOnlyBadge} title={`Микрофон ${nouns.inside} не используется`}>
             🎧 Только слушать
           </span>
         ) : (
@@ -428,7 +431,7 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
               className={s.secondary}
               onClick={() => void voice.startScreenShare()}
               disabled={!!sharerId || voice.screenStarting || voice.status !== "connected"}
-              title={sharerId ? `Сейчас экран показывает ${sharerName}` : "Показать экран всем на Планете"}
+              title={sharerId ? `Сейчас экран показывает ${sharerName}` : `Показать экран всем ${nouns.inside}`}
             >
               {voice.screenStarting ? "🖥 Выбираем экран…" : "🖥 Показать экран"}
             </button>

@@ -4,6 +4,7 @@ import { useStarsStore } from "../../store/stars";
 import Dialog from "./Dialog";
 import { apiError, KIND_LABEL } from "./rules";
 import s from "./Constellation.module.css";
+import { playStarSound } from "../../sounds/starSounds";
 
 export default function JoinStarDialog() {
   const joinDialog = useStarsStore((st) => st.joinDialog);
@@ -26,7 +27,10 @@ export default function JoinStarDialog() {
     }
     setBusy(true);
     try {
-      setPreview(await starsApi.previewInvite(code));
+      const next = await starsApi.previewInvite(code);
+      setPreview(next);
+      // Зовут в Звезду: игровую — роботом, рабочую — вокзальным «дин-дон».
+      if (!next.already_member) void playStarSound("invite", next.star_kind);
     } catch (err) {
       setError(apiError(err));
     } finally {

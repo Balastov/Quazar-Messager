@@ -30,15 +30,28 @@ export const ROOM_LABEL: Record<RoomKind, string> = {
 /** Типы комнат, которые можно выбрать (зал ожидания создаётся сам). */
 export const SELECTABLE_ROOM_KINDS: RoomKind[] = ["coworking", "meeting", "smoking", "kitchen", "custom"];
 
-export const PERM_LABEL: Record<StarPerm, string> = {
-  invite: "Приглашать людей",
-  delete_messages: "Удалять чужие сообщения",
-  kick: "Выгонять участников",
-  manage_channels: "Создавать и удалять Спутники и Планеты",
-  voice_moderate: "Выключать микрофон и выводить с Планет",
-  edit_map: "Редактировать карту офиса",
-  admit: "Впускать в комнаты «По приглашениям» и входить в них без стука",
-};
+/** Подпись права: в рабочих Звёздах — Комнаты, в игровых — Планеты. */
+export function permLabel(perm: StarPerm, kind: StarKind | undefined): string {
+  const work = kind === "work";
+  switch (perm) {
+    case "invite":
+      return "Приглашать людей";
+    case "delete_messages":
+      return "Удалять чужие сообщения";
+    case "kick":
+      return "Выгонять участников";
+    case "manage_channels":
+      return work ? "Создавать и удалять Спутники и Комнаты" : "Создавать и удалять Спутники и Планеты";
+    case "voice_moderate":
+      return work ? "Выключать микрофон и выводить из Комнат" : "Выключать микрофон и выводить с Планет";
+    case "edit_map":
+      return "Редактировать карту офиса";
+    case "admit":
+      return work
+        ? "Впускать в Комнаты «По приглашениям» и входить в них без стука"
+        : "Впускать на Планеты «По приглашениям» и посещать их без стука";
+  }
+}
 
 export const PERM_ORDER: StarPerm[] = [
   "invite",

@@ -5,6 +5,8 @@ import s from "./Constellation.module.css";
 interface Props {
   /** Кто показывает (по данным сервера). */
   sharerName: string;
+  /** «на Планете» / «в Комнате». */
+  placeInside: string;
   /** Видео в комнате; null — показ начинается, трек ещё не дошёл. */
   screen: VoiceScreen | null;
   isMine: boolean;
@@ -15,7 +17,7 @@ interface Props {
 type FullscreenVideo = HTMLVideoElement & { webkitEnterFullscreen?: () => void };
 
 /** Сцена Планеты: трансляция экрана на всю ширину, с полноэкранным режимом. */
-export default function ScreenStage({ sharerName, screen, isMine, onStop }: Props) {
+export default function ScreenStage({ sharerName, placeInside, screen, isMine, onStop }: Props) {
   const frameRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<FullscreenVideo>(null);
   const [fullscreen, setFullscreen] = useState(false);
@@ -54,7 +56,9 @@ export default function ScreenStage({ sharerName, screen, isMine, onStop }: Prop
         <div className={s.screenMine}>
           <span className={s.screenMineIcon}>🖥</span>
           <span className={s.screenMineTitle}>Вы показываете экран</span>
-          <span className={s.hint}>Все на Планете видят его. Звук вкладки тоже слышен, если вы его включили.</span>
+          <span className={s.hint}>
+            Все {placeInside} видят его. Звук вкладки тоже слышен, если вы его включили.
+          </span>
           {onStop && (
             <button type="button" className={s.danger} onClick={onStop}>
               Остановить показ

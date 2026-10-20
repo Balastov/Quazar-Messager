@@ -20,7 +20,7 @@ import {
   canKick,
   KIND_LABEL,
   MEMBER_GRANTABLE,
-  PERM_LABEL,
+  permLabel,
   PERM_ORDER,
   ROLE_LABEL,
 } from "./rules";
@@ -424,9 +424,9 @@ function PermissionsTab({ detail }: { detail: StarDetail }) {
         <tbody>
           {PERM_ORDER.map((perm) => (
             <tr key={perm}>
-              <td>{PERM_LABEL[perm]}</td>
+              <td>{permLabel(perm, detail.kind)}</td>
               <td>
-                <input type="checkbox" checked disabled aria-label={`Админ: ${PERM_LABEL[perm]}`} />
+                <input type="checkbox" checked disabled aria-label={`Админ: ${permLabel(perm, detail.kind)}`} />
               </td>
               <td>
                 <input
@@ -434,7 +434,7 @@ function PermissionsTab({ detail }: { detail: StarDetail }) {
                   checked={perms.moderator.includes(perm)}
                   onChange={() => toggle("moderator", perm)}
                   disabled={busy}
-                  aria-label={`Модератор: ${PERM_LABEL[perm]}`}
+                  aria-label={`Модератор: ${permLabel(perm, detail.kind)}`}
                 />
               </td>
               <td>
@@ -443,7 +443,7 @@ function PermissionsTab({ detail }: { detail: StarDetail }) {
                   checked={perms.member.includes(perm)}
                   onChange={() => toggle("member", perm)}
                   disabled={busy || !MEMBER_GRANTABLE.includes(perm)}
-                  aria-label={`Участник: ${PERM_LABEL[perm]}`}
+                  aria-label={`Участник: ${permLabel(perm, detail.kind)}`}
                 />
               </td>
             </tr>
@@ -562,7 +562,8 @@ function StarTab({ detail, onClose }: { detail: StarDetail; onClose: () => void 
         Удалить Звезду
       </h4>
       <p className={s.hint}>
-        Все Спутники с перепиской и Планеты исчезнут для всех участников. Отменить нельзя. Чтобы
+        Все Спутники с перепиской и {detail.kind === "work" ? "Комнаты" : "Планеты"} исчезнут для
+        всех участников. Отменить нельзя. Чтобы
         подтвердить, введите название Звезды.
       </p>
       <input

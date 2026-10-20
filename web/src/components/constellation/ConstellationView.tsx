@@ -93,7 +93,9 @@ export default function ConstellationView() {
     if (!detail || !channel) {
       return (
         <div className={s.empty}>
-          {detail ? "Выберите Спутник или Планету слева" : "Загрузка…"}
+          {detail
+            ? `Выберите Спутник или ${detail.kind === "work" ? "Комнату" : "Планету"} слева`
+            : "Загрузка…"}
         </div>
       );
     }
@@ -168,8 +170,9 @@ export default function ConstellationView() {
               Созвездие
             </div>
             <p className={s.hint} style={{ marginBottom: 16 }}>
-              Звёзды — это общие пространства для компании или команды: текстовые Спутники и
-              голосовые Планеты. Создайте свою или вступите по ссылке-приглашению.
+              Звёзды — это общие пространства для компании или команды: текстовые Спутники,
+              голосовые Планеты в игровых Звёздах и Комнаты в рабочих. Создайте свою или вступите
+              по ссылке-приглашению.
             </p>
             <div className={s.list}>
               <button type="button" className={s.primary} onClick={() => setCreateOpen(true)}>

@@ -231,7 +231,7 @@ class VoiceApiTest(StarsTestBase):
 
     async def test_screen_share_needs_presence(self):
         err = await self.expect_error(409, voice_api.start_screen, self.star.id, self.planet.id, user="alice")
-        self.assertEqual(err.detail, "Сначала отправьтесь на планету")
+        self.assertEqual(err.detail, "Сначала посетите Планету")
         await self.expect_error(404, voice_api.start_screen, self.star.id, self.planet.id, user="carol")
         await self.expect_error(400, voice_api.start_screen, self.star.id, self.satellite.id, user="alice")
 

@@ -1412,3 +1412,7 @@
   font-size: 18px;
   padding: 0 4px;
 }
+
+.presenceOnline {
+  color: var(--qz-online);
+}

@@ -18,6 +18,7 @@ import type {RootStackParamList} from '../navigation';
 import type {Chat, User} from '../api/types';
 import {useContactsStore} from '../store/contacts';
 import ContactsPrompt from '../contacts/ContactsPrompt';
+import PresenceDot from '../components/PresenceDot';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Chats'>;
 
@@ -143,6 +144,7 @@ export default function ChatsScreen({navigation}: Props) {
             <Pressable key={`c-${c.user.id}`} style={s.userRow} onPress={() => startDirectChat(c.user, c.name)}>
               <View style={s.avatar}>
                 <Text style={s.avatarText}>{(c.name || c.user.username)[0].toUpperCase()}</Text>
+                <PresenceDot userId={c.user.id} />
               </View>
               <View>
                 <Text style={s.userName}>{c.name}</Text>
@@ -158,6 +160,7 @@ export default function ChatsScreen({navigation}: Props) {
             <Pressable key={u.id} style={s.userRow} onPress={() => startDirectChat(u)}>
               <View style={s.avatar}>
                 <Text style={s.avatarText}>{u.username[0].toUpperCase()}</Text>
+                <PresenceDot userId={u.id} />
               </View>
               <Text style={s.userName}>{u.username}</Text>
             </Pressable>
@@ -172,6 +175,9 @@ export default function ChatsScreen({navigation}: Props) {
           <Pressable style={s.chatItem} onPress={() => openChat(item)}>
             <View style={s.avatar}>
               <Text style={s.avatarText}>{chatName(item)[0].toUpperCase()}</Text>
+              {item.type === 'direct' && (
+                <PresenceDot userId={item.members.find(m => m.user.id !== currentUser?.id)?.user.id} />
+              )}
             </View>
             <Text style={s.chatName}>{chatName(item)}</Text>
           </Pressable>
@@ -185,6 +191,7 @@ export default function ChatsScreen({navigation}: Props) {
                 <Pressable key={c.user.id} style={s.chatItem} onPress={() => startDirectChat(c.user, c.name)}>
                   <View style={s.avatar}>
                     <Text style={s.avatarText}>{(c.name || c.user.username)[0].toUpperCase()}</Text>
+                    <PresenceDot userId={c.user.id} />
                   </View>
                   <View>
                     <Text style={s.chatName}>{c.name}</Text>

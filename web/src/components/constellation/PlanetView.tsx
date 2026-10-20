@@ -12,6 +12,7 @@ import ScreenStage from "./ScreenStage";
 import { apiError, can, canStopScreen, outranks, ROOM_LABEL, roomDoor } from "./rules";
 import { placeNouns, roomWords } from "./words";
 import s from "./Constellation.module.css";
+import { usePresence, usePresenceText } from "../../store/presence";
 
 interface Props {
   detail: StarDetail;
@@ -498,9 +499,10 @@ function InviteDialog({
       <div className={s.list}>
         {candidates.map((m) => (
           <div key={m.user.id} className={s.listItem}>
-            <UserAvatar username={m.user.username} avatarUrl={m.user.avatar_url} size="sm" />
+            <UserAvatar username={m.user.username} avatarUrl={m.user.avatar_url} size="sm" userId={m.user.id} />
             <div className={s.listMain}>
               <span className={s.listTitle}>{m.user.username}</span>
+              <MemberPresence userId={m.user.id} />
             </div>
             <button
               type="button"
@@ -516,4 +518,12 @@ function InviteDialog({
       {error && <div className={s.error}>{error}</div>}
     </Dialog>
   );
+}
+
+/** «в сети» / «был(а) 5 мин назад» — кого звать прямо сейчас. */
+function MemberPresence({ userId }: { userId: string }) {
+  const status = usePresence(userId);
+  const text = usePresenceText(userId);
+  if (!text) return null;
+  return <span className={`${s.listSub} ${status?.online ? s.presenceOnline : ""}`}>{text}</span>;
 }

@@ -17,6 +17,7 @@ import {
   IconVideo,
 } from "./icons";
 import s from "./MessageView.module.css";
+import { usePresence, usePresenceStore, usePresenceText } from "../store/presence";
 import LinkifiedText from "./LinkifiedText";
 import Sticker from "./Sticker";
 import StickerPicker from "./StickerPicker";
@@ -76,6 +77,20 @@ export default function MessageView({ showBack = false }: Props) {
   useEffect(() => {
     setSendError(null);
   }, [activeChatId]);
+
+  // Кто в сети: собеседник в личном чате, сколько участников — в группе.
+  // Хуки — до раннего return ниже, иначе при открытии чата их число изменится.
+  const presencePeerId =
+    chat?.type === "direct"
+      ? (chat.members.find((m) => m.user.id !== currentUser?.id)?.user.id ?? null)
+      : null;
+  const peerPresenceRaw = usePresence(presencePeerId);
+  const peerStatusText = usePresenceText(presencePeerId);
+  const groupOnline = usePresenceStore((st) =>
+    chat?.type === "group"
+      ? chat.members.filter((m) => m.user.id !== currentUser?.id && st.byId[m.user.id]?.online).length
+      : 0
+  );
 
   if (!activeChatId) {
     return (
@@ -158,6 +173,10 @@ export default function MessageView({ showBack = false }: Props) {
     return s.statusSent;
   };
 
+  const peerPresence = peerPresenceRaw;
+  const peerStatus = peerStatusText;
+  const onlineInGroup = groupOnline;
+
   const e2eDotClass =
     e2eTrust === "ok"
       ? s.e2eDot
@@ -166,7 +185,9 @@ export default function MessageView({ showBack = false }: Props) {
         : s.e2eDotWarn;
 
   const subtitle = (() => {
-    if (!isDirect) return "Группа · без E2E";
+    if (!isDirect) {
+      return onlineInGroup > 0 ? `Группа · ${onlineInGroup} в сети · без E2E` : "Группа · без E2E";
+    }
     if (e2eTrust === "ok") return "E2E защищён";
     if (e2eTrust === "changed") return "Ключ изменился";
     if (e2eReady) return "E2E";
@@ -186,10 +207,15 @@ export default function MessageView({ showBack = false }: Props) {
             <IconBack />
           </button>
         )}
-        <UserAvatar username={peer.username || "?"} avatarUrl={peer.avatar_url} size="sm" />
+        <UserAvatar username={peer.username || "?"} avatarUrl={peer.avatar_url} size="sm" userId={peer.id} />
         <div className={s.headerInfo}>
           <span className={s.name}>{peer.username}</span>
           <span className={s.sub}>
+            {isDirect && peerStatus && (
+              <span className={peerPresence?.online ? s.presenceOnline : undefined}>
+                {peerStatus} ·{" "}
+              </span>
+            )}
             {isDirect && <span className={e2eDotClass} />}
             {subtitle}
           </span>

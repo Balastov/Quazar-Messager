@@ -428,3 +428,7 @@
   cursor: not-allowed;
   box-shadow: none;
 }
+
+.presenceOnline {
+  color: var(--qz-online);
+}

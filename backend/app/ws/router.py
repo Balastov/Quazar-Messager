@@ -10,6 +10,7 @@ from app.core.database import AsyncSessionLocal
 from app.core.security import decode_token
 from app.models.chat import ChatMember
 from app.models.message import Message
+from app.core import presence
 from app.ws import calls as call_signaling
 from app.ws.hub import manager
 
@@ -26,6 +27,7 @@ async def websocket_endpoint(websocket: WebSocket, token: str):
         return
 
     await manager.connect(websocket, user_id)
+    await presence.on_connect(user_id, websocket)
     await call_signaling.deliver_pending_invites(user_id)
     heartbeats = False  # the client sends pings — silence mid-call then means it is gone
     try:
@@ -65,6 +67,7 @@ async def websocket_endpoint(websocket: WebSocket, token: str):
     finally:
         manager.disconnect(websocket, user_id)
         await call_signaling.on_user_offline(user_id, websocket)
+        await presence.on_disconnect(user_id)
 
 
 async def _handle_send_message(data: dict, sender_id: str):

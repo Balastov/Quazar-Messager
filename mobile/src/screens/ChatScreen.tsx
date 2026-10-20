@@ -24,6 +24,7 @@ import {useStickersStore} from '../store/stickers';
 import {encodeSticker, parseSticker} from '../stickers/format';
 import Sticker from '../components/Sticker';
 import StickerPanel from '../components/StickerPanel';
+import {usePresenceText} from '../store/presence';
 
 const STICKER_SIZE = 150;
 
@@ -75,6 +76,23 @@ export default function ChatScreen({route, navigation}: Props) {
       ? chat.members.find(m => m.user.id !== currentUser?.id)?.user.id ?? null
       : null;
   const canCall = chat?.type === 'direct' && !!peerId && !callBusy;
+  const peerStatus = usePresenceText(peerId);
+
+  // В шапке под именем — «в сети» / «был(а) …».
+  useEffect(() => {
+    navigation.setOptions({
+      headerTitle: () => (
+        <View>
+          <Text style={s.headerTitle} numberOfLines={1}>
+            {route.params.title}
+          </Text>
+          {peerStatus && (
+            <Text style={[s.headerSub, peerStatus === 'в сети' && s.headerOnline]}>{peerStatus}</Text>
+          )}
+        </View>
+      ),
+    });
+  }, [navigation, route.params.title, peerStatus]);
 
   useEffect(() => {
     selectChat(chatId);
@@ -285,6 +303,9 @@ const s = StyleSheet.create({
     borderBottomLeftRadius: 4,
   },
   text: {color: '#fff', fontSize: 14, lineHeight: 20},
+  headerTitle: {color: '#e0e0e0', fontSize: 16, fontWeight: '600'},
+  headerSub: {color: '#9b93b8', fontSize: 12},
+  headerOnline: {color: '#34d399'},
   textMuted: {color: 'rgba(255,255,255,0.65)', fontSize: 13, fontStyle: 'italic'},
   stickerMsg: {gap: 2},
   stickerOwn: {alignSelf: 'flex-end', alignItems: 'flex-end'},

@@ -190,7 +190,7 @@ function MembersTab({ detail }: { detail: StarDetail }) {
         const bannable = !isMe && canBan(detail.my_role, m.role);
         return (
           <div key={m.user.id} className={s.listItem}>
-            <UserAvatar username={m.user.username} avatarUrl={m.user.avatar_url} size="sm" />
+            <UserAvatar username={m.user.username} avatarUrl={m.user.avatar_url} size="sm" userId={isMe ? null : m.user.id} />
             <div className={s.listMain}>
               <span className={s.listTitle}>
                 {m.user.username}

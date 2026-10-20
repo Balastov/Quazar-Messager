@@ -71,6 +71,7 @@ export default function ContactsPane() {
   const chatPeer = (chat: (typeof chats)[0]) => {
     if (chat.type === "group") {
       return {
+        id: null as string | null,
         username: chat.name ?? "Группа",
         avatar_url: null as string | null,
         phone: null as string | null,
@@ -78,6 +79,7 @@ export default function ContactsPane() {
     }
     const other = chat.members.find((m) => m.user.id !== currentUser?.id)?.user;
     return {
+      id: other?.id ?? null,
       // Как человек записан в телефонной книге — так и показываем.
       username: (other && phonebookNames[other.id]) || other?.username || "Неизвестный",
       avatar_url: other?.avatar_url ?? null,
@@ -253,7 +255,7 @@ export default function ContactsPane() {
                 })();
               }}
             >
-              <UserAvatar username={u.username} avatarUrl={u.avatar_url} size="sm" />
+              <UserAvatar username={u.username} avatarUrl={u.avatar_url} size="sm" userId={u.id} />
               <span className={s.userMeta}>
                 <span className={s.userName}>{u.username}</span>
                 <span className={s.userPhone}>{formatRuPhoneDisplay(u.phone)}</span>
@@ -273,7 +275,11 @@ export default function ContactsPane() {
               className={s.item}
               onClick={() => void openContact(c.user.id)}
             >
-              <UserAvatar username={c.name || c.user.username} avatarUrl={c.user.avatar_url} />
+              <UserAvatar
+                username={c.name || c.user.username}
+                avatarUrl={c.user.avatar_url}
+                userId={c.user.id}
+              />
               <div className={s.meta}>
                 <div className={s.nameRow}>
                   <span className={s.name}>{c.name || c.user.username}</span>
@@ -306,7 +312,7 @@ export default function ContactsPane() {
               className={chat.id === activeChatId ? s.itemActive : s.item}
               onClick={() => void openChat(chat.id)}
             >
-              <UserAvatar username={peer.username} avatarUrl={peer.avatar_url} />
+              <UserAvatar username={peer.username} avatarUrl={peer.avatar_url} userId={peer.id} />
               <div className={s.meta}>
                 <div className={s.nameRow}>
                   <span className={hasUnread ? s.nameUnread : s.name}>{peer.username}</span>

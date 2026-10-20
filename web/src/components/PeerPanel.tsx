@@ -4,6 +4,7 @@ import { useChatStore } from "../store/chat";
 import { useCallStore } from "../store/call";
 import { getNotifyPrefs, setNotifyPrefs } from "../notifications/prefs";
 import UserAvatar from "./UserAvatar";
+import { usePresence, usePresenceText } from "../store/presence";
 import { IconChat, IconMore, IconPhone, IconVideo } from "./icons";
 import s from "./PeerPanel.module.css";
 
@@ -20,6 +21,10 @@ export default function PeerPanel() {
   const [mediaTab, setMediaTab] = useState<"media" | "files" | "links">("media");
 
   const chat = chats.find((c) => c.id === activeChatId);
+  const peerId =
+    chat?.type === "direct" ? chat.members.find((m) => m.user.id !== currentUser?.id)?.user.id : null;
+  const peerPresence = usePresence(peerId);
+  const peerStatusText = usePresenceText(peerId);
   if (!chat || !activeChatId) {
     return (
       <aside className={s.root}>
@@ -45,9 +50,11 @@ export default function PeerPanel() {
   return (
     <aside className={s.root}>
       <div className={s.profile}>
-        <UserAvatar username={peer.username} avatarUrl={peer.avatar_url} size="lg" />
+        <UserAvatar username={peer.username} avatarUrl={peer.avatar_url} size="lg" userId={peer.id} />
         <div className={s.name}>{peer.username}</div>
-        <div className={s.status}>В Quazar</div>
+        <div className={peerPresence?.online ? `${s.status} ${s.statusOnline}` : s.status}>
+          {chat.type === "group" ? "Группа" : (peerStatusText ?? "В Quazar")}
+        </div>
       </div>
 
       <div className={s.actions}>

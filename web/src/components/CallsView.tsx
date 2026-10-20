@@ -149,7 +149,7 @@ export default function CallsView() {
         )}
         {peers.map((p) => (
           <div key={p.chatId} className={s.item}>
-            <UserAvatar username={p.username} avatarUrl={p.avatar_url} />
+            <UserAvatar username={p.username} avatarUrl={p.avatar_url} userId={p.userId} />
             <div className={s.meta}>
               <div className={s.name}>{p.username}</div>
               <div className={s.detail}>Аудиозвонок</div>

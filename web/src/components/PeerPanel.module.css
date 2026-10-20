@@ -175,3 +175,7 @@
   font-size: 11px;
   color: var(--qz-text-dim);
 }
+
+.statusOnline {
+  color: var(--qz-online);
+}

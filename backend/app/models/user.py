@@ -20,6 +20,8 @@ class User(Base):
         DateTime(timezone=True), nullable=True
     )
     key_backup: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Когда закрылось последнее соединение (для «был(а) в сети …»).
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)

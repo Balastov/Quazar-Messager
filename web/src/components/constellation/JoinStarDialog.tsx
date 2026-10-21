@@ -29,8 +29,8 @@ export default function JoinStarDialog() {
     try {
       const next = await starsApi.previewInvite(code);
       setPreview(next);
-      // Зовут в Звезду: игровую — роботом, рабочую — вокзальным «дин-дон».
-      if (!next.already_member) void playStarSound("invite", next.star_kind);
+      // Зовут в Звезду — вокзальный «дин-дон-дан».
+      if (!next.already_member) void playStarSound("invite");
     } catch (err) {
       setError(apiError(err));
     } finally {

@@ -24,31 +24,13 @@ import { playStarSound, type StarSoundEvent } from "../sounds/starSounds";
 import { activityTracker, IDLE_MINUTES_OPTIONS, systemIdleSupported } from "../presence/activity";
 import StatusPicker from "./StatusPicker";
 
-const STAR_SOUNDS: { kind: "gaming" | "work"; title: string; items: [StarSoundEvent, string][] }[] = [
-  {
-    kind: "gaming",
-    title: "🎮 Игры",
-    items: [
-      ["enter", "Посетить Планету"],
-      ["leave", "Покинуть Планету"],
-      ["peerJoin", "Кто-то прилетел"],
-      ["peerLeave", "Кто-то улетел"],
-      ["knock", "Просят посетить"],
-      ["invite", "Приглашение"],
-    ],
-  },
-  {
-    kind: "work",
-    title: "💼 Работа",
-    items: [
-      ["enter", "Войти в Комнату"],
-      ["leave", "Выйти из Комнаты"],
-      ["peerJoin", "Кто-то вошёл"],
-      ["peerLeave", "Кто-то вышел"],
-      ["knock", "Стук в дверь"],
-      ["invite", "Приглашение"],
-    ],
-  },
+const STAR_SOUNDS: [StarSoundEvent, string][] = [
+  ["enter", "Вход"],
+  ["leave", "Выход"],
+  ["peerJoin", "Кто-то вошёл"],
+  ["peerLeave", "Кто-то вышел"],
+  ["knock", "Стук"],
+  ["invite", "Приглашение"],
 ];
 import UserAvatar from "./UserAvatar";
 import MicCheck from "./MicCheck";
@@ -413,30 +395,25 @@ export default function SettingsView() {
               checked={starSounds}
               onChange={(e) => {
                 setStarSounds(e.target.checked);
-                if (e.target.checked) void playStarSound("peerJoin", "work", { force: true });
+                if (e.target.checked) void playStarSound("peerJoin", { force: true });
               }}
             />
             <span className={s.toggleUi} />
             <span className={s.toggleLabel}>Вход и выход, стук, приглашения</span>
           </label>
-          {STAR_SOUNDS.map((group) => (
-            <div key={group.kind} className={s.soundGroup}>
-              <span className={s.soundGroupTitle}>{group.title}</span>
-              <div className={s.rowBtns}>
-                {group.items.map(([event, label]) => (
-                  <button
-                    key={event}
-                    type="button"
-                    className={`${s.secondary} ${s.soundBtn}`}
-                    onClick={() => void playStarSound(event, group.kind, { force: true })}
-                    title="Прослушать"
-                  >
-                    ▶ {label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          ))}
+          <div className={s.rowBtns}>
+            {STAR_SOUNDS.map(([event, label]) => (
+              <button
+                key={event}
+                type="button"
+                className={`${s.secondary} ${s.soundBtn}`}
+                onClick={() => void playStarSound(event, { force: true })}
+                title="Прослушать"
+              >
+                ▶ {label}
+              </button>
+            ))}
+          </div>
         </section>
 
         <section className={s.card}>

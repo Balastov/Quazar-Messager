@@ -70,7 +70,7 @@ function errorText(err: unknown, fallback: string): string {
   return fallback;
 }
 
-/** Вид Звезды — от него зависят слова («Посетить Планету» / «Войти в Комнату») и звуки. */
+/** Вид Звезды — от него зависят слова («Посетить Планету» / «Войти в Комнату»). */
 function starKind(starId: string) {
   const stars = useStarsStore.getState();
   return stars.details?.[starId]?.kind ?? stars.stars?.find((st) => st.id === starId)?.kind;
@@ -112,7 +112,7 @@ export const useDoorsStore = create<DoorsState>((set, get) => {
         set((s) => ({
           invites: [...s.invites.filter((i) => i.channelId !== invite.channelId), invite],
         }));
-        void playStarSound("invite", starKind(invite.starId));
+        void playStarSound("invite");
         void notifyDoor(
           { starId: invite.starId, channelId: invite.channelId, door: "invite" },
           {
@@ -133,7 +133,7 @@ export const useDoorsStore = create<DoorsState>((set, get) => {
         const isNew = !get().knocks[event.knock.id];
         set((s) => ({ knocks: { ...s.knocks, [event.knock.id]: { ...event, receivedAt: Date.now() } } }));
         if (isNew && event.knock.status === "pending") {
-          void playStarSound("knock", starKind(event.star_id));
+          void playStarSound("knock");
           void notifyDoor(
             { starId: event.star_id, channelId: event.knock.channel_id, door: "knock", knockId: event.knock.id },
             {

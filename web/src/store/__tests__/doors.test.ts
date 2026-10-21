@@ -99,13 +99,13 @@ describe("entering a room (double click, office map)", () => {
 });
 
 describe("door sounds", () => {
-  it("plays the invite sound of the Star kind", () => {
+  it("plays the invite sound", () => {
     playStarSound.mockClear();
     emit({
       type: "planet_invite", star_id: "g1", channel_id: "p1", from_user_id: "u2",
       from_name: "Анна", room_name: "Рейд", star_name: "Клан", expires_in: 300,
     });
-    expect(playStarSound).toHaveBeenCalledWith("invite", "gaming");
+    expect(playStarSound).toHaveBeenCalledWith("invite");
   });
 
   it("plays the knock sound once per new knock", () => {
@@ -117,7 +117,7 @@ describe("door sounds", () => {
     emit(knock);
     emit(knock);
     expect(playStarSound).toHaveBeenCalledTimes(1);
-    expect(playStarSound).toHaveBeenCalledWith("knock", "work");
+    expect(playStarSound).toHaveBeenCalledWith("knock");
   });
 });
 

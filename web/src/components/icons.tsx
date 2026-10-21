@@ -167,3 +167,90 @@ export const IconGear = (p: IconProps) => (
     <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" />
   </Svg>
 );
+
+// --- Управление голосом на Планете (стиль Созвездия: тонкие линии и звёздочки-искорки) ---
+
+/** Четырёхлучевая звёздочка-искорка с центром (cx, cy) и радиусом r. */
+function Sparkle({ cx, cy, r }: { cx: number; cy: number; r: number }) {
+  const k = r * 0.28;
+  return (
+    <path
+      d={`M${cx} ${cy - r}L${cx + k} ${cy - k}L${cx + r} ${cy}L${cx + k} ${cy + k}L${cx} ${cy + r}L${cx - k} ${cy + k}L${cx - r} ${cy}L${cx - k} ${cy - k}Z`}
+      fill="currentColor"
+      stroke="none"
+    />
+  );
+}
+
+export const IconStarMic = (p: IconProps) => (
+  <Svg {...p}>
+    <rect x="8" y="3" width="6.5" height="11" rx="3.25" />
+    <path d="M5 11.5a6.25 6.25 0 0 0 12.5 0" />
+    <path d="M11.25 17.75V21" />
+    <path d="M8.5 21h5.5" />
+    <Sparkle cx={19.5} cy={4.5} r={2.3} />
+  </Svg>
+);
+
+export const IconStarMicOff = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M14.5 9.5V6.25a3.25 3.25 0 0 0-6.2-1.36" />
+    <path d="M8 8.5v2.25a3.25 3.25 0 0 0 5.1 2.67" />
+    <path d="M5 11.5a6.25 6.25 0 0 0 10.4 4.67" />
+    <path d="M17.5 11.5c0 .7-.1 1.4-.33 2" />
+    <path d="M11.25 17.75V21" />
+    <path d="M8.5 21h5.5" />
+    <path d="M3.5 3.5l17 17" />
+  </Svg>
+);
+
+/** Шумоподавление: «шумная» волна слева становится ровной линией, над ней искорка. */
+export const IconNoiseFilter = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M2 14c1.2-4 2.3-4 3.5 0s2.3 4 3.5 0 2.3-4 3.5 0" />
+    <path d="M12.5 14h9" />
+    <Sparkle cx={17.5} cy={7.5} r={3} />
+  </Svg>
+);
+
+export const IconScreenShare = (p: IconProps) => (
+  <Svg {...p}>
+    <rect x="2.5" y="4" width="19" height="13" rx="2.5" />
+    <path d="M8.5 21h7" />
+    <path d="M12 17v4" />
+    <path d="M12 13.5V8" />
+    <path d="M9.5 10.5L12 8l2.5 2.5" />
+    <Sparkle cx={18} cy={7.5} r={1.6} />
+  </Svg>
+);
+
+export const IconScreenStop = (p: IconProps) => (
+  <Svg {...p}>
+    <rect x="2.5" y="4" width="19" height="13" rx="2.5" />
+    <path d="M8.5 21h7" />
+    <path d="M12 17v4" />
+    <path d="M9.5 8l5 5M14.5 8l-5 5" />
+  </Svg>
+);
+
+/** Устройства: наушники, а между чашками — маленькое созвездие. */
+export const IconStarHeadphones = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M4 15v-3a8 8 0 0 1 16 0v3" />
+    <rect x="3" y="14" width="4.5" height="7" rx="2" />
+    <rect x="16.5" y="14" width="4.5" height="7" rx="2" />
+    <path d="M10 16.5l2-2 2 1.5" opacity="0.6" />
+    <circle cx="10" cy="16.5" r="0.8" fill="currentColor" stroke="none" />
+    <circle cx="12" cy="14.5" r="0.8" fill="currentColor" stroke="none" />
+    <circle cx="14" cy="16" r="0.8" fill="currentColor" stroke="none" />
+  </Svg>
+);
+
+/** Позвать: человек и звёздочка-«плюс». */
+export const IconStarInvite = (p: IconProps) => (
+  <Svg {...p}>
+    <circle cx="9" cy="8" r="3.5" />
+    <path d="M2.5 20.5a6.5 6.5 0 0 1 13 0" />
+    <Sparkle cx={18.5} cy={10} r={3.6} />
+  </Svg>
+);

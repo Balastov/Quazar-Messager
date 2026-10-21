@@ -5,7 +5,7 @@ import { useCallStore } from "../../store/call";
 import { useDoorsStore } from "../../store/doors";
 import { canShareScreen, useVoiceStore, type VoicePeer } from "../../store/voice";
 import UserAvatar from "../UserAvatar";
-import { IconBack, IconGear, IconPlanet } from "../icons";
+import { IconBack, IconGear, IconPlanet, IconStarMic, IconStarMicOff, IconNoiseFilter, IconScreenShare, IconScreenStop, IconStarHeadphones, IconStarInvite } from "../icons";
 import Dialog from "./Dialog";
 import AudioDevices from "../AudioDevices";
 import ScreenStage from "./ScreenStage";
@@ -393,60 +393,73 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
           </span>
         ) : (
           <>
-            <button
-              type="button"
-              className={`${s.secondary} ${voice.micOn ? s.voiceToggle : s.voiceToggleOff}`}
-              onClick={() => void (voice.micUnavailable ? voice.retryMic() : voice.toggleMic())}
+            <ControlButton
+              icon={voice.micOn ? <IconStarMic /> : <IconStarMicOff />}
+              tone={voice.micOn ? "default" : "off"}
+              label={
+                voice.serverMuted
+                  ? "Микрофон выключил модератор"
+                  : voice.micUnavailable
+                    ? "Включить микрофон"
+                    : voice.micOn
+                      ? "Выключить микрофон"
+                      : "Включить микрофон"
+              }
+              pressed={voice.micOn}
               disabled={voice.serverMuted || voice.status !== "connected"}
-              aria-pressed={voice.micOn}
-            >
-              {voice.micUnavailable
-                ? "🎙 Включить микрофон"
-                : voice.micOn
-                  ? "🎙 Микрофон вкл"
-                  : "🔇 Микрофон выкл"}
-            </button>
-            <button
-              type="button"
-              className={s.secondary}
+              onClick={() => void (voice.micUnavailable ? voice.retryMic() : voice.toggleMic())}
+            />
+            <ControlButton
+              icon={<IconNoiseFilter />}
+              tone={voice.noiseSuppression ? "on" : "default"}
+              label={
+                !voice.noiseSuppression
+                  ? "Шумоподавление выключено — включить"
+                  : voice.noiseActive || voice.micUnavailable
+                    ? "Шумоподавление включено: убирает клавиатуру, вентилятор, улицу"
+                    : "Шумоподавление включено, но не работает на этом устройстве"
+              }
+              pressed={voice.noiseSuppression}
               onClick={() => void voice.toggleNoise()}
-              aria-pressed={voice.noiseSuppression}
-              title="Шумоподавление: убирает клавиатуру, вентилятор, улицу"
-            >
-              {voice.noiseSuppression ? (voice.noiseActive || voice.micUnavailable ? "Шум: вкл" : "Шум: —") : "Шум: выкл"}
-            </button>
+            />
           </>
         )}
         {canShareScreen() &&
           (voice.sharingScreen || sharerId === myId ? (
-            <button
-              type="button"
-              className={`${s.secondary} ${s.screenActive}`}
+            <ControlButton
+              icon={<IconScreenStop />}
+              tone="on"
+              label="Остановить показ экрана"
+              pressed
               onClick={() => void voice.stopScreenShare()}
-              aria-pressed
-            >
-              🖥 Остановить показ
-            </button>
+            />
           ) : (
-            <button
-              type="button"
-              className={s.secondary}
-              onClick={() => void voice.startScreenShare()}
+            <ControlButton
+              icon={<IconScreenShare />}
+              label={
+                sharerId
+                  ? `Сейчас экран показывает ${sharerName}`
+                  : voice.screenStarting
+                    ? "Выбираем экран…"
+                    : `Показать экран всем ${nouns.inside}`
+              }
               disabled={!!sharerId || voice.screenStarting || voice.status !== "connected"}
-              title={sharerId ? `Сейчас экран показывает ${sharerName}` : `Показать экран всем ${nouns.inside}`}
-            >
-              {voice.screenStarting ? "🖥 Выбираем экран…" : "🖥 Показать экран"}
-            </button>
+              onClick={() => void voice.startScreenShare()}
+            />
           ))}
-        <button type="button" className={s.secondary} onClick={() => setDevicesOpen(true)}>
-          🎧 Устройства
-        </button>
+        <ControlButton
+          icon={<IconStarHeadphones />}
+          label="Микрофон и динамик"
+          onClick={() => setDevicesOpen(true)}
+        />
         {canInvite && (
-          <button type="button" className={s.secondary} onClick={() => setInviteOpen(true)}>
-            🚪 Позвать
-          </button>
+          <ControlButton
+            icon={<IconStarInvite />}
+            label={`Позвать ${nouns.into}`}
+            onClick={() => setInviteOpen(true)}
+          />
         )}
-        <button type="button" className={s.danger} onClick={() => void voice.leave()}>
+        <button type="button" className={`${s.danger} ${s.leaveBtn}`} onClick={() => void voice.leave()}>
           {words.leave}
         </button>
       </div>
@@ -529,4 +542,36 @@ function MemberPresence({ userId }: { userId: string }) {
   const tone =
     { online: s.presenceOnline, away: s.presenceAway, busy: s.presenceBusy, none: "" }[presenceTone(status) ?? "none"] ?? "";
   return <span className={`${s.listSub} ${tone}`}>{text}</span>;
+}
+
+/** Круглая стеклянная кнопка-иконка: подсказка при наведении, подпись — для экранных дикторов. */
+function ControlButton({
+  icon,
+  label,
+  onClick,
+  tone = "default",
+  pressed,
+  disabled,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  onClick: () => void;
+  tone?: "default" | "on" | "off";
+  pressed?: boolean;
+  disabled?: boolean;
+}) {
+  const toneClass = tone === "on" ? s.ctrlOn : tone === "off" ? s.ctrlOff : "";
+  return (
+    <button
+      type="button"
+      className={`${s.ctrl} ${toneClass}`}
+      onClick={onClick}
+      disabled={disabled}
+      aria-label={label}
+      aria-pressed={pressed}
+      title={label}
+    >
+      {icon}
+    </button>
+  );
 }

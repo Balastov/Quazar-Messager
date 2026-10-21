@@ -1424,3 +1424,83 @@
 .presenceBusy {
   color: #f87171;
 }
+
+/* --- Кнопки управления на Планете: стеклянные круги с иконками --- */
+
+.ctrl {
+  position: relative;
+  width: 48px;
+  height: 48px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: 1px solid var(--qz-glass-border);
+  background: var(--qz-glass-sheen), rgba(255, 255, 255, 0.05);
+  box-shadow: var(--qz-glass-shine);
+  color: #e9e3ff;
+  cursor: pointer;
+  transition: transform 0.15s, box-shadow 0.2s, background 0.2s, color 0.2s, border-color 0.2s;
+}
+
+.ctrl svg {
+  width: 23px;
+  height: 23px;
+}
+
+.ctrl:hover:not(:disabled),
+.ctrl:focus-visible {
+  transform: translateY(-1px);
+  border-color: var(--qz-border-strong);
+  box-shadow: var(--qz-glass-shine), 0 0 18px rgba(168, 85, 247, 0.45);
+  outline: none;
+}
+
+.ctrl:active:not(:disabled) {
+  transform: scale(0.95);
+}
+
+.ctrl:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Включено (шумоподавление, показ экрана): фиолетовое свечение, как у звезды. */
+.ctrlOn {
+  color: #fff;
+  border-color: rgba(192, 132, 252, 0.7);
+  background:
+    radial-gradient(circle at 50% 35%, rgba(216, 180, 254, 0.35), transparent 65%),
+    linear-gradient(160deg, rgba(168, 85, 247, 0.55), rgba(124, 58, 237, 0.45));
+  box-shadow: var(--qz-glass-shine), 0 0 16px rgba(168, 85, 247, 0.55);
+}
+
+/* Выключено (микрофон): красный, чтобы было видно с первого взгляда. */
+.ctrlOff {
+  color: #fecaca;
+  border-color: rgba(248, 113, 113, 0.6);
+  background: var(--qz-glass-sheen), rgba(248, 113, 113, 0.22);
+}
+
+.ctrlOff:hover:not(:disabled) {
+  box-shadow: var(--qz-glass-shine), 0 0 18px rgba(248, 113, 113, 0.45);
+}
+
+.leaveBtn {
+  margin-left: 6px;
+  min-height: 48px;
+  border-radius: 999px;
+  padding: 0 18px;
+}
+
+@media (max-width: 480px) {
+  .ctrl {
+    width: 44px;
+    height: 44px;
+  }
+
+  .leaveBtn {
+    margin-left: 0;
+  }
+}

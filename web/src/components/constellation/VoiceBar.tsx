@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import { useStarsStore } from "../../store/stars";
 import { useUiStore } from "../../store/ui";
 import { useVoiceStore } from "../../store/voice";
-import { IconPlanet } from "../icons";
+import { IconPlanet, IconScreenStop, IconStarMic, IconStarMicOff } from "../icons";
 import { placeNouns, roomWords } from "./words";
 import s from "./Constellation.module.css";
 
@@ -58,7 +58,7 @@ export function VoiceBar({ floating = false }: { floating?: boolean }) {
           aria-label={micOn ? "Выключить микрофон" : "Включить микрофон"}
           title={micOn ? "Выключить микрофон" : "Включить микрофон"}
         >
-          {micOn ? "🎙" : "🔇"}
+          {micOn ? <IconStarMic size={18} /> : <IconStarMicOff size={18} />}
         </button>
       )}
       {sharingScreen && (
@@ -69,7 +69,7 @@ export function VoiceBar({ floating = false }: { floating?: boolean }) {
           aria-label="Остановить показ экрана"
           title="Вы показываете экран — остановить"
         >
-          🖥
+          <IconScreenStop size={18} />
         </button>
       )}
       <button

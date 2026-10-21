@@ -10,13 +10,20 @@ vi.stubGlobal("localStorage", {
 });
 
 const handlers: ((e: unknown) => void)[] = [];
+const statusHandlers: ((open: boolean) => void)[] = [];
 vi.mock("../../ws/socket", () => ({
   socket: {
     on: (h: (e: unknown) => void) => handlers.push(h),
-    onStatus: () => () => {},
+    onStatus: (h: (open: boolean) => void) => {
+      statusHandlers.push(h);
+      return () => {};
+    },
     send: () => {},
   },
 }));
+
+/** Сбой при загрузке Звезды: сеть (без ответа) или ответ сервера с кодом. */
+let failGet: { status?: number } | null = null;
 
 const ME = "me";
 
@@ -72,7 +79,10 @@ vi.mock("../../api/stars", async (importOriginal) => {
         })),
       limits: async () => ({ max_owned_stars: 2, owned_stars: 1 }),
       get: async (id: string) => {
-        if (!details[id]) throw new Error("404");
+        if (failGet) {
+          throw { isAxiosError: true, response: failGet.status ? { status: failGet.status } : undefined };
+        }
+        if (!details[id]) throw { isAxiosError: true, response: { status: 404 } };
         return details[id];
       },
       messages: async (starId: string, channelId: string) => [message(starId, channelId, "m0")],
@@ -93,12 +103,62 @@ function emit(event: StarEvent) {
 }
 
 beforeEach(() => {
+  failGet = null;
   for (const k of Object.keys(details)) delete details[k];
   details.a = detail("a", "Альфа");
   details.b = detail("b", "Бета");
   useStarsStore.getState().reset();
   useAuthStore.setState({ user: { id: ME, username: "я" } as never });
   useUiStore.setState({ tab: "stars" });
+});
+
+describe("star list stays in sync", () => {
+  it("a network error while opening a Star keeps it in the list", async () => {
+    failGet = {}; // нет связи
+    await useStarsStore.getState().load();
+    let st = useStarsStore.getState();
+    expect(st.stars.map((s) => s.id)).toEqual(["a", "b"]);
+    expect(st.activeStarId).toBe("a");
+    expect(st.details.a).toBeUndefined();
+
+    // Связь вернулась — Звезда открывается.
+    failGet = null;
+    for (const h of statusHandlers) h(true);
+    await vi.waitFor(() => expect(useStarsStore.getState().details.a).toBeDefined());
+    st = useStarsStore.getState();
+    expect(st.stars.map((s) => s.id)).toEqual(["a", "b"]);
+  });
+
+  it("a server error (deploy) does not drop the Star either; 404 does", async () => {
+    await useStarsStore.getState().load();
+    failGet = { status: 502 };
+    await useStarsStore.getState().refreshStar("b");
+    expect(useStarsStore.getState().stars.map((s) => s.id)).toEqual(["a", "b"]);
+    failGet = { status: 404 };
+    await useStarsStore.getState().refreshStar("b");
+    expect(useStarsStore.getState().stars.map((s) => s.id)).toEqual(["a"]);
+  });
+
+  it("reconnecting picks up Stars joined elsewhere and drops removed ones", async () => {
+    await useStarsStore.getState().load();
+    details.c = detail("c", "Гамма"); // вступил с телефона
+    delete details.b; // выгнали, пока не было связи
+    for (const h of statusHandlers) h(true);
+    await vi.waitFor(() =>
+      expect(useStarsStore.getState().stars.map((s) => s.id)).toEqual(["a", "c"])
+    );
+  });
+
+  it("being accepted from another device adds the Star right away", async () => {
+    await useStarsStore.getState().load();
+    details.c = detail("c", "Гамма");
+    emit({
+      type: "star_member_upsert",
+      star_id: "c",
+      member: { user: { id: ME, username: "я", avatar_url: null }, role: "member", joined_at: "2026-10-21T00:00:00Z" },
+    });
+    await vi.waitFor(() => expect(useStarsStore.getState().stars.map((s) => s.id)).toContain("c"));
+  });
 });
 
 describe("stars store", () => {

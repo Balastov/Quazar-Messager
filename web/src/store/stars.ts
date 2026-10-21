@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import axios from "axios";
 import {
   starsApi,
   type ChannelKind,
@@ -79,6 +80,8 @@ interface StarsState {
   joinDialog: { code: string } | null;
 
   load: () => Promise<void>;
+  /** Сверить список Звёзд с сервером (после обрыва связи, возвращения в приложение). */
+  syncList: () => Promise<void>;
   refreshLimits: () => Promise<void>;
   selectStar: (starId: string) => Promise<void>;
   refreshStar: (starId: string) => Promise<void>;
@@ -174,6 +177,15 @@ export const useStarsStore = create<StarsState>((set, get) => {
     }));
   }
 
+  /** Звезды правда нет: сервер ответил «не участник» или «не найдена». */
+  function isGone(err: unknown): boolean {
+    const status = axios.isAxiosError(err) ? err.response?.status : undefined;
+    return status === 403 || status === 404;
+  }
+
+  let lastSync = 0;
+  let syncing: Promise<void> | null = null;
+
   function forgetStar(starId: string) {
     set((s) => {
       const details = { ...s.details };
@@ -225,6 +237,11 @@ export const useStarsStore = create<StarsState>((set, get) => {
             my_role: isMe ? event.member.role : d.my_role,
           };
         });
+        // Меня приняли в Звезду с другого устройства (или вкладки) — её ещё нет в списке.
+        if (isMe && !get().stars.some((st) => st.id === starId)) {
+          void get().syncList();
+          break;
+        }
         // Моя роль изменилась — права пересчитает сервер.
         if (isMe) {
           void get().refreshStar(starId);
@@ -349,6 +366,20 @@ export const useStarsStore = create<StarsState>((set, get) => {
     if (event.type.startsWith("star_")) handleEvent(event as StarEvent);
   });
 
+  // Связь вернулась (проснулся телефон, перезапустился сервер) — сверяем список: пока её не
+  // было, могли принять в Звезду или выгнать.
+  socket.onStatus((open) => {
+    if (open && get().loaded) void get().syncList();
+  });
+
+  if (typeof document !== "undefined") {
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible" && get().loaded && Date.now() - lastSync > 30_000) {
+        void get().syncList();
+      }
+    });
+  }
+
   if (typeof document !== "undefined") {
     document.addEventListener("visibilitychange", () => {
       if (document.visibilityState !== "visible") return;
@@ -369,6 +400,7 @@ export const useStarsStore = create<StarsState>((set, get) => {
 
     load: async () => {
       const [stars, limits] = await Promise.all([starsApi.list(), starsApi.limits()]);
+      lastSync = Date.now();
       set({ stars, limits, loaded: true });
       const { activeStarId } = get();
       const target =
@@ -398,11 +430,40 @@ export const useStarsStore = create<StarsState>((set, get) => {
       if (channelId) await get().selectChannel(channelId);
     },
 
+    syncList: async () => {
+      syncing ??= (async () => {
+        try {
+          const stars = await starsApi.list();
+          lastSync = Date.now();
+          const present = new Set(stars.map((st) => st.id));
+          for (const st of get().stars) {
+            if (!present.has(st.id)) forgetStar(st.id);
+          }
+          // Порядок и данные — как на сервере; карточки уже открытых Звёзд не трогаем.
+          set((s) => ({
+            stars: stars.map((st) => (s.details[st.id] ? summaryOf(s.details[st.id]) : st)),
+          }));
+          const { activeStarId } = get();
+          if (!activeStarId && stars[0]) await get().selectStar(stars[0].id);
+          // Открытая Звезда не загрузилась (была без связи) — пробуем снова.
+          else if (activeStarId && !get().details[activeStarId]) await get().refreshStar(activeStarId);
+        } catch {
+          // Нет связи — сверимся при следующем подключении.
+        } finally {
+          syncing = null;
+        }
+      })();
+      return syncing;
+    },
+
     refreshStar: async (starId) => {
       try {
         adoptDetail(await starsApi.get(starId));
-      } catch {
-        forgetStar(starId);
+      } catch (err) {
+        // Убираем Звезду из списка, только если её правда нет. Сбой сети или перезапуск
+        // сервера — не повод: иначе она пропадёт до перезапуска приложения.
+        if (isGone(err)) forgetStar(starId);
+        else set({ notice: "Не удалось загрузить Звезду — проверьте интернет. Попробуем снова." });
       }
     },
 

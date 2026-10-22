@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useAuthStore } from "../store/auth";
 import StatusPicker from "./StatusPicker";
 import { useChatStore } from "../store/chat";
@@ -33,12 +34,30 @@ export default function AppNav() {
   const user = useAuthStore((st) => st.user);
   const [statusOpen, setStatusOpen] = useState(false);
   const profileRef = useRef<HTMLDivElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
+  const [anchor, setAnchor] = useState<{ left: number; bottom: number } | null>(null);
+
+  // Меню — в портале на уровне страницы: панели справа стеклянные (backdrop-filter), у каждой
+  // свой слой, и меню внутри навигации оказывалось под ними. Ставим его рядом с аватаркой.
+  useLayoutEffect(() => {
+    if (!statusOpen) return;
+    const place = () => {
+      const r = profileRef.current?.getBoundingClientRect();
+      if (r) setAnchor({ left: r.right + 12, bottom: Math.max(8, window.innerHeight - r.bottom) });
+    };
+    place();
+    window.addEventListener("resize", place);
+    return () => window.removeEventListener("resize", place);
+  }, [statusOpen]);
 
   // Клик мимо или Esc — закрыть выбор статуса.
   useEffect(() => {
     if (!statusOpen) return;
     const onDown = (e: PointerEvent) => {
-      if (!profileRef.current?.contains(e.target as Node)) setStatusOpen(false);
+      const target = e.target as Node;
+      if (!profileRef.current?.contains(target) && !popoverRef.current?.contains(target)) {
+        setStatusOpen(false);
+      }
     };
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && setStatusOpen(false);
     document.addEventListener("pointerdown", onDown);
@@ -85,12 +104,21 @@ export default function AppNav() {
               <UserAvatar username={user.username} avatarUrl={user.avatar_url} size="sm" userId={user.id} />
               <span className={s.profileName}>{user.username}</span>
             </button>
-            {statusOpen && (
-              <div className={s.statusPopover} role="dialog" aria-label="Статус">
-                <div className={s.statusTitle}>Статус</div>
-                <StatusPicker onDone={() => setStatusOpen(false)} />
-              </div>
-            )}
+            {statusOpen &&
+              anchor &&
+              createPortal(
+                <div
+                  ref={popoverRef}
+                  className={s.statusPopover}
+                  style={{ left: anchor.left, bottom: anchor.bottom }}
+                  role="dialog"
+                  aria-label="Статус"
+                >
+                  <div className={s.statusTitle}>Статус</div>
+                  <StatusPicker onDone={() => setStatusOpen(false)} />
+                </div>,
+                document.body
+              )}
           </div>
         )}
       </aside>

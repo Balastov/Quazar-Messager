@@ -86,11 +86,12 @@
   background: var(--qz-bg-soft);
 }
 
+/* Позиция (left/bottom) — из AppNav: меню в портале, рядом с аватаркой. */
 .statusPopover {
-  position: absolute;
-  left: calc(100% + 12px);
-  bottom: 0;
+  position: fixed;
   z-index: 70;
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
   width: 300px;
   padding: 14px;
   border-radius: var(--qz-radius-lg);

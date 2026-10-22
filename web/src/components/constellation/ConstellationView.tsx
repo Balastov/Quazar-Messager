@@ -13,6 +13,8 @@ import SatelliteView from "./SatelliteView";
 import StarSettings, { type SettingsTab } from "./StarSettings";
 import { initials } from "./rules";
 import s from "./Constellation.module.css";
+import MembersPanel from "./MembersPanel";
+import { useUiStore } from "../../store/ui";
 
 type ChannelDialogState = { kind: ChannelKind; channel?: StarChannel; floorId?: string } | null;
 
@@ -35,6 +37,11 @@ export default function ConstellationView() {
 
   const [createOpen, setCreateOpen] = useState(false);
   const [settingsTab, setSettingsTab] = useState<SettingsTab | null>(null);
+  // Участники: на ПК — колонка справа (запоминаем), на телефоне — экран поверх.
+  const membersOpen = useUiStore((st) => st.starMembersOpen);
+  const setMembersOpen = useUiStore((st) => st.setStarMembersOpen);
+  const [mobileMembers, setMobileMembers] = useState(false);
+  const isMobile = () => window.matchMedia("(max-width: 767px)").matches;
   const [channelDialog, setChannelDialog] = useState<ChannelDialogState>(null);
   const [loadError, setLoadError] = useState(false);
   /** У рабочих Звёзд по умолчанию открыта карта офиса. */
@@ -198,11 +205,24 @@ export default function ConstellationView() {
             onAddChannel={(kind) => setChannelDialog({ kind })}
             onEditChannel={(c) => setChannelDialog({ kind: c.kind, channel: c })}
             onOpenSettings={(tab) => setSettingsTab(tab ?? "general")}
+            membersOpen={membersOpen}
+            onToggleMembers={() => (isMobile() ? setMobileMembers(true) : setMembersOpen(!membersOpen))}
           />
           <section className={s.content}>{renderContent()}</section>
+          {membersOpen && (
+            <div className={s.membersColumn}>
+              <MembersPanel detail={detail} onClose={() => setMembersOpen(false)} />
+            </div>
+          )}
           {mobileChannelOpen && (
             <section className={s.mobileContent}>
               {renderContent(() => setMobileChannelOpen(false))}
+            </section>
+          )}
+          {/* После экрана канала — чтобы оказаться поверх него. */}
+          {mobileMembers && (
+            <section className={s.mobileContent}>
+              <MembersPanel detail={detail} onClose={() => setMobileMembers(false)} fullscreen />
             </section>
           )}
         </>

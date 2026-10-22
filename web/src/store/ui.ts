@@ -19,6 +19,8 @@ interface UiState {
   systemIdle: boolean;
   /** Через сколько минут без действий — «отошёл». */
   idleMinutes: number;
+  /** Панель «Участники» в Созвездии открыта (на ПК). */
+  starMembersOpen: boolean;
   setTab: (tab: AppTab) => void;
   setMobileChatOpen: (open: boolean) => void;
   setPeerPanelOpen: (open: boolean) => void;
@@ -26,6 +28,7 @@ interface UiState {
   setStarSounds: (on: boolean) => void;
   setSystemIdle: (on: boolean) => void;
   setIdleMinutes: (minutes: number) => void;
+  setStarMembersOpen: (open: boolean) => void;
   toggleFavorite: (chatId: string) => void;
   isFavorite: (chatId: string) => boolean;
 }
@@ -41,6 +44,7 @@ export const useUiStore = create<UiState>()(
       starSounds: true,
       systemIdle: false,
       idleMinutes: 5,
+      starMembersOpen: false,
 
       setTab: (tab) => set({ tab, mobileChatOpen: false }),
       setMobileChatOpen: (mobileChatOpen) => set({ mobileChatOpen }),
@@ -49,6 +53,7 @@ export const useUiStore = create<UiState>()(
       setStarSounds: (starSounds) => set({ starSounds }),
       setSystemIdle: (systemIdle) => set({ systemIdle }),
       setIdleMinutes: (idleMinutes) => set({ idleMinutes }),
+      setStarMembersOpen: (starMembersOpen) => set({ starMembersOpen }),
 
       toggleFavorite: (chatId) =>
         set((s) => ({
@@ -69,6 +74,7 @@ export const useUiStore = create<UiState>()(
         starSounds: state.starSounds,
         systemIdle: state.systemIdle,
         idleMinutes: state.idleMinutes,
+        starMembersOpen: state.starMembersOpen,
       }),
     }
   )

@@ -25,6 +25,7 @@ import {
   ROLE_LABEL,
 } from "./rules";
 import s from "./Constellation.module.css";
+import { usePresenceText } from "../../store/presence";
 
 export type SettingsTab = "general" | "members" | "invites" | "permissions" | "bans" | "star";
 
@@ -190,13 +191,16 @@ function MembersTab({ detail }: { detail: StarDetail }) {
         const bannable = !isMe && canBan(detail.my_role, m.role);
         return (
           <div key={m.user.id} className={s.listItem}>
-            <UserAvatar username={m.user.username} avatarUrl={m.user.avatar_url} size="sm" userId={isMe ? null : m.user.id} />
+            <UserAvatar username={m.user.username} avatarUrl={m.user.avatar_url} size="sm" userId={m.user.id} />
             <div className={s.listMain}>
               <span className={s.listTitle}>
                 {m.user.username}
                 {isMe ? " (вы)" : ""}
               </span>
-              <span className={s.listSub}>{ROLE_LABEL[m.role]}</span>
+              <span className={s.listSub}>
+                {ROLE_LABEL[m.role]}
+                <MemberStatus userId={m.user.id} />
+              </span>
             </div>
             {roles.length > 0 && (
               <select
@@ -590,4 +594,10 @@ function StarTab({ detail, onClose }: { detail: StarDetail; onClose: () => void 
       {status}
     </div>
   );
+}
+
+/** « · в сети», « · был(а) вчера в 21:40» — после роли. */
+function MemberStatus({ userId }: { userId: string }) {
+  const text = usePresenceText(userId);
+  return text ? <> · {text}</> : null;
 }

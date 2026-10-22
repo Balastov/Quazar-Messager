@@ -1504,3 +1504,193 @@
     margin-left: 0;
   }
 }
+
+/* --- Участники Звезды со статусами --- */
+
+.membersBtn {
+  position: relative;
+}
+
+.membersBtnActive {
+  color: #fff;
+  border-color: var(--qz-border-strong);
+  background: var(--qz-accent-soft);
+}
+
+.membersBadge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--qz-online);
+  color: #06281c;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 17px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+/* На ПК — колонка справа от содержимого; на телефоне её нет (там экран поверх). */
+.membersColumn {
+  display: none;
+}
+
+@media (min-width: 768px) {
+  .membersColumn {
+    display: flex;
+    width: 280px;
+    flex-shrink: 0;
+  }
+}
+
+.membersPanel,
+.membersFull {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.membersPanel {
+  border-left: 1px solid var(--qz-glass-border);
+  background: var(--qz-glass-bg);
+  backdrop-filter: var(--qz-glass-filter);
+  -webkit-backdrop-filter: var(--qz-glass-filter);
+  box-shadow: var(--qz-glass-shine);
+}
+
+.membersHeader {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: calc(14px + var(--qz-safe-top)) 14px 10px 16px;
+  border-bottom: 1px solid var(--qz-border);
+}
+
+@media (min-width: 768px) {
+  .membersHeader {
+    padding-top: 14px;
+  }
+}
+
+.membersTitle {
+  flex: 1;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.membersList {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 8px 8px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.membersGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.membersGroupTitle {
+  margin: 0;
+  padding: 4px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--qz-text-dim);
+}
+
+.memberRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 8px;
+  border-radius: 12px;
+}
+
+.memberRow:hover {
+  background: var(--qz-bg-soft);
+}
+
+.memberRowOffline {
+  opacity: 0.6;
+}
+
+.memberMain {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.memberName {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.memberRole {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--qz-border);
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--qz-text-muted);
+}
+
+.memberStatus,
+.memberWhere {
+  font-size: 12px;
+  color: var(--qz-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.memberWhere {
+  color: #c4b5fd;
+}
+
+.memberWrite {
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--qz-text-muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s, background 0.15s, color 0.15s;
+}
+
+.memberRow:hover .memberWrite,
+.memberWrite:focus-visible,
+.membersFull .memberWrite {
+  opacity: 1;
+}
+
+.memberWrite:hover {
+  color: #fff;
+  background: var(--qz-accent-soft);
+}

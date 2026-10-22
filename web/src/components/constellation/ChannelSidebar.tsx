@@ -1,7 +1,8 @@
 import type { ChannelKind, StarChannel, StarDetail } from "../../api/stars";
 import { useDoorsStore } from "../../store/doors";
 import { sortChannels, useStarsStore } from "../../store/stars";
-import { IconGear, IconPlanet, IconSatellite } from "../icons";
+import { IconContacts, IconGear, IconPlanet, IconSatellite } from "../icons";
+import { usePresenceStore } from "../../store/presence";
 import { can, GAMING_LIMITS, initials, KIND_LABEL, ROLE_LABEL } from "./rules";
 import { VoiceBar } from "./VoiceBar";
 import { placeNouns, roomWords } from "./words";
@@ -17,6 +18,9 @@ interface Props {
   onAddChannel: (kind: ChannelKind) => void;
   onEditChannel: (channel: StarChannel) => void;
   onOpenSettings: (tab?: "invites") => void;
+  /** Показать или скрыть участников со статусами. */
+  onToggleMembers: () => void;
+  membersOpen: boolean;
 }
 
 export default function ChannelSidebar({
@@ -28,7 +32,13 @@ export default function ChannelSidebar({
   onOpenSettings,
   mapActive = false,
   onOpenMap,
+  onToggleMembers,
+  membersOpen,
 }: Props) {
+  // Сколько участников сейчас на связи (в сети или отошли) — на кнопке «Участники».
+  const onlineCount = usePresenceStore(
+    (st) => detail.members.filter((m) => st.byId[m.user.id]?.online).length
+  );
   const unread = useStarsStore((st) => st.unread);
   const channels = sortChannels(detail.channels);
   const manage = can(detail, "manage_channels");
@@ -140,6 +150,17 @@ export default function ChannelSidebar({
             {KIND_LABEL[detail.kind]} · {detail.member_count} уч. · {ROLE_LABEL[detail.my_role]}
           </span>
         </div>
+        <button
+          type="button"
+          className={`${s.iconBtn} ${s.membersBtn} ${membersOpen ? s.membersBtnActive : ""}`}
+          onClick={onToggleMembers}
+          aria-label={`Участники: ${detail.member_count}, на связи ${onlineCount}`}
+          aria-pressed={membersOpen}
+          title="Участники и их статусы"
+        >
+          <IconContacts size={18} />
+          {onlineCount > 0 && <span className={s.membersBadge}>{onlineCount}</span>}
+        </button>
         <button
           type="button"
           className={s.iconBtn}

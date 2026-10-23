@@ -1,6 +1,5 @@
 import asyncio
 from contextlib import asynccontextmanager
-from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -10,15 +9,16 @@ from starlette.requests import Request
 from starlette.responses import Response
 from sqlalchemy import text
 
-from app.core.avatars import media_root
-from app.core import voice
+from app.core.avatars import avatars_dir
+from app.core import attachments, voice
 from app.core.config import settings
-from app.core.database import Base, engine
-from app.models import Call, PushSubscription, Star  # noqa: F401 — register tables for create_all
+from app.core.database import AsyncSessionLocal, Base, engine
+from app.models import Attachment, Call, PushSubscription, Star  # noqa: F401 — register tables for create_all
 from app.api.auth import router as auth_router
 from app.api.users import router as users_router
 from app.api.chats import router as chats_router
 from app.api.messages import router as messages_router
+from app.api.attachments import router as attachments_router
 from app.api.calls import router as calls_router
 from app.api.push import router as push_router
 from app.api.doors import router as doors_router
@@ -140,7 +140,12 @@ async def lifespan(app: FastAPI):
         )
     # Кто сейчас на Планетах — восстанавливаем из LiveKit после перезапуска (в фоне).
     app.state.voice_resync = asyncio.create_task(voice.resync())
+    # Неотправленные картинки и файлы удалённых чатов — раз в час.
+    app.state.attachments_sweep = asyncio.create_task(
+        attachments.sweep_forever(AsyncSessionLocal)
+    )
     yield
+    app.state.attachments_sweep.cancel()
 
 
 app = FastAPI(title="Quazar Messager API", version="0.1.0", lifespan=lifespan)
@@ -159,6 +164,7 @@ app.include_router(auth_router)
 app.include_router(users_router)
 app.include_router(chats_router)
 app.include_router(messages_router)
+app.include_router(attachments_router)
 app.include_router(calls_router)
 app.include_router(push_router)
 app.include_router(stars_router)
@@ -171,8 +177,8 @@ app.include_router(stickers_router)
 app.include_router(contacts_router)
 app.include_router(ws_router)
 
-_media = Path(media_root())
-app.mount("/media", StaticFiles(directory=str(_media)), name="media")
+# Публично — только аватары. Картинки из чатов (MEDIA_ROOT/attachments) отдаёт API участникам.
+app.mount("/media/avatars", StaticFiles(directory=str(avatars_dir())), name="media")
 app.mount(
     STICKER_FILES_PATH,
     StickerFiles(directory=str(STICKERS_DIR), check_dir=False),

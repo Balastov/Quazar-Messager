@@ -1,6 +1,10 @@
 import { create } from "zustand";
 import { chatsApi } from "../api/chats";
 import { messagesApi } from "../api/messages";
+import { attachmentsApi } from "../api/attachments";
+import { AttachmentError, detectImageMime, encodeImage, encryptFile } from "../attachments/image";
+import { MAX_SOURCE_BYTES, prepareImage } from "../attachments/compress";
+import { seedImageUrl } from "../attachments/cache";
 import { socket } from "../ws/socket";
 import { E2EError } from "../crypto/errors";
 import {
@@ -65,7 +69,9 @@ interface ChatState {
 
   loadChats: () => Promise<void>;
   selectChat: (chatId: string) => Promise<void>;
-  sendMessage: (chatId: string, plaintext: string) => Promise<void>;
+  sendMessage: (chatId: string, plaintext: string, attachmentId?: string) => Promise<void>;
+  /** Бросает AttachmentError (или E2EError) с текстом для пользователя. */
+  sendImage: (chatId: string, file: File) => Promise<void>;
   openDirectChat: (userId: string) => Promise<void>;
   dismissMigrationNotice: () => void;
   setShowE2ePanel: (show: boolean) => void;
@@ -402,7 +408,7 @@ export const useChatStore = create<ChatState>((set, get) => {
       }
     },
 
-    sendMessage: async (chatId, plaintext) => {
+    sendMessage: async (chatId, plaintext, attachmentId) => {
       const { chats } = get();
       const chat = chats.find((c) => c.id === chatId);
       const myId = useAuthStore.getState().user?.id;
@@ -443,13 +449,35 @@ export const useChatStore = create<ChatState>((set, get) => {
         }
 
         const payload = encryptMessage(plaintext, trust.publicKey!, myPublicKey);
-        const msg = await messagesApi.send(chatId, payload);
+        const msg = await messagesApi.send(chatId, payload, attachmentId);
         // Мгновенный echo по WS; история читается через ENC2 self-box.
         sentPlaintextById.set(msg.id, plaintext);
         return;
       }
 
-      await messagesApi.send(chatId, plaintext);
+      await messagesApi.send(chatId, plaintext, attachmentId);
+    },
+
+    sendImage: async (chatId, file) => {
+      if (file.size > MAX_SOURCE_BYTES) {
+        throw new AttachmentError("Файл больше 50 МБ — такую картинку не отправить");
+      }
+      const source = new Uint8Array(await file.arrayBuffer());
+      const sourceMime = detectImageMime(source);
+      if (!sourceMime) {
+        throw new AttachmentError("Можно отправлять только картинки: JPEG, PNG, GIF или WebP");
+      }
+      // Уменьшаем до 2560 px и пережимаем в JPEG; на сервер уходит уже это.
+      const { bytes, mime, w, h } = await prepareImage(source, sourceMime);
+
+      const { blob, key } = encryptFile(bytes);
+      const { id } = await attachmentsApi.upload(chatId, blob);
+      seedImageUrl(id, bytes, mime);
+      await get().sendMessage(
+        chatId,
+        encodeImage({ id, key, mime, w, h, size: bytes.length }),
+        id
+      );
     },
 
     openDirectChat: async (userId) => {

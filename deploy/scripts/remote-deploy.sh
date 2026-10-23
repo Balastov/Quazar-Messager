@@ -34,7 +34,7 @@ fi
 echo "==> Rebuilding containers..."
 docker compose -f docker-compose.prod.yml --env-file .env.prod "${COMPOSE_PROFILES[@]}" up -d --build
 
-echo "==> Ensuring host nginx /media, /livekit/ + 4m upload limit..."
+echo "==> Ensuring host nginx /media, /livekit/ + 12m upload limit (10 MB chat images)..."
 SITE=/etc/nginx/sites-available/quazar-msg.ru
 if [[ -f "$SITE" ]]; then
   sudo python3 - <<'PY'
@@ -48,11 +48,11 @@ text = path.read_text()
 orig = text
 
 if re.search(r"client_max_body_size\s+\S+;", text):
-    text = re.sub(r"client_max_body_size\s+\S+;", "client_max_body_size 4m;", text)
+    text = re.sub(r"client_max_body_size\s+\S+;", "client_max_body_size 12m;", text)
 else:
     text = re.sub(
         r"(listen\s+443[^;]*;)",
-        r"\1\n\n    client_max_body_size 4m;",
+        r"\1\n\n    client_max_body_size 12m;",
         text,
         count=1,
     )

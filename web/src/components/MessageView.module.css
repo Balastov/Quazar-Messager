@@ -289,6 +289,15 @@
   text-decoration-color: rgba(216, 200, 255, 0.5);
 }
 
+/* Картинка почти во весь пузырь, время — под ней. */
+.imageBubble {
+  padding: 4px 4px 6px;
+}
+
+.imageBubble .meta {
+  padding-right: 6px;
+}
+
 .textMuted {
   font-size: 13px;
   color: rgba(255, 255, 255, 0.65);
@@ -359,6 +368,15 @@
 .attachBtn {
   background: transparent;
   color: var(--qz-text-muted);
+}
+
+.attachBtn:hover:not(:disabled) {
+  color: #fff;
+}
+
+.attachBtn:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 
 .field {

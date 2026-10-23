@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.deps import get_current_user
+from app.models.attachment import Attachment
 from app.models.chat import ChatMember
 from app.models.message import Message
 from app.models.user import User
@@ -68,6 +69,21 @@ async def send_message(
 
     message = Message(chat_id=chat_id, sender_id=current_user.id, payload=body.payload)
     db.add(message)
+    if body.attachment_id:
+        attachment = (
+            await db.execute(
+                select(Attachment).where(
+                    Attachment.id == body.attachment_id,
+                    Attachment.chat_id == chat_id,
+                    Attachment.uploader_id == current_user.id,
+                    Attachment.message_id.is_(None),
+                )
+            )
+        ).scalar_one_or_none()
+        if not attachment:
+            raise HTTPException(status_code=422, detail="Attachment not found")
+        await db.flush()
+        attachment.message_id = message.id
     await db.commit()
     await db.refresh(message)
 

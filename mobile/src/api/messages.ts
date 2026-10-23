@@ -9,6 +9,8 @@ export const messagesApi = {
       })
       .then(r => r.data),
 
-  send: (chatId: string, payload: string) =>
-    http.post<Message>(`/chats/${chatId}/messages`, {payload}).then(r => r.data),
+  send: (chatId: string, payload: string, attachmentId?: string) =>
+    http
+      .post<Message>(`/chats/${chatId}/messages`, {payload, attachment_id: attachmentId})
+      .then(r => r.data),
 };

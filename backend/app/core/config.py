@@ -19,6 +19,10 @@ class Settings(BaseSettings):
 
     # Local avatar/media storage (served at /media).
     MEDIA_ROOT: str = "media"
+    # Картинки в чатах не загружаются, если на диске останется меньше этого.
+    MEDIA_MIN_FREE_MB: int = 2048
+    # Сколько дней хранить картинки из чатов (0 — бессрочно). Сообщение остаётся, файл удаляется.
+    ATTACHMENT_TTL_DAYS: int = 30
 
     # WebRTC ICE — comma-separated URLs. TURN strongly recommended for production mobile.
     WEBRTC_STUN_URLS: str = "stun:stun.l.google.com:19302,stun:stun1.l.google.com:19302"

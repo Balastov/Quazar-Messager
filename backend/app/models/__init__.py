@@ -1,5 +1,6 @@
 from app.models.chat import Chat, ChatMember
 from app.models.message import Message
+from app.models.attachment import Attachment
 from app.models.user import User
 from app.models.call import Call
 from app.models.push import PushSubscription
@@ -19,6 +20,7 @@ __all__ = [
     "Chat",
     "ChatMember",
     "Message",
+    "Attachment",
     "Call",
     "PushSubscription",
     "UserContact",

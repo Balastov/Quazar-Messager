@@ -2,6 +2,9 @@ import {create} from 'zustand';
 import {AppState} from 'react-native';
 import {chatsApi} from '../api/chats';
 import {messagesApi} from '../api/messages';
+import {attachmentsApi} from '../api/attachments';
+import {encodeImage, encryptFile, readPickedImage} from '../attachments/image';
+import {seedImageUri} from '../attachments/cache';
 import {socket} from '../ws/socket';
 import {
   applyLocalStatus,
@@ -20,6 +23,12 @@ import {useAuthStore} from './auth';
 import {useE2EStore} from './e2e';
 import type {Chat, Message} from '../api/types';
 
+export interface PickedImage {
+  base64: string;
+  width: number;
+  height: number;
+}
+
 interface ChatState {
   chats: Chat[];
   activeChatId: string | null;
@@ -29,7 +38,9 @@ interface ChatState {
   loadChats: () => Promise<void>;
   selectChat: (chatId: string) => Promise<void>;
   /** Бросает Error с текстом для пользователя, если отправить нельзя. */
-  sendMessage: (chatId: string, plaintext: string) => Promise<void>;
+  sendMessage: (chatId: string, plaintext: string, attachmentId?: string) => Promise<void>;
+  /** Картинка из галереи; бросает Error с текстом для пользователя. */
+  sendImage: (chatId: string, image: PickedImage) => Promise<void>;
   openDirectChat: (userId: string) => Promise<string>;
 }
 
@@ -226,7 +237,7 @@ export const useChatStore = create<ChatState>((set, get) => {
       }
     },
 
-    sendMessage: async (chatId: string, plaintext: string) => {
+    sendMessage: async (chatId: string, plaintext: string, attachmentId?: string) => {
       const {chats} = get();
       const chat = chats.find(c => c.id === chatId);
       const myId = useAuthStore.getState().user?.id;
@@ -257,7 +268,19 @@ export const useChatStore = create<ChatState>((set, get) => {
         payload = await encryptMessage(plaintext, recipientKey, myKeys.publicKey);
       }
 
-      await messagesApi.send(chatId, payload);
+      await messagesApi.send(chatId, payload, attachmentId);
+    },
+
+    sendImage: async (chatId: string, image: PickedImage) => {
+      const {bytes, mime} = await readPickedImage(image.base64);
+      const {blob, key} = await encryptFile(bytes);
+      const {id} = await attachmentsApi.upload(chatId, blob);
+      seedImageUri(id, image.base64, mime);
+      await get().sendMessage(
+        chatId,
+        encodeImage({id, key, mime, w: image.width, h: image.height, size: bytes.length}),
+        id,
+      );
     },
 
     openDirectChat: async (userId: string) => {

@@ -25,6 +25,8 @@ import StickerPicker from "./StickerPicker";
 import { useStickersStore } from "../store/stickers";
 import { stickerFileUrl, type StickerInfo } from "../api/stickers";
 import { encodeSticker, parseSticker } from "../stickers/format";
+import ChatImage from "./ChatImage";
+import { AttachmentError, parseImage } from "../attachments/image";
 
 const STICKER_SIZE = 160;
 
@@ -39,6 +41,7 @@ export default function MessageView({ showBack = false }: Props) {
     messages,
     loadingMessages,
     sendMessage,
+    sendImage,
     e2eReady,
     e2eError,
     e2eTrust,
@@ -58,6 +61,8 @@ export default function MessageView({ showBack = false }: Props) {
   const [text, setText] = useState("");
   const [sendError, setSendError] = useState<string | null>(null);
   const [stickersOpen, setStickersOpen] = useState(false);
+  const [uploading, setUploading] = useState(0);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const stickersByKey = useStickersStore((st) => st.byKey);
   const stickersLoaded = useStickersStore((st) => st.loaded);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -161,6 +166,31 @@ export default function MessageView({ showBack = false }: Props) {
       if (err instanceof E2EError) setSendError(err.message);
       else setSendError("Не удалось отправить стикер");
     }
+  };
+
+  const handleImages = async (files: File[]) => {
+    if (!activeChatId || inputDisabled || !files.length) return;
+    setSendError(null);
+    setStickersOpen(false);
+    // По одной, в порядке выбора: так они и лягут в чат.
+    for (const file of files) {
+      setUploading((n) => n + 1);
+      try {
+        await sendImage(activeChatId, file);
+      } catch (err) {
+        if (err instanceof AttachmentError || err instanceof E2EError) setSendError(err.message);
+        else setSendError("Не удалось отправить картинку");
+      } finally {
+        setUploading((n) => n - 1);
+      }
+    }
+  };
+
+  const handlePaste = (e: React.ClipboardEvent) => {
+    const files = Array.from(e.clipboardData.files).filter((f) => f.type.startsWith("image/"));
+    if (!files.length) return;
+    e.preventDefault();
+    void handleImages(files);
   };
 
   const statusIcon = (status: string) => {
@@ -285,6 +315,7 @@ export default function MessageView({ showBack = false }: Props) {
         {msgs.map((msg) => {
           const isOwn = msg.sender_id === currentUser?.id;
           const unavailable = msg.payload.startsWith("Сообщение недоступно");
+          const image = unavailable ? null : parseImage(msg.payload);
           const stickerRef = unavailable ? null : parseSticker(msg.payload);
           const sticker = stickerRef ? stickersByKey[`${stickerRef.pack}/${stickerRef.id}`] : undefined;
           // Стикер без пузыря; неизвестный (пак убрали с сервера) — обычной строкой.
@@ -293,10 +324,14 @@ export default function MessageView({ showBack = false }: Props) {
             <div
               key={msg.id}
               className={
-                asSticker ? (isOwn ? s.ownSticker : s.otherSticker) : isOwn ? s.ownBubble : s.otherBubble
+                asSticker
+                  ? isOwn ? s.ownSticker : s.otherSticker
+                  : `${isOwn ? s.ownBubble : s.otherBubble}${image ? ` ${s.imageBubble}` : ""}`
               }
             >
-              {asSticker ? (
+              {image ? (
+                <ChatImage chatId={msg.chat_id} image={image} />
+              ) : asSticker ? (
                 sticker ? (
                   <Sticker url={stickerFileUrl(sticker)} emoji={sticker.emoji} size={STICKER_SIZE} mode="loop" />
                 ) : (
@@ -323,6 +358,11 @@ export default function MessageView({ showBack = false }: Props) {
             </div>
           );
         })}
+        {uploading > 0 && (
+          <div className={s.hint}>
+            {uploading > 1 ? `Отправка картинок: ${uploading}…` : "Отправка картинки…"}
+          </div>
+        )}
         <div ref={bottomRef} />
       </div>
 
@@ -334,9 +374,28 @@ export default function MessageView({ showBack = false }: Props) {
         />
       )}
       <form className={s.composer} onSubmit={(e) => void handleSend(e)}>
-        <button type="button" className={s.attachBtn} title="Вложения скоро" disabled>
+        <button
+          type="button"
+          className={s.attachBtn}
+          title="Фото"
+          aria-label="Отправить картинку"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={inputDisabled}
+        >
           <IconPlus size={20} />
         </button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/jpeg,image/png,image/gif,image/webp"
+          multiple
+          hidden
+          onChange={(e) => {
+            const files = Array.from(e.target.files ?? []);
+            e.target.value = "";
+            void handleImages(files);
+          }}
+        />
         <div className={s.field}>
           <input
             className={s.textInput}
@@ -345,6 +404,7 @@ export default function MessageView({ showBack = false }: Props) {
             }
             value={text}
             onChange={(e) => setText(e.target.value)}
+            onPaste={handlePaste}
             disabled={inputDisabled}
           />
           <button

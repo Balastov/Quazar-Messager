@@ -13,6 +13,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import type {NativeStackScreenProps} from '@react-navigation/native-stack';
+import {launchImageLibrary} from 'react-native-image-picker';
 import {useChatStore} from '../store/chat';
 import {useAuthStore} from '../store/auth';
 import {useCallStore} from '../store/call';
@@ -25,6 +26,8 @@ import {encodeSticker, parseSticker} from '../stickers/format';
 import Sticker from '../components/Sticker';
 import StickerPanel from '../components/StickerPanel';
 import {usePresenceText} from '../store/presence';
+import ChatImage from '../components/ChatImage';
+import {MAX_IMAGE_BYTES, parseImage} from '../attachments/image';
 
 const STICKER_SIZE = 150;
 
@@ -54,7 +57,7 @@ function MessageText({text, isOwn}: {text: string; isOwn: boolean}) {
 
 export default function ChatScreen({route, navigation}: Props) {
   const {chatId} = route.params;
-  const {messages, loadingMessages, selectChat, sendMessage, chats} =
+  const {messages, loadingMessages, selectChat, sendMessage, sendImage, chats} =
     useChatStore();
   const currentUser = useAuthStore(s => s.user);
   const startAudioCall = useCallStore(s => s.startAudioCall);
@@ -64,6 +67,7 @@ export default function ChatScreen({route, navigation}: Props) {
   const [text, setText] = useState('');
   const [sendError, setSendError] = useState<string | null>(null);
   const [stickersOpen, setStickersOpen] = useState(false);
+  const [uploading, setUploading] = useState(0);
   const stickersByKey = useStickersStore(st => st.byKey);
   const stickersLoaded = useStickersStore(st => st.loaded);
   const loadStickers = useStickersStore(st => st.load);
@@ -123,6 +127,53 @@ export default function ChatScreen({route, navigation}: Props) {
       await sendMessage(chatId, encodeSticker(packId, sticker.id));
     } catch (err) {
       setSendError(err instanceof Error ? err.message : 'Не удалось отправить стикер');
+    }
+  };
+
+  const pickImages = async () => {
+    setStickersOpen(false);
+    setSendError(null);
+    const res = await launchImageLibrary({
+      mediaType: 'photo',
+      selectionLimit: 10,
+      includeBase64: true,
+      // Как Telegram: длинная сторона до 2560 px, JPEG ~0.8 — в 5–10 раз меньше исходника,
+      // и без EXIF с геопозицией. (На Android GIF при этом становится статичной картинкой.)
+      maxWidth: 2560,
+      maxHeight: 2560,
+      quality: 0.8,
+      // HEIC с iPhone → JPEG: иначе собеседник в браузере его не откроет.
+      assetRepresentationMode: 'compatible',
+    });
+    if (res.didCancel) {
+      return;
+    }
+    if (res.errorCode) {
+      setSendError(res.errorMessage || 'Не удалось открыть галерею');
+      return;
+    }
+    // По одной, в порядке выбора: так они и лягут в чат.
+    for (const asset of res.assets ?? []) {
+      if ((asset.fileSize ?? 0) > MAX_IMAGE_BYTES) {
+        setSendError('Картинка больше 10 МБ — такую не отправить');
+        continue;
+      }
+      if (!asset.base64) {
+        setSendError('Не удалось прочитать картинку');
+        continue;
+      }
+      setUploading(n => n + 1);
+      try {
+        await sendImage(chatId, {
+          base64: asset.base64,
+          width: asset.width || 800,
+          height: asset.height || 600,
+        });
+      } catch (err) {
+        setSendError(err instanceof Error ? err.message : 'Не удалось отправить картинку');
+      } finally {
+        setUploading(n => n - 1);
+      }
     }
   };
 
@@ -205,6 +256,27 @@ export default function ChatScreen({route, navigation}: Props) {
 
   const renderItem = ({item}: {item: Message}) => {
     const isOwn = item.sender_id === currentUser?.id;
+    const image = parseImage(item.payload);
+    if (image) {
+      return (
+        <View style={[s.bubble, s.imageBubble, isOwn ? s.own : s.other]}>
+          <ChatImage chatId={item.chat_id} image={image} />
+          <View style={[s.meta, s.imageMeta]}>
+            <Text style={s.time}>
+              {new Date(item.created_at).toLocaleTimeString('ru', {
+                hour: '2-digit',
+                minute: '2-digit',
+              })}
+            </Text>
+            {isOwn && (
+              <Text style={[s.status, {color: statusColor(item.status)}]}>
+                {statusIcon(item.status)}
+              </Text>
+            )}
+          </View>
+        </View>
+      );
+    }
     const ref = parseSticker(item.payload);
     const sticker = ref ? stickersByKey[`${ref.pack}/${ref.id}`] : undefined;
     // Стикер без пузыря; неизвестный (пак убрали с сервера) — строкой в пузыре.
@@ -259,8 +331,20 @@ export default function ChatScreen({route, navigation}: Props) {
         />
       )}
 
+      {uploading > 0 && (
+        <Text style={s.uploading}>
+          {uploading > 1 ? `Отправка картинок: ${uploading}…` : 'Отправка картинки…'}
+        </Text>
+      )}
       {sendError && <Text style={s.sendError}>{sendError}</Text>}
       <View style={s.inputRow}>
+        <Pressable
+          style={s.stickerBtn}
+          onPress={() => void pickImages()}
+          accessibilityLabel="Отправить картинку"
+          hitSlop={6}>
+          <Text style={s.stickerIcon}>🖼️</Text>
+        </Pressable>
         <Pressable
           style={[s.stickerBtn, stickersOpen && s.stickerBtnActive]}
           onPress={toggleStickers}
@@ -318,6 +402,14 @@ const s = StyleSheet.create({
   headerBusy: {color: '#f87171'},
   textMuted: {color: 'rgba(255,255,255,0.65)', fontSize: 13, fontStyle: 'italic'},
   stickerMsg: {gap: 2},
+  imageBubble: {paddingHorizontal: 4, paddingTop: 4, paddingBottom: 6},
+  imageMeta: {paddingRight: 6},
+  uploading: {
+    color: '#9b93b8',
+    fontSize: 13,
+    textAlign: 'center',
+    paddingVertical: 6,
+  },
   stickerOwn: {alignSelf: 'flex-end', alignItems: 'flex-end'},
   stickerOther: {alignSelf: 'flex-start', alignItems: 'flex-start'},
   stickerBtn: {

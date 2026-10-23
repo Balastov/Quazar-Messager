@@ -35,6 +35,10 @@ services:
       JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env.prod}
       CORS_ORIGINS: ${CORS_ORIGINS:-https://quazar-msg.ru,https://www.quazar-msg.ru}
       MEDIA_ROOT: /app/media
+      # Картинки в чатах не принимаются, если на диске останется меньше (МБ).
+      MEDIA_MIN_FREE_MB: ${MEDIA_MIN_FREE_MB:-2048}
+      # Картинки из чатов удаляются через столько дней (0 — хранить бессрочно).
+      ATTACHMENT_TTL_DAYS: ${ATTACHMENT_TTL_DAYS:-30}
       WEBRTC_STUN_URLS: ${WEBRTC_STUN_URLS:-stun:stun.l.google.com:19302,stun:stun1.l.google.com:19302}
       WEBRTC_TURN_URLS: ${WEBRTC_TURN_URLS:-}
       WEBRTC_TURN_USERNAME: ${WEBRTC_TURN_USERNAME:-}

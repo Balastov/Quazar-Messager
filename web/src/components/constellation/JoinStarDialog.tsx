@@ -3,6 +3,7 @@ import { parseInviteCode, starsApi, type InvitePreview } from "../../api/stars";
 import { useStarsStore } from "../../store/stars";
 import Dialog from "./Dialog";
 import { apiError, KIND_LABEL } from "./rules";
+import StarAvatar from "./StarAvatar";
 import s from "./Constellation.module.css";
 import { playStarSound } from "../../sounds/starSounds";
 
@@ -90,6 +91,9 @@ export default function JoinStarDialog() {
 
       {preview && (
         <div className={s.listItem}>
+          <span className={s.starAvatarBox}>
+            <StarAvatar name={preview.star_name} url={preview.star_avatar_url} />
+          </span>
           <div className={s.listMain}>
             <span className={s.listTitle}>{preview.star_name}</span>
             <span className={s.listSub}>

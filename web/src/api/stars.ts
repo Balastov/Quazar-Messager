@@ -53,6 +53,8 @@ export interface StarSummary {
   name: string;
   kind: StarKind;
   owner_id: string;
+  /** /media/avatars/stars/<id>.<ext>?v=… или null — тогда инициалы. */
+  avatar_url: string | null;
   created_at: string;
   member_count: number;
   my_role: StarRole;
@@ -154,6 +156,7 @@ export interface InvitePreview {
   star_id: string;
   star_name: string;
   star_kind: StarKind;
+  star_avatar_url: string | null;
   member_count: number;
   already_member: boolean;
 }
@@ -175,7 +178,13 @@ export interface StarLimits {
 }
 
 export type StarEvent =
-  | { type: "star_updated"; star_id: string; name: string; owner_id: string }
+  | {
+      type: "star_updated";
+      star_id: string;
+      name: string;
+      owner_id: string;
+      avatar_url: string | null;
+    }
   | { type: "star_removed"; star_id: string; reason: "kick" | "ban" | "leave" | "deleted" }
   | { type: "star_member_upsert"; star_id: string; member: StarMember }
   | { type: "star_member_removed"; star_id: string; user_id: string; reason: string }
@@ -233,6 +242,13 @@ export const starsApi = {
   rename: (starId: string, name: string) =>
     http.patch<StarDetail>(base(starId), { name }).then((r) => r.data),
   remove: (starId: string) => http.delete(base(starId)),
+  uploadAvatar: (starId: string, file: Blob) => {
+    const form = new FormData();
+    form.append("file", file, "avatar");
+    return http.post<StarDetail>(`${base(starId)}/avatar`, form).then((r) => r.data);
+  },
+  removeAvatar: (starId: string) =>
+    http.delete<StarDetail>(`${base(starId)}/avatar`).then((r) => r.data),
   transfer: (starId: string, userId: string) =>
     http.post<StarDetail>(`${base(starId)}/transfer`, { user_id: userId }).then((r) => r.data),
   leave: (starId: string) => http.post(`${base(starId)}/leave`),

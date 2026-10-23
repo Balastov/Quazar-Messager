@@ -42,8 +42,8 @@ function sortMembers(members: StarMember[]): StarMember[] {
 }
 
 function summaryOf(detail: StarDetail): StarSummary {
-  const { id, name, kind, owner_id, created_at, member_count, my_role } = detail;
-  return { id, name, kind, owner_id, created_at, member_count, my_role };
+  const { id, name, kind, owner_id, avatar_url, created_at, member_count, my_role } = detail;
+  return { id, name, kind, owner_id, avatar_url, created_at, member_count, my_role };
 }
 
 function firstSatellite(detail: StarDetail | undefined): string | null {
@@ -119,6 +119,8 @@ interface StarsState {
   saveLayout: (floorId: string, version: number, rooms: LayoutRoom[]) => Promise<void>;
   deleteChannel: (channelId: string) => Promise<void>;
   renameStar: (name: string) => Promise<void>;
+  /** null — убрать аватар. */
+  setStarAvatar: (file: Blob | null) => Promise<void>;
   deleteStar: () => Promise<void>;
   transferStar: (userId: string) => Promise<void>;
   leaveStar: () => Promise<void>;
@@ -217,14 +219,14 @@ export const useStarsStore = create<StarsState>((set, get) => {
         void get().refreshLimits();
         break;
       }
-      case "star_updated":
-        patchDetail(starId, (d) => ({ ...d, name: event.name, owner_id: event.owner_id }));
+      case "star_updated": {
+        const patch = { name: event.name, owner_id: event.owner_id, avatar_url: event.avatar_url };
+        patchDetail(starId, (d) => ({ ...d, ...patch }));
         set((s) => ({
-          stars: s.stars.map((st) =>
-            st.id === starId ? { ...st, name: event.name, owner_id: event.owner_id } : st
-          ),
+          stars: s.stars.map((st) => (st.id === starId ? { ...st, ...patch } : st)),
         }));
         break;
+      }
       case "star_member_upsert": {
         const isMe = event.member.user.id === myId();
         patchDetail(starId, (d) => {
@@ -595,6 +597,14 @@ export const useStarsStore = create<StarsState>((set, get) => {
       const starId = get().activeStarId;
       if (!starId) return;
       adoptDetail(await starsApi.rename(starId, name));
+    },
+
+    setStarAvatar: async (file) => {
+      const starId = get().activeStarId;
+      if (!starId) return;
+      adoptDetail(
+        await (file ? starsApi.uploadAvatar(starId, file) : starsApi.removeAvatar(starId))
+      );
     },
 
     deleteStar: async () => {

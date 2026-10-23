@@ -11,7 +11,7 @@ import OfficeMap from "./OfficeMap";
 import PlanetView from "./PlanetView";
 import SatelliteView from "./SatelliteView";
 import StarSettings, { type SettingsTab } from "./StarSettings";
-import { initials } from "./rules";
+import StarAvatar from "./StarAvatar";
 import s from "./Constellation.module.css";
 import MembersPanel from "./MembersPanel";
 import { useUiStore } from "../../store/ui";
@@ -142,7 +142,7 @@ export default function ConstellationView() {
               aria-label={star.name}
               aria-current={active}
             >
-              {initials(star.name)}
+              <StarAvatar name={star.name} url={star.avatar_url} />
               {count > 0 && <span className={s.badge}>{count > 99 ? "99+" : count}</span>}
             </button>
           );

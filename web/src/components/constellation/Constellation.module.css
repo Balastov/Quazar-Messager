@@ -1694,3 +1694,39 @@
   color: #fff;
   background: var(--qz-accent-soft);
 }
+
+/* Аватар Звезды: картинка заполняет кнопку/рамку, повторяя её скругление. */
+.starAvatarImg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: inherit;
+}
+
+.starAvatarBox,
+.starAvatarLarge {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border: 1px solid var(--qz-border);
+  background: var(--qz-bg-soft);
+  color: var(--qz-text);
+  font-weight: 700;
+}
+
+.starAvatarBox {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  font-size: 14px;
+}
+
+.starAvatarLarge {
+  width: 64px;
+  height: 64px;
+  border-radius: 18px;
+  font-size: 20px;
+}

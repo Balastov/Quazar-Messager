@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+import time
 from pathlib import Path
 
 from app.core.config import settings
@@ -63,6 +64,31 @@ def delete_avatar_files(user_id: str) -> None:
     if not _SAFE_USER_ID.match(user_id):
         return
     for old in avatars_dir().glob(f"{user_id}.*"):
+        try:
+            old.unlink()
+        except OSError:
+            pass
+
+
+def star_avatars_dir() -> Path:
+    directory = avatars_dir() / "stars"
+    directory.mkdir(parents=True, exist_ok=True)
+    return directory
+
+
+def save_star_avatar(star_id: str, data: bytes, ext: str) -> str:
+    """Аватар Звезды. В URL — версия: nginx кеширует /media на неделю, а файл перезаписывается."""
+    if not _SAFE_USER_ID.match(star_id):
+        raise ValueError("Invalid star id")
+    delete_star_avatar_files(star_id)
+    (star_avatars_dir() / f"{star_id}{ext}").write_bytes(data)
+    return f"{AVATAR_URL_PREFIX}stars/{star_id}{ext}?v={int(time.time())}"
+
+
+def delete_star_avatar_files(star_id: str) -> None:
+    if not _SAFE_USER_ID.match(star_id):
+        return
+    for old in star_avatars_dir().glob(f"{star_id}.*"):
         try:
             old.unlink()
         except OSError:

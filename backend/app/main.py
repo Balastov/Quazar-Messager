@@ -113,6 +113,7 @@ async def lifespan(app: FastAPI):
                 """
             )
         )
+        await conn.execute(text("ALTER TABLE stars ADD COLUMN IF NOT EXISTS avatar_url TEXT"))
         # Карта офиса: этаж комнаты (таблица star_floors создаётся create_all выше).
         await conn.execute(
             text(

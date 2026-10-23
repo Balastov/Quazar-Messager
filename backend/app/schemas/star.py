@@ -169,6 +169,7 @@ class StarSummaryOut(BaseModel):
     name: str
     kind: StarKind
     owner_id: str
+    avatar_url: str | None
     created_at: datetime
     member_count: int
     my_role: Role
@@ -220,6 +221,7 @@ class InvitePreviewOut(BaseModel):
     star_id: str
     star_name: str
     star_kind: StarKind
+    star_avatar_url: str | None
     member_count: int
     already_member: bool
 

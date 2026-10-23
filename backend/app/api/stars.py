@@ -7,11 +7,12 @@ import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import stars as rules
+from app.core.avatars import MAX_AVATAR_BYTES, delete_star_avatar_files, detect_image, save_star_avatar
 from app.core import doors
 from app.core import floors as floors_svc
 from app.core import voice
@@ -166,10 +167,20 @@ def _summary(star: Star, my_role: str, member_count: int) -> StarSummaryOut:
         name=star.name,
         kind=star.kind,
         owner_id=star.owner_id,
+        avatar_url=star.avatar_url,
         created_at=star.created_at,
         member_count=member_count,
         my_role=my_role,
     )
+
+
+def _star_updated(star: Star) -> dict:
+    return {
+        "type": "star_updated",
+        "name": star.name,
+        "owner_id": star.owner_id,
+        "avatar_url": star.avatar_url,
+    }
 
 
 def floors_event(floors: list) -> dict:
@@ -315,7 +326,42 @@ async def update_star(star_id: str, body: UpdateStar, current_user: CurrentUser,
         raise _forbid()
     star.name = body.name
     await db.commit()
-    await _broadcast(db, star_id, {"type": "star_updated", "name": star.name, "owner_id": star.owner_id})
+    await _broadcast(db, star_id, _star_updated(star))
+    return await _detail(db, star, me)
+
+
+@router.post("/{star_id}/avatar", response_model=StarDetailOut)
+async def upload_star_avatar(
+    star_id: str,
+    current_user: CurrentUser,
+    db: Db,
+    file: Annotated[UploadFile, File(...)],
+):
+    """Аватар Звезды (JPEG/PNG/WebP/GIF, до 3 МБ) — владелец и админы."""
+    star, me = await _load_membership(db, star_id, current_user.id)
+    if me.role not in ("owner", "admin"):
+        raise _forbid("Аватар Звезды меняют только владелец и админы")
+    data = await file.read(MAX_AVATAR_BYTES + 1)
+    if len(data) > MAX_AVATAR_BYTES:
+        raise HTTPException(status_code=413, detail="Картинка должна быть не больше 3 МБ")
+    detected = detect_image(data)
+    if not detected:
+        raise HTTPException(status_code=422, detail="Подойдёт картинка JPEG, PNG, WebP или GIF")
+    star.avatar_url = save_star_avatar(star.id, data, detected[1])
+    await db.commit()
+    await _broadcast(db, star_id, _star_updated(star))
+    return await _detail(db, star, me)
+
+
+@router.delete("/{star_id}/avatar", response_model=StarDetailOut)
+async def remove_star_avatar(star_id: str, current_user: CurrentUser, db: Db):
+    star, me = await _load_membership(db, star_id, current_user.id)
+    if me.role not in ("owner", "admin"):
+        raise _forbid("Аватар Звезды меняют только владелец и админы")
+    delete_star_avatar_files(star.id)
+    star.avatar_url = None
+    await db.commit()
+    await _broadcast(db, star_id, _star_updated(star))
     return await _detail(db, star, me)
 
 
@@ -328,6 +374,7 @@ async def delete_star(star_id: str, current_user: CurrentUser, db: Db):
     planet_ids = [c.id for c in await _channels(db, star_id) if c.kind == "planet"]
     await db.execute(delete(Star).where(Star.id == star_id))
     await db.commit()
+    delete_star_avatar_files(star_id)
     await manager.broadcast_to_users(
         member_ids, {"type": "star_removed", "star_id": star_id, "reason": "deleted"}
     )
@@ -360,7 +407,7 @@ async def transfer_star(star_id: str, body: TransferStar, current_user: CurrentU
         await _broadcast(
             db, star_id, {"type": "star_member_upsert", "member": (await _member_out(db, member)).model_dump(mode="json")}
         )
-    await _broadcast(db, star_id, {"type": "star_updated", "name": star.name, "owner_id": star.owner_id})
+    await _broadcast(db, star_id, _star_updated(star))
     return await _detail(db, star, me)
 
 
@@ -523,6 +570,7 @@ async def preview_invite(code: str, current_user: CurrentUser, db: Db):
         star_id=star.id,
         star_name=star.name,
         star_kind=star.kind,
+        star_avatar_url=star.avatar_url,
         member_count=await _member_count(db, star.id),
         already_member=already is not None,
     )

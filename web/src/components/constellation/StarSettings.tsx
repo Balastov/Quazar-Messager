@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   inviteLink,
   starsApi,
@@ -11,7 +11,9 @@ import {
 import { useAuthStore } from "../../store/auth";
 import { useStarsStore } from "../../store/stars";
 import UserAvatar from "../UserAvatar";
+import { squareAvatar } from "../../utils/squareAvatar";
 import Dialog from "./Dialog";
+import StarAvatar from "./StarAvatar";
 import {
   apiError,
   assignableRoles,
@@ -109,7 +111,9 @@ function useAction() {
 
 function GeneralTab({ detail, onClose }: { detail: StarDetail; onClose: () => void }) {
   const renameStar = useStarsStore((st) => st.renameStar);
+  const setStarAvatar = useStarsStore((st) => st.setStarAvatar);
   const leaveStar = useStarsStore((st) => st.leaveStar);
+  const fileRef = useRef<HTMLInputElement>(null);
   const limits = useStarsStore((st) => st.limits);
   const [name, setName] = useState(detail.name);
   const { busy, run, status } = useAction();
@@ -125,6 +129,49 @@ function GeneralTab({ detail, onClose }: { detail: StarDetail; onClose: () => vo
       <p className={s.hint}>
         Каналы Созвездия не защищены сквозным шифрованием — в отличие от личных чатов.
       </p>
+
+      {canRename && (
+        <div className={s.row}>
+          <span className={s.starAvatarLarge}>
+            <StarAvatar name={detail.name} url={detail.avatar_url} />
+          </span>
+          <div className={s.listMain}>
+            <span className={s.listTitle}>Аватар Звезды</span>
+            <span className={s.listSub}>Квадрат по центру картинки. JPEG, PNG, WebP или GIF.</span>
+          </div>
+          <button
+            type="button"
+            className={s.secondary}
+            disabled={busy}
+            onClick={() => fileRef.current?.click()}
+          >
+            {detail.avatar_url ? "Заменить" : "Загрузить"}
+          </button>
+          {detail.avatar_url && (
+            <button
+              type="button"
+              className={s.danger}
+              disabled={busy}
+              onClick={() => void run(() => setStarAvatar(null), "Аватар убран")}
+            >
+              Убрать
+            </button>
+          )}
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/jpeg,image/png,image/webp,image/gif"
+            hidden
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              e.target.value = "";
+              if (file) {
+                void run(async () => setStarAvatar(await squareAvatar(file)), "Аватар обновлён");
+              }
+            }}
+          />
+        </div>
+      )}
 
       {canRename && (
         <form

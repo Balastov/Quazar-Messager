@@ -15,6 +15,8 @@ class User(Base):
     phone: Mapped[str] = mapped_column(String(20), unique=True, nullable=False, index=True)
     password_hash: Mapped[str] = mapped_column(String(256), nullable=False)
     avatar_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Личный фон приложения (/media/backgrounds/…); видит только сам пользователь.
+    background_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     public_key: Mapped[str | None] = mapped_column(Text, nullable=True)
     public_key_updated_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True

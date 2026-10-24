@@ -27,6 +27,8 @@ class Star(Base):
     name: Mapped[str] = mapped_column(String(64), nullable=False)
     # /media/avatars/stars/<id>.<ext>?v=… — ставят владелец и админы.
     avatar_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Фон Звезды для всех участников (/media/backgrounds/…) — ставят владелец и админы.
+    background_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     # "gaming" | "work" — задаётся при создании и не меняется.
     kind: Mapped[str] = mapped_column(String(16), nullable=False)
     owner_id: Mapped[str] = mapped_column(

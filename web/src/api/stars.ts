@@ -55,6 +55,8 @@ export interface StarSummary {
   owner_id: string;
   /** /media/avatars/stars/<id>.<ext>?v=… или null — тогда инициалы. */
   avatar_url: string | null;
+  /** Фон для всех участников (/media/backgrounds/…) или null — у каждого свой. */
+  background_url: string | null;
   created_at: string;
   member_count: number;
   my_role: StarRole;
@@ -184,6 +186,7 @@ export type StarEvent =
       name: string;
       owner_id: string;
       avatar_url: string | null;
+      background_url: string | null;
     }
   | { type: "star_removed"; star_id: string; reason: "kick" | "ban" | "leave" | "deleted" }
   | { type: "star_member_upsert"; star_id: string; member: StarMember }
@@ -249,6 +252,13 @@ export const starsApi = {
   },
   removeAvatar: (starId: string) =>
     http.delete<StarDetail>(`${base(starId)}/avatar`).then((r) => r.data),
+  uploadBackground: (starId: string, file: Blob) => {
+    const form = new FormData();
+    form.append("file", file, "background");
+    return http.post<StarDetail>(`${base(starId)}/background`, form).then((r) => r.data);
+  },
+  removeBackground: (starId: string) =>
+    http.delete<StarDetail>(`${base(starId)}/background`).then((r) => r.data),
   transfer: (starId: string, userId: string) =>
     http.post<StarDetail>(`${base(starId)}/transfer`, { user_id: userId }).then((r) => r.data),
   leave: (starId: string) => http.post(`${base(starId)}/leave`),

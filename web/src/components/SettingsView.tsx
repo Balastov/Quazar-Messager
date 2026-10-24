@@ -23,6 +23,8 @@ import ContactsImport from "./ContactsImport";
 import { playStarSound, type StarSoundEvent } from "../sounds/starSounds";
 import { activityTracker, IDLE_MINUTES_OPTIONS, systemIdleSupported } from "../presence/activity";
 import StatusPicker from "./StatusPicker";
+import { useWallpaperStore } from "../store/wallpaper";
+import { prepareBackground } from "../utils/wallpaper";
 
 const STAR_SOUNDS: [StarSoundEvent, string][] = [
   ["enter", "Вход"],
@@ -80,6 +82,9 @@ export default function SettingsView() {
   const [restorePassword, setRestorePassword] = useState("");
   const [rotatePassword, setRotatePassword] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
+  const wallpaperRef = useRef<HTMLInputElement>(null);
+  const personalWallpaper = useWallpaperStore((st) => st.personalUrl);
+  const setPersonalWallpaper = useWallpaperStore((st) => st.setPersonal);
   const backupFileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => subscribeNotifyPrefs(setPrefs), []);
@@ -204,6 +209,62 @@ export default function SettingsView() {
               </button>
             </div>
           )}
+
+          <div className={s.wallpaperRow}>
+            <div
+              className={s.wallpaperPreview}
+              style={{ backgroundImage: `url(${JSON.stringify(personalWallpaper ?? "/bg-desktop.jpg")})` }}
+              aria-hidden
+            />
+            <div className={s.meta}>
+              <div className={s.toggleLabel}>Фон приложения</div>
+              <p className={s.hint}>
+                Видите только вы — на всех своих устройствах. В чате с общим фоном и в Звезде со
+                своим фоном показывается их фон.
+              </p>
+            </div>
+          </div>
+          <div className={s.rowBtns}>
+            <button
+              type="button"
+              className={s.primary}
+              disabled={busy}
+              onClick={() => wallpaperRef.current?.click()}
+            >
+              Выбрать картинку
+            </button>
+            {personalWallpaper && (
+              <button
+                type="button"
+                className={s.secondary}
+                disabled={busy}
+                onClick={() =>
+                  void run(async () => {
+                    await setPersonalWallpaper(null);
+                    setStatus("Вернули стандартный фон");
+                  })
+                }
+              >
+                Стандартный
+              </button>
+            )}
+          </div>
+          <input
+            ref={wallpaperRef}
+            aria-label="Картинка для фона приложения"
+            type="file"
+            accept="image/jpeg,image/png,image/webp,image/gif"
+            className={s.hidden}
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              e.target.value = "";
+              if (!file) return;
+              void run(async () => {
+                await setPersonalWallpaper(await prepareBackground(file));
+                setStatus("Фон приложения обновлён");
+              });
+            }}
+          />
         </section>
 
         <section className={s.card}>

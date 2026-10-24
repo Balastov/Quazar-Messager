@@ -42,8 +42,9 @@ function sortMembers(members: StarMember[]): StarMember[] {
 }
 
 function summaryOf(detail: StarDetail): StarSummary {
-  const { id, name, kind, owner_id, avatar_url, created_at, member_count, my_role } = detail;
-  return { id, name, kind, owner_id, avatar_url, created_at, member_count, my_role };
+  const { id, name, kind, owner_id, avatar_url, background_url, created_at, member_count, my_role } =
+    detail;
+  return { id, name, kind, owner_id, avatar_url, background_url, created_at, member_count, my_role };
 }
 
 function firstSatellite(detail: StarDetail | undefined): string | null {
@@ -121,6 +122,8 @@ interface StarsState {
   renameStar: (name: string) => Promise<void>;
   /** null — убрать аватар. */
   setStarAvatar: (file: Blob | null) => Promise<void>;
+  /** null — убрать фон. */
+  setStarBackground: (file: Blob | null) => Promise<void>;
   deleteStar: () => Promise<void>;
   transferStar: (userId: string) => Promise<void>;
   leaveStar: () => Promise<void>;
@@ -220,7 +223,12 @@ export const useStarsStore = create<StarsState>((set, get) => {
         break;
       }
       case "star_updated": {
-        const patch = { name: event.name, owner_id: event.owner_id, avatar_url: event.avatar_url };
+        const patch = {
+          name: event.name,
+          owner_id: event.owner_id,
+          avatar_url: event.avatar_url,
+          background_url: event.background_url,
+        };
         patchDetail(starId, (d) => ({ ...d, ...patch }));
         set((s) => ({
           stars: s.stars.map((st) => (st.id === starId ? { ...st, ...patch } : st)),
@@ -604,6 +612,14 @@ export const useStarsStore = create<StarsState>((set, get) => {
       if (!starId) return;
       adoptDetail(
         await (file ? starsApi.uploadAvatar(starId, file) : starsApi.removeAvatar(starId))
+      );
+    },
+
+    setStarBackground: async (file) => {
+      const starId = get().activeStarId;
+      if (!starId) return;
+      adoptDetail(
+        await (file ? starsApi.uploadBackground(starId, file) : starsApi.removeBackground(starId))
       );
     },
 

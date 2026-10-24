@@ -19,6 +19,8 @@ export interface Chat {
   created_at: string;
   /** Последнее сообщение / звонок / создание чата. */
   last_activity_at?: string | null;
+  /** Общий фон: «IMG1:{…}», в личных чатах — зашифрованный ENC2 (как в web). */
+  background?: string | null;
   members: ChatMember[];
 }
 
@@ -91,6 +93,7 @@ export type WsEvent =
     }
   | {type: 'message_status'; message_id: string; status: string; updated_by: string}
   | {type: 'key_changed'; user_id: string; public_key: string; updated_at: string}
+  | {type: 'chat_background'; chat_id: string; background: string | null; changed_by: string}
   | {
       type: 'call_invite';
       call_id: string;

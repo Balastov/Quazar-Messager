@@ -11,4 +11,10 @@ export const chatsApi = {
 
   createGroup: (name: string, memberIds: string[]) =>
     http.post<Chat>("/chats/group", { name, member_ids: memberIds }).then((r) => r.data),
+
+  /** payload — «IMG1:{…}» (в личных чатах уже зашифрованный), картинка — во вложении. */
+  setBackground: (chatId: string, payload: string, attachmentId: string) =>
+    http.put(`/chats/${chatId}/background`, { payload, attachment_id: attachmentId }),
+
+  removeBackground: (chatId: string) => http.delete(`/chats/${chatId}/background`),
 };

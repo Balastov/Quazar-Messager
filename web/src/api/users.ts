@@ -22,4 +22,19 @@ export const usersApi = {
   },
 
   removeAvatar: () => http.delete<User>("/users/me/avatar").then((r) => r.data),
+
+  /** Личный фон приложения; виден только самому пользователю. */
+  background: () =>
+    http.get<{ background_url: string | null }>("/users/me/background").then((r) => r.data),
+
+  uploadBackground: (file: Blob) => {
+    const form = new FormData();
+    form.append("file", file, "background");
+    return http
+      .post<{ background_url: string | null }>("/users/me/background", form)
+      .then((r) => r.data);
+  },
+
+  removeBackground: () =>
+    http.delete<{ background_url: string | null }>("/users/me/background").then((r) => r.data),
 };

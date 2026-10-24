@@ -12,6 +12,7 @@ import CallsView from "../components/CallsView";
 import SettingsView from "../components/SettingsView";
 import ToastStack from "../components/ToastStack";
 import NotifyPrompt from "../components/NotifyPrompt";
+import WallpaperHost from "../components/WallpaperHost";
 import CallOverlay from "../components/CallOverlay";
 import ConstellationView from "../components/constellation/ConstellationView";
 import VoiceBarHost from "../components/constellation/VoiceBar";
@@ -243,6 +244,7 @@ export default function MessengerPage() {
       <VoiceBarHost />
       <DoorToasts />
       <CallOverlay />
+      <WallpaperHost />
     </div>
   );
 }

@@ -12,6 +12,7 @@ import { useAuthStore } from "../../store/auth";
 import { useStarsStore } from "../../store/stars";
 import UserAvatar from "../UserAvatar";
 import { squareAvatar } from "../../utils/squareAvatar";
+import { prepareBackground } from "../../utils/wallpaper";
 import Dialog from "./Dialog";
 import StarAvatar from "./StarAvatar";
 import {
@@ -112,8 +113,10 @@ function useAction() {
 function GeneralTab({ detail, onClose }: { detail: StarDetail; onClose: () => void }) {
   const renameStar = useStarsStore((st) => st.renameStar);
   const setStarAvatar = useStarsStore((st) => st.setStarAvatar);
+  const setStarBackground = useStarsStore((st) => st.setStarBackground);
   const leaveStar = useStarsStore((st) => st.leaveStar);
   const fileRef = useRef<HTMLInputElement>(null);
+  const backgroundRef = useRef<HTMLInputElement>(null);
   const limits = useStarsStore((st) => st.limits);
   const [name, setName] = useState(detail.name);
   const { busy, run, status } = useAction();
@@ -167,6 +170,61 @@ function GeneralTab({ detail, onClose }: { detail: StarDetail; onClose: () => vo
               e.target.value = "";
               if (file) {
                 void run(async () => setStarAvatar(await squareAvatar(file)), "Аватар обновлён");
+              }
+            }}
+          />
+        </div>
+      )}
+
+      {canRename && (
+        <div className={s.row}>
+          <span
+            className={s.starBackgroundPreview}
+            style={
+              detail.background_url
+                ? { backgroundImage: `url(${JSON.stringify(detail.background_url)})` }
+                : undefined
+            }
+            aria-hidden
+          />
+          <div className={s.listMain}>
+            <span className={s.listTitle}>Фон Звезды</span>
+            <span className={s.listSub}>
+              Видят все участники вместо своего фона. Менять могут владелец и админы.
+            </span>
+          </div>
+          <button
+            type="button"
+            className={s.secondary}
+            disabled={busy}
+            onClick={() => backgroundRef.current?.click()}
+          >
+            {detail.background_url ? "Заменить" : "Загрузить"}
+          </button>
+          {detail.background_url && (
+            <button
+              type="button"
+              className={s.danger}
+              disabled={busy}
+              onClick={() => void run(() => setStarBackground(null), "Фон убран")}
+            >
+              Убрать
+            </button>
+          )}
+          <input
+            ref={backgroundRef}
+            aria-label="Картинка для фона Звезды"
+            type="file"
+            accept="image/jpeg,image/png,image/webp,image/gif"
+            hidden
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              e.target.value = "";
+              if (file) {
+                void run(
+                  async () => setStarBackground(await prepareBackground(file)),
+                  "Фон Звезды обновлён"
+                );
               }
             }}
           />

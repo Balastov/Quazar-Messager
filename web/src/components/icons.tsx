@@ -88,6 +88,14 @@ export const IconPlus = (p: IconProps) => (
   </Svg>
 );
 
+export const IconImage = (p: IconProps) => (
+  <Svg {...p}>
+    <rect x="3" y="4" width="18" height="16" rx="3" />
+    <circle cx="9" cy="10" r="1.8" />
+    <path d="m21 16-5-5-9 9" />
+  </Svg>
+);
+
 export const IconMic = (p: IconProps) => (
   <Svg {...p}>
     <rect x="9" y="2" width="6" height="11" rx="3" />

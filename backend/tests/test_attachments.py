@@ -17,6 +17,7 @@ from sqlalchemy import select, text, update
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.api import attachments as api
+from app.api import chats as chats_api
 from app.api import messages as messages_api
 from app.core import attachments
 from app.core.config import settings
@@ -24,6 +25,7 @@ from app.core.database import Base
 from app.models.attachment import Attachment
 from app.models.chat import Chat, ChatMember
 from app.models.user import User
+from app.schemas.chat import SetChatBackground
 from app.schemas.message import SendMessage
 
 DATABASE_URL = os.environ.get(
@@ -72,8 +74,10 @@ class AttachmentsTest(unittest.IsolatedAsyncioTestCase):
             patcher.start()
             self.addCleanup(patcher.stop)
 
+        self.events: list[tuple[str, dict]] = []
+
         async def broadcast(user_ids, event, exclude_user=None):
-            pass
+            self.events.extend((uid, event) for uid in user_ids)
 
         patcher = mock.patch.object(messages_api.manager, "broadcast_to_users", broadcast)
         patcher.start()
@@ -269,6 +273,81 @@ class AttachmentsTest(unittest.IsolatedAsyncioTestCase):
             async with self.Session() as db:
                 await attachments.sweep(db)
         self.assertEqual(self.stored_files(), [old])
+
+    # --- общий фон чата ---
+
+    async def age(self, attachment_id: str, days: float) -> None:
+        async with self.Session() as db:
+            await db.execute(
+                update(Attachment)
+                .where(Attachment.id == attachment_id)
+                .values(created_at=datetime.now(timezone.utc) - timedelta(days=days))
+            )
+            await db.commit()
+
+    async def set_background(self, user: str, payload: str = "ENC2:bg") -> str:
+        out = await self.upload(os.urandom(100), user=user)
+        await self.call(
+            chats_api.set_chat_background,
+            self.chat.id,
+            SetChatBackground(payload=payload, attachment_id=out.id),
+            user=user,
+        )
+        return out.id
+
+    async def test_chat_background_is_shared_with_the_peer(self):
+        self.events.clear()
+        await self.set_background("alice", "ENC2:secret")
+
+        chat = await self.call(chats_api.get_chat, self.chat.id, user="bob")
+        self.assertEqual(chat.background, "ENC2:secret")
+        for name in ("alice", "bob"):
+            self.assertIn(
+                (self.users[name].id, {
+                    "type": "chat_background",
+                    "chat_id": self.chat.id,
+                    "background": "ENC2:secret",
+                    "changed_by": self.users["alice"].id,
+                }),
+                self.events,
+            )
+
+        # Второй участник меняет и убирает фон так же.
+        await self.set_background("bob", "ENC2:other")
+        await self.call(chats_api.remove_chat_background, self.chat.id, user="bob")
+        chat = await self.call(chats_api.get_chat, self.chat.id, user="alice")
+        self.assertIsNone(chat.background)
+
+    async def test_outsider_and_foreign_attachment_cannot_set_background(self):
+        out = await self.upload(os.urandom(100), user="bob")
+        await self.expect_error(
+            422,
+            chats_api.set_chat_background,
+            self.chat.id,
+            SetChatBackground(payload="x", attachment_id=out.id),
+            user="alice",
+        )
+        await self.expect_error(
+            403,
+            chats_api.set_chat_background,
+            self.chat.id,
+            SetChatBackground(payload="x", attachment_id=out.id),
+            user="eve",
+        )
+        await self.expect_error(403, chats_api.remove_chat_background, self.chat.id, user="eve")
+
+    async def test_current_background_survives_sweep_previous_one_does_not(self):
+        old = await self.set_background("alice")
+        await self.age(old, 40)
+        async with self.Session() as db:
+            await attachments.sweep(db)
+        self.assertEqual(self.stored_files(), [old])
+
+        new = await self.set_background("bob")
+        await self.age(new, 40)
+        async with self.Session() as db:
+            await attachments.sweep(db)
+        self.assertEqual(self.stored_files(), [new])
 
     def test_attachment_path_rejects_traversal(self):
         with self.assertRaises(ValueError):

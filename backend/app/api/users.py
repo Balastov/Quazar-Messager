@@ -13,6 +13,13 @@ from app.core.avatars import (
     detect_image,
     save_avatar,
 )
+from app.core.backgrounds import (
+    MAX_BACKGROUND_BYTES,
+    BackgroundRejected,
+    check_background,
+    delete_background,
+    save_background,
+)
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.core.e2e import decode_public_key_b64
@@ -131,6 +138,54 @@ async def upload_avatar(
     await db.commit()
     await db.refresh(current_user)
     return current_user
+
+
+class BackgroundOut(BaseModel):
+    background_url: str | None
+
+
+async def _background_changed(user: User) -> BackgroundOut:
+    """Личный фон меняется сразу на всех устройствах пользователя."""
+    await manager.send_to_user(
+        user.id, {"type": "user_background", "background_url": user.background_url}
+    )
+    return BackgroundOut(background_url=user.background_url)
+
+
+@router.get("/me/background", response_model=BackgroundOut)
+async def get_my_background(current_user: Annotated[User, Depends(get_current_user)]):
+    return BackgroundOut(background_url=current_user.background_url)
+
+
+@router.post("/me/background", response_model=BackgroundOut)
+async def upload_my_background(
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    file: Annotated[UploadFile, File(...)],
+):
+    """Личный фон приложения (JPEG/PNG/WebP/GIF, до 5 МБ)."""
+    data = await file.read(MAX_BACKGROUND_BYTES + 1)
+    try:
+        ext = check_background(data)
+    except BackgroundRejected as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from None
+    old = current_user.background_url
+    current_user.background_url = save_background(data, ext)
+    await db.commit()
+    delete_background(old)
+    return await _background_changed(current_user)
+
+
+@router.delete("/me/background", response_model=BackgroundOut)
+async def remove_my_background(
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    old = current_user.background_url
+    current_user.background_url = None
+    await db.commit()
+    delete_background(old)
+    return await _background_changed(current_user)
 
 
 @router.delete("/me/avatar", response_model=UserOut)

@@ -2,7 +2,14 @@ import { create } from "zustand";
 import { chatsApi } from "../api/chats";
 import { messagesApi } from "../api/messages";
 import { attachmentsApi } from "../api/attachments";
-import { AttachmentError, detectImageMime, encodeImage, encryptFile } from "../attachments/image";
+import {
+  AttachmentError,
+  detectImageMime,
+  encodeImage,
+  encryptFile,
+  parseImage,
+  type ImageRef,
+} from "../attachments/image";
 import { MAX_SOURCE_BYTES, prepareImage } from "../attachments/compress";
 import { seedImageUrl } from "../attachments/cache";
 import { socket } from "../ws/socket";
@@ -72,6 +79,10 @@ interface ChatState {
   sendMessage: (chatId: string, plaintext: string, attachmentId?: string) => Promise<void>;
   /** Бросает AttachmentError (или E2EError) с текстом для пользователя. */
   sendImage: (chatId: string, file: File) => Promise<void>;
+  /** Общие фоны чатов, уже расшифрованные: chatId → картинка. Нет ключа — фона нет. */
+  backgrounds: Record<string, ImageRef>;
+  /** Сменить общий фон чата (null — убрать); собеседник увидит его сразу. */
+  setChatBackground: (chatId: string, file: File | null) => Promise<void>;
   openDirectChat: (userId: string) => Promise<void>;
   dismissMigrationNotice: () => void;
   setShowE2ePanel: (show: boolean) => void;
@@ -100,6 +111,70 @@ async function tryDecrypt(payload: string, keys: DecryptionKey[]): Promise<strin
 async function loadAccountKeys() {
   if (useE2EStore.getState().status !== "ready") return null;
   return loadKeys();
+}
+
+/** Текст для отправки в чат: в личном — зашифрованный E2E для собеседника и для себя (ENC2). */
+async function sealForChat(chat: Chat, myId: string, plaintext: string): Promise<string> {
+  if (chat.type !== "direct") return plaintext;
+
+  let myPublicKey: string;
+  try {
+    const keys = await loadAccountKeys();
+    if (!keys) throw new E2EError("NO_OWN_KEY", NO_DEVICE_KEY_ERROR);
+    myPublicKey = keys.publicKey;
+  } catch (err) {
+    if (err instanceof E2EError) throw err;
+    throw new E2EError(
+      "NO_OWN_KEY",
+      "Не удалось загрузить ключи шифрования на этом устройстве"
+    );
+  }
+
+  const otherUserId = getOtherUserId(chat, myId);
+  if (!otherUserId) {
+    throw new E2EError("NO_RECIPIENT_KEY", "Не удалось определить собеседника");
+  }
+
+  const trust = await resolvePeerTrust(otherUserId, myPublicKey);
+  if (trust.status === "missing") {
+    throw new E2EError(
+      "NO_RECIPIENT_KEY",
+      "Собеседник ещё не настроил шифрование. Отправка недоступна."
+    );
+  }
+  if (trust.status === "changed") {
+    throw new E2EError(
+      "KEY_CHANGED",
+      "Ключ собеседника изменился. Подтвердите новый ключ перед отправкой."
+    );
+  }
+
+  return encryptMessage(plaintext, trust.publicKey!, myPublicKey);
+}
+
+/** Картинку — уменьшить, зашифровать и загрузить во вложения чата. */
+async function uploadChatImage(chatId: string, file: File): Promise<ImageRef> {
+  if (file.size > MAX_SOURCE_BYTES) {
+    throw new AttachmentError("Файл больше 50 МБ — такую картинку не отправить");
+  }
+  const source = new Uint8Array(await file.arrayBuffer());
+  const sourceMime = detectImageMime(source);
+  if (!sourceMime) {
+    throw new AttachmentError("Можно отправлять только картинки: JPEG, PNG, GIF или WebP");
+  }
+  // Уменьшаем до 2560 px и пережимаем в JPEG; на сервер уходит уже это.
+  const { bytes, mime, w, h } = await prepareImage(source, sourceMime);
+
+  const { blob, key } = encryptFile(bytes);
+  const { id } = await attachmentsApi.upload(chatId, blob);
+  seedImageUrl(id, bytes, mime);
+  return { id, key, mime, w, h, size: bytes.length };
+}
+
+/** Общий фон чата: расшифровать и разобрать. null — фона нет или его не прочитать. */
+async function openBackground(payload: string | null | undefined): Promise<ImageRef | null> {
+  if (!payload) return null;
+  return parseImage(await tryDecrypt(payload, await loadDecryptionKeys()));
 }
 
 function lastActivity(chat: Chat): number {
@@ -173,6 +248,29 @@ async function checkDirectE2E(
 }
 
 export const useChatStore = create<ChatState>((set, get) => {
+  /** Запомнить фон чата: payload — как на сервере, ref — расшифрованный. */
+  function applyBackground(chatId: string, payload: string | null, ref: ImageRef | null) {
+    set((s) => {
+      const backgrounds = { ...s.backgrounds };
+      if (ref) backgrounds[chatId] = ref;
+      else delete backgrounds[chatId];
+      return {
+        backgrounds,
+        chats: s.chats.map((c) => (c.id === chatId ? { ...c, background: payload } : c)),
+      };
+    });
+  }
+
+  /** Расшифровать фоны всех чатов (после загрузки списка или смены ключей). */
+  async function refreshBackgrounds(chats: Chat[]) {
+    const entries = await Promise.all(
+      chats.map(async (c) => [c.id, await openBackground(c.background)] as const)
+    );
+    const backgrounds: Record<string, ImageRef> = {};
+    for (const [id, ref] of entries) if (ref) backgrounds[id] = ref;
+    set({ backgrounds });
+  }
+
   socket.on((event) => {
     void (async () => {
       if (event.type === "new_message") {
@@ -242,6 +340,10 @@ export const useChatStore = create<ChatState>((set, get) => {
         set((s) => ({ chats: touchChat(s.chats, chatId, new Date().toISOString()) }));
       }
 
+      if (event.type === "chat_background") {
+        applyBackground(event.chat_id, event.background, await openBackground(event.background));
+      }
+
       if (event.type === "message_status") {
         const nextStatus = event.status as Message["status"];
         set((s) => {
@@ -280,6 +382,7 @@ export const useChatStore = create<ChatState>((set, get) => {
       const activeChatId = get().activeChatId;
       set({ messages: {} });
       if (activeChatId) void get().selectChat(activeChatId);
+      void refreshBackgrounds(get().chats);
     }
   });
 
@@ -297,6 +400,7 @@ export const useChatStore = create<ChatState>((set, get) => {
     chats: [],
     activeChatId: null,
     messages: {},
+    backgrounds: {},
     loadingMessages: false,
     e2eReady: null,
     e2eError: null,
@@ -353,6 +457,7 @@ export const useChatStore = create<ChatState>((set, get) => {
     loadChats: async () => {
       const chats = await chatsApi.list();
       set({ chats: sortByActivity(chats) });
+      await refreshBackgrounds(chats);
     },
 
     selectChat: async (chatId) => {
@@ -409,75 +514,34 @@ export const useChatStore = create<ChatState>((set, get) => {
     },
 
     sendMessage: async (chatId, plaintext, attachmentId) => {
-      const { chats } = get();
-      const chat = chats.find((c) => c.id === chatId);
+      const chat = get().chats.find((c) => c.id === chatId);
       const myId = useAuthStore.getState().user?.id;
-
       if (!chat || !myId) return;
 
-      if (chat.type === "direct") {
-        let myPublicKey: string;
-        try {
-          const keys = await loadAccountKeys();
-          if (!keys) throw new E2EError("NO_OWN_KEY", NO_DEVICE_KEY_ERROR);
-          myPublicKey = keys.publicKey;
-        } catch (err) {
-          if (err instanceof E2EError) throw err;
-          throw new E2EError(
-            "NO_OWN_KEY",
-            "Не удалось загрузить ключи шифрования на этом устройстве"
-          );
-        }
-
-        const otherUserId = getOtherUserId(chat, myId);
-        if (!otherUserId) {
-          throw new E2EError("NO_RECIPIENT_KEY", "Не удалось определить собеседника");
-        }
-
-        const trust = await resolvePeerTrust(otherUserId, myPublicKey);
-        if (trust.status === "missing") {
-          throw new E2EError(
-            "NO_RECIPIENT_KEY",
-            "Собеседник ещё не настроил шифрование. Отправка недоступна."
-          );
-        }
-        if (trust.status === "changed") {
-          throw new E2EError(
-            "KEY_CHANGED",
-            "Ключ собеседника изменился. Подтвердите новый ключ перед отправкой."
-          );
-        }
-
-        const payload = encryptMessage(plaintext, trust.publicKey!, myPublicKey);
-        const msg = await messagesApi.send(chatId, payload, attachmentId);
-        // Мгновенный echo по WS; история читается через ENC2 self-box.
-        sentPlaintextById.set(msg.id, plaintext);
-        return;
-      }
-
-      await messagesApi.send(chatId, plaintext, attachmentId);
+      const payload = await sealForChat(chat, myId, plaintext);
+      const msg = await messagesApi.send(chatId, payload, attachmentId);
+      // Мгновенный echo по WS; история читается через ENC2 self-box.
+      if (payload !== plaintext) sentPlaintextById.set(msg.id, plaintext);
     },
 
     sendImage: async (chatId, file) => {
-      if (file.size > MAX_SOURCE_BYTES) {
-        throw new AttachmentError("Файл больше 50 МБ — такую картинку не отправить");
-      }
-      const source = new Uint8Array(await file.arrayBuffer());
-      const sourceMime = detectImageMime(source);
-      if (!sourceMime) {
-        throw new AttachmentError("Можно отправлять только картинки: JPEG, PNG, GIF или WebP");
-      }
-      // Уменьшаем до 2560 px и пережимаем в JPEG; на сервер уходит уже это.
-      const { bytes, mime, w, h } = await prepareImage(source, sourceMime);
+      const ref = await uploadChatImage(chatId, file);
+      await get().sendMessage(chatId, encodeImage(ref), ref.id);
+    },
 
-      const { blob, key } = encryptFile(bytes);
-      const { id } = await attachmentsApi.upload(chatId, blob);
-      seedImageUrl(id, bytes, mime);
-      await get().sendMessage(
-        chatId,
-        encodeImage({ id, key, mime, w, h, size: bytes.length }),
-        id
-      );
+    setChatBackground: async (chatId, file) => {
+      const chat = get().chats.find((c) => c.id === chatId);
+      const myId = useAuthStore.getState().user?.id;
+      if (!chat || !myId) return;
+      if (!file) {
+        await chatsApi.removeBackground(chatId);
+        applyBackground(chatId, null, null);
+        return;
+      }
+      const ref = await uploadChatImage(chatId, file);
+      const payload = await sealForChat(chat, myId, encodeImage(ref));
+      await chatsApi.setBackground(chatId, payload, ref.id);
+      applyBackground(chatId, payload, ref);
     },
 
     openDirectChat: async (userId) => {

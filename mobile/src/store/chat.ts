@@ -3,7 +3,13 @@ import {AppState} from 'react-native';
 import {chatsApi} from '../api/chats';
 import {messagesApi} from '../api/messages';
 import {attachmentsApi} from '../api/attachments';
-import {encodeImage, encryptFile, readPickedImage} from '../attachments/image';
+import {
+  encodeImage,
+  encryptFile,
+  parseImage,
+  readPickedImage,
+  type ImageRef,
+} from '../attachments/image';
 import {seedImageUri} from '../attachments/cache';
 import {socket} from '../ws/socket';
 import {
@@ -34,6 +40,8 @@ interface ChatState {
   activeChatId: string | null;
   /** Сообщения уже расшифрованы. */
   messages: Record<string, Message[]>;
+  /** Общие фоны чатов, уже расшифрованные: chatId → картинка. */
+  backgrounds: Record<string, ImageRef>;
   loadingMessages: boolean;
   loadChats: () => Promise<void>;
   selectChat: (chatId: string) => Promise<void>;
@@ -105,8 +113,37 @@ function ackChatMessages(
   set(s => ({messages: applyLocalStatus(s.messages, ids, status)}));
 }
 
+/** Общий фон чата: расшифровать и разобрать; null — фона нет или его не прочитать. */
+async function openBackground(payload: string | null | undefined): Promise<ImageRef | null> {
+  if (!payload) {
+    return null;
+  }
+  return parseImage(await tryDecrypt(payload, await loadDecryptionKeys()));
+}
+
 export const useChatStore = create<ChatState>((set, get) => {
+  function applyBackground(chatId: string, ref: ImageRef | null) {
+    set(s => {
+      const backgrounds = {...s.backgrounds};
+      if (ref) {
+        backgrounds[chatId] = ref;
+      } else {
+        delete backgrounds[chatId];
+      }
+      return {backgrounds};
+    });
+  }
+
   socket.on(async event => {
+    if (event.type === 'chat_background') {
+      set(s => ({
+        chats: s.chats.map(c =>
+          c.id === event.chat_id ? {...c, background: event.background} : c,
+        ),
+      }));
+      applyBackground(event.chat_id, await openBackground(event.background));
+    }
+
     if (event.type === 'new_message') {
       const myId = useAuthStore.getState().user?.id;
       const decryptedPayload = await tryDecrypt(
@@ -209,11 +246,20 @@ export const useChatStore = create<ChatState>((set, get) => {
     chats: [],
     activeChatId: null,
     messages: {},
+    backgrounds: {},
     loadingMessages: false,
 
     loadChats: async () => {
       const chats = await chatsApi.list();
       set({chats: sortByActivity(chats)});
+      const backgrounds: Record<string, ImageRef> = {};
+      for (const chat of chats) {
+        const ref = await openBackground(chat.background);
+        if (ref) {
+          backgrounds[chat.id] = ref;
+        }
+      }
+      set({backgrounds});
     },
 
     selectChat: async (chatId: string) => {

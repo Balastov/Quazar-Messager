@@ -7,11 +7,13 @@ from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
 from app.core.deps import get_current_user
+from app.models.attachment import Attachment
 from app.models.call import Call
 from app.models.chat import Chat, ChatMember
 from app.models.message import Message
 from app.models.user import User
-from app.schemas.chat import ChatOut, CreateDirectChat, CreateGroupChat
+from app.schemas.chat import ChatOut, CreateDirectChat, CreateGroupChat, SetChatBackground
+from app.ws.hub import manager
 
 router = APIRouter(prefix="/chats", tags=["chats"])
 
@@ -145,3 +147,74 @@ async def get_chat(
     if current_user.id not in member_ids:
         raise HTTPException(status_code=403, detail="Access denied")
     return chat
+
+
+async def _member_chat(chat_id: str, user: User, db: AsyncSession) -> Chat:
+    chat = (await db.execute(select(Chat).where(Chat.id == chat_id))).scalar_one_or_none()
+    if not chat:
+        raise HTTPException(status_code=404, detail="Chat not found")
+    is_member = (
+        await db.execute(
+            select(ChatMember).where(ChatMember.chat_id == chat_id, ChatMember.user_id == user.id)
+        )
+    ).scalar_one_or_none()
+    if not is_member:
+        raise HTTPException(status_code=403, detail="Access denied")
+    return chat
+
+
+async def _background_changed(chat: Chat, user: User, db: AsyncSession) -> None:
+    """Фон чата общий: меняется сразу у всех участников."""
+    member_ids = (
+        await db.execute(select(ChatMember.user_id).where(ChatMember.chat_id == chat.id))
+    ).scalars().all()
+    await manager.broadcast_to_users(
+        list(member_ids),
+        {
+            "type": "chat_background",
+            "chat_id": chat.id,
+            "background": chat.background,
+            "changed_by": user.id,
+        },
+    )
+
+
+@router.put("/{chat_id}/background", status_code=status.HTTP_204_NO_CONTENT)
+async def set_chat_background(
+    chat_id: str,
+    body: SetChatBackground,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Общий фон чата — менять может любой участник. Картинку клиент заранее загружает
+    в /chats/{chat_id}/attachments (зашифрованной), ключ к ней — в payload."""
+    chat = await _member_chat(chat_id, current_user, db)
+    attachment = (
+        await db.execute(
+            select(Attachment).where(
+                Attachment.id == body.attachment_id,
+                Attachment.chat_id == chat_id,
+                Attachment.uploader_id == current_user.id,
+                Attachment.message_id.is_(None),
+            )
+        )
+    ).scalar_one_or_none()
+    if not attachment:
+        raise HTTPException(status_code=422, detail="Attachment not found")
+    chat.background = body.payload
+    chat.background_attachment_id = attachment.id
+    await db.commit()
+    await _background_changed(chat, current_user, db)
+
+
+@router.delete("/{chat_id}/background", status_code=status.HTTP_204_NO_CONTENT)
+async def remove_chat_background(
+    chat_id: str,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    chat = await _member_chat(chat_id, current_user, db)
+    chat.background = None
+    chat.background_attachment_id = None
+    await db.commit()
+    await _background_changed(chat, current_user, db)

@@ -10,6 +10,7 @@ from starlette.responses import Response
 from sqlalchemy import text
 
 from app.core.avatars import avatars_dir
+from app.core.backgrounds import backgrounds_dir
 from app.core import attachments, voice
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal, Base, engine
@@ -114,6 +115,13 @@ async def lifespan(app: FastAPI):
             )
         )
         await conn.execute(text("ALTER TABLE stars ADD COLUMN IF NOT EXISTS avatar_url TEXT"))
+        # Фоны: личный, Звезды, чата.
+        await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS background_url TEXT"))
+        await conn.execute(text("ALTER TABLE stars ADD COLUMN IF NOT EXISTS background_url TEXT"))
+        await conn.execute(text("ALTER TABLE chats ADD COLUMN IF NOT EXISTS background TEXT"))
+        await conn.execute(
+            text("ALTER TABLE chats ADD COLUMN IF NOT EXISTS background_attachment_id VARCHAR(36)")
+        )
         # Карта офиса: этаж комнаты (таблица star_floors создаётся create_all выше).
         await conn.execute(
             text(
@@ -178,8 +186,11 @@ app.include_router(stickers_router)
 app.include_router(contacts_router)
 app.include_router(ws_router)
 
-# Публично — только аватары. Картинки из чатов (MEDIA_ROOT/attachments) отдаёт API участникам.
+# Публично — только аватары и фоны (приложения и Звёзд). Картинки и фоны чатов (MEDIA_ROOT/attachments) отдаёт API участникам.
 app.mount("/media/avatars", StaticFiles(directory=str(avatars_dir())), name="media")
+app.mount(
+    "/media/backgrounds", StaticFiles(directory=str(backgrounds_dir())), name="backgrounds"
+)
 app.mount(
     STICKER_FILES_PATH,
     StickerFiles(directory=str(STICKERS_DIR), check_dir=False),

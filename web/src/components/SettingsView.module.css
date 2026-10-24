@@ -296,3 +296,25 @@
   color: var(--qz-text);
   font-size: 14px;
 }
+
+/* Фон приложения: превью и подпись. */
+.wallpaperRow {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 18px;
+}
+
+.wallpaperPreview {
+  flex-shrink: 0;
+  width: 96px;
+  height: 60px;
+  border-radius: 12px;
+  border: 1px solid var(--qz-border);
+  background: #07060f center / cover no-repeat;
+}
+
+.wallpaperRow .meta {
+  flex: 1;
+  min-width: 0;
+}

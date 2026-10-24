@@ -95,6 +95,7 @@ async def sweep(session: AsyncSession) -> int:
     """Удаляет неотправленные и просроченные (старше ATTACHMENT_TTL_DAYS) вложения,
     а также файлы, чьих строк больше нет. Возвращает число удалённых файлов."""
     from app.models.attachment import Attachment
+    from app.models.chat import Chat
 
     now_dt = datetime.now(timezone.utc)
     expired = Attachment.message_id.is_(None) & (Attachment.created_at < now_dt - UNSENT_TTL)
@@ -102,6 +103,9 @@ async def sweep(session: AsyncSession) -> int:
         expired = or_(
             expired, Attachment.created_at < now_dt - timedelta(days=settings.ATTACHMENT_TTL_DAYS)
         )
+    # Текущий фон чата живёт, пока его не сменят; прежний уходит по обычным правилам.
+    in_use = select(Chat.background_attachment_id).where(Chat.background_attachment_id.is_not(None))
+    expired = expired & Attachment.id.not_in(in_use)
     stale = set(
         (await session.execute(delete(Attachment).where(expired).returning(Attachment.id)))
         .scalars()

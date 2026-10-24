@@ -1,6 +1,7 @@
 import React, {useEffect, useRef, useState} from 'react';
 import {
   FlatList,
+  Image,
   Keyboard,
   KeyboardAvoidingView,
   Linking,
@@ -28,6 +29,7 @@ import StickerPanel from '../components/StickerPanel';
 import {usePresenceText} from '../store/presence';
 import ChatImage from '../components/ChatImage';
 import {MAX_IMAGE_BYTES, parseImage} from '../attachments/image';
+import {loadImageUri} from '../attachments/cache';
 
 const STICKER_SIZE = 150;
 
@@ -68,6 +70,8 @@ export default function ChatScreen({route, navigation}: Props) {
   const [sendError, setSendError] = useState<string | null>(null);
   const [stickersOpen, setStickersOpen] = useState(false);
   const [uploading, setUploading] = useState(0);
+  const background = useChatStore(st => st.backgrounds[chatId]);
+  const [backgroundUri, setBackgroundUri] = useState<string | null>(null);
   const stickersByKey = useStickersStore(st => st.byKey);
   const stickersLoaded = useStickersStore(st => st.loaded);
   const loadStickers = useStickersStore(st => st.load);
@@ -109,6 +113,21 @@ export default function ChatScreen({route, navigation}: Props) {
   useEffect(() => {
     selectChat(chatId);
   }, [chatId, selectChat]);
+
+  // Общий фон чата (ставят с любого устройства собеседников) — зашифрован, как фото.
+  useEffect(() => {
+    setBackgroundUri(null);
+    if (!background) {
+      return;
+    }
+    let alive = true;
+    loadImageUri(chatId, background)
+      .then(uri => alive && setBackgroundUri(uri))
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [chatId, background]);
 
   useEffect(() => {
     void loadStickers();
@@ -316,6 +335,12 @@ export default function ChatScreen({route, navigation}: Props) {
       style={s.root}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}>
+      {backgroundUri && (
+        <>
+          <Image source={{uri: backgroundUri}} style={StyleSheet.absoluteFill} resizeMode="cover" />
+          <View style={[StyleSheet.absoluteFill, s.backgroundShade]} />
+        </>
+      )}
       {loadingMessages ? (
         <ActivityIndicator style={{flex: 1}} color="#6c63ff" />
       ) : (
@@ -377,6 +402,8 @@ export default function ChatScreen({route, navigation}: Props) {
 
 const s = StyleSheet.create({
   root: {flex: 1, backgroundColor: '#0f1117'},
+  // Затемнение поверх фона чата, чтобы пузыри читались.
+  backgroundShade: {backgroundColor: 'rgba(15,17,23,0.35)'},
   list: {paddingHorizontal: 12, paddingVertical: 8, gap: 6},
   bubble: {
     maxWidth: '72%',

@@ -13,6 +13,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import stars as rules
 from app.core.avatars import MAX_AVATAR_BYTES, delete_star_avatar_files, detect_image, save_star_avatar
+from app.core.backgrounds import (
+    MAX_BACKGROUND_BYTES,
+    BackgroundRejected,
+    check_background,
+    delete_background,
+    save_background,
+)
 from app.core import doors
 from app.core import floors as floors_svc
 from app.core import voice
@@ -168,6 +175,7 @@ def _summary(star: Star, my_role: str, member_count: int) -> StarSummaryOut:
         kind=star.kind,
         owner_id=star.owner_id,
         avatar_url=star.avatar_url,
+        background_url=star.background_url,
         created_at=star.created_at,
         member_count=member_count,
         my_role=my_role,
@@ -180,6 +188,7 @@ def _star_updated(star: Star) -> dict:
         "name": star.name,
         "owner_id": star.owner_id,
         "avatar_url": star.avatar_url,
+        "background_url": star.background_url,
     }
 
 
@@ -365,6 +374,43 @@ async def remove_star_avatar(star_id: str, current_user: CurrentUser, db: Db):
     return await _detail(db, star, me)
 
 
+@router.post("/{star_id}/background", response_model=StarDetailOut)
+async def upload_star_background(
+    star_id: str,
+    current_user: CurrentUser,
+    db: Db,
+    file: Annotated[UploadFile, File(...)],
+):
+    """Фон Звезды для всех участников (JPEG/PNG/WebP/GIF, до 5 МБ) — владелец и админы."""
+    star, me = await _load_membership(db, star_id, current_user.id)
+    if me.role not in ("owner", "admin"):
+        raise _forbid("Фон Звезды меняют только владелец и админы")
+    data = await file.read(MAX_BACKGROUND_BYTES + 1)
+    try:
+        ext = check_background(data)
+    except BackgroundRejected as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from None
+    old = star.background_url
+    star.background_url = save_background(data, ext)
+    await db.commit()
+    delete_background(old)
+    await _broadcast(db, star_id, _star_updated(star))
+    return await _detail(db, star, me)
+
+
+@router.delete("/{star_id}/background", response_model=StarDetailOut)
+async def remove_star_background(star_id: str, current_user: CurrentUser, db: Db):
+    star, me = await _load_membership(db, star_id, current_user.id)
+    if me.role not in ("owner", "admin"):
+        raise _forbid("Фон Звезды меняют только владелец и админы")
+    old = star.background_url
+    star.background_url = None
+    await db.commit()
+    delete_background(old)
+    await _broadcast(db, star_id, _star_updated(star))
+    return await _detail(db, star, me)
+
+
 @router.delete("/{star_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_star(star_id: str, current_user: CurrentUser, db: Db):
     star, me = await _load_membership(db, star_id, current_user.id)
@@ -372,9 +418,11 @@ async def delete_star(star_id: str, current_user: CurrentUser, db: Db):
         raise _forbid("Удалить Звезду может только владелец")
     member_ids = await _member_ids(db, star_id)
     planet_ids = [c.id for c in await _channels(db, star_id) if c.kind == "planet"]
+    background = star.background_url
     await db.execute(delete(Star).where(Star.id == star_id))
     await db.commit()
     delete_star_avatar_files(star_id)
+    delete_background(background)
     await manager.broadcast_to_users(
         member_ids, {"type": "star_removed", "star_id": star_id, "reason": "deleted"}
     )

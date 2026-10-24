@@ -34,6 +34,7 @@ function detail(id: string, name = "Звезда"): StarDetail {
     kind: "gaming",
     owner_id: ME,
     avatar_url: null,
+    background_url: null,
     created_at: "2026-10-01T00:00:00Z",
     member_count: 1,
     my_role: "owner",
@@ -207,12 +208,12 @@ describe("stars store", () => {
   it("shows a new Star avatar to everyone at once", async () => {
     await useStarsStore.getState().load();
     const url = "/media/avatars/stars/a.webp?v=1";
-    emit({ type: "star_updated", star_id: "a", name: "Альфа", owner_id: ME, avatar_url: url });
+    emit({ type: "star_updated", star_id: "a", name: "Альфа", owner_id: ME, avatar_url: url, background_url: null });
     let st = useStarsStore.getState();
     expect(st.stars.find((s) => s.id === "a")?.avatar_url).toBe(url);
     expect(st.details.a?.avatar_url).toBe(url);
 
-    emit({ type: "star_updated", star_id: "a", name: "Альфа", owner_id: ME, avatar_url: null });
+    emit({ type: "star_updated", star_id: "a", name: "Альфа", owner_id: ME, avatar_url: null, background_url: null });
     st = useStarsStore.getState();
     expect(st.stars.find((s) => s.id === "a")?.avatar_url).toBeNull();
   });

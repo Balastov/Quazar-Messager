@@ -109,6 +109,10 @@ export type WsEvent =
   /** Ответ на call_resume после переподключения. */
   | { type: "call_resumed"; call_id: string }
   | { type: "call_resume_failed"; call_id: string }
+  /** Личный фон приложения сменили (в том числе на другом устройстве). */
+  | { type: "user_background"; background_url: string | null }
+  /** Общий фон чата сменил кто-то из участников. */
+  | { type: "chat_background"; chat_id: string; background: string | null; changed_by: string }
   | { type: "pong" };
 
 // Re-export existing domain types from the previous types file content
@@ -133,6 +137,8 @@ export interface Chat {
   created_at: string;
   /** Последнее сообщение / звонок / создание чата. */
   last_activity_at?: string | null;
+  /** Общий фон: «IMG1:{…}», в личных чатах — зашифрованный ENC2. null — фон приложения. */
+  background?: string | null;
   members: ChatMember[];
 }
 

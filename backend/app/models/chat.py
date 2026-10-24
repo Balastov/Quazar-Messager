@@ -13,6 +13,11 @@ class Chat(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     type: Mapped[str] = mapped_column(Enum("direct", "group", name="chat_type"), nullable=False)
     name: Mapped[str | None] = mapped_column(String(128), nullable=True)  # только для групп
+    # Общий фон чата: «IMG1:{…}» со ссылкой на вложение и ключом к нему, в личных чатах —
+    # зашифрованный E2E для обоих (сервер его не читает). Вложение-картинка не удаляется
+    # уборкой, пока на него ссылается чат.
+    background: Mapped[str | None] = mapped_column(Text, nullable=True)
+    background_attachment_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )

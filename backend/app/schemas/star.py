@@ -170,6 +170,7 @@ class StarSummaryOut(BaseModel):
     kind: StarKind
     owner_id: str
     avatar_url: str | None
+    background_url: str | None
     created_at: datetime
     member_count: int
     my_role: Role

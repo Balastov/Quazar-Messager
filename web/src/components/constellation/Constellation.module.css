@@ -1730,3 +1730,12 @@
   border-radius: 18px;
   font-size: 20px;
 }
+
+.starBackgroundPreview {
+  flex-shrink: 0;
+  width: 64px;
+  height: 40px;
+  border-radius: 10px;
+  border: 1px solid var(--qz-border);
+  background: url("/bg-desktop.jpg") center / cover no-repeat;
+}

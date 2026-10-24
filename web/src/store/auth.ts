@@ -8,6 +8,7 @@ import { useE2EStore } from "./e2e";
 import { useStarsStore } from "./stars";
 import { useVoiceStore } from "./voice";
 import { useDoorsStore } from "./doors";
+import { useWallpaperStore } from "./wallpaper";
 import type { User } from "../api/types";
 
 interface AuthState {
@@ -22,6 +23,7 @@ function afterAuth(token: string, userId: string) {
   socket.connect(token);
   void useE2EStore.getState().sync(userId);
   void ensurePushSubscription();
+  void useWallpaperStore.getState().load();
 }
 
 export const useAuthStore = create<AuthState>()(
@@ -46,6 +48,7 @@ export const useAuthStore = create<AuthState>()(
         void useVoiceStore.getState().leave();
         useDoorsStore.getState().reset();
         useStarsStore.getState().reset();
+        useWallpaperStore.getState().reset();
         set({ token: null, user: null });
       },
     }),

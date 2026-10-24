@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.schemas.user import UserOut
 
@@ -13,6 +13,12 @@ class CreateDirectChat(BaseModel):
 class CreateGroupChat(BaseModel):
     name: str
     member_ids: list[str]
+
+
+class SetChatBackground(BaseModel):
+    # «IMG1:{…}» (в личных чатах — зашифрованный ENC2) и вложение с самой картинкой.
+    payload: str = Field(min_length=1, max_length=8000)
+    attachment_id: str
 
 
 class ChatMemberOut(BaseModel):
@@ -30,6 +36,8 @@ class ChatOut(BaseModel):
     created_at: datetime
     # Последнее сообщение / звонок / создание — для сортировки списка.
     last_activity_at: datetime | None = None
+    # Общий фон (см. SetChatBackground); None — у каждого свой фон приложения.
+    background: str | None = None
     members: list[ChatMemberOut]
 
     model_config = {"from_attributes": True}

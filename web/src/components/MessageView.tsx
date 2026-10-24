@@ -8,6 +8,7 @@ import E2EStatusPanel from "./E2EStatusPanel";
 import UserAvatar from "./UserAvatar";
 import {
   IconBack,
+  IconImage,
   IconMore,
   IconPhone,
   IconMic,
@@ -26,6 +27,7 @@ import { useStickersStore } from "../store/stickers";
 import { stickerFileUrl, type StickerInfo } from "../api/stickers";
 import { encodeSticker, parseSticker } from "../stickers/format";
 import ChatImage from "./ChatImage";
+import ChatBackgroundDialog from "./ChatBackgroundDialog";
 import { AttachmentError, parseImage } from "../attachments/image";
 
 const STICKER_SIZE = 160;
@@ -62,6 +64,7 @@ export default function MessageView({ showBack = false }: Props) {
   const [sendError, setSendError] = useState<string | null>(null);
   const [stickersOpen, setStickersOpen] = useState(false);
   const [uploading, setUploading] = useState(0);
+  const [backgroundOpen, setBackgroundOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const stickersByKey = useStickersStore((st) => st.byKey);
   const stickersLoaded = useStickersStore((st) => st.loaded);
@@ -74,6 +77,7 @@ export default function MessageView({ showBack = false }: Props) {
 
   useEffect(() => {
     setStickersOpen(false);
+    setBackgroundOpen(false);
   }, [activeChatId]);
 
   useEffect(() => {
@@ -279,6 +283,16 @@ export default function MessageView({ showBack = false }: Props) {
           <button
             type="button"
             className={s.iconBtn}
+            title={inputDisabled ? "Фон чата — после настройки шифрования" : "Фон чата"}
+            aria-label="Фон чата"
+            disabled={inputDisabled}
+            onClick={() => setBackgroundOpen(true)}
+          >
+            <IconImage size={18} />
+          </button>
+          <button
+            type="button"
+            className={s.iconBtn}
             title="Безопасность"
             onClick={() => setShowE2ePanel(true)}
           >
@@ -436,6 +450,15 @@ export default function MessageView({ showBack = false }: Props) {
         )}
       </form>
       </div>
+
+      {backgroundOpen && (
+        <ChatBackgroundDialog
+          chatId={activeChatId}
+          isDirect={isDirect}
+          peerName={peer.username}
+          onClose={() => setBackgroundOpen(false)}
+        />
+      )}
 
       {showE2ePanel && isDirect && (
         <E2EStatusPanel

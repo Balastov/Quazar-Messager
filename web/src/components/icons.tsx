@@ -262,3 +262,19 @@ export const IconStarInvite = (p: IconProps) => (
     <Sparkle cx={18.5} cy={10} r={3.6} />
   </Svg>
 );
+
+/** Громкость собеседника: динамик и волны по уровню; 0 — перечёркнут, выше 100 % — искорка. */
+export const IconStarVolume = ({ volume, ...p }: IconProps & { volume: number }) => (
+  <Svg {...p}>
+    <path d="M4 9.5h3l4.5-4v13l-4.5-4H4z" />
+    {volume === 0 ? (
+      <path d="M15.5 9.5l5 5M20.5 9.5l-5 5" />
+    ) : (
+      <>
+        <path d="M15 9.5a3.5 3.5 0 0 1 0 5" />
+        {volume >= 0.5 && <path d="M17.5 7a7 7 0 0 1 0 10" />}
+        {volume > 1 && <Sparkle cx={20.5} cy={4.5} r={2.3} />}
+      </>
+    )}
+  </Svg>
+);

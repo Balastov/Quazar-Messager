@@ -5,7 +5,7 @@ import { useCallStore } from "../../store/call";
 import { useDoorsStore } from "../../store/doors";
 import { canShareScreen, useVoiceStore, type VoicePeer } from "../../store/voice";
 import UserAvatar from "../UserAvatar";
-import { IconBack, IconGear, IconPlanet, IconStarMic, IconStarMicOff, IconNoiseFilter, IconScreenShare, IconScreenStop, IconStarHeadphones, IconStarInvite } from "../icons";
+import { IconBack, IconGear, IconPlanet, IconStarMic, IconStarMicOff, IconNoiseFilter, IconScreenShare, IconScreenStop, IconStarHeadphones, IconStarInvite, IconStarVolume } from "../icons";
 import Dialog from "./Dialog";
 import AudioDevices from "../AudioDevices";
 import ScreenStage from "./ScreenStage";
@@ -336,6 +336,7 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
                 </span>
                 {badge(peer.userId) && <span className={s.voicePeerState}>{badge(peer.userId)}</span>}
                 {peer.userId === sharerId && <span className={s.voicePeerState}>🖥 показывает экран</span>}
+                {!peer.isLocal && <PeerVolume userId={peer.userId} name={m?.user.username ?? peer.name} />}
                 {iAmHost && !peer.isLocal && (
                   <button
                     type="button"
@@ -542,6 +543,48 @@ function MemberPresence({ userId }: { userId: string }) {
   const tone =
     { online: s.presenceOnline, away: s.presenceAway, busy: s.presenceBusy, none: "" }[presenceTone(status) ?? "none"] ?? "";
   return <span className={`${s.listSub} ${tone}`}>{text}</span>;
+}
+
+/** Громкость одного собеседника: 0…200 %, у каждого своя. Щелчок по проценту — снова 100 %. */
+function PeerVolume({ userId, name }: { userId: string; name: string }) {
+  const volume = useVoiceStore((st) => st.volumes[userId] ?? 1);
+  const setPeerVolume = useVoiceStore((st) => st.setPeerVolume);
+  const percent = Math.round(volume * 100);
+  return (
+    <div className={s.peerVolume}>
+      <button
+        type="button"
+        className={s.peerVolumeIcon}
+        onClick={() => setPeerVolume(userId, volume === 0 ? 1 : 0)}
+        aria-label={volume === 0 ? `Вернуть звук ${name}` : `Заглушить ${name} для себя`}
+        title={volume === 0 ? "Вернуть звук" : "Заглушить для себя"}
+      >
+        <IconStarVolume volume={volume} size={18} />
+      </button>
+      <input
+        type="range"
+        min={0}
+        max={200}
+        step={5}
+        value={percent}
+        onChange={(e) => setPeerVolume(userId, Number(e.target.value) / 100)}
+        className={s.peerVolumeSlider}
+        style={{ "--fill": `${percent / 2}%` } as React.CSSProperties}
+        aria-label={`Громкость ${name}`}
+        aria-valuetext={`${percent} %`}
+        title="Слышно только вам"
+      />
+      <button
+        type="button"
+        className={`${s.peerVolumeValue} ${percent !== 100 ? s.peerVolumeChanged : ""}`}
+        onClick={() => setPeerVolume(userId, 1)}
+        disabled={percent === 100}
+        title={percent === 100 ? "Громкость как есть" : "Вернуть 100 %"}
+      >
+        {percent}%
+      </button>
+    </div>
+  );
 }
 
 /** Круглая стеклянная кнопка-иконка: подсказка при наведении, подпись — для экранных дикторов. */

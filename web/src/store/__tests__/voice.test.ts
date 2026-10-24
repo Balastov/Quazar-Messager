@@ -153,6 +153,8 @@ vi.mock("../../api/stars", () => ({
   },
 }));
 
+vi.mock("../../sounds/starSounds", () => ({ playStarSound: async () => {} }));
+
 const callState = { phase: "idle" };
 vi.mock("../call", () => ({ useCallStore: { getState: () => callState } }));
 
@@ -437,6 +439,110 @@ describe("listen-only planet", () => {
     await vi.waitFor(() => expect(room.published[0].isMuted).toBe(true));
     expect(micRequests).toBe(1);
     expect(useVoiceStore.getState().listenOnly).toBe(false);
+  });
+});
+
+/** Минимальный DOM и WebAudio: элементы <audio> и узлы графа как простые объекты. */
+class FakeAudioEl {
+  muted = false;
+  volume = 1;
+  autoplay = false;
+  srcObject: unknown = null;
+  removed = false;
+  remove() {
+    this.removed = true;
+  }
+  play = vi.fn(async () => {});
+}
+const createdAudio: FakeAudioEl[] = [];
+const audioBox = { appendChild: () => {} };
+vi.stubGlobal("document", {
+  getElementById: () => audioBox,
+  createElement: () => {
+    const el = new FakeAudioEl();
+    createdAudio.push(el);
+    return el;
+  },
+  body: { appendChild: () => {} },
+});
+const node = () => ({ connect: (n: unknown) => n, disconnect: vi.fn() });
+const gains: { gain: { setTargetAtTime: ReturnType<typeof vi.fn> } }[] = [];
+class FakeAudioContext {
+  state = "running";
+  currentTime = 0;
+  createMediaStreamSource = () => node();
+  createGain = () => {
+    const g = { ...node(), context: this, gain: { setTargetAtTime: vi.fn() } };
+    gains.push(g);
+    return g;
+  };
+  createWaveShaper = () => ({ ...node(), curve: null, oversample: "none" });
+  createMediaStreamDestination = () => ({ ...node(), stream: {} });
+  resume = async () => {};
+  close = async () => {};
+}
+vi.stubGlobal("AudioContext", FakeAudioContext);
+vi.stubGlobal("MediaStream", class {});
+
+describe("peer volume", () => {
+  function subscribe(userId: string) {
+    const el = new FakeAudioEl();
+    const track = {
+      kind: "audio",
+      sid: `TR_${userId}`,
+      mediaStreamTrack: {},
+      attach: () => el,
+      detach: () => [el],
+    };
+    FakeRoom.last!.emit("TrackSubscribed", track, {}, { identity: userId });
+    return { el, track };
+  }
+
+  beforeEach(() => {
+    memoryStorage.clear();
+    createdAudio.length = 0;
+    gains.length = 0;
+    useVoiceStore.setState({ volumes: {} });
+  });
+
+  it("turns one person down without touching the others and remembers it", async () => {
+    await useVoiceStore.getState().join("s1", "p1");
+    const loud = subscribe("loud");
+    const other = subscribe("other");
+    useVoiceStore.getState().setPeerVolume("loud", 0.4);
+    expect(loud.el.volume).toBe(0.4);
+    expect(loud.el.muted).toBe(false);
+    expect(other.el.volume).toBe(1);
+    expect(createdAudio).toHaveLength(0);
+    expect(JSON.parse(memoryStorage.get("quazar_peer_volumes")!)).toEqual({ loud: 0.4 });
+  });
+
+  it("boosts a quiet person through WebAudio and mutes the plain element", async () => {
+    await useVoiceStore.getState().join("s1", "p1");
+    const quiet = subscribe("quiet");
+    useVoiceStore.getState().setPeerVolume("quiet", 1.8);
+    expect(quiet.el.muted).toBe(true);
+    expect(createdAudio).toHaveLength(1);
+    expect(gains[0].gain.setTargetAtTime).toHaveBeenLastCalledWith(0.9, 0, expect.any(Number));
+
+    // Обратно к 100 % — усилитель убираем, звук снова идёт напрямую.
+    useVoiceStore.getState().setPeerVolume("quiet", 1);
+    expect(createdAudio[0].removed).toBe(true);
+    expect(quiet.el.muted).toBe(false);
+    expect(quiet.el.volume).toBe(1);
+    expect(memoryStorage.has("quazar_peer_volumes")).toBe(false);
+  });
+
+  it("applies the saved volume as soon as the person is heard", async () => {
+    useVoiceStore.getState().setPeerVolume("quiet", 2.5);
+    expect(useVoiceStore.getState().volumes.quiet).toBe(2);
+    await useVoiceStore.getState().join("s1", "p1");
+    const quiet = subscribe("quiet");
+    await vi.waitFor(() => expect(quiet.el.muted).toBe(true));
+    expect(gains[0].gain.setTargetAtTime).toHaveBeenLastCalledWith(1, 0, expect.any(Number));
+
+    await useVoiceStore.getState().leave();
+    expect(createdAudio[0].removed).toBe(true);
   });
 });
 

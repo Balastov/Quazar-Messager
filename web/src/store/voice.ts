@@ -11,6 +11,8 @@
  * Планета «Только слушать»: микрофон не открываем вообще (браузер его даже не запрашивает),
  * сервер и не пустит. Режим могут переключить на ходу — тогда микрофон освобождаем или
  * возвращаем выключенным.
+ *
+ * Громкость собеседников: у каждого своя (см. calls/peerVolume) — на микрофон и звук экрана.
  */
 import type {
   LocalTrack,
@@ -32,6 +34,16 @@ import {
   setNoiseSuppressionPref,
 } from "../calls/noiseSuppression";
 import { applyIosRoute, applyOutput, getMicrophone, getPreferredOutput } from "../calls/devices";
+import {
+  Amplifier,
+  clampVolume,
+  closeAmplifiers,
+  loadPeerVolumes,
+  needsAmplifier,
+  resumeAmplifiers,
+  savePeerVolumes,
+  type PeerVolumes,
+} from "../calls/peerVolume";
 import { useCallStore } from "./call";
 import { roomWords, type RoomWords } from "../components/constellation/words";
 import { playStarSound } from "../sounds/starSounds";
@@ -76,6 +88,8 @@ interface VoiceState {
   screenStarting: boolean;
   noiseSuppression: boolean;
   noiseActive: boolean;
+  /** Громкость собеседников по userId (нет записи — 100 %). */
+  volumes: PeerVolumes;
   /** Браузер не дал включить звук без нажатия. */
   needsAudioUnlock: boolean;
   error: string | null;
@@ -96,6 +110,8 @@ interface VoiceState {
   startScreenShare: () => Promise<void>;
   stopScreenShare: () => Promise<void>;
   unlockAudio: () => Promise<void>;
+  /** 0…2: громкость одного собеседника, запоминается на устройстве. */
+  setPeerVolume: (userId: string, volume: number) => void;
   dismissNotice: () => void;
 }
 
@@ -149,7 +165,16 @@ let unwatchPlanet: (() => void) | null = null;
 let stoppingScreen = false;
 /** Мы сами вышли — не показываем «связь прервалась». */
 let leavingOnPurpose = false;
-const audioElements = new Map<string, HTMLMediaElement[]>();
+
+/** Звук собеседника, который сейчас играет: по sid трека. */
+interface PlayedAudio {
+  userId: string;
+  track: RemoteTrack;
+  elements: HTMLMediaElement[];
+  /** Громкость не 100 % там, где элемент сам так не умеет. */
+  amp: Amplifier | null;
+}
+const played = new Map<string, PlayedAudio>();
 
 function audioContainer(): HTMLElement {
   let el = document.getElementById("quazar-voice-audio");
@@ -162,20 +187,42 @@ function audioContainer(): HTMLElement {
   return el;
 }
 
-function attachAudio(track: RemoteTrack) {
-  if (track.kind !== "audio" || !track.sid) return;
+/** Выставляет громкость. false — усилитель не заиграл без нажатия. */
+async function applyVolume(audio: PlayedAudio, volume: number): Promise<boolean> {
+  if (needsAmplifier(volume)) {
+    audio.amp ??= new Amplifier(audio.track.mediaStreamTrack, audioContainer());
+    audio.amp.setVolume(volume);
+    // Исходный элемент играет беззвучно: без него Chrome не отдаёт звук в WebAudio.
+    for (const el of audio.elements) el.muted = true;
+    return audio.amp.play();
+  }
+  audio.amp?.close();
+  audio.amp = null;
+  for (const el of audio.elements) {
+    el.volume = volume;
+    el.muted = false;
+  }
+  return true;
+}
+
+function attachAudio(track: RemoteTrack, userId: string, volume: number): Promise<boolean> {
+  if (track.kind !== "audio" || !track.sid) return Promise.resolve(true);
   const elements = track.attach();
-  const list = Array.isArray(elements) ? elements : [elements];
+  const list = (Array.isArray(elements) ? elements : [elements]) as HTMLMediaElement[];
   for (const el of list) {
     audioContainer().appendChild(el);
     void applyOutput(el);
   }
-  audioElements.set(track.sid, list as HTMLMediaElement[]);
+  const audio: PlayedAudio = { userId, track, elements: list, amp: null };
+  played.set(track.sid, audio);
+  return volume === 1 ? Promise.resolve(true) : applyVolume(audio, volume);
 }
 
 function detachAudio(track: RemoteTrack) {
   track.detach().forEach((el) => el.remove());
-  if (track.sid) audioElements.delete(track.sid);
+  if (!track.sid) return;
+  played.get(track.sid)?.amp?.close();
+  played.delete(track.sid);
 }
 
 function peerOf(p: Participant, isLocal: boolean): VoicePeer {
@@ -354,8 +401,12 @@ export const useVoiceStore = create<VoiceState>((set, get) => {
       // stopLocalTrackOnUnpublish: false — захват экрана гасим сами.
       screenTracks.forEach((t) => t.stop());
     }
-    for (const els of audioElements.values()) els.forEach((el) => el.remove());
-    audioElements.clear();
+    for (const audio of played.values()) {
+      audio.amp?.close();
+      audio.elements.forEach((el) => el.remove());
+    }
+    played.clear();
+    closeAmplifiers();
     await releaseMic();
     set({
       status: "idle",
@@ -461,6 +512,15 @@ export const useVoiceStore = create<VoiceState>((set, get) => {
     syncPeers();
   }
 
+  /** Громкость всем, кто сейчас звучит (после разблокировки звука LiveKit снимает mute). */
+  async function applyVolumes() {
+    const { volumes } = get();
+    const results = await Promise.all(
+      [...played.values()].map((audio) => applyVolume(audio, volumes[audio.userId] ?? 1))
+    );
+    if (results.includes(false)) set({ needsAudioUnlock: true });
+  }
+
   function wire(r: Room, { RoomEvent, DisconnectReason }: LiveKit) {
     r.on(RoomEvent.ParticipantConnected, () => {
       peerSound("peerJoin");
@@ -481,8 +541,10 @@ export const useVoiceStore = create<VoiceState>((set, get) => {
       })
       .on(RoomEvent.TrackPublished, syncPeers)
       .on(RoomEvent.TrackUnpublished, syncPeers)
-      .on(RoomEvent.TrackSubscribed, (track) => {
-        attachAudio(track);
+      .on(RoomEvent.TrackSubscribed, (track, _pub, participant) => {
+        void attachAudio(track, participant.identity, get().volumes[participant.identity] ?? 1).then((ok) => {
+          if (!ok && room === r) set({ needsAudioUnlock: true });
+        });
         syncPeers();
       })
       .on(RoomEvent.TrackUnsubscribed, (track) => {
@@ -551,6 +613,7 @@ export const useVoiceStore = create<VoiceState>((set, get) => {
     screenStarting: false,
     noiseSuppression: getNoiseSuppressionPref(),
     noiseActive: false,
+    volumes: loadPeerVolumes(),
     needsAudioUnlock: false,
     error: null,
     notice: null,
@@ -628,6 +691,7 @@ export const useVoiceStore = create<VoiceState>((set, get) => {
 
       await r.startAudio().catch(() => {});
       set({ status: "connected", needsAudioUnlock: !r.canPlaybackAudio });
+      await applyVolumes();
       syncPeers();
       void playStarSound("enter");
     },
@@ -678,8 +742,9 @@ export const useVoiceStore = create<VoiceState>((set, get) => {
 
     applyOutput: async () => {
       const deviceId = getPreferredOutput();
-      for (const els of audioElements.values()) {
-        for (const el of els) await applyOutput(el, deviceId);
+      for (const audio of played.values()) {
+        for (const el of audio.elements) await applyOutput(el, deviceId);
+        if (audio.amp) await applyOutput(audio.amp.output, deviceId);
       }
       await room?.switchActiveDevice("audiooutput", deviceId || "default").catch(() => {});
     },
@@ -785,8 +850,28 @@ export const useVoiceStore = create<VoiceState>((set, get) => {
     },
 
     unlockAudio: async () => {
+      // Усилители — первыми, пока нажатие ещё считается свежим.
+      const amps = [...played.values()].map((audio) => audio.amp?.play());
+      await resumeAmplifiers();
       await room?.startAudio().catch(() => {});
+      await Promise.all(amps);
       set({ needsAudioUnlock: room ? !room.canPlaybackAudio : false });
+      await applyVolumes();
+    },
+
+    setPeerVolume: (userId, volume) => {
+      const v = clampVolume(volume);
+      const volumes = { ...get().volumes };
+      if (v === 1) delete volumes[userId];
+      else volumes[userId] = v;
+      savePeerVolumes(volumes);
+      set({ volumes });
+      for (const audio of played.values()) {
+        if (audio.userId !== userId) continue;
+        void applyVolume(audio, v).then((ok) => {
+          if (!ok) set({ needsAudioUnlock: true });
+        });
+      }
     },
 
     dismissNotice: () => set({ notice: null, error: null, locked: null }),

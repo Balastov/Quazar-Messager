@@ -122,10 +122,22 @@
   padding: 4px 8px 16px;
 }
 
+/* На ПК последний чат не должен прятаться под плашкой «Вы на Планете». */
+@media (min-width: 768px) {
+  :global(html[data-voicebar]) .list {
+    padding-bottom: 84px;
+  }
+}
+
 /* Последний чат не должен прятаться под плавающей навигацией. */
 @media (max-width: 767px) {
   .list {
     padding-bottom: calc(84px + var(--qz-safe-bottom));
+  }
+
+  /* …и под плашкой «Вы на Планете». */
+  :global(html[data-voicebar]) .list {
+    padding-bottom: calc(160px + var(--qz-safe-bottom));
   }
 }
 

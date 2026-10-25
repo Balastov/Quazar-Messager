@@ -91,6 +91,8 @@ export default function VoiceBarHost() {
   const mobileChatOpen = useUiStore((st) => st.mobileChatOpen);
   const notice = useVoiceStore((st) => st.notice);
   const dismiss = useVoiceStore((st) => st.dismissNotice);
+  const status = useVoiceStore((st) => st.status);
+  const channelId = useVoiceStore((st) => st.channelId);
 
   useEffect(() => {
     if (!notice) return;
@@ -98,9 +100,16 @@ export default function VoiceBarHost() {
     return () => clearTimeout(timer);
   }, [notice, dismiss]);
 
+  // Плашка видна поверх вкладки — списки оставляют под ней место (data-voicebar на <html>).
+  const floating = tab !== "stars" && !mobileChatOpen && status !== "idle" && !!channelId;
+  useEffect(() => {
+    document.documentElement.toggleAttribute("data-voicebar", floating);
+    return () => document.documentElement.removeAttribute("data-voicebar");
+  }, [floating]);
+
   return (
     <>
-      {tab !== "stars" && !mobileChatOpen && <VoiceBar floating />}
+      {floating && <VoiceBar floating />}
       {notice && (
         <div className={s.notice} role="status">
           <span className={s.noticeText}>{notice}</span>

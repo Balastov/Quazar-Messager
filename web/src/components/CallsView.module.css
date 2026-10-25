@@ -68,6 +68,11 @@
   padding: 0 8px 16px;
 }
 
+/* Последний контакт не прячется под плашкой «Вы на Планете». */
+:global(html[data-voicebar]) .list {
+  padding-bottom: 92px;
+}
+
 .item {
   width: 100%;
   display: grid;

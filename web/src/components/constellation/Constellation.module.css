@@ -1084,13 +1084,13 @@
   box-shadow: var(--qz-shadow);
 }
 
+/* На ПК — слева внизу, рядом с аватаркой: там же, где плашка внизу колонки в Созвездии. */
 @media (min-width: 768px) {
   .voiceBarFloating {
-    left: auto;
-    right: 20px;
-    top: calc(14px + var(--qz-safe-top));
-    bottom: auto;
-    width: min(380px, calc(100vw - 40px));
+    left: calc(var(--qz-nav-w) + 10px);
+    right: auto;
+    bottom: calc(10px + var(--qz-safe-bottom));
+    width: calc(var(--qz-list-w) - 20px);
   }
 }
 

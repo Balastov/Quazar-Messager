@@ -9,9 +9,18 @@
   box-shadow: var(--qz-glass-shine);
 }
 
+/* Низ настроек не прячется под плашкой «Вы на Планете». */
+:global(html[data-voicebar]) .root {
+  padding-bottom: calc(160px + var(--qz-safe-bottom));
+}
+
 @media (min-width: 768px) {
   .root {
     padding: 24px 28px 28px;
+  }
+
+  :global(html[data-voicebar]) .root {
+    padding-bottom: 92px;
   }
 }
 

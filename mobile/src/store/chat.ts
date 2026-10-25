@@ -27,7 +27,13 @@ import {
 import {decryptMessage, encryptMessage, isEncrypted} from '../crypto/message';
 import {useAuthStore} from './auth';
 import {useE2EStore} from './e2e';
-import type {Chat, Message} from '../api/types';
+import {applyReaction} from '../chat/reactions';
+import type {Chat, Message, MessageReaction} from '../api/types';
+
+/** Пока человек набирает, сообщаем серверу не чаще этого. */
+const TYPING_SEND_EVERY_MS = 3000;
+/** «печатает…» гаснет, если от человека столько времени ничего не приходило. */
+const TYPING_SHOW_MS = 6000;
 
 export interface PickedImage {
   base64: string;
@@ -43,26 +49,104 @@ interface ChatState {
   /** Общие фоны чатов, уже расшифрованные: chatId → картинка. */
   backgrounds: Record<string, ImageRef>;
   loadingMessages: boolean;
+  /** Кто сейчас печатает: chatId → userId. */
+  typing: Record<string, string[]>;
   loadChats: () => Promise<void>;
   selectChat: (chatId: string) => Promise<void>;
   /** Бросает Error с текстом для пользователя, если отправить нельзя. */
-  sendMessage: (chatId: string, plaintext: string, attachmentId?: string) => Promise<void>;
+  sendMessage: (
+    chatId: string,
+    plaintext: string,
+    attachmentId?: string,
+    replyToId?: string,
+  ) => Promise<void>;
   /** Картинка из галереи; бросает Error с текстом для пользователя. */
-  sendImage: (chatId: string, image: PickedImage) => Promise<void>;
+  sendImage: (chatId: string, image: PickedImage, replyToId?: string) => Promise<void>;
+  /** Исправить свой текст; в личных чатах — зашифровать заново. */
+  editMessage: (chatId: string, messageId: string, plaintext: string) => Promise<void>;
+  /** Удалить у всех. */
+  deleteMessage: (chatId: string, messageId: string) => Promise<void>;
+  /** Удалить у меня (на всех моих устройствах). */
+  hideMessage: (chatId: string, messageId: string) => Promise<void>;
+  /** Поставить, сменить (emoji) или снять (null) свою реакцию. */
+  react: (chatId: string, messageId: string, emoji: string | null) => Promise<void>;
+  /** Я набираю текст — сообщить собеседникам (не чаще раза в 3 с). */
+  notifyTyping: (chatId: string) => void;
   openDirectChat: (userId: string) => Promise<string>;
 }
 
-async function tryDecrypt(payload: string, myPrivKeys: string[]): Promise<string> {
+const LOCKED_NEEDS_RESTORE = '🔒 Восстановите ключи шифрования, чтобы прочитать сообщение';
+const LOCKED_FOREIGN_KEY = '🔒 Сообщение зашифровано ключом, которого нет на этом устройстве';
+
+/** Сообщение не расшифровалось на этом устройстве — его не исправить. */
+export function isUnreadable(payload: string): boolean {
+  return payload === LOCKED_NEEDS_RESTORE || payload === LOCKED_FOREIGN_KEY;
+}
+
+async function openPayload(payload: string, myPrivKeys: string[]): Promise<string | null> {
   if (!isEncrypted(payload)) {
     return payload;
   }
-  const plain = await decryptMessage(payload, myPrivKeys);
+  return decryptMessage(payload, myPrivKeys);
+}
+
+async function tryDecrypt(payload: string, myPrivKeys: string[]): Promise<string> {
+  const plain = await openPayload(payload, myPrivKeys);
   if (plain !== null) {
     return plain;
   }
   return useE2EStore.getState().status === 'needs_restore'
-    ? '🔒 Восстановите ключи шифрования, чтобы прочитать сообщение'
-    : '🔒 Сообщение зашифровано ключом, которого нет на этом устройстве';
+    ? LOCKED_NEEDS_RESTORE
+    : LOCKED_FOREIGN_KEY;
+}
+
+/** Реакции, которые не расшифровались, не показываем вовсе. */
+async function openReactions(
+  reactions: MessageReaction[] | undefined,
+  myPrivKeys: string[],
+): Promise<MessageReaction[]> {
+  const opened = await Promise.all(
+    (reactions ?? []).map(async r => {
+      const payload = await openPayload(r.payload, myPrivKeys);
+      return payload === null ? null : {...r, payload};
+    }),
+  );
+  return opened.filter((r): r is MessageReaction => r !== null);
+}
+
+/** Сообщение с сервера — расшифровать вместе с цитатой и реакциями. */
+async function openMessage(m: Message, myPrivKeys: string[]): Promise<Message> {
+  return {
+    ...m,
+    payload: await tryDecrypt(m.payload, myPrivKeys),
+    reply_to: m.reply_to
+      ? {...m.reply_to, payload: await tryDecrypt(m.reply_to.payload, myPrivKeys)}
+      : null,
+    reactions: await openReactions(m.reactions, myPrivKeys),
+  };
+}
+
+/** Текст для отправки в чат: в личном — зашифрованный E2E для собеседника и для себя (ENC2). */
+async function sealForChat(chat: Chat, myId: string, plaintext: string): Promise<string> {
+  // Личные чаты — только E2E: без ключей не отправляем, а не шлём открытым текстом.
+  if (chat.type !== 'direct') {
+    return plaintext;
+  }
+  const otherUserId = getOtherUserId(chat, myId);
+  if (!otherUserId) {
+    throw new Error('Не удалось определить собеседника');
+  }
+  const myKeys = useE2EStore.getState().status === 'ready' ? await loadKeys() : null;
+  if (!myKeys) {
+    throw new Error(
+      'Ключи шифрования на этом устройстве не восстановлены. Восстановите их из резервной копии.',
+    );
+  }
+  const recipientKey = await fetchUserPublicKey(otherUserId);
+  if (!recipientKey) {
+    throw new Error('Собеседник ещё не настроил шифрование. Отправка недоступна.');
+  }
+  return encryptMessage(plaintext, recipientKey, myKeys.publicKey);
 }
 
 function lastActivity(chat: Chat): number {
@@ -122,6 +206,52 @@ async function openBackground(payload: string | null | undefined): Promise<Image
 }
 
 export const useChatStore = create<ChatState>((set, get) => {
+  const typingTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  const typingSentAt = new Map<string, number>();
+
+  function setTyping(chatId: string, userId: string, on: boolean) {
+    const key = `${chatId}|${userId}`;
+    clearTimeout(typingTimers.get(key));
+    typingTimers.delete(key);
+    if (on) {
+      typingTimers.set(
+        key,
+        setTimeout(() => setTyping(chatId, userId, false), TYPING_SHOW_MS),
+      );
+    }
+    set(s => {
+      const list = s.typing[chatId] ?? [];
+      if (on === list.includes(userId)) {
+        return {};
+      }
+      const next = on ? [...list, userId] : list.filter(id => id !== userId);
+      const typing = {...s.typing};
+      if (next.length) {
+        typing[chatId] = next;
+      } else {
+        delete typing[chatId];
+      }
+      return {typing};
+    });
+  }
+
+  /** Изменить загруженные сообщения чата (не открывали — нечего менять). */
+  function updateMessages(chatId: string, fn: (msgs: Message[]) => Message[]) {
+    set(s => {
+      const msgs = s.messages[chatId];
+      return msgs ? {messages: {...s.messages, [chatId]: fn(msgs)}} : {};
+    });
+  }
+
+  /** Убрать сообщение; ответы на него остаются, но без цитаты — как после перезагрузки. */
+  function removeMessage(chatId: string, messageId: string) {
+    updateMessages(chatId, msgs =>
+      msgs
+        .filter(m => m.id !== messageId)
+        .map(m => (m.reply_to?.id === messageId ? {...m, reply_to: null} : m)),
+    );
+  }
+
   function applyBackground(chatId: string, ref: ImageRef | null) {
     set(s => {
       const backgrounds = {...s.backgrounds};
@@ -144,12 +274,55 @@ export const useChatStore = create<ChatState>((set, get) => {
       applyBackground(event.chat_id, await openBackground(event.background));
     }
 
+    if (event.type === 'typing') {
+      setTyping(event.chat_id, event.user_id, true);
+    }
+
+    if (event.type === 'message_edited') {
+      const payload = await tryDecrypt(event.payload, await loadDecryptionKeys());
+      updateMessages(event.chat_id, msgs =>
+        msgs.map(m => {
+          if (m.id === event.message_id) {
+            return {...m, payload, edited_at: event.edited_at};
+          }
+          if (m.reply_to?.id === event.message_id) {
+            return {...m, reply_to: {...m.reply_to, payload}};
+          }
+          return m;
+        }),
+      );
+    }
+
+    if (event.type === 'message_deleted') {
+      removeMessage(event.chat_id, event.message_id);
+    }
+
+    if (event.type === 'message_reaction') {
+      const payload =
+        event.payload === null
+          ? null
+          : await openPayload(event.payload, await loadDecryptionKeys());
+      updateMessages(event.chat_id, msgs =>
+        msgs.map(m =>
+          m.id === event.message_id
+            ? {
+                ...m,
+                reactions: applyReaction(
+                  m.reactions,
+                  event.user_id,
+                  payload === null ? null : {user_id: event.user_id, payload},
+                ),
+              }
+            : m,
+        ),
+      );
+    }
+
     if (event.type === 'new_message') {
       const myId = useAuthStore.getState().user?.id;
-      const decryptedPayload = await tryDecrypt(
-        event.payload,
-        await loadDecryptionKeys(),
-      );
+      const keys = await loadDecryptionKeys();
+      const decryptedPayload = await tryDecrypt(event.payload, keys);
+      setTyping(event.chat_id, event.sender_id, false);
 
       const msg: Message = {
         id: event.message_id,
@@ -158,6 +331,10 @@ export const useChatStore = create<ChatState>((set, get) => {
         payload: decryptedPayload,
         status: event.status as Message['status'],
         created_at: event.timestamp,
+        reply_to: event.reply_to
+          ? {...event.reply_to, payload: await tryDecrypt(event.reply_to.payload, keys)}
+          : null,
+        reactions: [],
       };
       set(s => ({
         messages: {
@@ -248,6 +425,7 @@ export const useChatStore = create<ChatState>((set, get) => {
     messages: {},
     backgrounds: {},
     loadingMessages: false,
+    typing: {},
 
     loadChats: async () => {
       const chats = await chatsApi.list();
@@ -267,12 +445,7 @@ export const useChatStore = create<ChatState>((set, get) => {
       if (!get().messages[chatId]) {
         const rawMsgs = await messagesApi.list(chatId);
         const keys = await loadDecryptionKeys();
-        const decrypted = await Promise.all(
-          rawMsgs.map(async m => ({
-            ...m,
-            payload: await tryDecrypt(m.payload, keys),
-          })),
-        );
+        const decrypted = await Promise.all(rawMsgs.map(m => openMessage(m, keys)));
         set(s => ({messages: {...s.messages, [chatId]: decrypted}}));
       }
       set({loadingMessages: false});
@@ -283,41 +456,18 @@ export const useChatStore = create<ChatState>((set, get) => {
       }
     },
 
-    sendMessage: async (chatId: string, plaintext: string, attachmentId?: string) => {
-      const {chats} = get();
-      const chat = chats.find(c => c.id === chatId);
+    sendMessage: async (chatId, plaintext, attachmentId, replyToId) => {
+      const chat = get().chats.find(c => c.id === chatId);
       const myId = useAuthStore.getState().user?.id;
-
       if (!chat || !myId) {
         return;
       }
-
-      let payload = plaintext;
-
-      // Личные чаты — только E2E: без ключей не отправляем, а не шлём открытым текстом.
-      if (chat.type === 'direct') {
-        const otherUserId = getOtherUserId(chat, myId);
-        if (!otherUserId) {
-          throw new Error('Не удалось определить собеседника');
-        }
-        const myKeys =
-          useE2EStore.getState().status === 'ready' ? await loadKeys() : null;
-        if (!myKeys) {
-          throw new Error(
-            'Ключи шифрования на этом устройстве не восстановлены. Восстановите их из резервной копии.',
-          );
-        }
-        const recipientKey = await fetchUserPublicKey(otherUserId);
-        if (!recipientKey) {
-          throw new Error('Собеседник ещё не настроил шифрование. Отправка недоступна.');
-        }
-        payload = await encryptMessage(plaintext, recipientKey, myKeys.publicKey);
-      }
-
-      await messagesApi.send(chatId, payload, attachmentId);
+      const payload = await sealForChat(chat, myId, plaintext);
+      typingSentAt.delete(chatId);
+      await messagesApi.send(chatId, payload, attachmentId, replyToId);
     },
 
-    sendImage: async (chatId: string, image: PickedImage) => {
+    sendImage: async (chatId: string, image: PickedImage, replyToId?: string) => {
       const {bytes, mime} = await readPickedImage(image.base64);
       const {blob, key} = await encryptFile(bytes);
       const {id} = await attachmentsApi.upload(chatId, blob);
@@ -326,7 +476,76 @@ export const useChatStore = create<ChatState>((set, get) => {
         chatId,
         encodeImage({id, key, mime, w: image.width, h: image.height, size: bytes.length}),
         id,
+        replyToId,
       );
+    },
+
+    editMessage: async (chatId, messageId, plaintext) => {
+      const chat = get().chats.find(c => c.id === chatId);
+      const myId = useAuthStore.getState().user?.id;
+      if (!chat || !myId) {
+        return;
+      }
+      const payload = await sealForChat(chat, myId, plaintext);
+      const out = await messagesApi.edit(chatId, messageId, payload);
+      updateMessages(chatId, msgs =>
+        msgs.map(m => {
+          if (m.id === messageId) {
+            return {...m, payload: plaintext, edited_at: out.edited_at};
+          }
+          if (m.reply_to?.id === messageId) {
+            return {...m, reply_to: {...m.reply_to, payload: plaintext}};
+          }
+          return m;
+        }),
+      );
+    },
+
+    deleteMessage: async (chatId, messageId) => {
+      await messagesApi.remove(chatId, messageId);
+      removeMessage(chatId, messageId);
+    },
+
+    hideMessage: async (chatId, messageId) => {
+      await messagesApi.hide(chatId, messageId);
+      removeMessage(chatId, messageId);
+    },
+
+    react: async (chatId, messageId, emoji) => {
+      const chat = get().chats.find(c => c.id === chatId);
+      const myId = useAuthStore.getState().user?.id;
+      if (!chat || !myId) {
+        return;
+      }
+      if (emoji === null) {
+        await messagesApi.unreact(chatId, messageId);
+      } else {
+        // В личном чате эмодзи шифруется, как сообщение: сервер не видит, что поставили.
+        await messagesApi.react(chatId, messageId, await sealForChat(chat, myId, emoji));
+      }
+      updateMessages(chatId, msgs =>
+        msgs.map(m =>
+          m.id === messageId
+            ? {
+                ...m,
+                reactions: applyReaction(
+                  m.reactions,
+                  myId,
+                  emoji === null ? null : {user_id: myId, payload: emoji},
+                ),
+              }
+            : m,
+        ),
+      );
+    },
+
+    notifyTyping: chatId => {
+      const now = Date.now();
+      if (now - (typingSentAt.get(chatId) ?? 0) < TYPING_SEND_EVERY_MS) {
+        return;
+      }
+      typingSentAt.set(chatId, now);
+      socket.send({type: 'typing', chat_id: chatId});
     },
 
     openDirectChat: async (userId: string) => {

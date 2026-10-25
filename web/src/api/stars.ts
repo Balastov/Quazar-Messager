@@ -134,6 +134,17 @@ export interface PlanetJoin {
   room: string;
 }
 
+export interface StarMessageReply {
+  id: string;
+  sender: StarUser | null;
+  text: string;
+}
+
+export interface StarMessageReaction {
+  user_id: string;
+  emoji: string;
+}
+
 export interface StarMessage {
   id: string;
   star_id: string;
@@ -141,6 +152,9 @@ export interface StarMessage {
   sender: StarUser | null;
   text: string;
   created_at: string;
+  edited_at?: string | null;
+  reply_to?: StarMessageReply | null;
+  reactions?: StarMessageReaction[];
 }
 
 export interface StarInvite {
@@ -232,7 +246,25 @@ export type StarEvent =
       star_id: string;
       channel_id: string;
       message_id: string;
-    };
+    }
+  | {
+      type: "star_message_edited";
+      star_id: string;
+      channel_id: string;
+      message_id: string;
+      text: string;
+      edited_at: string;
+    }
+  /** emoji null — реакцию сняли. */
+  | {
+      type: "star_message_reaction";
+      star_id: string;
+      channel_id: string;
+      message_id: string;
+      user_id: string;
+      emoji: string | null;
+    }
+  | { type: "star_typing"; star_id: string; channel_id: string; user_id: string };
 
 const base = (starId: string) => `/stars/${starId}`;
 
@@ -318,12 +350,23 @@ export const starsApi = {
         params: beforeId ? { before_id: beforeId } : {},
       })
       .then((r) => r.data),
-  send: (starId: string, channelId: string, text: string) =>
+  send: (starId: string, channelId: string, text: string, replyToId?: string) =>
     http
-      .post<StarMessage>(`${base(starId)}/channels/${channelId}/messages`, { text })
+      .post<StarMessage>(`${base(starId)}/channels/${channelId}/messages`, {
+        text,
+        reply_to_id: replyToId,
+      })
+      .then((r) => r.data),
+  editMessage: (starId: string, channelId: string, messageId: string, text: string) =>
+    http
+      .patch<StarMessage>(`${base(starId)}/channels/${channelId}/messages/${messageId}`, { text })
       .then((r) => r.data),
   deleteMessage: (starId: string, channelId: string, messageId: string) =>
     http.delete(`${base(starId)}/channels/${channelId}/messages/${messageId}`),
+  react: (starId: string, channelId: string, messageId: string, emoji: string) =>
+    http.put(`${base(starId)}/channels/${channelId}/messages/${messageId}/reaction`, { emoji }),
+  unreact: (starId: string, channelId: string, messageId: string) =>
+    http.delete(`${base(starId)}/channels/${channelId}/messages/${messageId}/reaction`),
 
   createFloor: (starId: string, name: string) =>
     http.post<StarFloor>(`${base(starId)}/floors`, { name }).then((r) => r.data),

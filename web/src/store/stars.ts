@@ -18,6 +18,7 @@ import {
   type StarSummary,
 } from "../api/stars";
 import { socket } from "../ws/socket";
+import { applyReaction } from "../chat/reactions";
 import { useAuthStore } from "./auth";
 import { useUiStore } from "./ui";
 
@@ -88,8 +89,11 @@ interface StarsState {
   refreshStar: (starId: string) => Promise<void>;
   selectChannel: (channelId: string) => Promise<void>;
   loadOlder: (channelId: string) => Promise<void>;
-  sendMessage: (text: string) => Promise<void>;
+  sendMessage: (text: string, replyToId?: string) => Promise<void>;
+  editMessage: (message: StarMessage, text: string) => Promise<void>;
   deleteMessage: (message: StarMessage) => Promise<void>;
+  /** Поставить, сменить (emoji) или снять (null) свою реакцию. */
+  react: (message: StarMessage, emoji: string | null) => Promise<void>;
   createStar: (name: string, kind: StarKind) => Promise<void>;
   joinByCode: (code: string) => Promise<void>;
   createChannel: (body: {
@@ -358,18 +362,47 @@ export const useStarsStore = create<StarsState>((set, get) => {
         });
         break;
       case "star_message_deleted":
-        set((s) => {
-          const list = s.messages[event.channel_id];
-          if (!list) return {};
-          return {
-            messages: {
-              ...s.messages,
-              [event.channel_id]: list.filter((m) => m.id !== event.message_id),
-            },
-          };
-        });
+        // Ответы на удалённое остаются, но без цитаты — как после перезагрузки.
+        patchMessages(event.channel_id, (list) =>
+          list
+            .filter((m) => m.id !== event.message_id)
+            .map((m) => (m.reply_to?.id === event.message_id ? { ...m, reply_to: null } : m))
+        );
+        break;
+      case "star_message_edited":
+        patchMessages(event.channel_id, (list) =>
+          list.map((m) => {
+            if (m.id === event.message_id) return { ...m, text: event.text, edited_at: event.edited_at };
+            if (m.reply_to?.id === event.message_id) return { ...m, reply_to: { ...m.reply_to, text: event.text } };
+            return m;
+          })
+        );
+        break;
+      case "star_message_reaction":
+        patchMessages(event.channel_id, (list) =>
+          list.map((m) =>
+            m.id === event.message_id
+              ? {
+                  ...m,
+                  reactions: applyReaction(
+                    m.reactions,
+                    event.user_id,
+                    event.emoji === null ? null : { user_id: event.user_id, emoji: event.emoji }
+                  ),
+                }
+              : m
+          )
+        );
         break;
     }
+  }
+
+  /** Изменить загруженные сообщения Спутника (не открывали — нечего менять). */
+  function patchMessages(channelId: string, fn: (list: StarMessage[]) => StarMessage[]) {
+    set((s) => {
+      const list = s.messages[channelId];
+      return list ? { messages: { ...s.messages, [channelId]: fn(list) } } : {};
+    });
   }
 
   socket.on((event) => {
@@ -512,12 +545,39 @@ export const useStarsStore = create<StarsState>((set, get) => {
       }));
     },
 
-    sendMessage: async (text) => {
+    sendMessage: async (text, replyToId) => {
       const starId = get().activeStarId;
       const channelId = activeChannelId();
       if (!starId || !channelId) return;
-      const message = await starsApi.send(starId, channelId, text);
+      const message = await starsApi.send(starId, channelId, text, replyToId);
       handleEvent({ type: "star_message", star_id: starId, message });
+    },
+
+    editMessage: async (message, text) => {
+      const out = await starsApi.editMessage(message.star_id, message.channel_id, message.id, text);
+      handleEvent({
+        type: "star_message_edited",
+        star_id: message.star_id,
+        channel_id: message.channel_id,
+        message_id: message.id,
+        text: out.text,
+        edited_at: out.edited_at ?? new Date().toISOString(),
+      });
+    },
+
+    react: async (message, emoji) => {
+      const me = myId();
+      if (!me) return;
+      if (emoji === null) await starsApi.unreact(message.star_id, message.channel_id, message.id);
+      else await starsApi.react(message.star_id, message.channel_id, message.id, emoji);
+      handleEvent({
+        type: "star_message_reaction",
+        star_id: message.star_id,
+        channel_id: message.channel_id,
+        message_id: message.id,
+        user_id: me,
+        emoji,
+      });
     },
 
     deleteMessage: async (message) => {

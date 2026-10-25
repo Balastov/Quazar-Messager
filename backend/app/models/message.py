@@ -18,9 +18,48 @@ class Message(Base):
     status: Mapped[str] = mapped_column(
         Enum("sent", "delivered", "read", name="message_status"), default="sent"
     )
+    # Ответ на сообщение того же чата; удалили исходное — ответ остаётся без цитаты.
+    reply_to_id: Mapped[str | None] = mapped_column(
+        ForeignKey("messages.id", ondelete="SET NULL"), nullable=True
+    )
+    # Когда отправитель последний раз исправил текст (payload заменён целиком).
+    edited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True
     )
 
     chat: Mapped["Chat"] = relationship("Chat", back_populates="messages")  # noqa: F821
     sender: Mapped["User"] = relationship("User")  # noqa: F821
+
+
+class MessageReaction(Base):
+    """Реакция участника на сообщение — одна на человека, как в WhatsApp.
+
+    payload — эмодзи; в личных чатах зашифрован E2E, как и сами сообщения (сервер его не видит).
+    """
+
+    __tablename__ = "message_reactions"
+
+    message_id: Mapped[str] = mapped_column(
+        ForeignKey("messages.id", ondelete="CASCADE"), primary_key=True
+    )
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    payload: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+
+
+class HiddenMessage(Base):
+    """«Удалить у меня»: сообщение остаётся у остальных, а этому участнику больше не приходит."""
+
+    __tablename__ = "hidden_messages"
+
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    message_id: Mapped[str] = mapped_column(
+        ForeignKey("messages.id", ondelete="CASCADE"), primary_key=True
+    )

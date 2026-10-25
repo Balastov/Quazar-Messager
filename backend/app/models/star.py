@@ -121,9 +121,29 @@ class StarMessage(Base):
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
     text: Mapped[str] = mapped_column(Text, nullable=False)
+    # Ответ на сообщение того же Спутника; удалили исходное — ответ остаётся без цитаты.
+    reply_to_id: Mapped[str | None] = mapped_column(
+        ForeignKey("star_messages.id", ondelete="SET NULL"), nullable=True
+    )
+    edited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_now, index=True
     )
+
+
+class StarMessageReaction(Base):
+    """Реакция на сообщение Спутника — одна на человека."""
+
+    __tablename__ = "star_message_reactions"
+
+    message_id: Mapped[str] = mapped_column(
+        ForeignKey("star_messages.id", ondelete="CASCADE"), primary_key=True
+    )
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    emoji: Mapped[str] = mapped_column(String(16), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
 
 class StarInvite(Base):

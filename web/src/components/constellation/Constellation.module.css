@@ -394,26 +394,38 @@
   text-decoration-color: #d8c8ff;
 }
 
-.messageDelete {
+/* Меню сообщения: при наведении мыши; на телефоне — долгое нажатие. */
+.messageMenuBtn {
   align-self: flex-start;
   border: none;
   background: none;
   color: var(--qz-text-dim);
   cursor: pointer;
-  font-size: 13px;
-  padding: 2px 4px;
+  font-size: 16px;
+  line-height: 1;
+  padding: 2px 6px;
   opacity: 0;
 }
 
-.message:hover .messageDelete,
-.messageDelete:focus-visible {
+.message:hover .messageMenuBtn,
+.messageMenuBtn:focus-visible {
   opacity: 1;
 }
 
 @media (hover: none) {
-  .messageDelete {
-    opacity: 0.6;
+  .messageMenuBtn {
+    display: none;
   }
+}
+
+/* Цитата и реакции — с отступом от строк текста. */
+.messageExtra {
+  margin-top: 4px;
+}
+
+.typingLine {
+  padding: 0 16px 4px;
+  font-size: 12px;
 }
 
 .loadOlder {

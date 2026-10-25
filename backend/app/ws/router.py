@@ -11,7 +11,9 @@ from app.core.security import decode_token
 from app.models.chat import ChatMember
 from app.models.message import Message
 from app.core import presence
+from app.api.messages import new_message_event
 from app.ws import calls as call_signaling
+from app.ws import typing as typing_signals
 from app.ws.hub import manager
 
 router = APIRouter()
@@ -63,6 +65,9 @@ async def websocket_endpoint(websocket: WebSocket, token: str, state: str = "act
             elif event_type == "message_status":
                 await _handle_status(data, user_id)
 
+            elif event_type == "typing":
+                await typing_signals.handle_typing(data, user_id)
+
             elif isinstance(event_type, str) and event_type.startswith("call_"):
                 await call_signaling.handle_call_event(data, user_id, websocket)
 
@@ -104,16 +109,7 @@ async def _handle_send_message(data: dict, sender_id: str):
         await db.commit()
         await db.refresh(message)
 
-    event = {
-        "type": "new_message",
-        "message_id": message.id,
-        "chat_id": chat_id,
-        "sender_id": sender_id,
-        "payload": message.payload,
-        "status": message.status,
-        "timestamp": message.created_at.isoformat(),
-    }
-    await manager.broadcast_to_users(member_ids, event)
+    await manager.broadcast_to_users(member_ids, new_message_event(message))
 
 
 def _collect_message_ids(data: dict) -> list[str]:

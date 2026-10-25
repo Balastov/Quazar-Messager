@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from "react";
-import { useChatStore } from "../store/chat";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { isUnreadable, useChatStore } from "../store/chat";
 import { useAuthStore } from "../store/auth";
 import { useUiStore } from "../store/ui";
 import { useCallStore } from "../store/call";
@@ -18,22 +18,46 @@ import {
   IconVideo,
 } from "./icons";
 import s from "./MessageView.module.css";
+import m from "./messages/Messages.module.css";
 import { usePresence, usePresenceStore, usePresenceText } from "../store/presence";
 import { presenceTone } from "../utils/presence";
 import LinkifiedText from "./LinkifiedText";
 import Sticker from "./Sticker";
 import StickerPicker from "./StickerPicker";
-import { useStickersStore } from "../store/stickers";
+import { messagePreview, useStickersStore } from "../store/stickers";
 import { stickerFileUrl, type StickerInfo } from "../api/stickers";
 import { encodeSticker, parseSticker } from "../stickers/format";
 import ChatImage from "./ChatImage";
 import ChatBackgroundDialog from "./ChatBackgroundDialog";
 import { AttachmentError, parseImage } from "../attachments/image";
+import type { Message } from "../api/types";
+import { groupReactions, myReaction, toggledReaction } from "../chat/reactions";
+import { typingLabel } from "../chat/typing";
+import { chatTypingKey, resetTypingThrottle, sendChatTyping, useTyping } from "../store/typing";
+import MessageMenu, { type MenuAction } from "./messages/MessageMenu";
+import {
+  ComposerContext,
+  EditedMark,
+  ReactionChips,
+  ReplyQuote,
+  revealMessage,
+  useMessageMenuTrigger,
+} from "./messages/parts";
 
 const STICKER_SIZE = 160;
 
 interface Props {
   showBack?: boolean;
+}
+
+/** Обычный текст (не картинка, не стикер, расшифровался) — его можно исправить и скопировать. */
+function isPlainText(payload: string): boolean {
+  return !parseImage(payload) && !parseSticker(payload) && !isUnreadable(payload);
+}
+
+/** Реакции чата в виде, который понимает общая строка чипов. */
+function reactionsOf(msg: Message) {
+  return msg.reactions?.map((r) => ({ user_id: r.user_id, emoji: r.payload }));
 }
 
 export default function MessageView({ showBack = false }: Props) {
@@ -44,6 +68,10 @@ export default function MessageView({ showBack = false }: Props) {
     loadingMessages,
     sendMessage,
     sendImage,
+    editMessage,
+    deleteMessage,
+    hideMessage,
+    react,
     e2eReady,
     e2eError,
     e2eTrust,
@@ -65,28 +93,50 @@ export default function MessageView({ showBack = false }: Props) {
   const [stickersOpen, setStickersOpen] = useState(false);
   const [uploading, setUploading] = useState(0);
   const [backgroundOpen, setBackgroundOpen] = useState(false);
+  const [menu, setMenu] = useState<{ msg: Message; x: number; y: number } | null>(null);
+  const [replyTo, setReplyTo] = useState<Message | null>(null);
+  const [editing, setEditing] = useState<Message | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
   const stickersByKey = useStickersStore((st) => st.byKey);
   const stickersLoaded = useStickersStore((st) => st.loaded);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const typingIds = useTyping(activeChatId ? chatTypingKey(activeChatId) : null);
 
   const chat = chats.find((c) => c.id === activeChatId);
   const msgs = activeChatId ? (messages[activeChatId] ?? []) : [];
   const isDirect = chat?.type === "direct";
   const inputDisabled = isDirect && e2eReady === false;
+  const lastId = msgs.length ? msgs[msgs.length - 1].id : null;
 
   useEffect(() => {
     setStickersOpen(false);
     setBackgroundOpen(false);
+    setMenu(null);
+    setReplyTo(null);
+    setEditing(null);
   }, [activeChatId]);
 
+  // Вниз — только когда пришло новое сообщение (а не при удалении или реакции).
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [msgs.length]);
+  }, [lastId]);
 
   useEffect(() => {
     setSendError(null);
   }, [activeChatId]);
+
+  // Сообщение, на которое отвечаем или которое правим, удалили — убираем и полосу над вводом.
+  useEffect(() => {
+    if (replyTo && !msgs.some((x) => x.id === replyTo.id)) setReplyTo(null);
+    if (editing && !msgs.some((x) => x.id === editing.id)) {
+      setEditing(null);
+      setText("");
+    }
+  }, [msgs, replyTo, editing]);
+
+  const closeMenu = useCallback(() => setMenu(null), []);
 
   // Кто в сети: собеседник в личном чате, сколько участников — в группе.
   // Хуки — до раннего return ниже, иначе при открытии чата их число изменится.
@@ -133,6 +183,16 @@ export default function MessageView({ showBack = false }: Props) {
     };
   })();
 
+  const nameOf = (userId: string | null | undefined) => {
+    if (userId && userId === currentUser?.id) return "Вы";
+    return chat?.members.find((mb) => mb.user.id === userId)?.user.username ?? "Участник";
+  };
+
+  const myRole = chat?.members.find((mb) => mb.user.id === currentUser?.id)?.role;
+  const canDeleteForAll = (msg: Message) =>
+    msg.sender_id === currentUser?.id ||
+    (chat?.type === "group" && (myRole === "owner" || myRole === "admin"));
+
   const callBusy = callPhase !== "idle" && callPhase !== "ended";
 
   const handleAudioCall = () => {
@@ -145,18 +205,62 @@ export default function MessageView({ showBack = false }: Props) {
     void startVideoCall(activeChatId, peer.id);
   };
 
+  const reportError = (err: unknown, fallback: string) => {
+    if (err instanceof E2EError || err instanceof AttachmentError) setSendError(err.message);
+    else setSendError(fallback);
+  };
+
+  const startReply = (msg: Message) => {
+    setEditing(null);
+    setReplyTo(msg);
+    inputRef.current?.focus();
+  };
+
+  const startEdit = (msg: Message) => {
+    setReplyTo(null);
+    setEditing(msg);
+    setText(msg.payload);
+    setStickersOpen(false);
+    inputRef.current?.focus();
+  };
+
+  const cancelContext = () => {
+    if (editing) setText("");
+    setEditing(null);
+    setReplyTo(null);
+  };
+
   const handleSend = async (e?: React.FormEvent) => {
     e?.preventDefault();
     const payload = text.trim();
     if (!payload || !activeChatId || inputDisabled) return;
-    setText("");
     setSendError(null);
+
+    if (editing) {
+      const target = editing;
+      setEditing(null);
+      setText("");
+      if (payload === target.payload) return;
+      try {
+        await editMessage(activeChatId, target.id, payload);
+      } catch (err) {
+        reportError(err, "Не удалось исправить сообщение");
+        setEditing(target);
+        setText(payload);
+      }
+      return;
+    }
+
+    const reply = replyTo;
+    setText("");
+    setReplyTo(null);
+    resetTypingThrottle(chatTypingKey(activeChatId));
     try {
-      await sendMessage(activeChatId, payload);
+      await sendMessage(activeChatId, payload, undefined, reply?.id);
     } catch (err) {
-      if (err instanceof E2EError) setSendError(err.message);
-      else setSendError("Не удалось отправить сообщение");
+      reportError(err, "Не удалось отправить сообщение");
       setText(payload);
+      setReplyTo(reply);
     }
   };
 
@@ -164,11 +268,13 @@ export default function MessageView({ showBack = false }: Props) {
     if (!activeChatId || inputDisabled) return;
     setStickersOpen(false);
     setSendError(null);
+    const reply = replyTo;
+    setReplyTo(null);
     try {
-      await sendMessage(activeChatId, encodeSticker(packId, sticker.id));
+      await sendMessage(activeChatId, encodeSticker(packId, sticker.id), undefined, reply?.id);
     } catch (err) {
-      if (err instanceof E2EError) setSendError(err.message);
-      else setSendError("Не удалось отправить стикер");
+      reportError(err, "Не удалось отправить стикер");
+      setReplyTo(reply);
     }
   };
 
@@ -176,14 +282,17 @@ export default function MessageView({ showBack = false }: Props) {
     if (!activeChatId || inputDisabled || !files.length) return;
     setSendError(null);
     setStickersOpen(false);
+    // Ответом становится первая картинка из выбранных.
+    let reply = replyTo?.id;
+    setReplyTo(null);
     // По одной, в порядке выбора: так они и лягут в чат.
     for (const file of files) {
       setUploading((n) => n + 1);
       try {
-        await sendImage(activeChatId, file);
+        await sendImage(activeChatId, file, reply);
+        reply = undefined;
       } catch (err) {
-        if (err instanceof AttachmentError || err instanceof E2EError) setSendError(err.message);
-        else setSendError("Не удалось отправить картинку");
+        reportError(err, "Не удалось отправить картинку");
       } finally {
         setUploading((n) => n - 1);
       }
@@ -191,10 +300,80 @@ export default function MessageView({ showBack = false }: Props) {
   };
 
   const handlePaste = (e: React.ClipboardEvent) => {
+    if (editing) return;
     const files = Array.from(e.clipboardData.files).filter((f) => f.type.startsWith("image/"));
     if (!files.length) return;
     e.preventDefault();
     void handleImages(files);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Escape" && (replyTo || editing)) {
+      e.preventDefault();
+      cancelContext();
+      return;
+    }
+    // ↑ в пустом поле — исправить своё последнее сообщение, как в Telegram.
+    if (e.key === "ArrowUp" && !text && !editing && !inputDisabled) {
+      const last = [...msgs]
+        .reverse()
+        .find((x) => x.sender_id === currentUser?.id && isPlainText(x.payload));
+      if (last) {
+        e.preventDefault();
+        startEdit(last);
+      }
+    }
+  };
+
+  const handleReact = async (msg: Message, emoji: string) => {
+    if (!activeChatId) return;
+    setSendError(null);
+    try {
+      await react(activeChatId, msg.id, toggledReaction(myReaction(reactionsOf(msg), currentUser?.id), emoji));
+    } catch (err) {
+      reportError(err, "Не удалось поставить реакцию");
+    }
+  };
+
+  const handleDelete = async (msg: Message, forAll: boolean) => {
+    if (!activeChatId) return;
+    const question = forAll
+      ? isDirect
+        ? `Удалить сообщение у вас и у ${peer.username}?`
+        : "Удалить сообщение у всех участников?"
+      : "Удалить сообщение только у вас? У остальных оно останется.";
+    if (!window.confirm(question)) return;
+    setSendError(null);
+    try {
+      if (forAll) await deleteMessage(activeChatId, msg.id);
+      else await hideMessage(activeChatId, msg.id);
+    } catch {
+      setSendError("Не удалось удалить сообщение");
+    }
+  };
+
+  const menuActions = (msg: Message): MenuAction[] => {
+    const own = msg.sender_id === currentUser?.id;
+    const plain = isPlainText(msg.payload);
+    const actions: MenuAction[] = [];
+    if (!inputDisabled) actions.push({ label: "Ответить", onClick: () => startReply(msg) });
+    if (own && plain && !inputDisabled) actions.push({ label: "Изменить", onClick: () => startEdit(msg) });
+    if (plain) {
+      actions.push({
+        label: "Копировать текст",
+        onClick: () => void navigator.clipboard?.writeText(msg.payload).catch(() => {}),
+      });
+    }
+    if (canDeleteForAll(msg)) {
+      actions.push({ label: "Удалить у всех", danger: true, onClick: () => void handleDelete(msg, true) });
+    }
+    actions.push({ label: "Удалить у меня", danger: true, onClick: () => void handleDelete(msg, false) });
+    return actions;
+  };
+
+  const handleTextChange = (value: string) => {
+    setText(value);
+    if (activeChatId && !editing && value.trim()) sendChatTyping(activeChatId);
   };
 
   const statusIcon = (status: string) => {
@@ -229,6 +408,12 @@ export default function MessageView({ showBack = false }: Props) {
     return e2eError ?? "E2E недоступно";
   })();
 
+  const typingText = typingIds.length
+    ? isDirect
+      ? "печатает…"
+      : typingLabel(typingIds.map((id) => nameOf(id)))
+    : null;
+
   return (
     <div className={s.root}>
       <div className={s.header}>
@@ -246,19 +431,25 @@ export default function MessageView({ showBack = false }: Props) {
         <div className={s.headerInfo}>
           <span className={s.name}>{peer.username}</span>
           <span className={s.sub}>
-            {isDirect && peerStatus && (
-              <span
-                className={
-                  { online: s.presenceOnline, away: s.presenceAway, busy: s.presenceBusy, none: "" }[
-                    presenceTone(peerPresence) ?? "none"
-                  ]
-                }
-              >
-                {peerStatus} ·{" "}
-              </span>
+            {typingText ? (
+              <span className={m.typing}>{typingText}</span>
+            ) : (
+              <>
+                {isDirect && peerStatus && (
+                  <span
+                    className={
+                      { online: s.presenceOnline, away: s.presenceAway, busy: s.presenceBusy, none: "" }[
+                        presenceTone(peerPresence) ?? "none"
+                      ]
+                    }
+                  >
+                    {peerStatus} ·{" "}
+                  </span>
+                )}
+                {isDirect && <span className={e2eDotClass} />}
+                {subtitle}
+              </>
             )}
-            {isDirect && <span className={e2eDotClass} />}
-            {subtitle}
           </span>
         </div>
         <div className={s.headerActions}>
@@ -324,54 +515,25 @@ export default function MessageView({ showBack = false }: Props) {
       )}
       {sendError && <div className={s.bannerWarning}>{sendError}</div>}
 
-      <div className={s.messages}>
+      <div className={s.messages} ref={listRef}>
         {loadingMessages && <div className={s.hint}>Загрузка...</div>}
-        {msgs.map((msg) => {
-          const isOwn = msg.sender_id === currentUser?.id;
-          const unavailable = msg.payload.startsWith("Сообщение недоступно");
-          const image = unavailable ? null : parseImage(msg.payload);
-          const stickerRef = unavailable ? null : parseSticker(msg.payload);
-          const sticker = stickerRef ? stickersByKey[`${stickerRef.pack}/${stickerRef.id}`] : undefined;
-          // Стикер без пузыря; неизвестный (пак убрали с сервера) — обычной строкой.
-          const asSticker = !!stickerRef && (!!sticker || !stickersLoaded);
-          return (
-            <div
-              key={msg.id}
-              className={
-                asSticker
-                  ? isOwn ? s.ownSticker : s.otherSticker
-                  : `${isOwn ? s.ownBubble : s.otherBubble}${image ? ` ${s.imageBubble}` : ""}`
-              }
-            >
-              {image ? (
-                <ChatImage chatId={msg.chat_id} image={image} />
-              ) : asSticker ? (
-                sticker ? (
-                  <Sticker url={stickerFileUrl(sticker)} emoji={sticker.emoji} size={STICKER_SIZE} mode="loop" />
-                ) : (
-                  <div style={{ width: STICKER_SIZE, height: STICKER_SIZE }} />
-                )
-              ) : stickerRef ? (
-                <span className={s.textMuted}>Стикер недоступен</span>
-              ) : (
-                <span className={unavailable ? s.textMuted : s.text}>
-                  {unavailable ? msg.payload : <LinkifiedText text={msg.payload} linkClassName={s.link} />}
-                </span>
-              )}
-              <span className={s.meta}>
-                {new Date(msg.created_at).toLocaleTimeString("ru", {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                })}
-                {isOwn && (
-                  <span className={statusClass(msg.status)} aria-label={msg.status}>
-                    {statusIcon(msg.status)}
-                  </span>
-                )}
-              </span>
-            </div>
-          );
-        })}
+        {msgs.map((msg) => (
+          <ChatMessage
+            key={msg.id}
+            msg={msg}
+            isOwn={msg.sender_id === currentUser?.id}
+            showAuthor={!isDirect}
+            myId={currentUser?.id}
+            nameOf={nameOf}
+            stickersLoaded={stickersLoaded}
+            stickerOf={(pack, id) => stickersByKey[`${pack}/${id}`]}
+            statusIcon={statusIcon}
+            statusClass={statusClass}
+            onOpenMenu={(x, y) => setMenu({ msg, x, y })}
+            onReact={inputDisabled ? undefined : (emoji) => void handleReact(msg, emoji)}
+            onQuoteClick={(id) => revealMessage(listRef.current, id)}
+          />
+        ))}
         {uploading > 0 && (
           <div className={s.hint}>
             {uploading > 1 ? `Отправка картинок: ${uploading}…` : "Отправка картинки…"}
@@ -387,6 +549,22 @@ export default function MessageView({ showBack = false }: Props) {
           onClose={() => setStickersOpen(false)}
         />
       )}
+      {replyTo && (
+        <ComposerContext
+          kind="reply"
+          title={replyTo.sender_id === currentUser?.id ? "Ответ себе" : `Ответ ${nameOf(replyTo.sender_id)}`}
+          text={messagePreview(replyTo.payload)}
+          onCancel={cancelContext}
+        />
+      )}
+      {editing && (
+        <ComposerContext
+          kind="edit"
+          title="Редактирование"
+          text={editing.payload}
+          onCancel={cancelContext}
+        />
+      )}
       <form className={s.composer} onSubmit={(e) => void handleSend(e)}>
         <button
           type="button"
@@ -394,7 +572,7 @@ export default function MessageView({ showBack = false }: Props) {
           title="Фото"
           aria-label="Отправить картинку"
           onClick={() => fileInputRef.current?.click()}
-          disabled={inputDisabled}
+          disabled={inputDisabled || !!editing}
         >
           <IconPlus size={20} />
         </button>
@@ -412,12 +590,14 @@ export default function MessageView({ showBack = false }: Props) {
         />
         <div className={s.field}>
           <input
+            ref={inputRef}
             className={s.textInput}
             placeholder={
               inputDisabled ? "Ожидание ключей шифрования..." : "Написать сообщение..."
             }
             value={text}
-            onChange={(e) => setText(e.target.value)}
+            onChange={(e) => handleTextChange(e.target.value)}
+            onKeyDown={handleKeyDown}
             onPaste={handlePaste}
             disabled={inputDisabled}
           />
@@ -425,7 +605,7 @@ export default function MessageView({ showBack = false }: Props) {
             type="button"
             className={stickersOpen ? s.stickerBtnActive : s.stickerBtn}
             onClick={() => setStickersOpen((open) => !open)}
-            disabled={inputDisabled}
+            disabled={inputDisabled || !!editing}
             aria-label="Стикеры"
             aria-expanded={stickersOpen}
             title="Стикеры"
@@ -439,9 +619,9 @@ export default function MessageView({ showBack = false }: Props) {
             className={s.sendBtn}
             type="submit"
             disabled={!text.trim() || inputDisabled}
-            aria-label="Отправить"
+            aria-label={editing ? "Сохранить" : "Отправить"}
           >
-            <IconSend size={18} />
+            {editing ? "✓" : <IconSend size={18} />}
           </button>
         ) : (
           <button className={s.micBtn} type="button" title="Голосовые скоро" disabled>
@@ -450,6 +630,22 @@ export default function MessageView({ showBack = false }: Props) {
         )}
       </form>
       </div>
+
+      {menu && (
+        <MessageMenu
+          at={menu}
+          reaction={
+            inputDisabled
+              ? null
+              : {
+                  current: myReaction(reactionsOf(menu.msg), currentUser?.id),
+                  onPick: (emoji) => void handleReact(menu.msg, emoji),
+                }
+          }
+          actions={menuActions(menu.msg)}
+          onClose={closeMenu}
+        />
+      )}
 
       {backgroundOpen && (
         <ChatBackgroundDialog
@@ -470,6 +666,105 @@ export default function MessageView({ showBack = false }: Props) {
           onClose={() => setShowE2ePanel(false)}
         />
       )}
+    </div>
+  );
+}
+
+interface ChatMessageProps {
+  msg: Message;
+  isOwn: boolean;
+  /** В группе над чужим сообщением — имя автора. */
+  showAuthor: boolean;
+  myId: string | undefined;
+  nameOf: (userId: string | null | undefined) => string;
+  stickersLoaded: boolean;
+  stickerOf: (pack: string, id: string) => StickerInfo | undefined;
+  statusIcon: (status: string) => string;
+  statusClass: (status: string) => string;
+  onOpenMenu: (x: number, y: number) => void;
+  onReact?: (emoji: string) => void;
+  onQuoteClick: (messageId: string) => void;
+}
+
+function ChatMessage({
+  msg,
+  isOwn,
+  showAuthor,
+  myId,
+  nameOf,
+  stickersLoaded,
+  stickerOf,
+  statusIcon,
+  statusClass,
+  onOpenMenu,
+  onReact,
+  onQuoteClick,
+}: ChatMessageProps) {
+  const trigger = useMessageMenuTrigger(onOpenMenu);
+  const unavailable = msg.payload.startsWith("Сообщение недоступно");
+  const image = unavailable ? null : parseImage(msg.payload);
+  const stickerRef = unavailable ? null : parseSticker(msg.payload);
+  const sticker = stickerRef ? stickerOf(stickerRef.pack, stickerRef.id) : undefined;
+  // Стикер без пузыря; неизвестный (пак убрали с сервера) — обычной строкой.
+  const asSticker = !!stickerRef && (!!sticker || !stickersLoaded);
+  const groups = groupReactions(reactionsOf(msg), myId);
+
+  const bubbleClass = asSticker
+    ? isOwn ? s.ownSticker : s.otherSticker
+    : `${isOwn ? s.ownBubble : s.otherBubble}${image ? ` ${s.imageBubble}` : ""}`;
+
+  return (
+    <div data-mid={msg.id} className={`${bubbleClass} ${m.menuHost}`} {...trigger}>
+      {showAuthor && !isOwn && <span className={s.author}>{nameOf(msg.sender_id)}</span>}
+      {msg.reply_to && (
+        <ReplyQuote
+          tone={isOwn && !asSticker ? "own" : "other"}
+          author={nameOf(msg.reply_to.sender_id)}
+          text={messagePreview(msg.reply_to.payload)}
+          onClick={() => onQuoteClick(msg.reply_to!.id)}
+        />
+      )}
+      {image ? (
+        <ChatImage chatId={msg.chat_id} image={image} />
+      ) : asSticker ? (
+        sticker ? (
+          <Sticker url={stickerFileUrl(sticker)} emoji={sticker.emoji} size={STICKER_SIZE} mode="loop" />
+        ) : (
+          <div style={{ width: STICKER_SIZE, height: STICKER_SIZE }} />
+        )
+      ) : stickerRef ? (
+        <span className={s.textMuted}>Стикер недоступен</span>
+      ) : (
+        <span className={unavailable ? s.textMuted : s.text}>
+          {unavailable ? msg.payload : <LinkifiedText text={msg.payload} linkClassName={s.link} />}
+        </span>
+      )}
+      <ReactionChips groups={groups} nameOf={nameOf} onToggle={onReact} />
+      <span className={s.meta}>
+        <EditedMark at={msg.edited_at} />
+        {new Date(msg.created_at).toLocaleTimeString("ru", {
+          hour: "2-digit",
+          minute: "2-digit",
+        })}
+        {isOwn && (
+          <span className={statusClass(msg.status)} aria-label={msg.status}>
+            {statusIcon(msg.status)}
+          </span>
+        )}
+      </span>
+      <button
+        type="button"
+        className={m.menuBtn}
+        aria-label="Действия с сообщением"
+        title="Действия"
+        onClick={(e) => {
+          e.stopPropagation();
+          const r = e.currentTarget.getBoundingClientRect();
+          onOpenMenu(r.left, r.bottom + 4);
+        }}
+      >
+        ⌄
+      </button>
     </div>
   );
 }

@@ -24,6 +24,19 @@ export interface Chat {
   members: ChatMember[];
 }
 
+/** Цитата в ответе. В сторе payload уже расшифрован. */
+export interface MessageReply {
+  id: string;
+  sender_id: string | null;
+  payload: string;
+}
+
+/** Реакция участника. В сторе payload — уже расшифрованный эмодзи. */
+export interface MessageReaction {
+  user_id: string;
+  payload: string;
+}
+
 export interface Message {
   id: string;
   chat_id: string;
@@ -31,6 +44,9 @@ export interface Message {
   payload: string;
   status: 'sent' | 'delivered' | 'read';
   created_at: string;
+  edited_at?: string | null;
+  reply_to?: MessageReply | null;
+  reactions?: MessageReaction[];
 }
 
 export interface TokenResponse {
@@ -90,7 +106,14 @@ export type WsEvent =
       payload: string;
       status: string;
       timestamp: string;
+      reply_to?: MessageReply | null;
     }
+  | {type: 'message_edited'; chat_id: string; message_id: string; payload: string; edited_at: string}
+  /** Удалили у всех — или я сам «удалил у меня» на другом устройстве. */
+  | {type: 'message_deleted'; chat_id: string; message_id: string}
+  /** payload null — реакцию сняли. В личных чатах payload зашифрован. */
+  | {type: 'message_reaction'; chat_id: string; message_id: string; user_id: string; payload: string | null}
+  | {type: 'typing'; chat_id: string; user_id: string}
   | {type: 'message_status'; message_id: string; status: string; updated_by: string}
   | {type: 'key_changed'; user_id: string; public_key: string; updated_at: string}
   | {type: 'chat_background'; chat_id: string; background: string | null; changed_by: string}

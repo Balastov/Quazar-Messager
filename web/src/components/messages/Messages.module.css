@@ -1,0 +1,287 @@
+/* Общее для сообщений чатов и Спутников: меню, цитаты, реакции, полоса ответа/правки. */
+
+/* --- Меню сообщения (в body, поверх стеклянных панелей) --- */
+
+.menu {
+  position: fixed;
+  z-index: 80;
+  /* Своя ширина, а не остаток до края экрана — иначе замер для сдвига от края неверен. */
+  width: max-content;
+  min-width: 200px;
+  max-width: calc(100vw - 16px);
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--qz-radius-lg);
+  border: 1px solid var(--qz-glass-border);
+  background: var(--qz-glass-bg-strong);
+  backdrop-filter: var(--qz-glass-filter);
+  -webkit-backdrop-filter: var(--qz-glass-filter);
+  box-shadow: var(--qz-glass-shine), 0 18px 48px rgba(0, 0, 0, 0.5);
+  animation: menuIn 0.12s ease-out;
+}
+
+@keyframes menuIn {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+}
+
+.menuReactions {
+  display: flex;
+  gap: 2px;
+  padding: 2px 2px 6px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--qz-border);
+}
+
+.menuEmoji,
+.menuEmojiActive {
+  width: 34px;
+  height: 34px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  transition: transform 0.12s, background 0.12s;
+}
+
+.menuEmoji:hover {
+  transform: scale(1.18);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.menuEmojiActive {
+  background: rgba(168, 85, 247, 0.35);
+}
+
+.menuItem,
+.menuItemDanger {
+  text-align: left;
+  padding: 9px 12px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--qz-text);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.menuItem:hover,
+.menuItemDanger:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.menuItemDanger {
+  color: var(--qz-danger);
+}
+
+/* Кнопка меню на пузыре — видна при наведении мыши; на телефоне — долгое нажатие. */
+.menuHost {
+  position: relative;
+}
+
+.menuBtn {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 24px;
+  height: 24px;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: rgba(15, 17, 23, 0.55);
+  color: #fff;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+@media (hover: hover) {
+  .menuHost:hover .menuBtn,
+  .menuBtn:focus-visible {
+    display: inline-flex;
+  }
+}
+
+/* Долгое нажатие на телефоне не должно выделять текст и звать системное меню. */
+@media (hover: none) {
+  .menuHost {
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+  }
+}
+
+/* Подсветка сообщения, к которому перешли из цитаты. */
+.flash {
+  animation: flash 1.6s ease-out;
+}
+
+@keyframes flash {
+  0%,
+  30% {
+    box-shadow: 0 0 0 3px rgba(192, 132, 252, 0.85);
+  }
+  100% {
+    box-shadow: 0 0 0 3px rgba(192, 132, 252, 0);
+  }
+}
+
+/* --- Цитата в ответе --- */
+
+.quote,
+.quoteOwn {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  max-width: 100%;
+  padding: 4px 8px;
+  border: none;
+  border-left: 3px solid #c084fc;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.07);
+  color: inherit;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+
+.quoteOwn {
+  border-left-color: rgba(255, 255, 255, 0.85);
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.quoteAuthor {
+  font-size: 12px;
+  font-weight: 600;
+  color: #d8b4fe;
+}
+
+.quoteOwn .quoteAuthor {
+  color: #fff;
+}
+
+.quoteText {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.75);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* --- Реакции --- */
+
+.reactions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.chip,
+.chipMine {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 999px;
+  border: 1px solid var(--qz-border);
+  background: rgba(15, 17, 23, 0.35);
+  color: #fff;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.chipMine {
+  border-color: rgba(216, 180, 254, 0.8);
+  background: rgba(168, 85, 247, 0.4);
+}
+
+.chip:disabled,
+.chipMine:disabled {
+  cursor: default;
+}
+
+.chipCount {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.edited {
+  font-style: italic;
+}
+
+/* --- Полоса «Ответ / Редактирование» над полем ввода --- */
+
+.context {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--qz-border);
+  background: var(--qz-glass-bg);
+  backdrop-filter: var(--qz-glass-filter);
+  -webkit-backdrop-filter: var(--qz-glass-filter);
+}
+
+.contextIcon {
+  flex-shrink: 0;
+  width: 20px;
+  text-align: center;
+  font-size: 16px;
+  color: #c084fc;
+}
+
+.contextBody {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding-left: 8px;
+  border-left: 2px solid #c084fc;
+}
+
+.contextTitle {
+  font-size: 12px;
+  font-weight: 600;
+  color: #d8b4fe;
+}
+
+.contextText {
+  font-size: 13px;
+  color: var(--qz-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.contextClose {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--qz-text-muted);
+  cursor: pointer;
+}
+
+.contextClose:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* «печатает…» */
+.typing {
+  color: #c4b5fd;
+}

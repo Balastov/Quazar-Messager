@@ -147,6 +147,28 @@ async def lifespan(app: FastAPI):
                 "REFERENCES users(id) ON DELETE SET NULL"
             )
         )
+        # Ответы и правки сообщений (таблицы реакций и «удалить у меня» — create_all выше).
+        await conn.execute(
+            text(
+                "ALTER TABLE messages ADD COLUMN IF NOT EXISTS reply_to_id VARCHAR(36) "
+                "REFERENCES messages(id) ON DELETE SET NULL"
+            )
+        )
+        await conn.execute(
+            text("ALTER TABLE messages ADD COLUMN IF NOT EXISTS edited_at TIMESTAMP WITH TIME ZONE")
+        )
+        await conn.execute(
+            text(
+                "ALTER TABLE star_messages ADD COLUMN IF NOT EXISTS reply_to_id VARCHAR(36) "
+                "REFERENCES star_messages(id) ON DELETE SET NULL"
+            )
+        )
+        await conn.execute(
+            text(
+                "ALTER TABLE star_messages ADD COLUMN IF NOT EXISTS "
+                "edited_at TIMESTAMP WITH TIME ZONE"
+            )
+        )
     # Кто сейчас на Планетах — восстанавливаем из LiveKit после перезапуска (в фоне).
     app.state.voice_resync = asyncio.create_task(voice.resync())
     # Неотправленные картинки и файлы удалённых чатов — раз в час.

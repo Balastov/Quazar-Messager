@@ -21,6 +21,21 @@ import { IconAddressBook, IconSearch, IconStar } from "./icons";
 import s from "./ContactsPane.module.css";
 import { messagePreview, useStickersStore } from "../store/stickers";
 import { useContactsStore } from "../store/contacts";
+import { chatTypingKey, useTyping } from "../store/typing";
+import { typingLabel } from "../chat/typing";
+import type { Chat } from "../api/types";
+import m from "./messages/Messages.module.css";
+
+/** Строка под именем чата: последнее сообщение, а пока кто-то набирает — «печатает…». */
+function PreviewLine({ chat, className, children }: { chat: Chat; className: string; children: string }) {
+  const typing = useTyping(chatTypingKey(chat.id));
+  if (!typing.length) return <span className={className}>{children}</span>;
+  const label =
+    chat.type === "group"
+      ? typingLabel(typing.map((id) => chat.members.find((mb) => mb.user.id === id)?.user.username ?? "Кто-то"))
+      : "печатает…";
+  return <span className={`${className} ${m.typing}`}>{label}</span>;
+}
 
 type Filter = "all" | "favorites" | "phonebook";
 
@@ -317,9 +332,9 @@ export default function ContactsPane() {
                 <div className={s.nameRow}>
                   <span className={hasUnread ? s.nameUnread : s.name}>{peer.username}</span>
                 </div>
-                <span className={hasUnread ? s.previewUnread : s.preview}>
+                <PreviewLine chat={chat} className={hasUnread ? s.previewUnread : s.preview}>
                   {lastPreview(chat.id)}
-                </span>
+                </PreviewLine>
               </div>
               <div className={s.aside}>
                 <span className={hasUnread ? s.timeUnread : s.time}>

@@ -458,3 +458,10 @@
 .presenceBusy {
   color: #f87171;
 }
+
+/* Автор чужого сообщения в группе. */
+.author {
+  font-size: 12px;
+  font-weight: 600;
+  color: #d8b4fe;
+}

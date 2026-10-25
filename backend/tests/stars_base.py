@@ -61,7 +61,8 @@ class StarsTestBase(unittest.IsolatedAsyncioTestCase):
 
         async def broadcast(user_ids, event, exclude_user=None):
             for uid in user_ids:
-                self.events.append((uid, event))
+                if uid != exclude_user:
+                    self.events.append((uid, event))
 
         async def send(user_id, event):
             self.events.append((user_id, event))

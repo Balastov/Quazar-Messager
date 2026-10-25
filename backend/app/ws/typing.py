@@ -1,0 +1,93 @@
+"""«Печатает…» в чатах и Спутниках.
+
+Клиент, пока набирает текст, шлёт {"type": "typing", "chat_id"} или
+{"type": "typing", "star_id", "channel_id"} — не чаще раза в 3 с. Остальные участники
+получают typing / star_typing и показывают подпись ~5 с после последнего события.
+Ничего не хранится: только рассылка тем, кто сейчас на связи.
+"""
+
+import time
+
+from sqlalchemy import select
+
+from app.core.database import AsyncSessionLocal
+from app.models.chat import ChatMember
+from app.models.star import StarChannel, StarMember
+from app.ws.hub import manager
+
+# Чаще этого одному человеку в одно место не рассылаем, сколько бы клиент ни слал.
+THROTTLE_SEC = 2.0
+_MAX_TRACKED = 10_000
+
+session_factory = AsyncSessionLocal
+_last_sent: dict[tuple[str, str], float] = {}
+
+
+def _allow(user_id: str, target: str) -> bool:
+    now = time.monotonic()
+    key = (user_id, target)
+    if now - _last_sent.get(key, 0.0) < THROTTLE_SEC:
+        return False
+    if len(_last_sent) >= _MAX_TRACKED:
+        for k, at in list(_last_sent.items()):
+            if now - at >= THROTTLE_SEC:
+                del _last_sent[k]
+    _last_sent[key] = now
+    return True
+
+
+def reset() -> None:
+    _last_sent.clear()
+
+
+async def handle_typing(data: dict, user_id: str) -> None:
+    chat_id = data.get("chat_id")
+    star_id = data.get("star_id")
+    channel_id = data.get("channel_id")
+    if isinstance(chat_id, str) and chat_id:
+        await _chat_typing(chat_id, user_id)
+    elif isinstance(star_id, str) and star_id and isinstance(channel_id, str) and channel_id:
+        await _star_typing(star_id, channel_id, user_id)
+
+
+async def _chat_typing(chat_id: str, user_id: str) -> None:
+    if not _allow(user_id, chat_id):
+        return
+    async with session_factory() as db:
+        member_ids = (
+            await db.execute(select(ChatMember.user_id).where(ChatMember.chat_id == chat_id))
+        ).scalars().all()
+    if user_id not in member_ids:
+        return
+    await manager.broadcast_to_users(
+        list(member_ids),
+        {"type": "typing", "chat_id": chat_id, "user_id": user_id},
+        exclude_user=user_id,
+    )
+
+
+async def _star_typing(star_id: str, channel_id: str, user_id: str) -> None:
+    if not _allow(user_id, channel_id):
+        return
+    async with session_factory() as db:
+        channel = (
+            await db.execute(
+                select(StarChannel.id).where(
+                    StarChannel.id == channel_id,
+                    StarChannel.star_id == star_id,
+                    StarChannel.kind == "satellite",
+                )
+            )
+        ).first()
+        if not channel:
+            return
+        member_ids = (
+            await db.execute(select(StarMember.user_id).where(StarMember.star_id == star_id))
+        ).scalars().all()
+    if user_id not in member_ids:
+        return
+    await manager.broadcast_to_users(
+        list(member_ids),
+        {"type": "star_typing", "star_id": star_id, "channel_id": channel_id, "user_id": user_id},
+        exclude_user=user_id,
+    )

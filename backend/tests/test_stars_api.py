@@ -11,11 +11,14 @@ from app.schemas.star import (
     CreateChannel,
     CreateInvite,
     CreateStar,
+    EditStarMessage,
     SendStarMessage,
+    SetStarReaction,
     TransferStar,
     UpdateMemberRole,
     UpdateRolePermissions,
 )
+from app.ws import typing as typing_signals
 from tests.stars_base import StarsTestBase
 
 
@@ -186,6 +189,70 @@ class StarsApiTest(StarsTestBase):
         recipients = {uid for uid, e in self.events if e["type"] == "star_message"}
         expected = {self.users[n].id for n in ("owner", "admin", "mod", "alice", "bob")}
         self.assertEqual(recipients, expected)
+
+    async def test_reply_quotes_original_and_survives_its_deletion(self):
+        star = await self.star_with_roles()
+        satellite = next(c for c in star.channels if c.kind == "satellite")
+        original = await self.call(api.send_message, star.id, satellite.id, SendStarMessage(text="кто в рейд?"), user="alice")
+        answer = await self.call(
+            api.send_message, star.id, satellite.id,
+            SendStarMessage(text="я", reply_to_id=original.id), user="bob",
+        )
+        self.assertEqual((answer.reply_to.text, answer.reply_to.sender.username), ("кто в рейд?", "alice"))
+        await self.expect_error(
+            422, api.send_message, star.id, satellite.id,
+            SendStarMessage(text="x", reply_to_id="нет-такого"), user="bob",
+        )
+
+        await self.call(api.delete_message, star.id, satellite.id, original.id, user="alice")
+        history = await self.call(api.list_messages, star.id, satellite.id, user="bob", limit=50, before_id=None)
+        self.assertEqual([(m.text, m.reply_to) for m in history], [("я", None)])
+
+    async def test_only_sender_edits_message(self):
+        star = await self.star_with_roles()
+        satellite = next(c for c in star.channels if c.kind == "satellite")
+        msg = await self.call(api.send_message, star.id, satellite.id, SendStarMessage(text="првиет"), user="alice")
+        # Даже владелец чужое не правит — только удаляет.
+        await self.expect_error(403, api.edit_message, star.id, satellite.id, msg.id, EditStarMessage(text="x"), user="owner")
+
+        self.events.clear()
+        out = await self.call(api.edit_message, star.id, satellite.id, msg.id, EditStarMessage(text="привет"), user="alice")
+        self.assertEqual(out.text, "привет")
+        self.assertIsNotNone(out.edited_at)
+        edited = [e for _, e in self.events if e["type"] == "star_message_edited"]
+        self.assertEqual(len(edited), 5)
+        self.assertEqual(edited[0]["text"], "привет")
+        with self.assertRaises(ValidationError):
+            EditStarMessage(text="   ")
+
+    async def test_reactions_one_per_member_from_the_set(self):
+        star = await self.star_with_roles()
+        satellite = next(c for c in star.channels if c.kind == "satellite")
+        msg = await self.call(api.send_message, star.id, satellite.id, SendStarMessage(text="гг"), user="alice")
+        await self.call(api.set_reaction, star.id, satellite.id, msg.id, SetStarReaction(emoji="👍"), user="bob")
+        await self.call(api.set_reaction, star.id, satellite.id, msg.id, SetStarReaction(emoji="🔥"), user="bob")
+        await self.call(api.set_reaction, star.id, satellite.id, msg.id, SetStarReaction(emoji="🔥"), user="mod")
+        await self.call(api.remove_reaction, star.id, satellite.id, msg.id, user="mod")
+        await self.expect_error(404, api.set_reaction, star.id, satellite.id, msg.id, SetStarReaction(emoji="👍"), user="carol")
+        with self.assertRaises(ValidationError):
+            SetStarReaction(emoji="лол")
+
+        history = await self.call(api.list_messages, star.id, satellite.id, user="owner", limit=50, before_id=None)
+        self.assertEqual([(r.user_id, r.emoji) for r in history[0].reactions], [(self.users["bob"].id, "🔥")])
+
+    async def test_typing_in_satellite_reaches_other_members(self):
+        star = await self.star_with_roles()
+        satellite = next(c for c in star.channels if c.kind == "satellite")
+        planet = next(c for c in star.channels if c.kind == "planet")
+        typing_signals.reset()
+        self.addCleanup(typing_signals.reset)
+        self.events.clear()
+        with mock.patch.object(typing_signals, "session_factory", self.Session):
+            await typing_signals.handle_typing({"star_id": star.id, "channel_id": satellite.id}, self.users["alice"].id)
+            await typing_signals.handle_typing({"star_id": star.id, "channel_id": planet.id}, self.users["alice"].id)
+            await typing_signals.handle_typing({"star_id": star.id, "channel_id": satellite.id}, self.users["carol"].id)
+        recipients = {uid for uid, e in self.events if e["type"] == "star_typing"}
+        self.assertEqual(recipients, {self.users[n].id for n in ("owner", "admin", "mod", "bob")})
 
 
 if __name__ == "__main__":

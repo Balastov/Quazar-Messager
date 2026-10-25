@@ -4,11 +4,13 @@
 """
 
 import secrets
+from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from sqlalchemy import delete, func, or_, select
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import stars as rules
@@ -26,15 +28,25 @@ from app.core import voice
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.core.stars import Perm
-from app.models.star import Star, StarBan, StarChannel, StarInvite, StarMember, StarMessage
+from app.models.star import (
+    Star,
+    StarBan,
+    StarChannel,
+    StarInvite,
+    StarMember,
+    StarMessage,
+    StarMessageReaction,
+)
 from app.models.user import User
 from app.schemas.star import (
     CreateChannel,
     CreateInvite,
     CreateStar,
+    EditStarMessage,
     InvitePreviewOut,
     ReorderChannels,
     SendStarMessage,
+    SetStarReaction,
     StarBanOut,
     StarChannelOut,
     StarDetailOut,
@@ -43,6 +55,8 @@ from app.schemas.star import (
     StarLimitsOut,
     StarMemberOut,
     StarMessageOut,
+    StarReactionOut,
+    StarReplyOut,
     StarSummaryOut,
     StarUserOut,
     TransferStar,
@@ -842,15 +856,58 @@ async def _satellite(db: AsyncSession, star_id: str, channel_id: str) -> StarCha
     return channel
 
 
-def _message_out(message: StarMessage, sender: User | None) -> StarMessageOut:
-    return StarMessageOut(
-        id=message.id,
-        star_id=message.star_id,
-        channel_id=message.channel_id,
-        sender=_user_out(sender) if sender else None,
-        text=message.text,
-        created_at=message.created_at,
-    )
+async def _messages_out(
+    db: AsyncSession, rows: list[tuple[StarMessage, User | None]]
+) -> list[StarMessageOut]:
+    """Сообщения с цитатами ответов и реакциями — двумя запросами на всю страницу."""
+    reply_ids = {m.reply_to_id for m, _ in rows if m.reply_to_id}
+    replies: dict[str, StarReplyOut] = {}
+    if reply_ids:
+        reply_rows = await db.execute(
+            select(StarMessage, User)
+            .outerjoin(User, User.id == StarMessage.sender_id)
+            .where(StarMessage.id.in_(reply_ids))
+        )
+        replies = {
+            m.id: StarReplyOut(id=m.id, sender=_user_out(u) if u else None, text=m.text)
+            for m, u in reply_rows.all()
+        }
+
+    reactions: dict[str, list[StarReactionOut]] = defaultdict(list)
+    if rows:
+        reaction_rows = await db.execute(
+            select(StarMessageReaction)
+            .where(StarMessageReaction.message_id.in_([m.id for m, _ in rows]))
+            .order_by(StarMessageReaction.created_at)
+        )
+        for r in reaction_rows.scalars():
+            reactions[r.message_id].append(StarReactionOut(user_id=r.user_id, emoji=r.emoji))
+
+    return [
+        StarMessageOut(
+            id=m.id,
+            star_id=m.star_id,
+            channel_id=m.channel_id,
+            sender=_user_out(u) if u else None,
+            text=m.text,
+            created_at=m.created_at,
+            edited_at=m.edited_at,
+            reply_to=replies.get(m.reply_to_id) if m.reply_to_id else None,
+            reactions=reactions[m.id],
+        )
+        for m, u in rows
+    ]
+
+
+async def _star_message(db: AsyncSession, star_id: str, channel_id: str, message_id: str) -> StarMessage:
+    message = (
+        await db.execute(
+            select(StarMessage).where(StarMessage.id == message_id, StarMessage.channel_id == channel_id)
+        )
+    ).scalar_one_or_none()
+    if not message or message.star_id != star_id:
+        raise HTTPException(status_code=404, detail="Сообщение не найдено")
+    return message
 
 
 @router.get("/{star_id}/channels/{channel_id}/messages", response_model=list[StarMessageOut])
@@ -877,7 +934,7 @@ async def list_messages(
         if cursor:
             query = query.where(StarMessage.created_at < cursor)
     rows = (await db.execute(query.order_by(StarMessage.created_at.desc()).limit(limit))).all()
-    return [_message_out(m, u) for m, u in reversed(rows)]
+    return await _messages_out(db, [(m, u) for m, u in reversed(rows)])
 
 
 @router.post(
@@ -890,14 +947,117 @@ async def send_message(
 ):
     await _load_membership(db, star_id, current_user.id)
     await _satellite(db, star_id, channel_id)
+    if body.reply_to_id:
+        try:
+            await _star_message(db, star_id, channel_id, body.reply_to_id)
+        except HTTPException:
+            raise HTTPException(status_code=422, detail="Сообщение для ответа не найдено") from None
     message = StarMessage(
-        star_id=star_id, channel_id=channel_id, sender_id=current_user.id, text=body.text
+        star_id=star_id,
+        channel_id=channel_id,
+        sender_id=current_user.id,
+        text=body.text,
+        reply_to_id=body.reply_to_id,
     )
     db.add(message)
     await db.commit()
-    out = _message_out(message, current_user)
+    out = (await _messages_out(db, [(message, current_user)]))[0]
     await _broadcast(db, star_id, {"type": "star_message", "message": out.model_dump(mode="json")})
     return out
+
+
+@router.patch("/{star_id}/channels/{channel_id}/messages/{message_id}", response_model=StarMessageOut)
+async def edit_message(
+    star_id: str,
+    channel_id: str,
+    message_id: str,
+    body: EditStarMessage,
+    current_user: CurrentUser,
+    db: Db,
+):
+    """Исправить можно только своё сообщение — модераторам доступно лишь удаление."""
+    await _load_membership(db, star_id, current_user.id)
+    message = await _star_message(db, star_id, channel_id, message_id)
+    if message.sender_id != current_user.id:
+        raise _forbid("Исправить можно только своё сообщение")
+    message.text = body.text
+    message.edited_at = _now()
+    await db.commit()
+    await _broadcast(
+        db,
+        star_id,
+        {
+            "type": "star_message_edited",
+            "channel_id": channel_id,
+            "message_id": message_id,
+            "text": message.text,
+            "edited_at": message.edited_at.isoformat(),
+        },
+    )
+    return (await _messages_out(db, [(message, current_user)]))[0]
+
+
+@router.put(
+    "/{star_id}/channels/{channel_id}/messages/{message_id}/reaction",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def set_reaction(
+    star_id: str,
+    channel_id: str,
+    message_id: str,
+    body: SetStarReaction,
+    current_user: CurrentUser,
+    db: Db,
+):
+    """Поставить или сменить свою реакцию (одна на человека)."""
+    await _load_membership(db, star_id, current_user.id)
+    await _star_message(db, star_id, channel_id, message_id)
+    now = _now()
+    await db.execute(
+        insert(StarMessageReaction)
+        .values(message_id=message_id, user_id=current_user.id, emoji=body.emoji, created_at=now)
+        .on_conflict_do_update(
+            index_elements=[StarMessageReaction.message_id, StarMessageReaction.user_id],
+            set_={"emoji": body.emoji, "created_at": now},
+        )
+    )
+    await db.commit()
+    await _broadcast_reaction(db, star_id, channel_id, message_id, current_user.id, body.emoji)
+
+
+@router.delete(
+    "/{star_id}/channels/{channel_id}/messages/{message_id}/reaction",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def remove_reaction(
+    star_id: str, channel_id: str, message_id: str, current_user: CurrentUser, db: Db
+):
+    await _load_membership(db, star_id, current_user.id)
+    await _star_message(db, star_id, channel_id, message_id)
+    await db.execute(
+        delete(StarMessageReaction).where(
+            StarMessageReaction.message_id == message_id,
+            StarMessageReaction.user_id == current_user.id,
+        )
+    )
+    await db.commit()
+    await _broadcast_reaction(db, star_id, channel_id, message_id, current_user.id, None)
+
+
+async def _broadcast_reaction(
+    db: AsyncSession, star_id: str, channel_id: str, message_id: str, user_id: str, emoji: str | None
+) -> None:
+    await _broadcast(
+        db,
+        star_id,
+        {
+            "type": "star_message_reaction",
+            "channel_id": channel_id,
+            "message_id": message_id,
+            "user_id": user_id,
+            "emoji": emoji,
+        },
+    )
 
 
 @router.delete(
@@ -907,13 +1067,7 @@ async def delete_message(
     star_id: str, channel_id: str, message_id: str, current_user: CurrentUser, db: Db
 ):
     star, me = await _load_membership(db, star_id, current_user.id)
-    message = (
-        await db.execute(
-            select(StarMessage).where(StarMessage.id == message_id, StarMessage.channel_id == channel_id)
-        )
-    ).scalar_one_or_none()
-    if not message or message.star_id != star_id:
-        raise HTTPException(status_code=404, detail="Сообщение не найдено")
+    message = await _star_message(db, star_id, channel_id, message_id)
 
     sender_role = None
     if message.sender_id:

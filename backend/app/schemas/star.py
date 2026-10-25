@@ -3,6 +3,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
+from app.core.reactions import REACTIONS
 from app.core.stars import MAX_MESSAGE_LENGTH, PLANET_MAX_CAPACITY, ROOM_KINDS
 
 StarKind = Literal["gaming", "work"]
@@ -107,7 +108,7 @@ class ReorderChannels(BaseModel):
     channel_ids: list[str]
 
 
-class SendStarMessage(BaseModel):
+class _StarText(BaseModel):
     text: str = Field(min_length=1, max_length=MAX_MESSAGE_LENGTH)
 
     @field_validator("text")
@@ -115,6 +116,26 @@ class SendStarMessage(BaseModel):
     def _text(cls, v: str) -> str:
         if not v.strip():
             raise ValueError("Сообщение не может быть пустым")
+        return v
+
+
+class SendStarMessage(_StarText):
+    # Ответ на сообщение этого же Спутника.
+    reply_to_id: str | None = None
+
+
+class EditStarMessage(_StarText):
+    pass
+
+
+class SetStarReaction(BaseModel):
+    emoji: str
+
+    @field_validator("emoji")
+    @classmethod
+    def _emoji(cls, v: str) -> str:
+        if v not in REACTIONS:
+            raise ValueError("Такой реакции нет")
         return v
 
 
@@ -196,6 +217,19 @@ class StarDetailOut(StarSummaryOut):
     floors: list[StarFloorOut] = []
 
 
+class StarReplyOut(BaseModel):
+    """Цитата в ответе."""
+
+    id: str
+    sender: StarUserOut | None
+    text: str
+
+
+class StarReactionOut(BaseModel):
+    user_id: str
+    emoji: str
+
+
 class StarMessageOut(BaseModel):
     id: str
     star_id: str
@@ -203,6 +237,9 @@ class StarMessageOut(BaseModel):
     sender: StarUserOut | None
     text: str
     created_at: datetime
+    edited_at: datetime | None = None
+    reply_to: StarReplyOut | None = None
+    reactions: list[StarReactionOut] = []
 
 
 class StarInviteOut(BaseModel):

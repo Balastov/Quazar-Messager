@@ -18,10 +18,12 @@ const MAX_H = 320;
 interface Props {
   chatId: string;
   image: ImageRef;
+  /** Долгое нажатие — меню сообщения (ответить, удалить…). */
+  onLongPress?: () => void;
 }
 
 /** Картинка из сообщения: скачивает шифротекст, расшифровывает, по нажатию — на весь экран. */
-export default function ChatImage({chatId, image}: Props) {
+export default function ChatImage({chatId, image, onLongPress}: Props) {
   const [uri, setUri] = useState<string | null>(null);
   const [failed, setFailed] = useState<'expired' | 'error' | null>(null);
   const [open, setOpen] = useState(false);
@@ -58,6 +60,8 @@ export default function ChatImage({chatId, image}: Props) {
     <>
       <Pressable
         onPress={() => uri && setOpen(true)}
+        onLongPress={onLongPress}
+        delayLongPress={350}
         style={[s.box, {width: box.width, height: box.height}]}
         accessibilityRole="imagebutton"
         accessibilityLabel="Открыть картинку">

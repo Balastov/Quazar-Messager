@@ -6,8 +6,10 @@
  * noiseSuppression браузера не берёт. Если что-то не поддерживается, create() вернёт null
  * и звонок пойдёт со встроенной обработкой браузера.
  *
- * В некоторых браузерах (замечено в Safari и Яндекс Браузере) модуль RNNoise внутри
- * AudioWorklet может молча не запуститься и выдавать нули. Поэтому сторож тишины сравнивает
+ * RNNoise — это WebAssembly внутри AudioWorklet, поэтому в CSP нужен 'wasm-unsafe-eval'
+ * (index.html, vite.config.ts): без него модуль молча не компилируется и выдаёт нули.
+ *
+ * Если модуль всё же не запустился (бывает в отдельных браузерах), сторож тишины сравнивает
  * уровень до и после RNNoise и при «речь есть, а на выходе тишина» вызывает onFailed:
  * звонок переключается на обычный микрофон, а устройство запоминается как неподходящее.
  */
@@ -16,8 +18,11 @@ import wasmUrl from "@sapphi-red/web-noise-suppressor/rnnoise.wasm?url";
 import simdWasmUrl from "@sapphi-red/web-noise-suppressor/rnnoise_simd.wasm?url";
 
 const PREF_KEY = "quazar_noise_suppression";
-/** RNNoise на этом устройстве уже выдавал тишину — не пробуем, пока человек сам не включит снова. */
-const UNSUPPORTED_KEY = "quazar_noise_suppression_failed";
+/**
+ * RNNoise на этом устройстве уже выдавал тишину — не пробуем, пока человек сам не включит снова.
+ * v2: до исправления CSP отметку получили все устройства — старую не учитываем.
+ */
+const UNSUPPORTED_KEY = "quazar_noise_suppression_failed_v2";
 /** RNNoise работает только на 48 кГц. */
 const SAMPLE_RATE = 48_000;
 const RESUME_TIMEOUT_MS = 1500;

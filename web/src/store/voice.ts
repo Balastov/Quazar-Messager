@@ -47,6 +47,7 @@ import {
 import { useCallStore } from "./call";
 import { roomWords, type RoomWords } from "../components/constellation/words";
 import { playStarSound } from "../sounds/starSounds";
+import { SpeakingMonitor } from "../voice/speaking";
 
 export type VoiceStatus = "idle" | "connecting" | "connected" | "reconnecting";
 
@@ -165,6 +166,8 @@ let unwatchPlanet: (() => void) | null = null;
 let stoppingScreen = false;
 /** Мы сами вышли — не показываем «связь прервалась». */
 let leavingOnPurpose = false;
+/** Кто говорит — меряем в браузере (сервер сообщает со сглаживанием, заметно позже). */
+let speakingMonitor: SpeakingMonitor | null = null;
 
 /** Звук собеседника, который сейчас играет: по sid трека. */
 interface PlayedAudio {
@@ -230,7 +233,10 @@ function peerOf(p: Participant, isLocal: boolean): VoicePeer {
     userId: p.identity,
     name: p.name || p.identity,
     isLocal,
-    speaking: p.isSpeaking,
+    // Есть своя дорожка микрофона — свой замер; нет (например, только звук экрана) — сервер.
+    speaking: speakingMonitor?.measures(p.identity)
+      ? speakingMonitor.isSpeaking(p.identity)
+      : p.isSpeaking,
     micOn: p.isMicrophoneEnabled,
     screenSharing: p.isScreenShareEnabled,
   };
@@ -389,9 +395,23 @@ export const useVoiceStore = create<VoiceState>((set, get) => {
     });
   }
 
+  /** Микрофонные дорожки в комнате, которые сейчас звучат: userId → дорожка. */
+  function micTracks(r: Room): Map<string, MediaStreamTrack> {
+    const out = new Map<string, MediaStreamTrack>();
+    const participants = [r.localParticipant, ...r.remoteParticipants.values()];
+    for (const p of participants) {
+      const pub = p.getTrackPublication(lk!.Track.Source.Microphone);
+      const track = pub?.track?.mediaStreamTrack;
+      if (track && !pub.isMuted) out.set(p.identity, track);
+    }
+    return out;
+  }
+
   async function cleanup(notice: string | null = null) {
     const r = room;
     room = null;
+    speakingMonitor?.stop();
+    speakingMonitor = null;
     unwatchPlanet?.();
     unwatchPlanet = null;
     if (r) {
@@ -666,6 +686,8 @@ export const useVoiceStore = create<VoiceState>((set, get) => {
         const { url, token } = await starsApi.joinPlanet(starId, channelId);
         room = r;
         wire(r, lk);
+        speakingMonitor = new SpeakingMonitor(() => micTracks(r), syncPeers);
+        speakingMonitor.start();
         await r.connect(url, token);
       } catch (err) {
         await cleanup();

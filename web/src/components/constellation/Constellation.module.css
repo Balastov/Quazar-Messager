@@ -1043,6 +1043,7 @@
 }
 
 .presenceDot {
+  transition: box-shadow 0.12s;
   width: 22px;
   height: 22px;
   flex-shrink: 0;
@@ -1054,6 +1055,13 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
+}
+
+/* Говорит — зелёное кольцо, как вокруг аватара на экране Планеты. */
+.presenceDotSpeaking {
+  box-shadow:
+    0 0 0 2px var(--qz-online),
+    0 0 10px rgba(52, 211, 153, 0.55);
 }
 
 .presenceName {

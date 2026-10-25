@@ -3,6 +3,7 @@ import { useDoorsStore } from "../../store/doors";
 import { sortChannels, useStarsStore } from "../../store/stars";
 import { IconContacts, IconGear, IconPlanet, IconSatellite } from "../icons";
 import { usePresenceStore } from "../../store/presence";
+import { useVoiceStore } from "../../store/voice";
 import { can, GAMING_LIMITS, initials, KIND_LABEL, ROLE_LABEL } from "./rules";
 import { VoiceBar } from "./VoiceBar";
 import { placeNouns, roomWords } from "./words";
@@ -40,6 +41,15 @@ export default function ChannelSidebar({
     (st) => detail.members.filter((m) => st.byId[m.user.id]?.online).length
   );
   const unread = useStarsStore((st) => st.unread);
+  // Кто говорит — знаем только на той Планете, где мы сами (голос идёт через нас).
+  const voiceChannelId = useVoiceStore((st) => (st.status === "idle" ? null : st.channelId));
+  const speakingKey = useVoiceStore((st) =>
+    st.peers
+      .filter((p) => p.speaking && p.micOn)
+      .map((p) => p.userId)
+      .join(",")
+  );
+  const speaking = new Set(speakingKey ? speakingKey.split(",") : []);
   const channels = sortChannels(detail.channels);
   const manage = can(detail, "manage_channels");
 
@@ -115,9 +125,15 @@ export default function ChannelSidebar({
                   {inside.map((p) => {
                     const name =
                       detail.members.find((m) => m.user.id === p.user_id)?.user.username ?? "Участник";
+                    const talking = c.id === voiceChannelId && speaking.has(p.user_id);
                     return (
                       <div key={p.user_id} className={s.presenceRow}>
-                        <span className={s.presenceDot}>{initials(name)}</span>
+                        <span
+                          className={talking ? `${s.presenceDot} ${s.presenceDotSpeaking}` : s.presenceDot}
+                          aria-label={talking ? `${name} говорит` : undefined}
+                        >
+                          {initials(name)}
+                        </span>
                         <span className={s.presenceName}>{name}</span>
                         {p.is_host && c.access === "invite" && c.room_kind !== "lobby" && (
                           <span title="Главный в комнате: впускает и зовёт">👑</span>

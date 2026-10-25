@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { stickersApi, type StickerInfo, type StickerPack } from "../api/stickers";
 import { parseSticker, stickerPreview } from "../stickers/format";
 import { IMAGE_PREVIEW, parseImage } from "../attachments/image";
+import { parseVoice, voicePreview } from "../attachments/voice";
 
 interface StickersState {
   packs: StickerPack[];
@@ -37,9 +38,11 @@ export function findSticker(pack: string, id: string): StickerInfo | undefined {
   return useStickersStore.getState().byKey[`${pack}/${id}`];
 }
 
-/** Текст сообщения для превью: стикер → «Стикер 😂», остальное как есть. */
+/** Текст сообщения для превью: стикер → «Стикер 😂», голосовое → «🎤 Голосовое 0:12». */
 export function messagePreview(payload: string): string {
   if (parseImage(payload)) return IMAGE_PREVIEW;
+  const voice = parseVoice(payload);
+  if (voice) return voicePreview(voice);
   const ref = parseSticker(payload);
   if (!ref) return payload;
   return stickerPreview(findSticker(ref.pack, ref.id)?.emoji);

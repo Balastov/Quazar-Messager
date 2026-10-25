@@ -31,6 +31,7 @@ import {usePresenceText} from '../store/presence';
 import ChatImage from '../components/ChatImage';
 import {MAX_IMAGE_BYTES, parseImage} from '../attachments/image';
 import {loadImageUri} from '../attachments/cache';
+import {parseVoice, voicePreview} from '../attachments/voice';
 import MessageActions, {type MessageAction} from '../components/MessageActions';
 import {groupReactions, myReaction, toggledReaction} from '../chat/reactions';
 
@@ -41,6 +42,10 @@ const NO_TYPING: string[] = [];
 function previewOf(payload: string, stickerEmoji: (pack: string, id: string) => string | undefined) {
   if (parseImage(payload)) {
     return '📷 Фото';
+  }
+  const voice = parseVoice(payload);
+  if (voice) {
+    return voicePreview(voice);
   }
   const ref = parseSticker(payload);
   if (ref) {
@@ -448,7 +453,10 @@ export default function ChatScreen({route, navigation}: Props) {
   const actionsFor = (msg: Message): MessageAction[] => {
     const own = msg.sender_id === currentUser?.id;
     const plain =
-      !parseImage(msg.payload) && !parseSticker(msg.payload) && !isUnreadable(msg.payload);
+      !parseImage(msg.payload) &&
+      !parseVoice(msg.payload) &&
+      !parseSticker(msg.payload) &&
+      !isUnreadable(msg.payload);
     const actions: MessageAction[] = [{label: 'Ответить', onPress: () => startReply(msg)}];
     if (own && plain) {
       actions.push({label: 'Изменить', onPress: () => startEdit(msg)});
@@ -489,7 +497,8 @@ export default function ChatScreen({route, navigation}: Props) {
   const renderItem = ({item}: {item: Message}) => {
     const isOwn = item.sender_id === currentUser?.id;
     const image = parseImage(item.payload);
-    const ref = image ? null : parseSticker(item.payload);
+    const voice = image ? null : parseVoice(item.payload);
+    const ref = image || voice ? null : parseSticker(item.payload);
     const sticker = ref ? stickersByKey[`${ref.pack}/${ref.id}`] : undefined;
     // Стикер без пузыря; неизвестный (пак убрали с сервера) — строкой в пузыре.
     const asSticker = !!ref && (!!sticker || !stickersLoaded);
@@ -523,6 +532,8 @@ export default function ChatScreen({route, navigation}: Props) {
         )}
         {image ? (
           <ChatImage chatId={item.chat_id} image={image} onLongPress={openActions} />
+        ) : voice ? (
+          <Text style={s.textMuted}>{voicePreview(voice)} — послушайте в веб-версии</Text>
         ) : asSticker ? (
           sticker ? (
             <Sticker sticker={sticker} size={STICKER_SIZE} animate />

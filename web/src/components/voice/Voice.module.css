@@ -1,0 +1,188 @@
+/* --- Голосовое в пузыре --- */
+
+.voice,
+.ownVoice {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: min(280px, 62vw);
+}
+
+.play {
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #c084fc, #7c3aed);
+  color: #fff;
+  cursor: pointer;
+}
+
+.ownVoice .play {
+  background: #fff;
+  color: #7c3aed;
+}
+
+.play:disabled {
+  cursor: progress;
+}
+
+.spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.wave {
+  height: 28px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  cursor: pointer;
+}
+
+.bar,
+.barPlayed {
+  flex: 1;
+  min-width: 2px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.35);
+}
+
+.barPlayed {
+  background: #d8b4fe;
+}
+
+.ownVoice .barPlayed {
+  background: #fff;
+}
+
+.info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.speed {
+  padding: 1px 6px;
+  border: none;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.failed {
+  font-size: 13px;
+  font-style: italic;
+  color: rgba(255, 255, 255, 0.65);
+}
+
+/* --- Полоса записи вместо поля ввода --- */
+
+.recorder {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 44px;
+}
+
+.cancel {
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--qz-text-muted);
+  font-size: 16px;
+  cursor: pointer;
+}
+
+.cancel:hover {
+  color: #fff;
+  background: rgba(248, 113, 113, 0.3);
+}
+
+.recDot {
+  flex-shrink: 0;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #f87171;
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.3;
+  }
+}
+
+.recTime {
+  flex-shrink: 0;
+  min-width: 36px;
+  font-variant-numeric: tabular-nums;
+  font-size: 14px;
+  color: var(--qz-text);
+}
+
+.liveWave {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
+  overflow: hidden;
+}
+
+.liveBar {
+  flex-shrink: 0;
+  width: 3px;
+  border-radius: 2px;
+  background: #c084fc;
+}
+
+.send {
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #c084fc, #7c3aed);
+  color: #fff;
+  box-shadow: var(--qz-accent-glow);
+  cursor: pointer;
+}

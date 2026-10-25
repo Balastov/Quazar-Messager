@@ -7,11 +7,14 @@ import {
   detectImageMime,
   encodeImage,
   encryptFile,
+  MAX_IMAGE_BYTES,
   parseImage,
   type ImageRef,
 } from "../attachments/image";
 import { MAX_SOURCE_BYTES, prepareImage } from "../attachments/compress";
-import { seedImageUrl } from "../attachments/cache";
+import { seedImageUrl, seedVoiceUrl } from "../attachments/cache";
+import { encodeVoice } from "../attachments/voice";
+import type { Recording } from "../voice/recorder";
 import { socket } from "../ws/socket";
 import { E2EError } from "../crypto/errors";
 import {
@@ -85,6 +88,8 @@ interface ChatState {
   ) => Promise<void>;
   /** Бросает AttachmentError (или E2EError) с текстом для пользователя. */
   sendImage: (chatId: string, file: File, replyToId?: string) => Promise<void>;
+  /** Записанное голосовое: зашифровать, загрузить и отправить. */
+  sendVoice: (chatId: string, recording: Recording, replyToId?: string) => Promise<void>;
   /** Исправить свой текст; в личных чатах — зашифровать заново. */
   editMessage: (chatId: string, messageId: string, plaintext: string) => Promise<void>;
   /** Удалить у всех. */
@@ -636,6 +641,24 @@ export const useChatStore = create<ChatState>((set, get) => {
     sendImage: async (chatId, file, replyToId) => {
       const ref = await uploadChatImage(chatId, file);
       await get().sendMessage(chatId, encodeImage(ref), ref.id, replyToId);
+    },
+
+    sendVoice: async (chatId, recording, replyToId) => {
+      if (recording.bytes.length > MAX_IMAGE_BYTES) {
+        throw new AttachmentError("Голосовое больше 10 МБ — такое не отправить");
+      }
+      const { blob, key } = encryptFile(recording.bytes);
+      const { id } = await attachmentsApi.upload(chatId, blob);
+      seedVoiceUrl(id, recording.bytes, recording.mime);
+      const payload = encodeVoice({
+        id,
+        key,
+        mime: recording.mime,
+        dur: recording.dur,
+        size: recording.bytes.length,
+        wave: recording.wave,
+      });
+      await get().sendMessage(chatId, payload, id, replyToId);
     },
 
     editMessage: async (chatId, messageId, plaintext) => {

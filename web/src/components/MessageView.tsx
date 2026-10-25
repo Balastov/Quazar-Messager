@@ -30,6 +30,10 @@ import { encodeSticker, parseSticker } from "../stickers/format";
 import ChatImage from "./ChatImage";
 import ChatBackgroundDialog from "./ChatBackgroundDialog";
 import { AttachmentError, parseImage } from "../attachments/image";
+import { MIN_VOICE_SEC, parseVoice } from "../attachments/voice";
+import { canRecordVoice, RecorderError, VoiceRecorder } from "../voice/recorder";
+import VoiceMessage from "./voice/VoiceMessage";
+import VoiceRecorderBar from "./voice/VoiceRecorderBar";
 import type { Message } from "../api/types";
 import { groupReactions, myReaction, toggledReaction } from "../chat/reactions";
 import { typingLabel } from "../chat/typing";
@@ -45,6 +49,8 @@ import {
 } from "./messages/parts";
 
 const STICKER_SIZE = 160;
+/** Сколько столбиков живой волны видно во время записи. */
+const LIVE_BARS = 60;
 
 interface Props {
   showBack?: boolean;
@@ -52,7 +58,7 @@ interface Props {
 
 /** Обычный текст (не картинка, не стикер, расшифровался) — его можно исправить и скопировать. */
 function isPlainText(payload: string): boolean {
-  return !parseImage(payload) && !parseSticker(payload) && !isUnreadable(payload);
+  return !parseImage(payload) && !parseSticker(payload) && !parseVoice(payload) && !isUnreadable(payload);
 }
 
 /** Реакции чата в виде, который понимает общая строка чипов. */
@@ -68,6 +74,7 @@ export default function MessageView({ showBack = false }: Props) {
     loadingMessages,
     sendMessage,
     sendImage,
+    sendVoice,
     editMessage,
     deleteMessage,
     hideMessage,
@@ -96,6 +103,9 @@ export default function MessageView({ showBack = false }: Props) {
   const [menu, setMenu] = useState<{ msg: Message; x: number; y: number } | null>(null);
   const [replyTo, setReplyTo] = useState<Message | null>(null);
   const [editing, setEditing] = useState<Message | null>(null);
+  const recorderRef = useRef<VoiceRecorder | null>(null);
+  const [recording, setRecording] = useState<{ elapsed: number; levels: number[] } | null>(null);
+  const [sendingVoice, setSendingVoice] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -116,6 +126,12 @@ export default function MessageView({ showBack = false }: Props) {
     setMenu(null);
     setReplyTo(null);
     setEditing(null);
+    // Ушли из чата посреди записи — запись пропадает, микрофон гаснет.
+    return () => {
+      recorderRef.current?.cancel();
+      recorderRef.current = null;
+      setRecording(null);
+    };
   }, [activeChatId]);
 
   // Вниз — только когда пришло новое сообщение (а не при удалении или реакции).
@@ -296,6 +312,55 @@ export default function MessageView({ showBack = false }: Props) {
       } finally {
         setUploading((n) => n - 1);
       }
+    }
+  };
+
+  const startRecording = async () => {
+    if (!activeChatId || inputDisabled || recorderRef.current) return;
+    setSendError(null);
+    setStickersOpen(false);
+    const recorder = new VoiceRecorder();
+    recorderRef.current = recorder;
+    recorder.onTick = (level, elapsed) =>
+      setRecording((r) => ({ elapsed, levels: [...(r?.levels ?? []), level].slice(-LIVE_BARS) }));
+    recorder.onLimit = () => void finishRecording();
+    try {
+      await recorder.start();
+      setRecording({ elapsed: 0, levels: [] });
+    } catch (err) {
+      recorderRef.current = null;
+      recorder.cancel();
+      setSendError(err instanceof RecorderError ? err.message : "Не удалось начать запись");
+    }
+  };
+
+  const cancelRecording = () => {
+    recorderRef.current?.cancel();
+    recorderRef.current = null;
+    setRecording(null);
+  };
+
+  const finishRecording = async () => {
+    const recorder = recorderRef.current;
+    if (!recorder || !activeChatId) return;
+    recorderRef.current = null;
+    setRecording(null);
+    const chatId = activeChatId;
+    const reply = replyTo;
+    try {
+      const rec = await recorder.stop();
+      if (rec.dur < MIN_VOICE_SEC || !rec.bytes.length) {
+        setSendError("Слишком короткое голосовое — не отправлено");
+        return;
+      }
+      setReplyTo(null);
+      setSendingVoice(true);
+      await sendVoice(chatId, rec, reply?.id);
+    } catch (err) {
+      reportError(err, "Не удалось отправить голосовое");
+      setReplyTo(reply);
+    } finally {
+      setSendingVoice(false);
     }
   };
 
@@ -539,6 +604,7 @@ export default function MessageView({ showBack = false }: Props) {
             {uploading > 1 ? `Отправка картинок: ${uploading}…` : "Отправка картинки…"}
           </div>
         )}
+        {sendingVoice && <div className={s.hint}>Отправка голосового…</div>}
         <div ref={bottomRef} />
       </div>
 
@@ -565,6 +631,16 @@ export default function MessageView({ showBack = false }: Props) {
           onCancel={cancelContext}
         />
       )}
+      {recording ? (
+        <div className={s.composer}>
+          <VoiceRecorderBar
+            elapsed={recording.elapsed}
+            levels={recording.levels}
+            onCancel={cancelRecording}
+            onSend={() => void finishRecording()}
+          />
+        </div>
+      ) : (
       <form className={s.composer} onSubmit={(e) => void handleSend(e)}>
         <button
           type="button"
@@ -624,11 +700,19 @@ export default function MessageView({ showBack = false }: Props) {
             {editing ? "✓" : <IconSend size={18} />}
           </button>
         ) : (
-          <button className={s.micBtn} type="button" title="Голосовые скоро" disabled>
+          <button
+            className={s.micBtn}
+            type="button"
+            title={canRecordVoice() ? "Записать голосовое" : "Этот браузер не умеет записывать звук"}
+            aria-label="Записать голосовое"
+            disabled={inputDisabled || !!editing || !canRecordVoice()}
+            onClick={() => void startRecording()}
+          >
             <IconMic size={18} />
           </button>
         )}
       </form>
+      )}
       </div>
 
       {menu && (
@@ -703,6 +787,7 @@ function ChatMessage({
   const trigger = useMessageMenuTrigger(onOpenMenu);
   const unavailable = msg.payload.startsWith("Сообщение недоступно");
   const image = unavailable ? null : parseImage(msg.payload);
+  const voice = unavailable ? null : parseVoice(msg.payload);
   const stickerRef = unavailable ? null : parseSticker(msg.payload);
   const sticker = stickerRef ? stickerOf(stickerRef.pack, stickerRef.id) : undefined;
   // Стикер без пузыря; неизвестный (пак убрали с сервера) — обычной строкой.
@@ -726,6 +811,8 @@ function ChatMessage({
       )}
       {image ? (
         <ChatImage chatId={msg.chat_id} image={image} />
+      ) : voice ? (
+        <VoiceMessage chatId={msg.chat_id} voice={voice} tone={isOwn ? "own" : "other"} />
       ) : asSticker ? (
         sticker ? (
           <Sticker url={stickerFileUrl(sticker)} emoji={sticker.emoji} size={STICKER_SIZE} mode="loop" />

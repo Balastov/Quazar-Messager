@@ -11,6 +11,7 @@ from sqlalchemy import text
 
 from app.core.avatars import avatars_dir
 from app.core.backgrounds import backgrounds_dir
+from app.core.star_assets import stars_media_dir
 from app.core import attachments, scheduler, voice
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal, Base, engine
@@ -26,6 +27,8 @@ from app.api.calls import router as calls_router
 from app.api.push import router as push_router
 from app.api.doors import router as doors_router
 from app.api.office import router as office_router
+from app.api.star_community import router as star_community_router
+from app.api.star_play import router as star_play_router
 from app.api.stars import invites_router as star_invites_router
 from app.api.stars import router as stars_router
 from app.api.voice import router as voice_router
@@ -183,6 +186,24 @@ async def lifespan(app: FastAPI):
         await conn.execute(
             text("CREATE INDEX IF NOT EXISTS ix_messages_expires_at ON messages (expires_at)")
         )
+        # Игровые Звёзды: правила и приветствие, фильтр слов, звуковая панель, тайм-ауты,
+        # медленный режим, временные Планеты, опросы и сборы (таблицы — create_all выше).
+        for ddl in (
+            "ALTER TABLE stars ADD COLUMN IF NOT EXISTS rules_text TEXT",
+            "ALTER TABLE stars ADD COLUMN IF NOT EXISTS welcome_text TEXT",
+            "ALTER TABLE stars ADD COLUMN IF NOT EXISTS welcome_channel_id VARCHAR(36)",
+            "ALTER TABLE stars ADD COLUMN IF NOT EXISTS banned_words JSON NOT NULL DEFAULT '[]'",
+            "ALTER TABLE stars ADD COLUMN IF NOT EXISTS soundboard BOOLEAN NOT NULL DEFAULT true",
+            "ALTER TABLE star_members ADD COLUMN IF NOT EXISTS timeout_until TIMESTAMP WITH TIME ZONE",
+            "ALTER TABLE star_members ADD COLUMN IF NOT EXISTS rules_accepted_at TIMESTAMP WITH TIME ZONE",
+            "ALTER TABLE star_channels ADD COLUMN IF NOT EXISTS slow_mode_sec INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE star_channels ADD COLUMN IF NOT EXISTS temporary BOOLEAN NOT NULL DEFAULT false",
+            "ALTER TABLE star_channels ADD COLUMN IF NOT EXISTS created_by VARCHAR(36) "
+            "REFERENCES users(id) ON DELETE SET NULL",
+            "ALTER TABLE star_messages ADD COLUMN IF NOT EXISTS kind VARCHAR(16) NOT NULL DEFAULT 'text'",
+            "ALTER TABLE star_messages ADD COLUMN IF NOT EXISTS ref_id VARCHAR(36)",
+        ):
+            await conn.execute(text(ddl))
     # Кто сейчас на Планетах — восстанавливаем из LiveKit после перезапуска (в фоне).
     app.state.voice_resync = asyncio.create_task(voice.resync())
     # Неотправленные картинки и файлы удалённых чатов — раз в час.
@@ -219,6 +240,8 @@ app.include_router(attachments_router)
 app.include_router(calls_router)
 app.include_router(push_router)
 app.include_router(stars_router)
+app.include_router(star_community_router)
+app.include_router(star_play_router)
 app.include_router(star_invites_router)
 app.include_router(voice_router)
 app.include_router(office_router)
@@ -233,6 +256,8 @@ app.mount("/media/avatars", StaticFiles(directory=str(avatars_dir())), name="med
 app.mount(
     "/media/backgrounds", StaticFiles(directory=str(backgrounds_dir())), name="backgrounds"
 )
+# Стикеры, эмодзи и звуки Звёзд — публичные, как аватары.
+app.mount("/media/stars", StaticFiles(directory=str(stars_media_dir())), name="star-assets")
 app.mount(
     STICKER_FILES_PATH,
     StickerFiles(directory=str(STICKERS_DIR), check_dir=False),

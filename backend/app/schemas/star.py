@@ -4,7 +4,7 @@ from typing import Literal
 from pydantic import BaseModel, Field, field_validator
 
 from app.core.reactions import REACTIONS
-from app.core.stars import MAX_MESSAGE_LENGTH, PLANET_MAX_CAPACITY, ROOM_KINDS
+from app.core.stars import MAX_MESSAGE_LENGTH, PLANET_MAX_CAPACITY, ROOM_KINDS, SLOW_MODE_SECONDS
 
 StarKind = Literal["gaming", "work"]
 ChannelKind = Literal["satellite", "planet"]
@@ -78,8 +78,17 @@ class UpdateChannel(_Named):
     access: Access | None = None
     cabinet_owner_id: str | None = None
     listen_only: bool | None = None
+    # Медленный режим Спутника: 0, 10, 30, 60 или 300 секунд.
+    slow_mode_sec: int | None = None
     # Перенести комнату на другой этаж (нужно право «Редактировать карту офиса»).
     floor_id: str | None = None
+
+    @field_validator("slow_mode_sec")
+    @classmethod
+    def _slow(cls, v: int | None) -> int | None:
+        if v is not None and v not in SLOW_MODE_SECONDS:
+            raise ValueError("Медленный режим: 0, 10, 30, 60 или 300 секунд")
+        return v
 
 
 class CreateFloor(_Named):
@@ -149,6 +158,20 @@ class StarMemberOut(BaseModel):
     user: StarUserOut
     role: Role
     joined_at: datetime
+    # Свои роли-подписи (StarTag.id).
+    tag_ids: list[str] = []
+    # В тайм-ауте до этого момента (None — нет).
+    timeout_until: datetime | None = None
+
+
+class StarTagOut(BaseModel):
+    id: str
+    name: str
+    color: str
+    self_assign: bool
+    position: int
+
+    model_config = {"from_attributes": True}
 
 
 class StarChannelOut(BaseModel):
@@ -162,6 +185,9 @@ class StarChannelOut(BaseModel):
     access: str = "open"
     cabinet_owner_id: str | None = None
     listen_only: bool = False
+    slow_mode_sec: int = 0
+    temporary: bool = False
+    created_by: str | None = None
     floor_id: str | None = None
     map_x: int | None
     map_y: int | None
@@ -213,6 +239,15 @@ class StarDetailOut(StarSummaryOut):
     members: list[StarMemberOut]
     # Кто сейчас на какой Планете: channel_id -> участники.
     voice: dict[str, list[VoiceParticipantOut]] = {}
+    rules_text: str | None = None
+    # Я уже согласился с правилами (или правил нет, или я модератор и выше).
+    rules_accepted: bool = True
+    welcome_text: str | None = None
+    welcome_channel_id: str | None = None
+    soundboard: bool = True
+    # Только владельцу и админам — остальным пустой список.
+    banned_words: list[str] = []
+    tags: list[StarTagOut] = []
     # Этажи карты офиса (только у Звёзд «Работа»).
     floors: list[StarFloorOut] = []
 
@@ -230,12 +265,48 @@ class StarReactionOut(BaseModel):
     emoji: str
 
 
+class PollOptionOut(BaseModel):
+    text: str
+    votes: int
+    # Кто голосовал — только в неанонимных опросах.
+    voters: list[str] = []
+
+
+class PollOut(BaseModel):
+    id: str
+    question: str
+    options: list[PollOptionOut]
+    multiple: bool
+    anonymous: bool
+    closes_at: datetime | None
+    closed: bool
+    total_voters: int
+    # Мои варианты — у каждого свои (в рассылке всем — пусто, клиент хранит свой выбор).
+    my_votes: list[int] = []
+    created_by: str | None
+
+
+class LfgOut(BaseModel):
+    id: str
+    title: str
+    slots: int
+    starts_at: datetime | None
+    status: Literal["open", "started", "cancelled"]
+    members: list[str]
+    planet_id: str | None
+    created_by: str | None
+
+
 class StarMessageOut(BaseModel):
     id: str
     star_id: str
     channel_id: str
     sender: StarUserOut | None
     text: str
+    # text | system | poll | lfg
+    kind: str = "text"
+    poll: PollOut | None = None
+    lfg: LfgOut | None = None
     created_at: datetime
     edited_at: datetime | None = None
     reply_to: StarReplyOut | None = None

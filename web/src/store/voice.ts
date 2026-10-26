@@ -48,6 +48,8 @@ import { useCallStore } from "./call";
 import { roomWords, type RoomWords } from "../components/constellation/words";
 import { playStarSound } from "../sounds/starSounds";
 import { SpeakingMonitor } from "../voice/speaking";
+import { socket } from "../ws/socket";
+import { hotkey, isTyping, loadVoiceKeys, saveVoiceKeys, type VoiceKeyPrefs } from "../voice/keys";
 
 export type VoiceStatus = "idle" | "connecting" | "connected" | "reconnecting";
 
@@ -91,6 +93,12 @@ interface VoiceState {
   noiseActive: boolean;
   /** Громкость собеседников по userId (нет записи — 100 %). */
   volumes: PeerVolumes;
+  /** Звук собеседников выключен (и мой микрофон тоже, как в Discord). */
+  deafened: boolean;
+  /** Рация и её клавиша (настройки устройства). */
+  keys: VoiceKeyPrefs;
+  /** Рация: клавиша сейчас зажата — говорю. */
+  pttActive: boolean;
   /** Браузер не дал включить звук без нажатия. */
   needsAudioUnlock: boolean;
   error: string | null;
@@ -108,9 +116,14 @@ interface VoiceState {
   /** Выбрали другой динамик — переводим звук собеседников. */
   applyOutput: () => Promise<void>;
   toggleNoise: () => Promise<void>;
-  startScreenShare: () => Promise<void>;
+  /** detail — чётко (текст, документы), motion — плавно (игры, видео). */
+  startScreenShare: (mode?: ScreenMode) => Promise<void>;
+  toggleDeafen: () => Promise<void>;
+  setVoiceKeys: (prefs: VoiceKeyPrefs) => Promise<void>;
   stopScreenShare: () => Promise<void>;
   unlockAudio: () => Promise<void>;
+  /** Рация: клавиша нажата / отпущена. */
+  setPtt: (down: boolean) => Promise<void>;
   /** 0…2: громкость одного собеседника, запоминается на устройстве. */
   setPeerVolume: (userId: string, volume: number) => void;
   dismissNotice: () => void;
@@ -166,6 +179,11 @@ let unwatchPlanet: (() => void) | null = null;
 let stoppingScreen = false;
 /** Мы сами вышли — не показываем «связь прервалась». */
 let leavingOnPurpose = false;
+export type ScreenMode = "detail" | "motion";
+
+/** Микрофон был включён до «оглушения» — вернуть, когда звук включат обратно. */
+let micBeforeDeafen = false;
+
 /** Кто говорит — меряем в браузере (сервер сообщает со сглаживанием, заметно позже). */
 let speakingMonitor: SpeakingMonitor | null = null;
 
@@ -443,6 +461,8 @@ export const useVoiceStore = create<VoiceState>((set, get) => {
       screenStarting: false,
       noiseActive: false,
       needsAudioUnlock: false,
+      deafened: false,
+      pttActive: false,
       ...(notice ? { notice } : {}),
     });
   }
@@ -532,11 +552,15 @@ export const useVoiceStore = create<VoiceState>((set, get) => {
     syncPeers();
   }
 
+  /** Громкость собеседника с учётом «оглушения». */
+  function volumeOf(userId: string): number {
+    return get().deafened ? 0 : (get().volumes[userId] ?? 1);
+  }
+
   /** Громкость всем, кто сейчас звучит (после разблокировки звука LiveKit снимает mute). */
   async function applyVolumes() {
-    const { volumes } = get();
     const results = await Promise.all(
-      [...played.values()].map((audio) => applyVolume(audio, volumes[audio.userId] ?? 1))
+      [...played.values()].map((audio) => applyVolume(audio, volumeOf(audio.userId)))
     );
     if (results.includes(false)) set({ needsAudioUnlock: true });
   }
@@ -562,7 +586,7 @@ export const useVoiceStore = create<VoiceState>((set, get) => {
       .on(RoomEvent.TrackPublished, syncPeers)
       .on(RoomEvent.TrackUnpublished, syncPeers)
       .on(RoomEvent.TrackSubscribed, (track, _pub, participant) => {
-        void attachAudio(track, participant.identity, get().volumes[participant.identity] ?? 1).then((ok) => {
+        void attachAudio(track, participant.identity, volumeOf(participant.identity)).then((ok) => {
           if (!ok && room === r) set({ needsAudioUnlock: true });
         });
         syncPeers();
@@ -634,6 +658,9 @@ export const useVoiceStore = create<VoiceState>((set, get) => {
     noiseSuppression: getNoiseSuppressionPref(),
     noiseActive: false,
     volumes: loadPeerVolumes(),
+    deafened: false,
+    keys: loadVoiceKeys(),
+    pttActive: false,
     needsAudioUnlock: false,
     error: null,
     notice: null,
@@ -709,7 +736,8 @@ export const useVoiceStore = create<VoiceState>((set, get) => {
       });
 
       // Микрофон. Если его нет или не разрешили — остаёмся слушать, причину покажем на экране.
-      if (!listenOnly) await acquireMic(r);
+      // В режиме рации — выключенным, пока не зажмут клавишу.
+      if (!listenOnly) await acquireMic(r, { startMuted: get().keys.ptt || get().deafened });
 
       await r.startAudio().catch(() => {});
       set({ status: "connected", needsAudioUnlock: !r.canPlaybackAudio });
@@ -727,8 +755,14 @@ export const useVoiceStore = create<VoiceState>((set, get) => {
     toggleMic: async () => {
       const publication = mic?.publication;
       if (!publication || get().serverMuted) return;
-      if (publication.isMuted) await publication.unmute();
-      else await publication.mute();
+      if (publication.isMuted) {
+        // Включили микрофон, будучи «оглушённым», — возвращаем и звук.
+        if (get().deafened) {
+          set({ deafened: false });
+          await applyVolumes();
+        }
+        await publication.unmute();
+      } else await publication.mute();
       syncPeers();
     },
 
@@ -804,7 +838,7 @@ export const useVoiceStore = create<VoiceState>((set, get) => {
       set({ noiseActive: true });
     },
 
-    startScreenShare: async () => {
+    startScreenShare: async (mode = "detail") => {
       const r = room;
       const { starId, channelId, status, sharingScreen, screenStarting } = get();
       if (!r || !lk || !starId || !channelId || status !== "connected") return;
@@ -819,8 +853,8 @@ export const useVoiceStore = create<VoiceState>((set, get) => {
           systemAudio: "include",
           selfBrowserSurface: "exclude",
           surfaceSwitching: "include",
-          contentHint: "detail",
-          resolution: lk.ScreenSharePresets.h1080fps15.resolution,
+          contentHint: mode === "motion" ? "motion" : "detail",
+          resolution: (mode === "motion" ? lk.ScreenSharePresets.h1080fps30 : lk.ScreenSharePresets.h1080fps15).resolution,
         });
       } catch (err) {
         set({ screenStarting: false });
@@ -836,9 +870,10 @@ export const useVoiceStore = create<VoiceState>((set, get) => {
         if (room !== r) throw new Error("left the planet");
         for (const track of tracks) {
           await r.localParticipant.publishTrack(track, {
-            screenShareEncoding: lk.ScreenSharePresets.h1080fps15.encoding,
+            screenShareEncoding: (mode === "motion" ? lk.ScreenSharePresets.h1080fps30 : lk.ScreenSharePresets.h1080fps15).encoding,
             // Текст на экране важнее плавности.
-            degradationPreference: "maintain-resolution",
+            // Текст — держим чёткость; игры — держим плавность.
+            degradationPreference: mode === "motion" ? "maintain-framerate" : "maintain-resolution",
           });
           published.push(track);
         }
@@ -881,6 +916,42 @@ export const useVoiceStore = create<VoiceState>((set, get) => {
       await applyVolumes();
     },
 
+    toggleDeafen: async () => {
+      const deafened = !get().deafened;
+      set({ deafened });
+      const publication = mic?.publication;
+      if (publication && !get().serverMuted) {
+        if (deafened) {
+          micBeforeDeafen = !publication.isMuted;
+          if (micBeforeDeafen) await publication.mute();
+        } else if (micBeforeDeafen && !get().keys.ptt) {
+          await publication.unmute();
+        }
+      }
+      await applyVolumes();
+      syncPeers();
+    },
+
+    setVoiceKeys: async (keys) => {
+      saveVoiceKeys(keys);
+      set({ keys, pttActive: false });
+      // Включили рацию — микрофон выключается до нажатия клавиши.
+      const publication = mic?.publication;
+      if (keys.ptt && publication && !publication.isMuted) await publication.mute();
+      syncPeers();
+    },
+
+    setPtt: async (down) => {
+      const { keys, status, serverMuted, deafened, pttActive } = get();
+      if (!keys.ptt || status !== "connected" || serverMuted || deafened || down === pttActive) return;
+      const publication = mic?.publication;
+      if (!publication) return;
+      set({ pttActive: down });
+      if (down) await publication.unmute();
+      else await publication.mute();
+      syncPeers();
+    },
+
     setPeerVolume: (userId, volume) => {
       const v = clampVolume(volume);
       const volumes = { ...get().volumes };
@@ -890,7 +961,7 @@ export const useVoiceStore = create<VoiceState>((set, get) => {
       set({ volumes });
       for (const audio of played.values()) {
         if (audio.userId !== userId) continue;
-        void applyVolume(audio, v).then((ok) => {
+        void applyVolume(audio, volumeOf(userId)).then((ok) => {
           if (!ok) set({ needsAudioUnlock: true });
         });
       }
@@ -899,3 +970,38 @@ export const useVoiceStore = create<VoiceState>((set, get) => {
     dismissNotice: () => set({ notice: null, error: null, locked: null }),
   };
 });
+
+// Рация и горячие клавиши — пока вкладка в фокусе (глобальных клавиш браузер сайтам не даёт).
+if (typeof window !== "undefined") {
+  window.addEventListener("keydown", (e) => {
+    const voice = useVoiceStore.getState();
+    if (voice.status !== "connected") return;
+    const action = hotkey(e);
+    if (action) {
+      e.preventDefault();
+      if (action === "deafen") void voice.toggleDeafen();
+      else if (!voice.keys.ptt) void voice.toggleMic();
+      return;
+    }
+    if (voice.keys.ptt && e.code === voice.keys.pttKey && !e.repeat && !isTyping(e.target)) {
+      e.preventDefault();
+      void voice.setPtt(true);
+    }
+  });
+  window.addEventListener("keyup", (e) => {
+    const voice = useVoiceStore.getState();
+    if (voice.keys.ptt && e.code === voice.keys.pttKey) void voice.setPtt(false);
+  });
+  // Ушли из вкладки с зажатой клавишей — keyup не придёт.
+  window.addEventListener("blur", () => void useVoiceStore.getState().setPtt(false));
+
+  // Звуковая панель: кто-то на моей Планете нажал звук — играет у меня (не через микрофон).
+  socket.on((event) => {
+    if (event.type !== "star_sound") return;
+    const voice = useVoiceStore.getState();
+    if (voice.status !== "connected" || voice.channelId !== event.channel_id || voice.deafened) return;
+    const audio = new Audio(event.url);
+    audio.volume = 0.6;
+    void applyOutput(audio).then(() => audio.play()).catch(() => {});
+  });
+}

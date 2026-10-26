@@ -1,10 +1,12 @@
+import { useState } from "react";
 import type { ChannelKind, StarChannel, StarDetail } from "../../api/stars";
 import { useDoorsStore } from "../../store/doors";
 import { sortChannels, useStarsStore } from "../../store/stars";
 import { IconContacts, IconGear, IconPlanet, IconSatellite } from "../icons";
 import { usePresenceStore } from "../../store/presence";
 import { useVoiceStore } from "../../store/voice";
-import { can, GAMING_LIMITS, initials, KIND_LABEL, ROLE_LABEL } from "./rules";
+import { apiError, can, GAMING_LIMITS, initials, KIND_LABEL, ROLE_LABEL } from "./rules";
+import { starsApi } from "../../api/stars";
 import { VoiceBar } from "./VoiceBar";
 import { placeNouns, roomWords } from "./words";
 import s from "./Constellation.module.css";
@@ -41,6 +43,7 @@ export default function ChannelSidebar({
     (st) => detail.members.filter((m) => st.byId[m.user.id]?.online).length
   );
   const unread = useStarsStore((st) => st.unread);
+  const [tempError, setTempError] = useState<string | null>(null);
   // Кто говорит — знаем только на той Планете, где мы сами (голос идёт через нас).
   const voiceChannelId = useVoiceStore((st) => (st.status === "idle" ? null : st.channelId));
   const speakingKey = useVoiceStore((st) =>
@@ -112,6 +115,8 @@ export default function ChannelSidebar({
                   {c.room_kind !== "lobby" && c.access === "invite" ? " 🔒" : ""}
                   {c.room_kind !== "lobby" && c.access === "personal" ? " 🔑" : ""}
                   {c.listen_only ? " 🎧" : ""}
+                  {c.temporary ? " ⏳" : ""}
+                  {c.slow_mode_sec ? " 🐢" : ""}
                 </span>
                 {kind === "planet" && (
                   <span className={s.channelHint}>
@@ -151,6 +156,27 @@ export default function ChannelSidebar({
         {list.length === 0 && (
           <div className={s.channelHint} style={{ padding: "6px 10px" }}>
             {kind === "satellite" ? "Спутников нет" : `${placeNouns(detail.kind).manyGen} нет`}
+          </div>
+        )}
+        {kind === "planet" && detail.kind === "gaming" && (
+          <button
+            type="button"
+            className={s.channel}
+            title="Своя Планета на время: исчезнет, когда все уйдут. В лимит Планет не входит."
+            onClick={() =>
+              void starsApi
+                .temporaryPlanet(detail.id)
+                .then((planet) => useDoorsStore.getState().enterRoom(detail, planet))
+                .catch((err) => setTempError(apiError(err)))
+            }
+          >
+            <span aria-hidden>＋</span>
+            <span className={s.channelName}>Временная Планета</span>
+          </button>
+        )}
+        {kind === "planet" && tempError && (
+          <div className={s.error} style={{ padding: "4px 10px" }}>
+            {tempError}
           </div>
         )}
       </>

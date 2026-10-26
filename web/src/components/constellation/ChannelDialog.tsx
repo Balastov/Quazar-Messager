@@ -68,6 +68,7 @@ export default function ChannelDialog({
   const [access, setAccess] = useState<RoomAccess>(channel?.access ?? "open");
   const [cabinetOwnerId, setCabinetOwnerId] = useState<string>(channel?.cabinet_owner_id ?? "");
   const [listenOnly, setListenOnly] = useState<boolean>(channel?.listen_only ?? false);
+  const [slowMode, setSlowMode] = useState<number>(channel?.slow_mode_sec ?? 0);
   const sortedMembers = [...members].sort((a, b) => a.user.username.localeCompare(b.user.username, "ru"));
   const floorEditable = !channel || canEditMap;
   const [busy, setBusy] = useState(false);
@@ -115,7 +116,7 @@ export default function ChannelDialog({
       : {};
     void run(() =>
       channel
-        ? updateChannel(channel.id, { name: trimmed, ...planetFields })
+        ? updateChannel(channel.id, { name: trimmed, ...planetFields, ...(isPlanet ? {} : { slow_mode_sec: slowMode }) })
         : createChannel({ kind, name: trimmed, ...planetFields })
     );
   };
@@ -254,6 +255,20 @@ export default function ChannelDialog({
                 Показывать экран можно. Подходит для кинозала, трансляций и тихой работы рядом.
               </span>
             </span>
+          </label>
+        )}
+
+        {!isPlanet && channel && (
+          <label className={s.label}>
+            🐢 Медленный режим
+            <select className={s.select} value={slowMode} onChange={(e) => setSlowMode(Number(e.target.value))} disabled={busy}>
+              <option value={0}>Выключен</option>
+              <option value={10}>10 секунд</option>
+              <option value={30}>30 секунд</option>
+              <option value={60}>1 минута</option>
+              <option value={300}>5 минут</option>
+            </select>
+            <span className={s.hint}>Один человек — не чаще одного сообщения за это время. Модераторов не касается.</span>
           </label>
         )}
 

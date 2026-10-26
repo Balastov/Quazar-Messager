@@ -1,4 +1,5 @@
-"""Фоновые дела раз в несколько секунд: отложенные сообщения, напоминания, исчезающие сообщения.
+"""Фоновые дела раз в несколько секунд: отложенные сообщения, напоминания, исчезающие сообщения,
+сборы групп по времени, уборка опустевших временных Планет.
 
 Строки берутся с FOR UPDATE SKIP LOCKED — несколько процессов бэкенда не сделают одно дело дважды.
 """
@@ -118,9 +119,27 @@ async def expire_messages(db: AsyncSession, now: datetime | None = None) -> int:
     return len(rows)
 
 
+async def start_due_lfg(db: AsyncSession, now: datetime | None = None) -> int:
+    from app.api.star_play import start_due_lfg as start
+
+    return await start(db, now)
+
+
+async def sweep_temporary_planets(db: AsyncSession, now: datetime | None = None) -> int:
+    from app.api.star_play import sweep_temporary_planets as sweep
+
+    return await sweep(db, now)
+
+
 async def run_forever(session_factory: async_sessionmaker) -> None:
     while True:
-        for job in (send_due_scheduled, fire_due_reminders, expire_messages):
+        for job in (
+            send_due_scheduled,
+            fire_due_reminders,
+            expire_messages,
+            start_due_lfg,
+            sweep_temporary_planets,
+        ):
             try:
                 async with session_factory() as db:
                     await job(db)

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { starsApi, type StarChannel, type StarDetail } from "../../api/stars";
 import { useAuthStore } from "../../store/auth";
 import { useCallStore } from "../../store/call";
@@ -9,6 +9,9 @@ import { IconBack, IconGear, IconPlanet, IconStarMic, IconStarMicOff, IconNoiseF
 import Dialog from "./Dialog";
 import AudioDevices from "../AudioDevices";
 import ScreenStage from "./ScreenStage";
+import MessageMenu from "../messages/MessageMenu";
+import { Soundboard, VoiceKeysSettings } from "./VoicePanels";
+import { keyLabel } from "../../voice/keys";
 import { apiError, can, canStopScreen, outranks, ROOM_LABEL, roomDoor } from "./rules";
 import { placeNouns, roomWords } from "./words";
 import s from "./Constellation.module.css";
@@ -29,6 +32,9 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
   const [modError, setModError] = useState<string | null>(null);
   const [inviteOpen, setInviteOpen] = useState(false);
   const [devicesOpen, setDevicesOpen] = useState(false);
+  const [soundsOpen, setSoundsOpen] = useState(false);
+  const [screenMenu, setScreenMenu] = useState<{ x: number; y: number } | null>(null);
+  const closeScreenMenu = useCallback(() => setScreenMenu(null), []);
   const myKnock = useDoorsStore((st) => st.myKnock);
   const allKnocks = useDoorsStore((st) => st.knocks);
   const doors = useDoorsStore.getState();
@@ -396,10 +402,12 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
           <>
             <ControlButton
               icon={voice.micOn ? <IconStarMic /> : <IconStarMicOff />}
-              tone={voice.micOn ? "default" : "off"}
+              tone={voice.micOn ? (voice.pttActive ? "on" : "default") : "off"}
               label={
                 voice.serverMuted
-                  ? "Микрофон выключил модератор"
+                  ? "Микрофон выключен (модератор или тайм-аут)"
+                  : voice.keys.ptt
+                    ? `Рация: говорите, пока держите ${keyLabel(voice.keys.pttKey)}`
                   : voice.micUnavailable
                     ? "Включить микрофон"
                     : voice.micOn
@@ -407,7 +415,7 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
                       : "Включить микрофон"
               }
               pressed={voice.micOn}
-              disabled={voice.serverMuted || voice.status !== "connected"}
+              disabled={voice.serverMuted || voice.status !== "connected" || voice.keys.ptt}
               onClick={() => void (voice.micUnavailable ? voice.retryMic() : voice.toggleMic())}
             />
             <ControlButton
@@ -425,12 +433,28 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
             />
           </>
         )}
+        <ControlButton
+          icon={<span aria-hidden>{voice.deafened ? "🔇" : "🔈"}</span>}
+          tone={voice.deafened ? "off" : "default"}
+          label={voice.deafened ? "Включить звук собеседников (Ctrl+Shift+D)" : "Выключить звук собеседников (Ctrl+Shift+D)"}
+          pressed={voice.deafened}
+          disabled={voice.status !== "connected"}
+          onClick={() => void voice.toggleDeafen()}
+        />
+        {detail.soundboard !== false && (
+          <ControlButton
+            icon={<span aria-hidden>🎵</span>}
+            label="Звуковая панель"
+            disabled={voice.status !== "connected"}
+            onClick={() => setSoundsOpen(true)}
+          />
+        )}
         {canShareScreen() &&
           (voice.sharingScreen || sharerId === myId ? (
             <ControlButton
               icon={<IconScreenStop />}
               tone="on"
-              label="Остановить показ экрана"
+              label={`Остановить показ экрана · смотрят ${Math.max(0, presence.length - 1)}`}
               pressed
               onClick={() => void voice.stopScreenShare()}
             />
@@ -445,7 +469,10 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
                     : `Показать экран всем ${nouns.inside}`
               }
               disabled={!!sharerId || voice.screenStarting || voice.status !== "connected"}
-              onClick={() => void voice.startScreenShare()}
+              onClick={() => {
+                const r = document.activeElement?.getBoundingClientRect();
+                setScreenMenu({ x: r?.left ?? 200, y: (r?.top ?? 400) - 110 });
+              }}
             />
           ))}
         <ControlButton
@@ -467,7 +494,24 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
       {devicesOpen && (
         <Dialog title="Микрофон и динамик" onClose={() => setDevicesOpen(false)}>
           <AudioDevices />
+          <VoiceKeysSettings />
         </Dialog>
+      )}
+      {soundsOpen && (
+        <Dialog title="Звуковая панель" onClose={() => setSoundsOpen(false)}>
+          <Soundboard detail={detail} channelId={channel.id} />
+        </Dialog>
+      )}
+      {screenMenu && (
+        <MessageMenu
+          at={screenMenu}
+          reaction={null}
+          actions={[
+            { label: "📄 Чётко — текст и документы", onClick: () => void voice.startScreenShare("detail") },
+            { label: "🎮 Плавно — игры и видео (30 к/с)", onClick: () => void voice.startScreenShare("motion") },
+          ]}
+          onClose={closeScreenMenu}
+        />
       )}
       {inviteOpen && (
         <InviteDialog

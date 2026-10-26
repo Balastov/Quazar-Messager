@@ -19,8 +19,16 @@ from app.models.star import (
     StarFloor,
     StarInvite,
     StarMember,
+    StarAsset,
+    StarAudit,
+    StarLfg,
+    StarLfgMember,
+    StarMemberTag,
     StarMessage,
     StarMessageReaction,
+    StarPoll,
+    StarPollVote,
+    StarTag,
 )
 
 __all__ = [
@@ -45,6 +53,14 @@ __all__ = [
     "StarFloor",
     "StarMessage",
     "StarMessageReaction",
+    "StarTag",
+    "StarMemberTag",
+    "StarAudit",
+    "StarPoll",
+    "StarPollVote",
+    "StarLfg",
+    "StarLfgMember",
+    "StarAsset",
     "StarInvite",
     "StarBan",
 ]

@@ -1,13 +1,26 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import type { StarChannel, StarDetail, StarMessage } from "../../api/stars";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import type { StarAsset, StarChannel, StarDetail, StarMessage } from "../../api/stars";
+import { stickerFileUrl } from "../../api/stickers";
 import { useAuthStore } from "../../store/auth";
 import { useStarsStore } from "../../store/stars";
+import { useStickersStore } from "../../store/stickers";
+import { parseSticker } from "../../stickers/format";
+import Sticker from "../Sticker";
+import StarText, { onlyEmoji } from "./StarText";
+import PollCard from "./PollCard";
+import LfgCard from "./LfgCard";
+import PollDialog from "./PollDialog";
+import LfgDialog from "./LfgDialog";
+import RulesCard from "./RulesCard";
+import StarPicker from "./StarPicker";
+import { memberColor } from "./MyTags";
+import { formatWhen } from "../../chat/when";
+import g from "./Gaming.module.css";
 import UserAvatar from "../UserAvatar";
 import { IconBack, IconGear, IconSatellite, IconSend } from "../icons";
 import { apiError, can, formatTime, outranks } from "./rules";
 import s from "./Constellation.module.css";
 import m from "../messages/Messages.module.css";
-import LinkifiedText from "../LinkifiedText";
 import { groupReactions, myReaction, toggledReaction } from "../../chat/reactions";
 import { typingLabel } from "../../chat/typing";
 import {
@@ -27,6 +40,7 @@ import {
 } from "../messages/parts";
 
 const EMPTY: StarMessage[] = [];
+const NO_ASSETS: StarAsset[] = [];
 
 interface Props {
   detail: StarDetail;
@@ -45,7 +59,24 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
   const deleteMessage = useStarsStore((st) => st.deleteMessage);
   const react = useStarsStore((st) => st.react);
   const loadOlder = useStarsStore((st) => st.loadOlder);
+  const assets = useStarsStore((st) => st.assets[detail.id] ?? NO_ASSETS);
+  const loadAssets = useStarsStore((st) => st.loadAssets);
   const typingIds = useTyping(satelliteTypingKey(channel.id));
+  const [dialog, setDialog] = useState<"poll" | "lfg" | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [plusMenu, setPlusMenu] = useState<{ x: number; y: number } | null>(null);
+  const emoji = useMemo(
+    () => Object.fromEntries(assets.filter((a) => a.kind === "emoji").map((a) => [a.name, a.url])),
+    [assets]
+  );
+  const me = detail.members.find((mb) => mb.user.id === myId);
+  const timedOutUntil =
+    me?.timeout_until && Date.parse(me.timeout_until) > Date.now() ? me.timeout_until : null;
+  const slowMode = channel.slow_mode_sec ?? 0;
+
+  useEffect(() => {
+    void loadAssets(detail.id).catch(() => {});
+  }, [detail.id, loadAssets]);
 
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -75,6 +106,7 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
     setReplyTo(null);
     setEditing(null);
     setText("");
+    setPickerOpen(false);
   }, [channel.id]);
 
   // Сообщение, на которое отвечаем или которое правим, удалили — убираем и полосу над вводом.
@@ -162,7 +194,7 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
     }
     // ↑ в пустом поле — исправить своё последнее сообщение.
     if (e.key === "ArrowUp" && !text && !editing) {
-      const last = [...messages].reverse().find((x) => x.sender?.id === myId);
+      const last = [...messages].reverse().find((x) => x.sender?.id === myId && editable(x));
       if (last) {
         e.preventDefault();
         startEdit(last);
@@ -179,7 +211,7 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
 
   const menuActions = (msg: StarMessage): MenuAction[] => {
     const actions: MenuAction[] = [{ label: "Ответить", onClick: () => startReply(msg) }];
-    if (msg.sender?.id === myId) actions.push({ label: "Изменить", onClick: () => startEdit(msg) });
+    if (msg.sender?.id === myId && editable(msg)) actions.push({ label: "Изменить", onClick: () => startEdit(msg) });
     actions.push({
       label: "Копировать текст",
       onClick: () => void navigator.clipboard?.writeText(msg.text).catch(() => {}),
@@ -199,6 +231,28 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
   };
 
   const typingText = typingLabel(typingIds.map(nameOf));
+
+  /** Стикер или эмодзи — отправить сразу (в ответ, если выбран ответ). */
+  const sendQuick = async (value: string) => {
+    setPickerOpen(false);
+    const reply = replyTo;
+    setReplyTo(null);
+    stickToBottom.current = true;
+    try {
+      await sendMessage(value, reply?.id);
+    } catch (err) {
+      setReplyTo(reply);
+      setError(apiError(err, "Не удалось отправить"));
+    }
+  };
+
+  const composer = (() => {
+    if (detail.rules_accepted === false) return <RulesCard detail={detail} />;
+    if (timedOutUntil) {
+      return <div className={g.notice}>⏳ Вы в тайм-ауте до {formatWhen(timedOutUntil)} — писать пока нельзя</div>;
+    }
+    return null;
+  })();
 
   return (
     <>
@@ -250,6 +304,9 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
           <SatelliteMessage
             key={msg.id}
             msg={msg}
+            detail={detail}
+            emoji={emoji}
+            assets={assets}
             myId={myId}
             nameOf={nameOf}
             onOpenMenu={(x, y) => setMenu({ msg, x, y })}
@@ -272,14 +329,41 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
         <ComposerContext
           kind="reply"
           title={`Ответ ${replyTo.sender?.id === myId ? "себе" : (replyTo.sender?.username ?? "участнику")}`}
-          text={replyTo.text}
+          text={previewText(replyTo.text)}
           onCancel={cancelContext}
         />
       )}
       {editing && (
         <ComposerContext kind="edit" title="Редактирование" text={editing.text} onCancel={cancelContext} />
       )}
+      {composer ?? (
+      <div className={g.composerWrap}>
+      {slowMode > 0 && <div className={g.slowHint}>🐢 Медленный режим: одно сообщение в {slowMode} с</div>}
+      {pickerOpen && (
+        <StarPicker
+          assets={assets}
+          onSticker={(value) => void sendQuick(value)}
+          onEmoji={(code) => {
+            setText((t) => `${t}${t && !t.endsWith(" ") ? " " : ""}${code} `);
+            inputRef.current?.focus();
+          }}
+          onClose={() => setPickerOpen(false)}
+        />
+      )}
       <form className={s.composer} onSubmit={(e) => void submit(e)}>
+        <button
+          type="button"
+          className={g.composerExtra}
+          aria-label="Опрос или сбор группы"
+          title="Опрос или сбор группы"
+          disabled={!!editing}
+          onClick={(e) => {
+            const r = e.currentTarget.getBoundingClientRect();
+            setPlusMenu({ x: r.left, y: r.top - 100 });
+          }}
+        >
+          +
+        </button>
         <input
           ref={inputRef}
           className={s.composerInput}
@@ -294,6 +378,17 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
           aria-label="Сообщение"
         />
         <button
+          type="button"
+          className={g.composerExtra}
+          aria-label="Стикеры и эмодзи"
+          title="Стикеры и эмодзи"
+          data-sticker-toggle
+          disabled={!!editing}
+          onClick={() => setPickerOpen((o) => !o)}
+        >
+          🙂
+        </button>
+        <button
           type="submit"
           className={s.primary}
           disabled={!text.trim()}
@@ -303,6 +398,22 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
           {editing ? "✓" : <IconSend size={18} />}
         </button>
       </form>
+      </div>
+      )}
+
+      {plusMenu && (
+        <MessageMenu
+          at={plusMenu}
+          reaction={null}
+          actions={[
+            { label: "📊 Опрос", onClick: () => setDialog("poll") },
+            { label: "🎮 Сбор группы", onClick: () => setDialog("lfg") },
+          ]}
+          onClose={() => setPlusMenu(null)}
+        />
+      )}
+      {dialog === "poll" && <PollDialog starId={detail.id} channelId={channel.id} onClose={() => setDialog(null)} />}
+      {dialog === "lfg" && <LfgDialog starId={detail.id} channelId={channel.id} onClose={() => setDialog(null)} />}
 
       {menu && (
         <MessageMenu
@@ -319,8 +430,21 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
   );
 }
 
+/** Строка для цитаты: стикер — «Стикер», остальное как есть. */
+function previewText(text: string): string {
+  return parseSticker(text) ? "Стикер" : text;
+}
+
+/** Исправлять можно только обычный текст (не опрос, сбор, приветствие или стикер). */
+function editable(msg: StarMessage): boolean {
+  return (msg.kind ?? "text") === "text" && !parseSticker(msg.text);
+}
+
 function SatelliteMessage({
   msg,
+  detail,
+  emoji,
+  assets,
   myId,
   nameOf,
   onOpenMenu,
@@ -328,6 +452,9 @@ function SatelliteMessage({
   onQuoteClick,
 }: {
   msg: StarMessage;
+  detail: StarDetail;
+  emoji: Record<string, string>;
+  assets: StarAsset[];
   myId: string | undefined;
   nameOf: (userId: string) => string;
   onOpenMenu: (x: number, y: number) => void;
@@ -335,6 +462,34 @@ function SatelliteMessage({
   onQuoteClick: (messageId: string) => void;
 }) {
   const trigger = useMessageMenuTrigger(onOpenMenu);
+  const stickersByKey = useStickersStore((st) => st.byKey);
+  if (msg.kind === "system") {
+    return (
+      <div data-mid={msg.id} className={g.system}>
+        <StarText text={msg.text} emoji={emoji} />
+      </div>
+    );
+  }
+  const sticker = parseSticker(msg.text);
+  const starSticker = sticker?.pack === "star" ? assets.find((a) => a.id === sticker.id) : undefined;
+  const packSticker = sticker && sticker.pack !== "star" ? stickersByKey[`${sticker.pack}/${sticker.id}`] : undefined;
+  const color = memberColor(detail, msg.sender?.id);
+  const body =
+    msg.kind === "poll" && msg.poll ? (
+      <PollCard message={msg} detail={detail} />
+    ) : msg.kind === "lfg" && msg.lfg ? (
+      <LfgCard message={msg} detail={detail} />
+    ) : starSticker ? (
+      <img className={g.stickerMessage} src={starSticker.url} alt={starSticker.name} />
+    ) : packSticker ? (
+      <Sticker url={stickerFileUrl(packSticker)} emoji={packSticker.emoji} size={140} mode="loop" />
+    ) : sticker ? (
+      <span className={s.messageTime}>Стикер недоступен</span>
+    ) : (
+      <div className={`${s.messageText} ${onlyEmoji(msg.text, emoji) ? g.bigEmoji : ""}`}>
+        <StarText text={msg.text} emoji={emoji} linkClassName={s.messageLink} />
+      </div>
+    );
   return (
     <div data-mid={msg.id} className={`${s.message} ${m.menuHost}`} {...trigger}>
       <UserAvatar
@@ -344,7 +499,9 @@ function SatelliteMessage({
       />
       <div className={s.messageBody}>
         <div className={s.messageHead}>
-          <span className={s.messageAuthor}>{msg.sender?.username ?? "Бывший участник"}</span>
+          <span className={s.messageAuthor} style={color ? { color } : undefined}>
+            {msg.sender?.username ?? "Бывший участник"}
+          </span>
           <span className={s.messageTime}>
             {formatTime(msg.created_at)} <EditedMark at={msg.edited_at} />
           </span>
@@ -353,14 +510,12 @@ function SatelliteMessage({
           <div className={s.messageExtra}>
             <ReplyQuote
               author={msg.reply_to.sender?.username ?? "Бывший участник"}
-              text={msg.reply_to.text}
+              text={previewText(msg.reply_to.text)}
               onClick={() => onQuoteClick(msg.reply_to!.id)}
             />
           </div>
         )}
-        <div className={s.messageText}>
-          <LinkifiedText text={msg.text} linkClassName={s.messageLink} />
-        </div>
+        {body}
         {!!msg.reactions?.length && (
           <div className={s.messageExtra}>
             <ReactionChips groups={groupReactions(msg.reactions, myId)} nameOf={nameOf} onToggle={onReact} />

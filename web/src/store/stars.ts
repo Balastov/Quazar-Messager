@@ -15,6 +15,7 @@ import {
   type StarMember,
   type StarMessage,
   type StarRole,
+  type StarAsset,
   type StarSummary,
 } from "../api/stars";
 import { socket } from "../ws/socket";
@@ -27,6 +28,11 @@ const PAGE_SIZE = 50;
 
 export function roleRank(role: StarRole): number {
   return ROLE_RANK[role];
+}
+
+/** Модератор и выше: без медленного режима и без обязательного согласия с правилами. */
+export function isStaff(role: StarRole): boolean {
+  return roleRank(role) >= ROLE_RANK.moderator;
 }
 
 export function sortChannels(channels: StarChannel[]): StarChannel[] {
@@ -73,6 +79,8 @@ interface StarsState {
   activeChannelByStar: Record<string, string | null>;
   messages: Record<string, StarMessage[]>;
   hasMore: Record<string, boolean>;
+  /** Стикеры, эмодзи и звуки Звёзд (грузятся при открытии Звезды). */
+  assets: Record<string, StarAsset[]>;
   loadingMessages: boolean;
   unread: Record<string, Unread>;
   /** На телефоне канал открыт поверх списка. */
@@ -94,6 +102,10 @@ interface StarsState {
   deleteMessage: (message: StarMessage) => Promise<void>;
   /** Поставить, сменить (emoji) или снять (null) свою реакцию. */
   react: (message: StarMessage, emoji: string | null) => Promise<void>;
+  acceptRules: (starId: string) => Promise<void>;
+  loadAssets: (starId: string) => Promise<void>;
+  vote: (message: StarMessage, options: number[]) => Promise<void>;
+  lfgAction: (message: StarMessage, action: "join" | "leave" | "start" | "cancel") => Promise<void>;
   createStar: (name: string, kind: StarKind) => Promise<void>;
   joinByCode: (code: string) => Promise<void>;
   createChannel: (body: {
@@ -115,6 +127,7 @@ interface StarsState {
       access?: RoomAccess;
       cabinet_owner_id?: string;
       listen_only?: boolean;
+      slow_mode_sec?: number;
       floor_id?: string;
     }
   ) => Promise<void>;
@@ -151,6 +164,7 @@ const initialState = {
   activeChannelByStar: {} as Record<string, string | null>,
   messages: {} as Record<string, StarMessage[]>,
   hasMore: {} as Record<string, boolean>,
+  assets: {} as Record<string, StarAsset[]>,
   loadingMessages: false,
   unread: {} as Record<string, Unread>,
   mobileChannelOpen: false,
@@ -378,6 +392,38 @@ export const useStarsStore = create<StarsState>((set, get) => {
           })
         );
         break;
+      case "star_community":
+        patchDetail(starId, (d) => ({
+          ...d,
+          rules_text: event.rules_text,
+          // Правила поменялись — сервер сбросил согласие (кроме модераторов и выше).
+          rules_accepted:
+            event.rules_text === d.rules_text ? d.rules_accepted : !event.rules_text || isStaff(d.my_role),
+          welcome_text: event.welcome_text,
+          welcome_channel_id: event.welcome_channel_id,
+          soundboard: event.soundboard,
+        }));
+        break;
+      case "star_tags":
+        patchDetail(starId, (d) => ({ ...d, tags: event.tags }));
+        break;
+      case "star_poll":
+        patchMessages(event.channel_id, (list) =>
+          list.map((m) =>
+            m.id === event.message_id && m.poll
+              ? { ...m, poll: { ...event.poll, my_votes: m.poll.my_votes } }
+              : m
+          )
+        );
+        break;
+      case "star_lfg":
+        patchMessages(event.channel_id, (list) =>
+          list.map((m) => (m.id === event.message_id ? { ...m, lfg: event.lfg } : m))
+        );
+        break;
+      case "star_assets":
+        if (get().assets[starId]) void get().loadAssets(starId);
+        break;
       case "star_message_reaction":
         patchMessages(event.channel_id, (list) =>
           list.map((m) =>
@@ -563,6 +609,28 @@ export const useStarsStore = create<StarsState>((set, get) => {
         text: out.text,
         edited_at: out.edited_at ?? new Date().toISOString(),
       });
+    },
+
+    acceptRules: async (starId) => {
+      await starsApi.acceptRules(starId);
+      patchDetail(starId, (d) => ({ ...d, rules_accepted: true }));
+    },
+
+    loadAssets: async (starId) => {
+      const assets = await starsApi.assets(starId);
+      set((s) => ({ assets: { ...s.assets, [starId]: assets } }));
+    },
+
+    vote: async (message, options) => {
+      if (!message.poll) return;
+      const poll = await starsApi.vote(message.star_id, message.poll.id, options);
+      patchMessages(message.channel_id, (list) => list.map((m) => (m.id === message.id ? { ...m, poll } : m)));
+    },
+
+    lfgAction: async (message, action) => {
+      if (!message.lfg) return;
+      const lfg = await starsApi.lfgAction(message.star_id, message.lfg.id, action);
+      patchMessages(message.channel_id, (list) => list.map((m) => (m.id === message.id ? { ...m, lfg } : m)));
     },
 
     react: async (message, emoji) => {

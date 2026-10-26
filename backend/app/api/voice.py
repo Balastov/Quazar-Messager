@@ -1,5 +1,6 @@
 """Голос на Планетах: вход, показ экрана, модерация, вебхуки LiveKit."""
 
+from datetime import datetime, timezone
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -83,12 +84,14 @@ async def join_planet(star_id: str, channel_id: str, current_user: CurrentUser, 
                 else "Комната по приглашениям — постучитесь, чтобы вас впустили",
             )
 
+    timed_out = bool(me.timeout_until and me.timeout_until > datetime.now(timezone.utc))
     token = livekit.participant_token(
         room=room,
         identity=current_user.id,
         name=current_user.username,
         metadata={"star_id": star_id, "channel_id": channel_id},
-        sources=() if channel.listen_only else (livekit.SOURCE_MICROPHONE,),
+        # «Только слушать» или тайм-аут — без микрофона.
+        sources=() if channel.listen_only or timed_out else (livekit.SOURCE_MICROPHONE,),
     )
     return PlanetJoinOut(url=settings.LIVEKIT_PUBLIC_URL, token=token, room=room)
 

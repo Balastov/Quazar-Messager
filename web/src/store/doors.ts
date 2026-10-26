@@ -100,6 +100,22 @@ export const useDoorsStore = create<DoorsState>((set, get) => {
   function handle(event: StarEvent) {
     const myId = useAuthStore.getState().user?.id;
     switch (event.type) {
+      case "star_lfg_start": {
+        // Сбор группы начался — зовём на его временную Планету, как обычным приглашением.
+        const invite: Invite = {
+          starId: event.star_id,
+          channelId: event.channel_id,
+          fromName: "Сбор группы",
+          roomName: `🎮 ${event.title}`,
+          starName: event.star_name,
+          expiresAt: Date.now() + 10 * 60_000,
+        };
+        set((s) => ({
+          invites: [...s.invites.filter((i) => i.channelId !== invite.channelId), invite],
+        }));
+        void playStarSound("invite");
+        break;
+      }
       case "planet_invite": {
         const invite: Invite = {
           starId: event.star_id,
@@ -188,7 +204,7 @@ export const useDoorsStore = create<DoorsState>((set, get) => {
   }
 
   socket.on((event) => {
-    if (event.type.startsWith("planet_")) handle(event as StarEvent);
+    if (event.type.startsWith("planet_") || event.type === "star_lfg_start") handle(event as StarEvent);
   });
 
   return {

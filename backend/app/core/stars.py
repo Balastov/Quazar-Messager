@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from enum import Enum
 
 # --- Лимиты ---------------------------------------------------------------
@@ -172,3 +173,46 @@ def can_delete_message(
         return False
     # Автор уже не в Звезде — его сообщения может убрать любой с правом удаления.
     return sender_role is None or outranks(actor_role, sender_role)
+
+
+# --- Игровые Звёзды: модерация и сообщество ----------------------------------
+
+# Тайм-аут: 5 минут, час, сутки, неделя.
+TIMEOUT_MINUTES = (5, 60, 1440, 10080)
+# Медленный режим Спутника, секунды между сообщениями одного человека.
+SLOW_MODE_SECONDS = (0, 10, 30, 60, 300)
+MAX_TEMP_PLANETS = 10
+MAX_TAGS = 20
+MAX_BANNED_WORDS = 200
+MAX_STICKERS = 50
+MAX_EMOJI = 50
+MAX_SOUNDS = 30
+MAX_RULES_LENGTH = 4000
+
+
+def is_staff(role: str) -> bool:
+    """Модератор и выше: без медленного режима и без обязательного согласия с правилами."""
+    return rank(role) >= rank("moderator")
+
+
+def bypasses_word_filter(role: str) -> bool:
+    return role in ("owner", "admin")
+
+
+def can_timeout(actor_role: str, target_role: str, role_permissions: dict | None) -> bool:
+    """Тайм-аут дают те, кто может выгонять, — тем, кто ниже рангом."""
+    return can_kick(actor_role, target_role, role_permissions)
+
+
+def normalize_word(word: str) -> str:
+    return " ".join(word.lower().replace("ё", "е").split())
+
+
+def find_banned_word(text: str, words: list[str] | None) -> str | None:
+    """Первое запрещённое слово, которое встречается в тексте целиком (не частью другого слова)."""
+    haystack = normalize_word(text)
+    for word in words or []:
+        w = normalize_word(word)
+        if w and re.search(rf"(?<!\w){re.escape(w)}(?!\w)", haystack):
+            return word
+    return None

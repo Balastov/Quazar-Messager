@@ -36,6 +36,15 @@ class Star(Base):
     )
     # Настраиваемые права ролей: {"moderator": [...], "member": [...]}.
     role_permissions: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    # Правила: пока участник (ниже модератора) их не принял, писать в Спутники не может.
+    rules_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Приветствие новичка в Спутнике welcome_channel_id; {name} — имя новичка.
+    welcome_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    welcome_channel_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    # Запрещённые слова: сообщения с ними не отправляются (кроме владельца и админов).
+    banned_words: Mapped[list] = mapped_column(JSON, nullable=False, default=list, server_default="[]")
+    # Звуковая панель на Планетах.
+    soundboard: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
 
@@ -51,6 +60,9 @@ class StarMember(Base):
     # "owner" | "admin" | "moderator" | "member"
     role: Mapped[str] = mapped_column(String(16), nullable=False, default="member")
     joined_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    # Тайм-аут: до этого момента не пишет, не ставит реакции и молчит на Планетах.
+    timeout_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    rules_accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class StarFloor(Base):
@@ -96,6 +108,13 @@ class StarChannel(Base):
     listen_only: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
+    # Медленный режим Спутника: не чаще одного сообщения в столько секунд (модераторам — без ограничений).
+    slow_mode_sec: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    # Временная Планета: создал любой участник, удаляется сама, когда опустеет.
+    temporary: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    created_by: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
     # Этаж и положение на карте офиса в клетках сетки.
     floor_id: Mapped[str | None] = mapped_column(
         ForeignKey("star_floors.id", ondelete="SET NULL"), nullable=True, index=True
@@ -121,6 +140,9 @@ class StarMessage(Base):
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
     text: Mapped[str] = mapped_column(Text, nullable=False)
+    # text | system (приветствие) | poll | lfg — у poll и lfg ref_id указывает на опрос или сбор.
+    kind: Mapped[str] = mapped_column(String(16), nullable=False, default="text", server_default="text")
+    ref_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     # Ответ на сообщение того же Спутника; удалили исходное — ответ остаётся без цитаты.
     reply_to_id: Mapped[str | None] = mapped_column(
         ForeignKey("star_messages.id", ondelete="SET NULL"), nullable=True
@@ -174,6 +196,146 @@ class StarBan(Base):
         ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
     banned_by: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class StarTag(Base):
+    """Своя роль с цветом. Права не даёт — это подпись: цвет имени, отметка в списке участников.
+    self_assign — участник может выбрать её себе сам («Танк», «Хил», «Новичок»)."""
+
+    __tablename__ = "star_tags"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    star_id: Mapped[str] = mapped_column(
+        ForeignKey("stars.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    name: Mapped[str] = mapped_column(String(32), nullable=False)
+    color: Mapped[str] = mapped_column(String(7), nullable=False)
+    self_assign: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    position: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class StarMemberTag(Base):
+    __tablename__ = "star_member_tags"
+
+    tag_id: Mapped[str] = mapped_column(
+        ForeignKey("star_tags.id", ondelete="CASCADE"), primary_key=True
+    )
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    star_id: Mapped[str] = mapped_column(
+        ForeignKey("stars.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+
+
+class StarAudit(Base):
+    """Журнал действий: кто кого выгнал, заглушил, кому поменял роль, что настроил."""
+
+    __tablename__ = "star_audit"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    star_id: Mapped[str] = mapped_column(
+        ForeignKey("stars.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    actor_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    action: Mapped[str] = mapped_column(String(32), nullable=False)
+    target_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    details: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, index=True)
+
+
+class StarPoll(Base):
+    __tablename__ = "star_polls"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    star_id: Mapped[str] = mapped_column(
+        ForeignKey("stars.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    question: Mapped[str] = mapped_column(String(300), nullable=False)
+    options: Mapped[list] = mapped_column(JSON, nullable=False)
+    multiple: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    anonymous: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    closes_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    closed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_by: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class StarPollVote(Base):
+    __tablename__ = "star_poll_votes"
+
+    poll_id: Mapped[str] = mapped_column(
+        ForeignKey("star_polls.id", ondelete="CASCADE"), primary_key=True
+    )
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    option: Mapped[int] = mapped_column(Integer, primary_key=True)
+
+
+class StarLfg(Base):
+    """Сбор группы: «Ищу пати: Dota, 5 мест, 21:00». В начале — временная Планета для всех записавшихся."""
+
+    __tablename__ = "star_lfg"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    star_id: Mapped[str] = mapped_column(
+        ForeignKey("stars.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    channel_id: Mapped[str] = mapped_column(
+        ForeignKey("star_channels.id", ondelete="CASCADE"), nullable=False
+    )
+    title: Mapped[str] = mapped_column(String(100), nullable=False)
+    slots: Mapped[int] = mapped_column(Integer, nullable=False)
+    starts_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    # open | started | cancelled
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="open")
+    planet_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    created_by: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class StarLfgMember(Base):
+    __tablename__ = "star_lfg_members"
+
+    lfg_id: Mapped[str] = mapped_column(
+        ForeignKey("star_lfg.id", ondelete="CASCADE"), primary_key=True
+    )
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    joined_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class StarAsset(Base):
+    """Стикер, эмодзи или звук Звезды. Файл — /media/stars/<star_id>/<id>.<ext>, публичный по ссылке."""
+
+    __tablename__ = "star_assets"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    star_id: Mapped[str] = mapped_column(
+        ForeignKey("stars.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    # sticker | emoji | sound
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    # Для эмодзи — код в тексте: :name:. Для звука — подпись на кнопке.
+    name: Mapped[str] = mapped_column(String(32), nullable=False)
+    # Значок на кнопке звука.
+    emoji: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    url: Mapped[str] = mapped_column(Text, nullable=False)
+    mime: Mapped[str] = mapped_column(String(32), nullable=False)
+    size: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_by: Mapped[str | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)

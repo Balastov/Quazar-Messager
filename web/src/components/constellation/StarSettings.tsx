@@ -14,6 +14,7 @@ import UserAvatar from "../UserAvatar";
 import { squareAvatar } from "../../utils/squareAvatar";
 import { prepareBackground } from "../../utils/wallpaper";
 import Dialog from "./Dialog";
+import { AssetsTab, AuditTab, CommunityTab, TagsTab } from "./GamingSettings";
 import StarAvatar from "./StarAvatar";
 import {
   apiError,
@@ -30,7 +31,17 @@ import {
 import s from "./Constellation.module.css";
 import { usePresenceText } from "../../store/presence";
 
-export type SettingsTab = "general" | "members" | "invites" | "permissions" | "bans" | "star";
+export type SettingsTab =
+  | "general"
+  | "members"
+  | "invites"
+  | "permissions"
+  | "bans"
+  | "community"
+  | "tags"
+  | "assets"
+  | "audit"
+  | "star";
 
 interface Props {
   detail: StarDetail;
@@ -48,6 +59,10 @@ export default function StarSettings({ detail, initialTab = "general", onClose }
     { id: "invites", label: "Приглашения", show: can(detail, "invite") },
     { id: "permissions", label: "Права", show: isOwner },
     { id: "bans", label: "Блокировки", show: isAdmin },
+    { id: "community", label: "Сообщество", show: isAdmin },
+    { id: "tags", label: "Роли", show: isAdmin },
+    { id: "assets", label: "Стикеры и звуки", show: can(detail, "manage_channels") },
+    { id: "audit", label: "Журнал", show: isAdmin },
     { id: "star", label: "Звезда", show: isOwner },
   ];
   const visible = tabs.filter((t) => t.show);
@@ -76,6 +91,10 @@ export default function StarSettings({ detail, initialTab = "general", onClose }
       {tab === "invites" && <InvitesTab detail={detail} />}
       {tab === "permissions" && <PermissionsTab detail={detail} />}
       {tab === "bans" && <BansTab detail={detail} />}
+      {tab === "community" && <CommunityTab detail={detail} />}
+      {tab === "tags" && <TagsTab detail={detail} />}
+      {tab === "assets" && <AssetsTab detail={detail} />}
+      {tab === "audit" && <AuditTab detail={detail} />}
       {tab === "star" && <StarTab detail={detail} onClose={onClose} />}
     </Dialog>
   );

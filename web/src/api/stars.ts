@@ -25,6 +25,82 @@ export interface StarMember {
   user: StarUser;
   role: StarRole;
   joined_at: string;
+  /** Свои роли-подписи (StarTag.id). */
+  tag_ids?: string[];
+  /** В тайм-ауте до этого момента. */
+  timeout_until?: string | null;
+}
+
+/** Своя роль с цветом: подпись и цвет имени, права не даёт. */
+export interface StarTag {
+  id: string;
+  name: string;
+  color: string;
+  /** Участник может выбрать её себе сам. */
+  self_assign: boolean;
+  position: number;
+}
+
+export interface PollOption {
+  text: string;
+  votes: number;
+  /** Кто голосовал — только в неанонимных опросах. */
+  voters: string[];
+}
+
+export interface StarPoll {
+  id: string;
+  question: string;
+  options: PollOption[];
+  multiple: boolean;
+  anonymous: boolean;
+  closes_at: string | null;
+  closed: boolean;
+  total_voters: number;
+  /** Мои варианты (в рассылке другим — пусто). */
+  my_votes: number[];
+  created_by: string | null;
+}
+
+export interface StarLfg {
+  id: string;
+  title: string;
+  slots: number;
+  starts_at: string | null;
+  status: "open" | "started" | "cancelled";
+  members: string[];
+  /** Временная Планета, когда сбор начался. */
+  planet_id: string | null;
+  created_by: string | null;
+}
+
+export type AssetKind = "sticker" | "emoji" | "sound";
+
+export interface StarAsset {
+  id: string;
+  kind: AssetKind;
+  name: string;
+  emoji: string | null;
+  url: string;
+  mime: string;
+}
+
+export interface AuditEntry {
+  id: string;
+  actor: StarUser | null;
+  action: string;
+  target: StarUser | null;
+  target_id: string | null;
+  details: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface CommunitySettings {
+  rules_text?: string | null;
+  welcome_text?: string | null;
+  welcome_channel_id?: string | null;
+  banned_words?: string[];
+  soundboard?: boolean;
 }
 
 export interface StarChannel {
@@ -40,6 +116,11 @@ export interface StarChannel {
   cabinet_owner_id?: string | null;
   /** «Только слушать»: микрофоны на Планете не открываются (показ экрана работает). */
   listen_only?: boolean;
+  /** Медленный режим Спутника, секунды (0 — выключен). */
+  slow_mode_sec?: number;
+  /** Временная Планета: исчезнет, когда опустеет. */
+  temporary?: boolean;
+  created_by?: string | null;
   /** Этаж карты офиса (Звёзды «Работа»). */
   floor_id: string | null;
   map_x: number | null;
@@ -126,6 +207,15 @@ export interface StarDetail extends StarSummary {
   voice: Record<string, VoicePresence[]>;
   /** Этажи карты офиса (только у Звёзд «Работа»). */
   floors: StarFloor[];
+  rules_text?: string | null;
+  /** Правила приняты (или их нет, или я модератор и выше). */
+  rules_accepted?: boolean;
+  welcome_text?: string | null;
+  welcome_channel_id?: string | null;
+  soundboard?: boolean;
+  /** Только владельцу и админам. */
+  banned_words?: string[];
+  tags?: StarTag[];
 }
 
 export interface PlanetJoin {
@@ -155,6 +245,10 @@ export interface StarMessage {
   edited_at?: string | null;
   reply_to?: StarMessageReply | null;
   reactions?: StarMessageReaction[];
+  /** text | system (приветствие) | poll | lfg */
+  kind?: "text" | "system" | "poll" | "lfg";
+  poll?: StarPoll | null;
+  lfg?: StarLfg | null;
 }
 
 export interface StarInvite {
@@ -264,7 +358,30 @@ export type StarEvent =
       user_id: string;
       emoji: string | null;
     }
-  | { type: "star_typing"; star_id: string; channel_id: string; user_id: string };
+  | { type: "star_typing"; star_id: string; channel_id: string; user_id: string }
+  | {
+      type: "star_community";
+      star_id: string;
+      rules_text: string | null;
+      welcome_text: string | null;
+      welcome_channel_id: string | null;
+      soundboard: boolean;
+    }
+  | { type: "star_tags"; star_id: string; tags: StarTag[] }
+  | { type: "star_poll"; star_id: string; channel_id: string; message_id: string; poll: StarPoll }
+  | { type: "star_lfg"; star_id: string; channel_id: string; message_id: string; lfg: StarLfg }
+  /** Сбор, на который я записался, начался — зовут на временную Планету. */
+  | {
+      type: "star_lfg_start";
+      star_id: string;
+      lfg_id: string;
+      channel_id: string;
+      title: string;
+      star_name: string;
+    }
+  | { type: "star_assets"; star_id: string }
+  /** Кто-то на моей Планете нажал звук панели. */
+  | { type: "star_sound"; star_id: string; channel_id: string; url: string; name: string; by: string };
 
 const base = (starId: string) => `/stars/${starId}`;
 
@@ -338,6 +455,7 @@ export const starsApi = {
       access?: RoomAccess;
       cabinet_owner_id?: string;
       listen_only?: boolean;
+      slow_mode_sec?: number;
       floor_id?: string;
     }
   ) => http.patch<StarChannel>(`${base(starId)}/channels/${channelId}`, body).then((r) => r.data),
@@ -363,6 +481,50 @@ export const starsApi = {
       .then((r) => r.data),
   deleteMessage: (starId: string, channelId: string, messageId: string) =>
     http.delete(`${base(starId)}/channels/${channelId}/messages/${messageId}`),
+  community: (starId: string, body: CommunitySettings) => http.patch(`${base(starId)}/community`, body),
+  acceptRules: (starId: string) => http.post(`${base(starId)}/rules/accept`),
+  createTag: (starId: string, body: { name: string; color: string; self_assign: boolean }) =>
+    http.post<StarTag>(`${base(starId)}/tags`, body).then((r) => r.data),
+  updateTag: (starId: string, tagId: string, body: { name: string; color: string; self_assign: boolean }) =>
+    http.patch<StarTag>(`${base(starId)}/tags/${tagId}`, body).then((r) => r.data),
+  deleteTag: (starId: string, tagId: string) => http.delete(`${base(starId)}/tags/${tagId}`),
+  giveTag: (starId: string, userId: string, tagId: string) =>
+    http.put(`${base(starId)}/members/${userId}/tags/${tagId}`),
+  takeTag: (starId: string, userId: string, tagId: string) =>
+    http.delete(`${base(starId)}/members/${userId}/tags/${tagId}`),
+  timeout: (starId: string, userId: string, minutes: number | null) =>
+    http.post(`${base(starId)}/members/${userId}/timeout`, { minutes }),
+  audit: (starId: string, before?: string) =>
+    http
+      .get<AuditEntry[]>(`${base(starId)}/audit`, { params: before ? { before } : {} })
+      .then((r) => r.data),
+  createPoll: (
+    starId: string,
+    channelId: string,
+    body: { question: string; options: string[]; multiple: boolean; anonymous: boolean; closes_in_minutes: number | null }
+  ) => http.post(`${base(starId)}/channels/${channelId}/polls`, body),
+  vote: (starId: string, pollId: string, options: number[]) =>
+    http.put<StarPoll>(`${base(starId)}/polls/${pollId}/vote`, { options }).then((r) => r.data),
+  closePoll: (starId: string, pollId: string) => http.post(`${base(starId)}/polls/${pollId}/close`),
+  createLfg: (starId: string, channelId: string, body: { title: string; slots: number; starts_at: string | null }) =>
+    http.post(`${base(starId)}/channels/${channelId}/lfg`, body),
+  lfgAction: (starId: string, lfgId: string, action: "join" | "leave" | "start" | "cancel") =>
+    http.post<StarLfg>(`${base(starId)}/lfg/${lfgId}/${action}`).then((r) => r.data),
+  temporaryPlanet: (starId: string, name?: string) =>
+    http.post<StarChannel>(`${base(starId)}/planets/temporary`, { name: name ?? null }).then((r) => r.data),
+  assets: (starId: string) => http.get<StarAsset[]>(`${base(starId)}/assets`).then((r) => r.data),
+  uploadAsset: (starId: string, kind: AssetKind, name: string, file: File, emoji?: string) => {
+    const form = new FormData();
+    form.append("kind", kind);
+    form.append("name", name);
+    if (emoji) form.append("emoji", emoji);
+    form.append("file", file);
+    return http.post<StarAsset>(`${base(starId)}/assets`, form).then((r) => r.data);
+  },
+  deleteAsset: (starId: string, assetId: string) => http.delete(`${base(starId)}/assets/${assetId}`),
+  playSound: (starId: string, channelId: string, sound: string) =>
+    http.post(`${base(starId)}/planets/${channelId}/sound`, { sound }),
+
   react: (starId: string, channelId: string, messageId: string, emoji: string) =>
     http.put(`${base(starId)}/channels/${channelId}/messages/${messageId}/reaction`, { emoji }),
   unreact: (starId: string, channelId: string, messageId: string) =>

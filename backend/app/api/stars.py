@@ -23,6 +23,7 @@ from app.core.backgrounds import (
     save_background,
 )
 from app.core import doors
+from app.core import star_assets, star_audit
 from app.core import floors as floors_svc
 from app.core import voice
 from app.core.database import get_db
@@ -34,8 +35,10 @@ from app.models.star import (
     StarChannel,
     StarInvite,
     StarMember,
+    StarMemberTag,
     StarMessage,
     StarMessageReaction,
+    StarTag,
 )
 from app.models.user import User
 from app.schemas.star import (
@@ -58,6 +61,7 @@ from app.schemas.star import (
     StarReactionOut,
     StarReplyOut,
     StarSummaryOut,
+    StarTagOut,
     StarUserOut,
     TransferStar,
     UpdateChannel,
@@ -153,6 +157,20 @@ async def _broadcast(db: AsyncSession, star_id: str, event: dict, *, also: tuple
     await manager.broadcast_to_users(list(user_ids), {"star_id": star_id, **event})
 
 
+async def _member_tag_ids(db: AsyncSession, star_id: str, user_id: str | None = None) -> dict[str, list[str]]:
+    query = select(StarMemberTag.user_id, StarMemberTag.tag_id).where(StarMemberTag.star_id == star_id)
+    if user_id:
+        query = query.where(StarMemberTag.user_id == user_id)
+    by_user: dict[str, list[str]] = defaultdict(list)
+    for uid, tag_id in (await db.execute(query)).all():
+        by_user[uid].append(tag_id)
+    return by_user
+
+
+def _active_timeout(member: StarMember) -> datetime | None:
+    return member.timeout_until if member.timeout_until and member.timeout_until > _now() else None
+
+
 async def _members_out(db: AsyncSession, star_id: str) -> list[StarMemberOut]:
     rows = (
         await db.execute(
@@ -161,8 +179,16 @@ async def _members_out(db: AsyncSession, star_id: str) -> list[StarMemberOut]:
             .where(StarMember.star_id == star_id)
         )
     ).all()
+    tags = await _member_tag_ids(db, star_id)
     members = [
-        StarMemberOut(user=_user_out(user), role=m.role, joined_at=m.joined_at) for m, user in rows
+        StarMemberOut(
+            user=_user_out(user),
+            role=m.role,
+            joined_at=m.joined_at,
+            tag_ids=tags.get(user.id, []),
+            timeout_until=_active_timeout(m),
+        )
+        for m, user in rows
     ]
     members.sort(key=lambda m: (-rules.rank(m.role), m.joined_at))
     return members
@@ -170,7 +196,21 @@ async def _members_out(db: AsyncSession, star_id: str) -> list[StarMemberOut]:
 
 async def _member_out(db: AsyncSession, member: StarMember) -> StarMemberOut:
     user = (await db.execute(select(User).where(User.id == member.user_id))).scalar_one()
-    return StarMemberOut(user=_user_out(user), role=member.role, joined_at=member.joined_at)
+    tags = await _member_tag_ids(db, member.star_id, member.user_id)
+    return StarMemberOut(
+        user=_user_out(user),
+        role=member.role,
+        joined_at=member.joined_at,
+        tag_ids=tags.get(member.user_id, []),
+        timeout_until=_active_timeout(member),
+    )
+
+
+async def broadcast_member(db: AsyncSession, member: StarMember) -> StarMemberOut:
+    """Участник изменился (роль, теги, тайм-аут) — всем свежая карточка."""
+    out = await _member_out(db, member)
+    await _broadcast(db, member.star_id, {"type": "star_member_upsert", "member": out.model_dump(mode="json")})
+    return out
 
 
 async def _channels(db: AsyncSession, star_id: str) -> list[StarChannel]:
@@ -218,6 +258,9 @@ async def _detail(db: AsyncSession, star: Star, me: StarMember) -> StarDetailOut
     floors = await floors_svc.ensure_floors(db, star)
     members = await _members_out(db, star.id)
     channels = await _channels(db, star.id)
+    tags = (
+        await db.execute(select(StarTag).where(StarTag.star_id == star.id).order_by(StarTag.position, StarTag.created_at))
+    ).scalars().all()
     return StarDetailOut(
         **_summary(star, me.role, len(members)).model_dump(),
         my_permissions=rules.effective_permissions(me.role, star.role_permissions),
@@ -226,7 +269,34 @@ async def _detail(db: AsyncSession, star: Star, me: StarMember) -> StarDetailOut
         members=members,
         voice=voice.star_presence(star.id),
         floors=[StarFloorOut.model_validate(f) for f in floors],
+        rules_text=star.rules_text,
+        rules_accepted=_rules_ok(star, me),
+        welcome_text=star.welcome_text,
+        welcome_channel_id=star.welcome_channel_id,
+        soundboard=star.soundboard,
+        banned_words=list(star.banned_words or []) if me.role in ("owner", "admin") else [],
+        tags=[StarTagOut.model_validate(t) for t in tags],
     )
+
+
+def _rules_ok(star: Star, me: StarMember) -> bool:
+    return not star.rules_text or rules.is_staff(me.role) or me.rules_accepted_at is not None
+
+
+def assert_can_post(star: Star, me: StarMember) -> None:
+    """Писать в Спутники и ставить реакции: не в тайм-ауте и с принятыми правилами."""
+    until = _active_timeout(me)
+    if until:
+        raise _forbid(f"Вы в тайм-ауте до {until.astimezone().strftime('%d.%m %H:%M')}")
+    if not _rules_ok(star, me):
+        raise _forbid("Сначала примите правила Звезды")
+
+
+def assert_clean_text(star: Star, me: StarMember, text: str) -> None:
+    if rules.bypasses_word_filter(me.role):
+        return
+    if rules.find_banned_word(text, star.banned_words):
+        raise HTTPException(status_code=422, detail="В сообщении есть запрещённое в этой Звезде слово")
 
 
 async def _remove_member(db: AsyncSession, star_id: str, user_id: str, reason: str) -> None:
@@ -437,6 +507,7 @@ async def delete_star(star_id: str, current_user: CurrentUser, db: Db):
     await db.commit()
     delete_star_avatar_files(star_id)
     delete_background(background)
+    star_assets.delete_star(star_id)
     await manager.broadcast_to_users(
         member_ids, {"type": "star_removed", "star_id": star_id, "reason": "deleted"}
     )
@@ -494,10 +565,11 @@ async def update_member_role(
     target = await _target_member(db, star_id, user_id)
     if not rules.can_set_role(me.role, target.role, body.role):
         raise _forbid()
+    previous = target.role
     target.role = body.role
     await db.commit()
-    out = await _member_out(db, target)
-    await _broadcast(db, star_id, {"type": "star_member_upsert", "member": out.model_dump(mode="json")})
+    out = await broadcast_member(db, target)
+    await star_audit.record(db, star_id, current_user.id, "role", user_id, before=previous, after=body.role)
     return out
 
 
@@ -508,6 +580,7 @@ async def kick_member(star_id: str, user_id: str, current_user: CurrentUser, db:
     if not rules.can_kick(me.role, target.role, star.role_permissions):
         raise _forbid()
     await _remove_member(db, star_id, user_id, "kick")
+    await star_audit.record(db, star_id, current_user.id, "kick", user_id)
 
 
 @router.post("/{star_id}/members/{user_id}/ban", status_code=status.HTTP_204_NO_CONTENT)
@@ -518,6 +591,7 @@ async def ban_member(star_id: str, user_id: str, current_user: CurrentUser, db: 
         raise _forbid("Блокировать могут только владелец и админы")
     db.add(StarBan(star_id=star_id, user_id=user_id, banned_by=current_user.id))
     await _remove_member(db, star_id, user_id, "ban")
+    await star_audit.record(db, star_id, current_user.id, "ban", user_id)
 
 
 @router.get("/{star_id}/bans", response_model=list[StarBanOut])
@@ -543,6 +617,7 @@ async def unban(star_id: str, user_id: str, current_user: CurrentUser, db: Db):
         raise _forbid()
     await db.execute(delete(StarBan).where(StarBan.star_id == star_id, StarBan.user_id == user_id))
     await db.commit()
+    await star_audit.record(db, star_id, current_user.id, "unban", user_id)
 
 
 @router.put("/{star_id}/permissions", response_model=dict[str, list[str]])
@@ -556,6 +631,7 @@ async def update_permissions(
     await db.commit()
     normalized = rules.normalize_role_permissions(star.role_permissions)
     await _broadcast(db, star_id, {"type": "star_permissions", "role_permissions": normalized})
+    await star_audit.record(db, star_id, current_user.id, "permissions")
     return normalized
 
 
@@ -672,7 +748,37 @@ async def join_by_invite(code: str, current_user: CurrentUser, db: Db):
     await db.commit()
     out = await _member_out(db, me)
     await _broadcast(db, star.id, {"type": "star_member_upsert", "member": out.model_dump(mode="json")})
+    await _greet(db, star, current_user)
     return await _detail(db, star, me)
+
+
+async def _greet(db: AsyncSession, star: Star, user: User) -> None:
+    """Приветствие новичка служебным сообщением в выбранном Спутнике."""
+    if not star.welcome_channel_id:
+        return
+    channel = (
+        await db.execute(
+            select(StarChannel).where(
+                StarChannel.id == star.welcome_channel_id,
+                StarChannel.star_id == star.id,
+                StarChannel.kind == "satellite",
+            )
+        )
+    ).scalar_one_or_none()
+    if not channel:
+        return
+    template = star.welcome_text or "Встречайте {name} — теперь в Звезде!"
+    message = StarMessage(
+        star_id=star.id,
+        channel_id=channel.id,
+        sender_id=user.id,
+        kind="system",
+        text=template.replace("{name}", user.username)[: rules.MAX_MESSAGE_LENGTH],
+    )
+    db.add(message)
+    await db.commit()
+    out = (await _messages_out(db, [(message, user)]))[0]
+    await _broadcast(db, star.id, {"type": "star_message", "message": out.model_dump(mode="json")})
 
 
 # --- Каналы: Спутники и Планеты ------------------------------------------
@@ -721,8 +827,9 @@ async def create_channel(star_id: str, body: CreateChannel, current_user: Curren
             select(func.count(), func.max(StarChannel.position)).where(
                 StarChannel.star_id == star_id,
                 StarChannel.kind == body.kind,
-                # Зал ожидания — системная комната, в лимит не входит.
+                # Зал ожидания — системная комната, в лимит не входит; временные Планеты — тоже.
                 or_(StarChannel.room_kind.is_(None), StarChannel.room_kind != "lobby"),
+                StarChannel.temporary.is_(False),
             )
         )
     ).one()
@@ -759,6 +866,7 @@ async def create_channel(star_id: str, body: CreateChannel, current_user: Curren
     await _broadcast(db, star_id, _channel_event(channel))
     if floor:
         await _broadcast(db, star_id, floors_event(await floors_svc.list_floors(db, star_id)))
+    await star_audit.record(db, star_id, current_user.id, "channel_create", channel.id, name=channel.name)
     return channel
 
 
@@ -787,6 +895,8 @@ async def update_channel(
     )
     if listen_only_changed:
         channel.listen_only = body.listen_only
+    if channel.kind == "satellite" and body.slow_mode_sec is not None:
+        channel.slow_mode_sec = body.slow_mode_sec
 
     moved = False
     if (
@@ -814,6 +924,10 @@ async def update_channel(
         await voice.set_listen_only(star_id, channel_id, channel.listen_only)
     if moved:
         await _broadcast(db, star_id, floors_event(await floors_svc.list_floors(db, star_id)))
+    await star_audit.record(
+        db, star_id, current_user.id, "channel_update", channel.id,
+        name=channel.name, changes=sorted(body.model_dump(exclude_none=True)),
+    )
     return channel
 
 
@@ -825,9 +939,11 @@ async def delete_channel(star_id: str, channel_id: str, current_user: CurrentUse
     floor = await floors_svc.lock_floor(db, star_id, channel.floor_id) if channel.floor_id else None
     if floor:
         floor.version += 1  # план этажа изменился
+    name = channel.name
     await db.delete(channel)
     await db.commit()
     await _broadcast(db, star_id, {"type": "star_channel_deleted", "channel_id": channel_id})
+    await star_audit.record(db, star_id, current_user.id, "channel_delete", channel_id, name=name)
     if floor:
         await _broadcast(db, star_id, floors_event(await floors_svc.list_floors(db, star_id)))
     if is_planet:
@@ -849,6 +965,25 @@ async def reorder_channels(star_id: str, body: ReorderChannels, current_user: Cu
 # --- Сообщения Спутников --------------------------------------------------
 
 
+async def assert_slow_mode(db: AsyncSession, channel: StarChannel, me: StarMember) -> None:
+    """Медленный режим: следующее сообщение — не раньше чем через slow_mode_sec после своего прошлого."""
+    if not channel.slow_mode_sec or rules.is_staff(me.role):
+        return
+    last = (
+        await db.execute(
+            select(func.max(StarMessage.created_at)).where(
+                StarMessage.channel_id == channel.id, StarMessage.sender_id == me.user_id
+            )
+        )
+    ).scalar_one_or_none()
+    if last:
+        wait = channel.slow_mode_sec - (_now() - last).total_seconds()
+        if wait > 0:
+            raise HTTPException(
+                status_code=429, detail=f"Медленный режим: следующее сообщение через {int(wait) + 1} с"
+            )
+
+
 async def _satellite(db: AsyncSession, star_id: str, channel_id: str) -> StarChannel:
     channel = await _channel(db, star_id, channel_id)
     if channel.kind != "satellite":
@@ -857,7 +992,7 @@ async def _satellite(db: AsyncSession, star_id: str, channel_id: str) -> StarCha
 
 
 async def _messages_out(
-    db: AsyncSession, rows: list[tuple[StarMessage, User | None]]
+    db: AsyncSession, rows: list[tuple[StarMessage, User | None]], viewer_id: str | None = None
 ) -> list[StarMessageOut]:
     """Сообщения с цитатами ответов и реакциями — двумя запросами на всю страницу."""
     reply_ids = {m.reply_to_id for m, _ in rows if m.reply_to_id}
@@ -883,6 +1018,11 @@ async def _messages_out(
         for r in reaction_rows.scalars():
             reactions[r.message_id].append(StarReactionOut(user_id=r.user_id, emoji=r.emoji))
 
+    from app.api.star_play import lfgs_out, polls_out
+
+    polls = await polls_out(db, [m.ref_id for m, _ in rows if m.kind == "poll" and m.ref_id], viewer_id)
+    lfgs = await lfgs_out(db, [m.ref_id for m, _ in rows if m.kind == "lfg" and m.ref_id])
+
     return [
         StarMessageOut(
             id=m.id,
@@ -890,6 +1030,9 @@ async def _messages_out(
             channel_id=m.channel_id,
             sender=_user_out(u) if u else None,
             text=m.text,
+            kind=m.kind,
+            poll=polls.get(m.ref_id) if m.kind == "poll" else None,
+            lfg=lfgs.get(m.ref_id) if m.kind == "lfg" else None,
             created_at=m.created_at,
             edited_at=m.edited_at,
             reply_to=replies.get(m.reply_to_id) if m.reply_to_id else None,
@@ -934,7 +1077,7 @@ async def list_messages(
         if cursor:
             query = query.where(StarMessage.created_at < cursor)
     rows = (await db.execute(query.order_by(StarMessage.created_at.desc()).limit(limit))).all()
-    return await _messages_out(db, [(m, u) for m, u in reversed(rows)])
+    return await _messages_out(db, [(m, u) for m, u in reversed(rows)], current_user.id)
 
 
 @router.post(
@@ -945,8 +1088,11 @@ async def list_messages(
 async def send_message(
     star_id: str, channel_id: str, body: SendStarMessage, current_user: CurrentUser, db: Db
 ):
-    await _load_membership(db, star_id, current_user.id)
-    await _satellite(db, star_id, channel_id)
+    star, me = await _load_membership(db, star_id, current_user.id)
+    channel = await _satellite(db, star_id, channel_id)
+    assert_can_post(star, me)
+    await assert_slow_mode(db, channel, me)
+    assert_clean_text(star, me, body.text)
     if body.reply_to_id:
         try:
             await _star_message(db, star_id, channel_id, body.reply_to_id)
@@ -976,10 +1122,12 @@ async def edit_message(
     db: Db,
 ):
     """Исправить можно только своё сообщение — модераторам доступно лишь удаление."""
-    await _load_membership(db, star_id, current_user.id)
+    star, me = await _load_membership(db, star_id, current_user.id)
     message = await _star_message(db, star_id, channel_id, message_id)
-    if message.sender_id != current_user.id:
+    if message.sender_id != current_user.id or message.kind != "text":
         raise _forbid("Исправить можно только своё сообщение")
+    assert_can_post(star, me)
+    assert_clean_text(star, me, body.text)
     message.text = body.text
     message.edited_at = _now()
     await db.commit()
@@ -1010,8 +1158,9 @@ async def set_reaction(
     db: Db,
 ):
     """Поставить или сменить свою реакцию (одна на человека)."""
-    await _load_membership(db, star_id, current_user.id)
+    star, me = await _load_membership(db, star_id, current_user.id)
     await _star_message(db, star_id, channel_id, message_id)
+    assert_can_post(star, me)
     now = _now()
     await db.execute(
         insert(StarMessageReaction)
@@ -1083,6 +1232,10 @@ async def delete_message(
         current_user.id, me.role, message.sender_id, sender_role, star.role_permissions
     ):
         raise _forbid()
+    if message.sender_id != current_user.id:
+        await star_audit.record(
+            db, star_id, current_user.id, "message_delete", message.sender_id, text=message.text[:200]
+        )
 
     await db.delete(message)
     await db.commit()

@@ -93,6 +93,20 @@ self.addEventListener("push", (event) => {
     return;
   }
 
+  if (data.type === "star_message") {
+    // Сообщение Спутника: упоминание, ответ мне или всё подряд — по уровню уведомлений.
+    const options = {
+      body: data.body || "",
+      tag: data.tag || `quazar-star-${data.channel_id || "x"}`,
+      icon: "/icons/icon-192.png",
+      badge: "/icons/icon-48.png",
+      renotify: true,
+      data: { kind: "star", starId: data.star_id || null, channelId: data.channel_id || null },
+    };
+    event.waitUntil(self.registration.showNotification(data.title || "Quazar", options));
+    return;
+  }
+
   const title = data.title || "Quazar";
   const options = {
     body: data.body || "Новое уведомление",
@@ -150,6 +164,18 @@ self.addEventListener("notificationclick", (event) => {
     if (link.lobbyChannelId) params.set("lobby", link.lobbyChannelId);
     if (link.action) params.set("do", link.action);
     event.waitUntil(openOrFocus(`/?${params.toString()}`, { type: "quazar-star-door", link }));
+    return;
+  }
+
+  if (data.kind === "star" && data.starId && data.channelId) {
+    const params = new URLSearchParams({ star: data.starId, channel: data.channelId });
+    event.waitUntil(
+      openOrFocus(`/?${params.toString()}`, {
+        type: "quazar-open-star",
+        starId: data.starId,
+        channelId: data.channelId,
+      })
+    );
     return;
   }
 

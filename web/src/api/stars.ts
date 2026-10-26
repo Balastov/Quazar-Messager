@@ -54,6 +54,28 @@ export interface StarBooking {
   attendees: string[];
 }
 
+/** Файл в сообщении Спутника. */
+export interface StarFile {
+  id: string;
+  name: string;
+  mime: string;
+  size: number;
+}
+
+/** Файл в разделе «Файлы» Звезды. */
+export interface StarFileItem extends StarFile {
+  channel_id: string;
+  message_id: string | null;
+  uploader: StarUser | null;
+  created_at: string;
+}
+
+export interface StarFilesPage {
+  files: StarFileItem[];
+  used_bytes: number;
+  quota_bytes: number;
+}
+
 export interface StarAcks {
   acked: StarUser[];
   pending: StarUser[];
@@ -282,8 +304,13 @@ export interface StarMessage {
   edited_at?: string | null;
   reply_to?: StarMessageReply | null;
   reactions?: StarMessageReaction[];
-  /** text | system (приветствие) | poll | lfg */
-  kind?: "text" | "system" | "poll" | "lfg";
+  /** text | system (приветствие) | poll | lfg | file */
+  kind?: "text" | "system" | "poll" | "lfg" | "file";
+  /** У kind === "file"; text тогда — подпись (может быть пустой). */
+  file?: StarFile | null;
+  /** Упомянутые (@имя) участники и @все. */
+  mentions?: string[];
+  mention_all?: boolean;
   poll?: StarPoll | null;
   lfg?: StarLfg | null;
   /** Ответ в ветке — id корня. У корня — сводка ветки. */
@@ -395,6 +422,8 @@ export type StarEvent =
       message_id: string;
       text: string;
       edited_at: string;
+      mentions?: string[];
+      mention_all?: boolean;
     }
   /** emoji null — реакцию сняли. */
   | {
@@ -544,7 +573,7 @@ export const starsApi = {
     channelId: string,
     text: string,
     replyToId?: string,
-    extra: { thread_id?: string; ack_required?: boolean } = {}
+    extra: { thread_id?: string; ack_required?: boolean; file_id?: string } = {}
   ) =>
     http
       .post<StarMessage>(`${base(starId)}/channels/${channelId}/messages`, {
@@ -553,6 +582,25 @@ export const starsApi = {
         ...extra,
       })
       .then((r) => r.data),
+  /** Сам файл — телом запроса; потом он уходит в сообщении (send … { file_id }). */
+  uploadFile: (starId: string, channelId: string, file: File, onProgress?: (share: number) => void) =>
+    http
+      .post<StarFile>(`${base(starId)}/channels/${channelId}/files`, file, {
+        params: { name: file.name },
+        headers: { "Content-Type": file.type || "application/octet-stream" },
+        onUploadProgress: onProgress
+          ? (e) => onProgress(e.total ? Math.min(1, e.loaded / e.total) : 0)
+          : undefined,
+      })
+      .then((r) => r.data),
+  files: (
+    starId: string,
+    params: { q?: string; channel_id?: string; kind?: "all" | "images" | "docs"; before?: string } = {}
+  ) => http.get<StarFilesPage>(`${base(starId)}/files`, { params }).then((r) => r.data),
+  downloadFile: (starId: string, fileId: string) =>
+    http
+      .get<ArrayBuffer>(`${base(starId)}/files/${fileId}`, { responseType: "arraybuffer" })
+      .then((r) => new Uint8Array(r.data)),
   thread: (starId: string, channelId: string, rootId: string) =>
     http
       .get<StarMessage[]>(`${base(starId)}/channels/${channelId}/threads/${rootId}`)

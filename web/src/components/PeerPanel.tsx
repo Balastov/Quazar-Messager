@@ -2,7 +2,8 @@ import { useState } from "react";
 import { useAuthStore } from "../store/auth";
 import { useChatStore } from "../store/chat";
 import { useCallStore } from "../store/call";
-import { getNotifyPrefs, setNotifyPrefs } from "../notifications/prefs";
+import { CHAT_DEFAULT, chatLevel, levelSummary, settingKey, useNotifyStore } from "../notifications/levels";
+import NotifyDialog from "./NotifyDialog";
 import UserAvatar from "./UserAvatar";
 import { usePresence, usePresenceText } from "../store/presence";
 import { presenceTone } from "../utils/presence";
@@ -21,7 +22,8 @@ export default function PeerPanel() {
   const startVideoCall = useCallStore((st) => st.startVideoCall);
   const callPhase = useCallStore((st) => st.phase);
   const callBusy = callPhase !== "idle" && callPhase !== "ended";
-  const [notifyOn, setNotifyOn] = useState(() => getNotifyPrefs().enabled);
+  const notifySettings = useNotifyStore((st) => st.settings);
+  const [notifyOpen, setNotifyOpen] = useState(false);
   const [mediaTab, setMediaTab] = useState<GalleryTab>("photos");
 
   const chat = chats.find((c) => c.id === activeChatId);
@@ -128,20 +130,29 @@ export default function PeerPanel() {
         </section>
       )}
 
-      <div className={s.row}>
-        <span>Уведомления</span>
-        <label className={s.toggle}>
-          <input
-            type="checkbox"
-            checked={notifyOn}
-            onChange={(e) => {
-              setNotifyOn(e.target.checked);
-              setNotifyPrefs({ enabled: e.target.checked });
-            }}
-          />
-          <span className={s.toggleUi} />
-        </label>
-      </div>
+      {chat.type !== "saved" && (
+        <button
+          type="button"
+          className={s.row}
+          onClick={() => setNotifyOpen(true)}
+          style={{ width: "100%", cursor: "pointer", color: "inherit", font: "inherit", textAlign: "left" }}
+        >
+          <span>Уведомления</span>
+          <span className={s.status}>
+            {levelSummary(chatLevel(notifySettings, chat.id), notifySettings[settingKey("chat", chat.id)])}
+          </span>
+        </button>
+      )}
+      {notifyOpen && (
+        <NotifyDialog
+          scope="chat"
+          targetId={chat.id}
+          title={`Уведомления: ${peer.username}`}
+          inherited={CHAT_DEFAULT}
+          mentions={chat.type === "group"}
+          onClose={() => setNotifyOpen(false)}
+        />
+      )}
 
       <section className={s.section}>
         <div className={s.mediaTabs}>
@@ -149,6 +160,7 @@ export default function PeerPanel() {
             [
               ["photos", "Фото"],
               ["voice", "Голосовые"],
+              ["files", "Файлы"],
               ["links", "Ссылки"],
             ] as const
           ).map(([id, label]) => (

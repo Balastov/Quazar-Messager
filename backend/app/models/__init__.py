@@ -12,6 +12,7 @@ from app.models.user import User
 from app.models.call import Call
 from app.models.push import PushSubscription
 from app.models.contact import ContactSync, UserContact
+from app.models.notify import NotifySetting
 from app.models.star import (
     Star,
     StarBan,
@@ -22,6 +23,7 @@ from app.models.star import (
     StarAsset,
     StarAudit,
     StarBooking,
+    StarFile,
     StarLfg,
     StarLfgMember,
     StarMemberTag,
@@ -65,6 +67,8 @@ __all__ = [
     "StarAsset",
     "StarMessageAck",
     "StarBooking",
+    "StarFile",
+    "NotifySetting",
     "StarInvite",
     "StarBan",
 ]

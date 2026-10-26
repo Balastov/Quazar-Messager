@@ -23,6 +23,8 @@ class Settings(BaseSettings):
     MEDIA_MIN_FREE_MB: int = 2048
     # Сколько дней хранить картинки из чатов (0 — бессрочно). Сообщение остаётся, файл удаляется.
     ATTACHMENT_TTL_DAYS: int = 30
+    # Сколько места под файлы Спутников у одной Звезды (МБ). Файлы хранятся, пока живо сообщение.
+    STAR_FILES_QUOTA_MB: int = 5120
 
     # WebRTC ICE — comma-separated URLs. TURN strongly recommended for production mobile.
     WEBRTC_STUN_URLS: str = "stun:stun.l.google.com:19302,stun:stun1.l.google.com:19302"

@@ -22,6 +22,7 @@ import { useDoorsStore } from "../store/doors";
 import type { DoorLink } from "../notifications/notify";
 import { takePendingInvite } from "../api/stars";
 import { useStarsStore } from "../store/stars";
+import { useNotifyStore } from "../notifications/levels";
 import { useStickersStore } from "../store/stickers";
 import { useContactsStore } from "../store/contacts";
 import { activityTracker } from "../presence/activity";
@@ -57,6 +58,9 @@ export default function MessengerPage() {
     void useStickersStore.getState().load();
     void useContactsStore.getState().load();
     void useBlocksStore.getState().load().catch(() => {});
+    // Мои уровни уведомлений (чаты, Звёзды, Спутники) — общие для всех устройств.
+    void useNotifyStore.getState().load().catch(() => {});
+
     // «В сети» / «отошёл»: следим, работают ли с этим устройством.
     activityTracker?.start();
     activityTracker?.setIdleAfter(useUiStore.getState().idleMinutes);
@@ -90,6 +94,17 @@ export default function MessengerPage() {
       });
       window.history.replaceState({}, "", "/");
     }
+    // Открыли по уведомлению о сообщении Спутника: ?star=…&channel=…
+    const channelLink = params.get("channel");
+    if (!door && starId && channelLink) {
+      void useStarsStore.getState().openChannelLink(starId, channelLink);
+      window.history.replaceState({}, "", "/");
+    }
+    const onOpenStar = (e: Event) => {
+      const detail = (e as CustomEvent<{ starId: string; channelId: string }>).detail;
+      if (detail?.starId && detail.channelId) void useStarsStore.getState().openChannelLink(detail.starId, detail.channelId);
+    };
+    window.addEventListener("quazar-open-star", onOpenStar);
     const onDoor = (e: Event) => {
       const link = (e as CustomEvent<DoorLink>).detail;
       if (link?.starId && link.channelId) void useDoorsStore.getState().openDoorLink(link);
@@ -103,6 +118,7 @@ export default function MessengerPage() {
     }
     return () => {
       window.removeEventListener("quazar-star-door", onDoor);
+      window.removeEventListener("quazar-open-star", onOpenStar);
       activityTracker?.stop();
       unsubCall();
       unsubVoice();

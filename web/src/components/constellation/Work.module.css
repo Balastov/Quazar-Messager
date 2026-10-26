@@ -288,3 +288,210 @@ button.ackCount:hover {
   flex-wrap: wrap;
   gap: 6px;
 }
+
+/* --- Файлы --- */
+
+.filePreview {
+  margin-top: 4px;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  max-width: 100%;
+}
+
+.filePreview > button:first-child {
+  min-width: 120px;
+  min-height: 80px;
+  position: relative;
+}
+
+.previewImg {
+  display: block;
+  max-width: min(320px, 100%);
+  max-height: 320px;
+  object-fit: contain;
+}
+
+.previewName {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--qz-text-muted);
+  font-size: 12px;
+  cursor: pointer;
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.previewName:hover {
+  color: var(--qz-text);
+}
+
+.filesToolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--qz-border);
+}
+
+.filesToolbar > input {
+  flex: 1 1 200px;
+}
+
+.filesToolbar > select {
+  flex: 0 1 180px;
+  width: auto;
+}
+
+.filesList {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 8px 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.fileRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 10px;
+  border-radius: 12px;
+}
+
+.fileRow:hover {
+  background: var(--qz-bg-soft);
+}
+
+.fileIcon {
+  width: 38px;
+  height: 38px;
+  flex-shrink: 0;
+  border-radius: 10px;
+  background: var(--qz-bg-soft);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+}
+
+.fileMain {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.fileName {
+  font-size: 14px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fileMeta {
+  font-size: 12px;
+  color: var(--qz-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quota {
+  padding: 8px 16px 12px;
+  font-size: 12px;
+  color: var(--qz-text-muted);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.quotaBar {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--qz-bg-soft);
+  overflow: hidden;
+}
+
+.quotaBar > span {
+  display: block;
+  height: 100%;
+  background: var(--qz-accent);
+}
+
+/* --- Упоминания --- */
+
+.mention {
+  padding: 0 3px;
+  border-radius: 4px;
+  background: rgba(108, 99, 255, 0.18);
+  color: #c4b5fd;
+  font-weight: 600;
+}
+
+.mentionMe {
+  background: rgba(251, 191, 36, 0.22);
+  color: #fde68a;
+}
+
+.mentionedMessage {
+  box-shadow: inset 3px 0 0 #fbbf24;
+  background: rgba(251, 191, 36, 0.06);
+}
+
+.suggest {
+  position: absolute;
+  left: 12px;
+  bottom: calc(100% + 4px);
+  z-index: 20;
+  min-width: 220px;
+  max-width: calc(100% - 24px);
+  padding: 4px;
+  border: 1px solid var(--qz-border);
+  border-radius: 12px;
+  background: #151126;
+  box-shadow: var(--qz-shadow);
+  display: flex;
+  flex-direction: column;
+}
+
+.suggestItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  color: var(--qz-text);
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.suggestActive {
+  background: var(--qz-accent-soft);
+}
+
+.suggestHint {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--qz-text-muted);
+}
+
+/* Спутник целиком: опора для слоя «Отпустите, чтобы отправить». */
+.satelliteRoot {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}

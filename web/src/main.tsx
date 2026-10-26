@@ -42,6 +42,11 @@ function handleCallMessage(data: SwCallMsg) {
     );
     return;
   }
+  if (data.type === "quazar-open-star") {
+    const link = data as { starId?: string; channelId?: string };
+    window.dispatchEvent(new CustomEvent("quazar-open-star", { detail: { starId: link.starId, channelId: link.channelId } }));
+    return;
+  }
   if (data.type === "quazar-open-chat" && data.chatId) {
     window.dispatchEvent(
       new CustomEvent("quazar-open-chat", { detail: { chatId: data.chatId } })

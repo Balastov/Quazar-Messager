@@ -15,6 +15,7 @@ import {
 import { MAX_SOURCE_BYTES, prepareImage } from "../attachments/compress";
 import { seedImageUrl, seedVoiceUrl } from "../attachments/cache";
 import { encodeVoice, parseVoice } from "../attachments/voice";
+import { cleanFileName, encodeFile, MAX_FILE_BYTES, parseFile } from "../attachments/file";
 import { encodeForward, unwrapForward } from "../chat/forward";
 import { ttlLabel } from "../chat/ttl";
 import type { Recording } from "../voice/recorder";
@@ -36,6 +37,8 @@ import {
   type TrustStatus,
 } from "../crypto/trust";
 import { notifyIncomingMessage, notifyReminder, notifyInfo } from "../notifications/notify";
+import { chatLevel, useNotifyStore, wants } from "../notifications/levels";
+import { mentionsName } from "../chat/mentions";
 import {
   applyLocalStatus,
   pickAckIds,
@@ -93,6 +96,8 @@ interface ChatState {
   sendImage: (chatId: string, file: File, replyToId?: string) => Promise<void>;
   /** Записанное голосовое: зашифровать, загрузить и отправить. */
   sendVoice: (chatId: string, recording: Recording, replyToId?: string) => Promise<void>;
+  /** Любой файл до 50 МБ: шифруется на устройстве, как фото. onProgress — доля загрузки 0…1. */
+  sendFile: (chatId: string, file: File, replyToId?: string, onProgress?: (share: number) => void) => Promise<void>;
   /** Исправить свой текст; в личных чатах — зашифровать заново. */
   editMessage: (chatId: string, messageId: string, plaintext: string) => Promise<void>;
   /** Удалить у всех. */
@@ -481,7 +486,12 @@ export const useChatStore = create<ChatState>((set, get) => {
           const sender =
             chat?.members.find((m) => m.user.id === event.sender_id)?.user.username ??
             "Новое сообщение";
-          void notifyIncomingMessage({
+          // Уровень уведомлений чата: в группе «только упоминания» — @имя, @все или ответ мне.
+          const me = useAuthStore.getState().user;
+          const mentioned =
+            msg.reply_to?.sender_id === myId || (!!me && mentionsName(decryptedPayload, me.username));
+          const notify = wants(chatLevel(useNotifyStore.getState().settings, event.chat_id), mentioned);
+          if (notify) void notifyIncomingMessage({
             title: sender,
             body: messagePreview(decryptedPayload),
             chatId: event.chat_id,
@@ -773,6 +783,22 @@ export const useChatStore = create<ChatState>((set, get) => {
       await get().sendMessage(chatId, payload, id, replyToId);
     },
 
+    sendFile: async (chatId, file, replyToId, onProgress) => {
+      if (file.size > MAX_FILE_BYTES) throw new AttachmentError("Файл больше 50 МБ — такой не отправить");
+      if (file.size === 0) throw new AttachmentError("Файл пустой");
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      const { blob, key } = encryptFile(bytes);
+      const { id } = await attachmentsApi.upload(chatId, blob, onProgress);
+      const payload = encodeFile({
+        id,
+        key,
+        name: cleanFileName(file.name),
+        mime: file.type.slice(0, 127),
+        size: bytes.length,
+      });
+      await get().sendMessage(chatId, payload, id, replyToId);
+    },
+
     editMessage: async (chatId, messageId, plaintext) => {
       const chat = get().chats.find((c) => c.id === chatId);
       const myId = useAuthStore.getState().user?.id;
@@ -850,12 +876,13 @@ export const useChatStore = create<ChatState>((set, get) => {
       let body = message.payload;
       let attachmentId: string | undefined;
 
-      // Картинку и голосовое заново шифруем и загружаем в целевой чат: вложение привязано к чату.
+      // Картинку, голосовое и файл заново шифруем и загружаем в целевой чат: вложение привязано к чату.
       const image = parseImage(body);
       const voice = image ? null : parseVoice(body);
-      if (image || voice) {
+      const file = image || voice ? null : parseFile(body);
+      if (image || voice || file) {
         // Не через blob: URL — fetch к нему запрещён CSP (connect-src).
-        const ref = image ?? voice!;
+        const ref = image ?? voice ?? file!;
         const bytes = decryptFile(await attachmentsApi.download(message.chat_id, ref.id), ref.key);
         if (!bytes) throw new AttachmentError("Не удалось прочитать вложение — оно могло устареть");
         const { blob, key } = encryptFile(bytes);
@@ -864,6 +891,8 @@ export const useChatStore = create<ChatState>((set, get) => {
         if (image) {
           seedImageUrl(id, bytes, image.mime);
           body = encodeImage({ ...image, id, key });
+        } else if (file) {
+          body = encodeFile({ ...file, id, key });
         } else {
           seedVoiceUrl(id, bytes, voice!.mime);
           body = encodeVoice({ ...voice!, id, key });

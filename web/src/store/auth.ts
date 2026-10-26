@@ -6,6 +6,7 @@ import { socket } from "../ws/socket";
 import { ensurePushSubscription } from "../notifications/push";
 import { useE2EStore } from "./e2e";
 import { useStarsStore } from "./stars";
+import { useNotifyStore } from "../notifications/levels";
 import { useVoiceStore } from "./voice";
 import { useDoorsStore } from "./doors";
 import { useWallpaperStore } from "./wallpaper";
@@ -48,6 +49,7 @@ export const useAuthStore = create<AuthState>()(
         void useVoiceStore.getState().leave();
         useDoorsStore.getState().reset();
         useStarsStore.getState().reset();
+        useNotifyStore.getState().reset();
         useWallpaperStore.getState().reset();
         set({ token: null, user: null });
       },

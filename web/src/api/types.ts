@@ -133,6 +133,14 @@ export type WsEvent =
   | { type: "call_media"; call_id: string; video: boolean; screen: boolean; from_user_id: string }
   /** Мой рабочий график сменили (в том числе на другом устройстве). */
   | { type: "my_work_schedule"; schedule: WorkSchedule | null }
+  /** Мой уровень уведомлений сменили (в том числе на другом устройстве). */
+  | {
+      type: "notify_setting";
+      scope: "chat" | "star" | "channel";
+      target_id: string;
+      level: "all" | "mentions" | "none" | null;
+      muted_until: string | null;
+    }
   | { type: "pong" };
 
 // Re-export existing domain types from the previous types file content

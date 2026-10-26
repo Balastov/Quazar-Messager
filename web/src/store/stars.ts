@@ -22,7 +22,9 @@ import {
   type WorkSchedule,
 } from "../api/stars";
 import { usersApi } from "../api/users";
-import { notifyInfo } from "../notifications/notify";
+import { notifyInfo, notifyStarMessage } from "../notifications/notify";
+import { channelLevel, useNotifyStore, wants } from "../notifications/levels";
+import { memberWorkState } from "../chat/workhours";
 import { socket } from "../ws/socket";
 import { applyReaction } from "../chat/reactions";
 import { useAuthStore } from "./auth";
@@ -72,6 +74,17 @@ const REMOVED_NOTICE: Record<string, (name: string) => string> = {
 interface Unread {
   starId: string;
   count: number;
+  /** Из них — упоминаний меня и ответов мне. */
+  mentions?: number;
+}
+
+/** Что открыто в Звезде: карта офиса, раздел «Файлы» или канал. */
+export type StarView = "map" | "files" | "channel";
+
+/** Меня упомянули (@имя, @все) или ответили мне. */
+export function mentionsMe(message: StarMessage, myId: string | null | undefined): boolean {
+  if (!myId || message.sender?.id === myId) return false;
+  return !!message.mention_all || !!message.mentions?.includes(myId) || message.reply_to?.sender?.id === myId;
 }
 
 /** Открытая ветка: корень и ответы по порядку (messages[0] — корень). */
@@ -107,6 +120,8 @@ interface StarsState {
   bookings: Record<string, StarBooking[]>;
   /** Мой личный рабочий график (null — как в Звезде; undefined — ещё не загружен). */
   mySchedule: WorkSchedule | null | undefined;
+  /** Что открыто в каждой Звезде; нет записи — по умолчанию (у рабочих — карта). */
+  viewByStar: Record<string, StarView>;
 
   load: () => Promise<void>;
   /** Сверить список Звёзд с сервером (после обрыва связи, возвращения в приложение). */
@@ -117,6 +132,11 @@ interface StarsState {
   selectChannel: (channelId: string) => Promise<void>;
   loadOlder: (channelId: string) => Promise<void>;
   sendMessage: (text: string, replyToId?: string, ackRequired?: boolean) => Promise<void>;
+  /** Файл в открытый Спутник (или в открытую ветку). onProgress — доля загрузки 0…1. */
+  sendFile: (file: File, opts?: { caption?: string; inThread?: boolean; onProgress?: (share: number) => void }) => Promise<void>;
+  setView: (starId: string, view: StarView) => void;
+  /** Из уведомления: открыть Звезду на этом Спутнике. */
+  openChannelLink: (starId: string, channelId: string) => Promise<void>;
   openThread: (root: StarMessage) => Promise<void>;
   closeThread: () => void;
   sendThreadReply: (text: string) => Promise<void>;
@@ -212,10 +232,17 @@ const initialState = {
   thread: null as OpenThread | null,
   bookings: {} as Record<string, StarBooking[]>,
   mySchedule: undefined as WorkSchedule | null | undefined,
+  viewByStar: {} as Record<string, StarView>,
 };
 
 export const useStarsStore = create<StarsState>((set, get) => {
   const myId = () => useAuthStore.getState().user?.id ?? null;
+
+  /** В Звезде открыт канал, а не карта офиса и не «Файлы». */
+  function channelOnScreen(starId: string): boolean {
+    const view = get().viewByStar[starId] ?? (get().details[starId]?.kind === "work" ? "map" : "channel");
+    return view === "channel";
+  }
 
   function activeChannelId(): string | null {
     const { activeStarId, activeChannelByStar } = get();
@@ -369,8 +396,15 @@ export const useStarsStore = create<StarsState>((set, get) => {
         break;
       case "star_message": {
         const { message } = event;
+        const me = myId();
+        const mentioned = mentionsMe(message, me);
         // Ответ в ветке — только в открытую ветку; сводку под корнем обновит star_thread.
         if (message.thread_id) {
+          const root = get().messages[message.channel_id]?.find((m) => m.id === message.thread_id);
+          const inThread = get().thread?.rootId === message.thread_id;
+          // В ветке тревожим только тех, кого упомянули или чья это ветка — даже при «Все сообщения».
+          const mine = mentioned || (!!me && root?.sender?.id === me);
+          if (message.sender?.id !== me && mine) maybeNotify(starId, message, true, inThread);
           set((s) => {
             const thread = s.thread;
             if (!thread || thread.rootId !== message.thread_id || thread.messages.some((m) => m.id === message.id)) return {};
@@ -386,18 +420,21 @@ export const useStarsStore = create<StarsState>((set, get) => {
         const viewing =
           useUiStore.getState().tab === "stars" &&
           activeChannelId() === message.channel_id &&
+          channelOnScreen(starId) &&
           document.visibilityState === "visible";
-        if (message.sender?.id !== myId() && !viewing) {
+        if (message.sender?.id !== me && !viewing) {
           set((s) => ({
             unread: {
               ...s.unread,
               [message.channel_id]: {
                 starId,
                 count: (s.unread[message.channel_id]?.count ?? 0) + 1,
+                mentions: (s.unread[message.channel_id]?.mentions ?? 0) + (mentioned ? 1 : 0),
               },
             },
           }));
         }
+        if (message.sender?.id !== me) maybeNotify(starId, message, mentioned, viewing);
         break;
       }
       case "star_floors":
@@ -439,7 +476,15 @@ export const useStarsStore = create<StarsState>((set, get) => {
       case "star_message_edited":
         patchMessages(event.channel_id, (list) =>
           list.map((m) => {
-            if (m.id === event.message_id) return { ...m, text: event.text, edited_at: event.edited_at };
+            if (m.id === event.message_id) {
+              return {
+                ...m,
+                text: event.text,
+                edited_at: event.edited_at,
+                mentions: event.mentions ?? m.mentions,
+                mention_all: event.mention_all ?? m.mention_all,
+              };
+            }
             if (m.reply_to?.id === event.message_id) return { ...m, reply_to: { ...m.reply_to, text: event.text } };
             return m;
           })
@@ -531,6 +576,24 @@ export const useStarsStore = create<StarsState>((set, get) => {
         );
         break;
     }
+  }
+
+  /** Всплывашка и звук — по моему уровню уведомлений, не на экране и не в нерабочее время. */
+  function maybeNotify(starId: string, message: StarMessage, mentioned: boolean, onScreen: boolean) {
+    if (onScreen && document.visibilityState === "visible") return;
+    const level = channelLevel(useNotifyStore.getState().settings, starId, message.channel_id);
+    if (!wants(level, mentioned)) return;
+    const detail = get().details[starId];
+    const me = detail?.members.find((m) => m.user.id === myId());
+    if (detail && me && memberWorkState(detail, me)?.working === false) return;
+    const channel = detail?.channels.find((c) => c.id === message.channel_id);
+    const where = `#${channel?.name ?? "Спутник"}${message.thread_id ? " · ветка" : ""}`;
+    void notifyStarMessage({
+      title: `${message.sender?.username ?? "Участник"} · ${where} · ${detail?.name ?? "Звезда"}`,
+      body: message.text || (message.file ? `📎 ${message.file.name}` : ""),
+      starId,
+      channelId: message.channel_id,
+    });
   }
 
   /** Изменить загруженные сообщения Спутника (не открывали — нечего менять) и открытую ветку в нём. */
@@ -699,6 +762,30 @@ export const useStarsStore = create<StarsState>((set, get) => {
         ackRequired ? { ack_required: true } : {}
       );
       handleEvent({ type: "star_message", star_id: starId, message });
+    },
+
+    sendFile: async (file, opts = {}) => {
+      const thread = opts.inThread ? get().thread : null;
+      const starId = thread?.starId ?? get().activeStarId;
+      const channelId = thread?.channelId ?? activeChannelId();
+      if (!starId || !channelId) return;
+      const uploaded = await starsApi.uploadFile(starId, channelId, file, opts.onProgress);
+      const message = await starsApi.send(starId, channelId, opts.caption ?? "", undefined, {
+        file_id: uploaded.id,
+        ...(thread ? { thread_id: thread.rootId } : {}),
+      });
+      handleEvent({ type: "star_message", star_id: starId, message });
+    },
+
+    setView: (starId, view) => set((s) => ({ viewByStar: { ...s.viewByStar, [starId]: view } })),
+
+    openChannelLink: async (starId, channelId) => {
+      useUiStore.getState().setTab("stars");
+      if (!get().loaded) await get().load().catch(() => {});
+      if (!get().stars.some((st) => st.id === starId)) return;
+      set((s) => ({ viewByStar: { ...s.viewByStar, [starId]: "channel" }, mobileChannelOpen: true }));
+      await get().selectStar(starId);
+      await get().selectChannel(channelId);
     },
 
     openThread: async (root) => {
@@ -1011,5 +1098,12 @@ export const useStarsStore = create<StarsState>((set, get) => {
 export function unreadForStar(unread: Record<string, Unread>, starId: string): number {
   let total = 0;
   for (const u of Object.values(unread)) if (u.starId === starId) total += u.count;
+  return total;
+}
+
+/** Непрочитанные упоминания по Звезде — значок «@». */
+export function mentionsForStar(unread: Record<string, Unread>, starId: string): number {
+  let total = 0;
+  for (const u of Object.values(unread)) if (u.starId === starId) total += u.mentions ?? 0;
   return total;
 }

@@ -32,10 +32,12 @@ async function showSystemNotification(opts: {
   title: string;
   body: string;
   chatId?: string;
+  starId?: string;
+  channelId?: string;
   tag: string;
   requireInteraction?: boolean;
   silent?: boolean;
-  kind?: "message" | "call";
+  kind?: "message" | "call" | "star";
   callId?: string;
   callerId?: string;
   actions?: { action: string; title: string }[];
@@ -56,6 +58,8 @@ async function showSystemNotification(opts: {
     data: {
       kind: opts.kind ?? "message",
       chatId: opts.chatId ?? null,
+      starId: opts.starId ?? null,
+      channelId: opts.channelId ?? null,
       callId: opts.callId ?? null,
       callerId: opts.callerId ?? null,
       callerName: opts.title,
@@ -85,6 +89,10 @@ async function showSystemNotification(opts: {
           new CustomEvent("quazar-open-call", {
             detail: { callId: opts.callId, chatId: opts.chatId },
           })
+        );
+      } else if (opts.kind === "star" && opts.starId && opts.channelId) {
+        window.dispatchEvent(
+          new CustomEvent("quazar-open-star", { detail: { starId: opts.starId, channelId: opts.channelId } })
         );
       } else if (opts.chatId) {
         window.dispatchEvent(
@@ -168,6 +176,30 @@ export async function notifyIncomingMessage(info: IncomingNotify): Promise<void>
     chatId: info.chatId,
     tag: `quazar-chat-${info.chatId}`,
   });
+}
+
+/** Сообщение Спутника по уровню уведомлений: всплывашка, звук, а если вкладка скрыта — системное. */
+export async function notifyStarMessage(info: {
+  title: string;
+  body: string;
+  starId: string;
+  channelId: string;
+}): Promise<void> {
+  const prefs = getNotifyPrefs();
+  if (!prefs.enabled || isDoNotDisturb()) return;
+  const body = truncate(info.body || "Новое сообщение");
+  useToastStore.getState().push({ title: info.title, body, starId: info.starId, channelId: info.channelId });
+  if (prefs.sound) void playSoftChime();
+  if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+    await showSystemNotification({
+      title: info.title,
+      body,
+      kind: "star",
+      starId: info.starId,
+      channelId: info.channelId,
+      tag: `quazar-star-${info.channelId}`,
+    });
+  }
 }
 
 /** Полный тест: toast + системное уведомление + звук (даже если звук в настройках выключен). */

@@ -1,4 +1,4 @@
-"""Картинки в чатах: зашифрованные клиентом файлы на диске под MEDIA_ROOT/attachments.
+"""Вложения в чатах (картинки, голосовые, файлы): зашифрованные клиентом файлы на диске под MEDIA_ROOT/attachments.
 
 Клиент шифрует картинку случайным ключом (NaCl secretbox: nonce[24] || mac[16] || ciphertext)
 и кладёт ключ в текст сообщения — в личных чатах тот зашифрован E2E. Сервер хранит только
@@ -24,10 +24,12 @@ from app.core.config import settings
 
 log = logging.getLogger(__name__)
 
-MAX_IMAGE_BYTES = 10 * 1024 * 1024
-# nonce + MAC secretbox поверх исходной картинки.
+# Картинки клиент держит в 10 МБ сам; сервер не видит, что внутри, и ограничивает
+# любое вложение (картинку, голосовое, файл) общим пределом для файлов.
+MAX_FILE_BYTES = 50 * 1024 * 1024
+# nonce + MAC secretbox поверх исходного файла.
 ENCRYPTION_OVERHEAD = 24 + 16
-MAX_ATTACHMENT_BYTES = MAX_IMAGE_BYTES + ENCRYPTION_OVERHEAD
+MAX_ATTACHMENT_BYTES = MAX_FILE_BYTES + ENCRYPTION_OVERHEAD
 
 # Загруженное, но так и не отправленное в сообщении — удаляем через сутки.
 UNSENT_TTL = timedelta(hours=24)
@@ -133,8 +135,11 @@ async def sweep(session: AsyncSession) -> int:
 async def sweep_forever(session_factory: async_sessionmaker) -> None:
     while True:
         try:
+            from app.core import star_files
+
             async with session_factory() as session:
                 removed = await sweep(session)
+                removed += await star_files.sweep(session)
             if removed:
                 log.info("attachments sweep: removed %d files", removed)
         except Exception:  # noqa: BLE001 — фоновая уборка не должна падать насовсем

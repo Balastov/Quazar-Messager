@@ -1,6 +1,7 @@
 import { Fragment } from "react";
-import LinkifiedText from "../LinkifiedText";
+import LinkifiedText, { type MentionKind } from "../LinkifiedText";
 import g from "./Gaming.module.css";
+import w from "./Work.module.css";
 
 const EMOJI_RE = /:([a-z0-9_]{2,32}):/g;
 
@@ -9,25 +10,38 @@ export default function StarText({
   text,
   emoji,
   linkClassName,
+  mention,
 }: {
   text: string;
   /** имя → адрес картинки */
   emoji: Record<string, string>;
   linkClassName?: string;
+  /** Подсветка @имён участников. */
+  mention?: MentionKind;
 }) {
-  if (!text.includes(":")) return <LinkifiedText text={text} linkClassName={linkClassName} />;
+  const linked = (chunk: string, key?: string) => (
+    <LinkifiedText
+      key={key}
+      text={chunk}
+      linkClassName={linkClassName}
+      mention={mention}
+      mentionClassName={w.mention}
+      mentionMeClassName={w.mentionMe}
+    />
+  );
+  if (!text.includes(":")) return linked(text);
   const parts: React.ReactNode[] = [];
   let last = 0;
   for (const m of text.matchAll(EMOJI_RE)) {
     const url = emoji[m[1]];
     if (!url) continue;
     const at = m.index ?? 0;
-    if (at > last) parts.push(<LinkifiedText key={`t${at}`} text={text.slice(last, at)} linkClassName={linkClassName} />);
+    if (at > last) parts.push(linked(text.slice(last, at), `t${at}`));
     parts.push(<img key={`e${at}`} className={g.inlineEmoji} src={url} alt={`:${m[1]}:`} title={`:${m[1]}:`} />);
     last = at + m[0].length;
   }
-  if (!parts.length) return <LinkifiedText text={text} linkClassName={linkClassName} />;
-  if (last < text.length) parts.push(<LinkifiedText key="tail" text={text.slice(last)} linkClassName={linkClassName} />);
+  if (!parts.length) return linked(text);
+  if (last < text.length) parts.push(linked(text.slice(last), "tail"));
   return <Fragment>{parts}</Fragment>;
 }
 

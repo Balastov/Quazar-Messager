@@ -7,6 +7,10 @@ import MessageMenu, { type MenuAction } from "../messages/MessageMenu";
 import { ComposerContext, revealMessage } from "../messages/parts";
 import { IconBack, IconSend } from "../icons";
 import { SatelliteMessage, editable, repliesLabel } from "./SatelliteView";
+import { useMentionSuggest } from "../messages/MentionSuggest";
+import { isAllWord } from "../../chat/mentions";
+import { isStaff } from "../../store/stars";
+import type { MentionKind } from "../LinkifiedText";
 import { apiError, can, outranks } from "./rules";
 import { formatWhen } from "../../chat/when";
 import s from "./Constellation.module.css";
@@ -27,6 +31,7 @@ export default function ThreadPanel({ detail, fullscreen = false }: Props) {
   const thread = useStarsStore((st) => st.thread);
   const closeThread = useStarsStore((st) => st.closeThread);
   const sendThreadReply = useStarsStore((st) => st.sendThreadReply);
+  const sendFile = useStarsStore((st) => st.sendFile);
   const editMessage = useStarsStore((st) => st.editMessage);
   const deleteMessage = useStarsStore((st) => st.deleteMessage);
   const react = useStarsStore((st) => st.react);
@@ -43,6 +48,21 @@ export default function ThreadPanel({ detail, fullscreen = false }: Props) {
     [assets]
   );
   const messages = thread?.messages ?? [];
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState<string | null>(null);
+  const others = useMemo(
+    () => detail.members.filter((mb) => mb.user.id !== myId).map((mb) => mb.user.username),
+    [detail.members, myId]
+  );
+  const mentionKind = useMemo<MentionKind>(() => {
+    const names = new Map(detail.members.map((mb) => [mb.user.username.toLowerCase(), mb.user.id]));
+    return (name) => {
+      if (isAllWord(name)) return "other";
+      const id = names.get(name.toLowerCase());
+      return id ? (id === myId ? "me" : "other") : null;
+    };
+  }, [detail.members, myId]);
+  const mention = useMentionSuggest({ text, setText, inputRef, names: others, allowAll: isStaff(detail.my_role) });
   const lastId = messages.length ? messages[messages.length - 1].id : null;
 
   useLayoutEffect(() => {
@@ -138,8 +158,23 @@ export default function ThreadPanel({ detail, fullscreen = false }: Props) {
       onOpenMenu={(x, y) => setMenu({ msg, x, y })}
       onReact={(value) => onReact(msg, value)}
       onQuoteClick={(id) => revealMessage(listRef.current, id)}
+      mention={mentionKind}
     />
   );
+
+  const attach = async (files: File[]) => {
+    for (const file of files) {
+      setUploading(file.name);
+      setError(null);
+      try {
+        await sendFile(file, { inThread: true });
+      } catch (err) {
+        setError(apiError(err, `Не удалось отправить «${file.name}»`));
+      } finally {
+        setUploading(null);
+      }
+    }
+  };
 
   const blocked =
     detail.rules_accepted === false
@@ -179,6 +214,7 @@ export default function ThreadPanel({ detail, fullscreen = false }: Props) {
           {error}
         </div>
       )}
+      {uploading && <div className={s.typingLine}>📎 Отправляем «{uploading}»…</div>}
       {editing && (
         <ComposerContext
           kind="edit"
@@ -193,13 +229,40 @@ export default function ThreadPanel({ detail, fullscreen = false }: Props) {
       {blocked ? (
         <div className={g.notice}>{blocked}</div>
       ) : (
-        <form className={s.composer} onSubmit={(e) => void submit(e)}>
+        <form className={s.composer} onSubmit={(e) => void submit(e)} style={{ position: "relative" }}>
+          {mention.popup}
+          <button
+            type="button"
+            className={g.composerExtra}
+            aria-label="Отправить файл в ветку"
+            title="Файл"
+            disabled={!!editing || !!uploading}
+            onClick={() => fileRef.current?.click()}
+          >
+            📎
+          </button>
+          <input
+            ref={fileRef}
+            type="file"
+            multiple
+            hidden
+            onChange={(e) => {
+              const files = Array.from(e.target.files ?? []);
+              e.target.value = "";
+              void attach(files);
+            }}
+          />
           <input
             ref={inputRef}
             className={s.composerInput}
             value={text}
-            onChange={(e) => setText(e.target.value)}
+            onChange={(e) => {
+              setText(e.target.value);
+              mention.syncCaret();
+            }}
+            onSelect={mention.syncCaret}
             onKeyDown={(e) => {
+              if (mention.onKeyDown(e)) return;
               if (e.key === "Escape" && editing) {
                 setEditing(null);
                 setText("");

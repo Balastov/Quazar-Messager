@@ -140,9 +140,9 @@ class AttachmentsTest(unittest.IsolatedAsyncioTestCase):
             403, api.upload_attachment, self.chat.id, request=FakeRequest(os.urandom(100)), user="eve"
         )
 
-    async def test_ten_megabytes_plus_encryption_overhead_is_allowed(self):
+    async def test_fifty_megabytes_plus_encryption_overhead_is_allowed(self):
         out = await self.upload(b"\0" * attachments.MAX_ATTACHMENT_BYTES, chunk=MB)
-        self.assertEqual(out.size, 10 * MB + 40)
+        self.assertEqual(out.size, 50 * MB + 40)
 
     async def test_bigger_than_ten_megabytes_is_rejected_without_leftovers(self):
         too_big = b"\0" * (attachments.MAX_ATTACHMENT_BYTES + 1)

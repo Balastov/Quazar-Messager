@@ -351,3 +351,20 @@
   border-radius: 14px;
   pointer-events: none;
 }
+
+/* Перетаскивание файлов в чат или Спутник. */
+.dropZone {
+  position: absolute;
+  inset: 8px;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px dashed var(--qz-accent);
+  border-radius: 18px;
+  background: rgba(15, 17, 23, 0.72);
+  color: var(--qz-text);
+  font-size: 16px;
+  font-weight: 600;
+  pointer-events: none;
+}

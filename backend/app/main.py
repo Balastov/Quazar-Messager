@@ -31,6 +31,8 @@ from app.api.star_community import router as star_community_router
 from app.api.star_play import router as star_play_router
 from app.api.star_work import me_router as star_work_me_router
 from app.api.star_work import router as star_work_router
+from app.api.star_files import router as star_files_router
+from app.api.notify import router as notify_router
 from app.api.stars import invites_router as star_invites_router
 from app.api.stars import router as stars_router
 from app.api.voice import router as voice_router
@@ -216,6 +218,8 @@ async def lifespan(app: FastAPI):
             "ALTER TABLE stars ADD COLUMN IF NOT EXISTS work_hours_enabled BOOLEAN NOT NULL DEFAULT false",
             "ALTER TABLE stars ADD COLUMN IF NOT EXISTS work_hours JSON",
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS work_schedule JSON",
+            "ALTER TABLE star_messages ADD COLUMN IF NOT EXISTS mentions JSON",
+            "ALTER TABLE star_messages ADD COLUMN IF NOT EXISTS mention_all BOOLEAN NOT NULL DEFAULT false",
         ):
             await conn.execute(text(ddl))
     # Кто сейчас на Планетах — восстанавливаем из LiveKit после перезапуска (в фоне).
@@ -246,6 +250,7 @@ app.add_middleware(SecurityHeadersMiddleware)
 app.include_router(auth_router)
 app.include_router(moderation_router)
 app.include_router(star_work_me_router)
+app.include_router(notify_router)
 app.include_router(users_router)
 app.include_router(chats_router)
 app.include_router(messages_router)
@@ -258,6 +263,7 @@ app.include_router(stars_router)
 app.include_router(star_community_router)
 app.include_router(star_play_router)
 app.include_router(star_work_router)
+app.include_router(star_files_router)
 app.include_router(star_invites_router)
 app.include_router(voice_router)
 app.include_router(office_router)

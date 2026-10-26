@@ -1,4 +1,4 @@
-"""Картинки в чатах. Тело загрузки — сырой шифротекст (application/octet-stream)."""
+"""Вложения в чатах (картинки, голосовые, файлы). Тело загрузки — сырой шифротекст (application/octet-stream)."""
 import uuid
 from typing import Annotated
 
@@ -35,7 +35,7 @@ async def upload_attachment(
 
     declared = request.headers.get("content-length")
     if declared and declared.isdigit() and int(declared) > attachments.MAX_ATTACHMENT_BYTES:
-        raise HTTPException(status_code=413, detail="Image must be at most 10 MB")
+        raise HTTPException(status_code=413, detail="Файл больше 50 МБ")
     try:
         attachments.ensure_free_space()
     except attachments.StorageFull:
@@ -45,7 +45,7 @@ async def upload_attachment(
     try:
         size = await attachments.save_stream(attachment_id, request.stream())
     except attachments.AttachmentTooLarge:
-        raise HTTPException(status_code=413, detail="Image must be at most 10 MB") from None
+        raise HTTPException(status_code=413, detail="Файл больше 50 МБ") from None
     if size <= attachments.ENCRYPTION_OVERHEAD:
         attachments.delete_file(attachment_id)
         raise HTTPException(status_code=422, detail="Empty file")

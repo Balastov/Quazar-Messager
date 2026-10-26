@@ -23,7 +23,7 @@ from app.core.backgrounds import (
     save_background,
 )
 from app.core import doors
-from app.core import star_assets, star_audit
+from app.core import notify, star_assets, star_audit, star_files
 from app.core import floors as floors_svc
 from app.core import voice
 from app.core.database import get_db
@@ -33,6 +33,7 @@ from app.models.star import (
     Star,
     StarBan,
     StarChannel,
+    StarFile,
     StarInvite,
     StarMember,
     StarMemberTag,
@@ -54,6 +55,7 @@ from app.schemas.star import (
     StarBanOut,
     StarChannelOut,
     StarDetailOut,
+    StarFileOut,
     StarFloorOut,
     StarInviteOut,
     StarLimitsOut,
@@ -1037,6 +1039,11 @@ async def _messages_out(
     polls = await polls_out(db, [m.ref_id for m, _ in rows if m.kind == "poll" and m.ref_id], viewer_id)
     lfgs = await lfgs_out(db, [m.ref_id for m, _ in rows if m.kind == "lfg" and m.ref_id])
     threads = await thread_summaries(db, [m.id for m, _ in rows if not m.thread_id])
+    file_ids = [m.id for m, _ in rows if m.kind == "file"]
+    files: dict[str, StarFileOut] = {}
+    if file_ids:
+        for f in (await db.execute(select(StarFile).where(StarFile.message_id.in_(file_ids)))).scalars():
+            files[f.message_id] = StarFileOut(id=f.id, name=f.name, mime=f.mime, size=f.size)
     ack_ids = [m.id for m, _ in rows if m.ack_required]
     ack_counts: dict[str, int] = {}
     my_acks: set[str] = set()
@@ -1071,6 +1078,9 @@ async def _messages_out(
             kind=m.kind,
             poll=polls.get(m.ref_id) if m.kind == "poll" else None,
             lfg=lfgs.get(m.ref_id) if m.kind == "lfg" else None,
+            file=files.get(m.id),
+            mentions=m.mentions or [],
+            mention_all=m.mention_all,
             thread_id=m.thread_id,
             thread_count=threads.get(m.id, (0, None, []))[0],
             thread_last_at=threads.get(m.id, (0, None, []))[1],
@@ -1149,27 +1159,104 @@ async def send_message(
             raise HTTPException(status_code=422, detail="Ветку можно начать только от обычного сообщения")
     await assert_slow_mode(db, channel, me)
     assert_clean_text(star, me, body.text)
+    reply_to = None
     if body.reply_to_id:
         try:
-            await _star_message(db, star_id, channel_id, body.reply_to_id)
+            reply_to = await _star_message(db, star_id, channel_id, body.reply_to_id)
         except HTTPException:
             raise HTTPException(status_code=422, detail="Сообщение для ответа не найдено") from None
+    file = None
+    if body.file_id:
+        file = (
+            await db.execute(
+                select(StarFile)
+                .where(
+                    StarFile.id == body.file_id,
+                    StarFile.channel_id == channel_id,
+                    StarFile.uploader_id == current_user.id,
+                    StarFile.message_id.is_(None),
+                )
+                .with_for_update()
+            )
+        ).scalar_one_or_none()
+        if not file:
+            raise HTTPException(status_code=422, detail="Файл не найден — загрузите его снова")
+    mentions, everyone = await _mentions(db, star_id, me, body.text)
     message = StarMessage(
         star_id=star_id,
         channel_id=channel_id,
         sender_id=current_user.id,
         text=body.text,
+        kind="file" if file else "text",
         reply_to_id=body.reply_to_id,
         thread_id=body.thread_id,
         ack_required=body.ack_required,
+        mentions=mentions,
+        mention_all=everyone,
     )
     db.add(message)
+    await db.flush()
+    if file:
+        file.message_id = message.id
     await db.commit()
     out = (await _messages_out(db, [(message, current_user)]))[0]
     await _broadcast(db, star_id, {"type": "star_message", "message": out.model_dump(mode="json")})
     if message.thread_id:
         await thread_event(db, star_id, channel_id, message.thread_id)
+    await _push_message(db, star, channel, message, current_user, reply_to, file)
     return out
+
+
+async def _mentions(db: AsyncSession, star_id: str, me: StarMember, text: str) -> tuple[list[str], bool]:
+    """@имя участников этой Звезды; @все — только у модераторов и выше (у остальных это просто текст)."""
+    if "@" not in text:
+        return [], False
+    names = dict(
+        (
+            await db.execute(
+                select(func.lower(User.username), User.id)
+                .join(StarMember, StarMember.user_id == User.id)
+                .where(StarMember.star_id == star_id)
+            )
+        ).all()
+    )
+    ids, everyone = notify.parse_mentions(text, names)
+    ids.discard(me.user_id)
+    return sorted(ids), everyone and rules.is_staff(me.role)
+
+
+async def _push_message(
+    db: AsyncSession,
+    star: Star,
+    channel: StarChannel,
+    message: StarMessage,
+    sender: User,
+    reply_to: StarMessage | None,
+    file: StarFile | None,
+) -> None:
+    """Push тем, кто не в приложении: по их уровню уведомлений. Ответ мне и ответ в моей ветке — как упоминание."""
+    also = {reply_to.sender_id} if reply_to and reply_to.sender_id else set()
+    if message.thread_id:
+        root_author = (
+            await db.execute(select(StarMessage.sender_id).where(StarMessage.id == message.thread_id))
+        ).scalar_one_or_none()
+        if root_author:
+            also.add(root_author)
+    also.discard(sender.id)
+    targets = await notify.star_push_targets(db, star, channel, message, also)
+    body = message.text or (f"📎 {file.name}" if file else "")
+    notify.push_later(
+        targets,
+        {
+            "type": "star_message",
+            "title": f"{sender.username} · #{channel.name} · {star.name}",
+            "body": body[:200],
+            "star_id": star.id,
+            "channel_id": channel.id,
+            "message_id": message.id,
+            "tag": f"quazar-star-{channel.id}",
+        },
+    )
 
 
 async def thread_summaries(db: AsyncSession, root_ids: list[str]) -> dict[str, tuple[int, datetime | None, list[str]]]:
@@ -1225,6 +1312,8 @@ async def edit_message(
     assert_can_post(star, me)
     assert_clean_text(star, me, body.text)
     message.text = body.text
+    # Упоминания пересчитываем для подсветки; push о правке не шлём.
+    message.mentions, message.mention_all = await _mentions(db, star_id, me, body.text)
     message.edited_at = _now()
     await db.commit()
     await _broadcast(
@@ -1236,6 +1325,8 @@ async def edit_message(
             "message_id": message_id,
             "text": message.text,
             "edited_at": message.edited_at.isoformat(),
+            "mentions": message.mentions or [],
+            "mention_all": message.mention_all,
         },
     )
     return (await _messages_out(db, [(message, current_user)]))[0]
@@ -1334,8 +1425,18 @@ async def delete_message(
         )
 
     root_id = message.thread_id
+    # Файлы сообщения и его ветки: строки уйдут каскадом, с диска убираем сразу.
+    file_ids = (
+        await db.execute(
+            select(StarFile.id)
+            .join(StarMessage, StarMessage.id == StarFile.message_id)
+            .where(or_(StarMessage.id == message.id, StarMessage.thread_id == message.id))
+        )
+    ).scalars().all()
     await db.delete(message)
     await db.commit()
+    for file_id in file_ids:
+        star_files.delete_file(file_id)
     await _broadcast(
         db,
         star_id,

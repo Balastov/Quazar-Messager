@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { isUnreadable, useChatStore } from "../store/chat";
 import { useAuthStore } from "../store/auth";
 import { useUiStore } from "../store/ui";
@@ -31,6 +31,12 @@ import ChatImage from "./ChatImage";
 import ChatBackgroundDialog from "./ChatBackgroundDialog";
 import { AttachmentError, parseImage } from "../attachments/image";
 import { MIN_VOICE_SEC, parseVoice } from "../attachments/voice";
+import { parseFile } from "../attachments/file";
+import ChatFile from "./chat/ChatFile";
+import { useMentionSuggest } from "./messages/MentionSuggest";
+import { isAllWord } from "../chat/mentions";
+import type { MentionKind } from "./LinkifiedText";
+import w from "./constellation/Work.module.css";
 import { canRecordVoice, RecorderError, VoiceRecorder } from "../voice/recorder";
 import VoiceMessage from "./voice/VoiceMessage";
 import VoiceRecorderBar from "./voice/VoiceRecorderBar";
@@ -69,7 +75,9 @@ interface Props {
 
 /** Обычный текст (не картинка, не стикер, расшифровался) — его можно исправить и скопировать. */
 function isPlainText(payload: string): boolean {
-  return !parseImage(payload) && !parseSticker(payload) && !parseVoice(payload) && !isUnreadable(payload);
+  return (
+    !parseImage(payload) && !parseSticker(payload) && !parseVoice(payload) && !parseFile(payload) && !isUnreadable(payload)
+  );
 }
 
 /** Реакции чата в виде, который понимает общая строка чипов. */
@@ -86,6 +94,7 @@ export default function MessageView({ showBack = false }: Props) {
     sendMessage,
     sendImage,
     sendVoice,
+    sendFile,
     editMessage,
     deleteMessage,
     hideMessage,
@@ -114,6 +123,11 @@ export default function MessageView({ showBack = false }: Props) {
   const [sendError, setSendError] = useState<string | null>(null);
   const [stickersOpen, setStickersOpen] = useState(false);
   const [uploading, setUploading] = useState(0);
+  /** Загрузка файла: название и доля 0…1. */
+  const [fileUpload, setFileUpload] = useState<{ name: string; share: number } | null>(null);
+  const [attachMenu, setAttachMenu] = useState<{ x: number; y: number } | null>(null);
+  const [dragging, setDragging] = useState(false);
+  const docInputRef = useRef<HTMLInputElement>(null);
   const [backgroundOpen, setBackgroundOpen] = useState(false);
   const [menu, setMenu] = useState<{ msg: Message; x: number; y: number } | null>(null);
   const [replyTo, setReplyTo] = useState<Message | null>(null);
@@ -200,6 +214,22 @@ export default function MessageView({ showBack = false }: Props) {
       ? chat.members.filter((m) => m.user.id !== currentUser?.id && st.byId[m.user.id]?.online).length
       : 0
   );
+  // @упоминания — только в группах: подсказка при вводе и подсветка в сообщениях.
+  const isGroup = chat?.type === "group";
+  const groupNames = useMemo(
+    () => (isGroup ? (chat?.members ?? []).filter((m) => m.user.id !== currentUser?.id).map((m) => m.user.username) : []),
+    [isGroup, chat?.members, currentUser?.id]
+  );
+  const mentionKind = useMemo<MentionKind | undefined>(() => {
+    if (!isGroup) return undefined;
+    const names = new Map((chat?.members ?? []).map((m) => [m.user.username.toLowerCase(), m.user.id]));
+    return (name) => {
+      if (isAllWord(name)) return "other";
+      const id = names.get(name.toLowerCase());
+      return id ? (id === currentUser?.id ? "me" : "other") : null;
+    };
+  }, [isGroup, chat?.members, currentUser?.id]);
+  const mention = useMentionSuggest({ text, setText, inputRef, names: groupNames, allowAll: isGroup });
 
   if (!activeChatId) {
     return (
@@ -349,6 +379,33 @@ export default function MessageView({ showBack = false }: Props) {
     }
   };
 
+  const handleFiles = async (files: File[]) => {
+    if (!activeChatId || inputDisabled || !files.length) return;
+    setSendError(null);
+    setStickersOpen(false);
+    let reply = replyTo?.id;
+    setReplyTo(null);
+    for (const file of files) {
+      setFileUpload({ name: file.name, share: 0 });
+      try {
+        await sendFile(activeChatId, file, reply, (share) => setFileUpload({ name: file.name, share }));
+        reply = undefined;
+      } catch (err) {
+        reportError(err, `Не удалось отправить «${file.name}»`);
+      } finally {
+        setFileUpload(null);
+      }
+    }
+  };
+
+  /** Перетащили или вставили: картинки — как фото, остальное — файлами. */
+  const handleDropped = (files: File[]) => {
+    const images = files.filter((f) => /^image\/(jpeg|png|gif|webp)$/.test(f.type));
+    const others = files.filter((f) => !images.includes(f));
+    if (images.length) void handleImages(images);
+    if (others.length) void handleFiles(others);
+  };
+
   const startRecording = async () => {
     if (!activeChatId || inputDisabled || recorderRef.current) return;
     setSendError(null);
@@ -400,13 +457,14 @@ export default function MessageView({ showBack = false }: Props) {
 
   const handlePaste = (e: React.ClipboardEvent) => {
     if (editing) return;
-    const files = Array.from(e.clipboardData.files).filter((f) => f.type.startsWith("image/"));
+    const files = Array.from(e.clipboardData.files);
     if (!files.length) return;
     e.preventDefault();
-    void handleImages(files);
+    handleDropped(files);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (mention.onKeyDown(e)) return;
     if (e.key === "Escape" && (replyTo || editing)) {
       e.preventDefault();
       cancelContext();
@@ -474,6 +532,7 @@ export default function MessageView({ showBack = false }: Props) {
 
   const handleTextChange = (value: string) => {
     setText(value);
+    mention.syncCaret();
     if (activeChatId && !editing && value.trim()) sendChatTyping(activeChatId);
   };
 
@@ -517,7 +576,29 @@ export default function MessageView({ showBack = false }: Props) {
     : null;
 
   return (
-    <div className={s.root}>
+    <div
+      className={s.root}
+      onDragOver={(e) => {
+        if (!e.dataTransfer.types.includes("Files") || inputDisabled || peerBlocked) return;
+        e.preventDefault();
+        setDragging(true);
+      }}
+      onDragLeave={(e) => {
+        // Ушли за пределы чата (а не на вложенный элемент).
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragging(false);
+      }}
+      onDrop={(e) => {
+        if (!e.dataTransfer.files.length) return;
+        e.preventDefault();
+        setDragging(false);
+        if (!inputDisabled && !peerBlocked && !editing) handleDropped(Array.from(e.dataTransfer.files));
+      }}
+    >
+      {dragging && (
+        <div className={c.dropZone}>
+          Отпустите, чтобы отправить
+        </div>
+      )}
       <div className={s.header}>
         {showBack && (
           <button
@@ -640,6 +721,7 @@ export default function MessageView({ showBack = false }: Props) {
             onOpenMenu={(x, y) => setMenu({ msg, x, y })}
             onReact={inputDisabled ? undefined : (emoji) => void handleReact(msg, emoji)}
             onQuoteClick={(id) => revealMessage(listRef.current, id)}
+            mention={mentionKind}
           />
         ))}
         {uploading > 0 && (
@@ -648,6 +730,11 @@ export default function MessageView({ showBack = false }: Props) {
           </div>
         )}
         {sendingVoice && <div className={s.hint}>Отправка голосового…</div>}
+        {fileUpload && (
+          <div className={s.hint}>
+            📎 «{fileUpload.name}»: {fileUpload.share < 1 ? `загружаем ${Math.round(fileUpload.share * 100)}%` : "отправляем…"}
+          </div>
+        )}
         <div ref={bottomRef} />
       </div>
 
@@ -697,13 +784,17 @@ export default function MessageView({ showBack = false }: Props) {
           />
         </div>
       ) : (
-      <form className={s.composer} onSubmit={(e) => void handleSend(e)}>
+      <form className={s.composer} onSubmit={(e) => void handleSend(e)} style={{ position: "relative" }}>
+        {mention.popup}
         <button
           type="button"
           className={s.attachBtn}
-          title="Фото"
-          aria-label="Отправить картинку"
-          onClick={() => fileInputRef.current?.click()}
+          title="Фото или файл"
+          aria-label="Прикрепить"
+          onClick={(e) => {
+            const r = e.currentTarget.getBoundingClientRect();
+            setAttachMenu({ x: r.left, y: r.top - 100 });
+          }}
           disabled={inputDisabled || !!editing}
         >
           <IconPlus size={20} />
@@ -720,6 +811,17 @@ export default function MessageView({ showBack = false }: Props) {
             void handleImages(files);
           }}
         />
+        <input
+          ref={docInputRef}
+          type="file"
+          multiple
+          hidden
+          onChange={(e) => {
+            const files = Array.from(e.target.files ?? []);
+            e.target.value = "";
+            void handleFiles(files);
+          }}
+        />
         <div className={s.field}>
           <input
             ref={inputRef}
@@ -730,6 +832,7 @@ export default function MessageView({ showBack = false }: Props) {
             value={text}
             onChange={(e) => handleTextChange(e.target.value)}
             onKeyDown={handleKeyDown}
+            onSelect={mention.syncCaret}
             onPaste={handlePaste}
             disabled={inputDisabled}
           />
@@ -787,6 +890,18 @@ export default function MessageView({ showBack = false }: Props) {
           }
           actions={menuActions(menu.msg)}
           onClose={closeMenu}
+        />
+      )}
+
+      {attachMenu && (
+        <MessageMenu
+          at={attachMenu}
+          reaction={null}
+          actions={[
+            { label: "🖼 Фото", onClick: () => fileInputRef.current?.click() },
+            { label: "📎 Файл (до 50 МБ)", onClick: () => docInputRef.current?.click() },
+          ]}
+          onClose={() => setAttachMenu(null)}
         />
       )}
 
@@ -874,6 +989,8 @@ interface ChatMessageProps {
   onOpenMenu: (x: number, y: number) => void;
   onReact?: (emoji: string) => void;
   onQuoteClick: (messageId: string) => void;
+  /** Подсветка @имён (в группах). */
+  mention?: MentionKind;
 }
 
 function ChatMessage({
@@ -889,11 +1006,13 @@ function ChatMessage({
   onOpenMenu,
   onReact,
   onQuoteClick,
+  mention,
 }: ChatMessageProps) {
   const trigger = useMessageMenuTrigger(onOpenMenu);
   const unavailable = msg.payload.startsWith("Сообщение недоступно");
   const image = unavailable ? null : parseImage(msg.payload);
   const voice = unavailable ? null : parseVoice(msg.payload);
+  const file = unavailable || image || voice ? null : parseFile(msg.payload);
   const stickerRef = unavailable ? null : parseSticker(msg.payload);
   const sticker = stickerRef ? stickerOf(stickerRef.pack, stickerRef.id) : undefined;
   // Стикер без пузыря; неизвестный (пак убрали с сервера) — обычной строкой.
@@ -924,6 +1043,8 @@ function ChatMessage({
         <ChatImage chatId={msg.chat_id} image={image} />
       ) : voice ? (
         <VoiceMessage chatId={msg.chat_id} voice={voice} tone={isOwn ? "own" : "other"} />
+      ) : file ? (
+        <ChatFile chatId={msg.chat_id} file={file} tone={isOwn ? "own" : "other"} />
       ) : asSticker ? (
         sticker ? (
           <Sticker url={stickerFileUrl(sticker)} emoji={sticker.emoji} size={STICKER_SIZE} mode="loop" />
@@ -934,7 +1055,17 @@ function ChatMessage({
         <span className={s.textMuted}>Стикер недоступен</span>
       ) : (
         <span className={unavailable ? s.textMuted : s.text}>
-          {unavailable ? msg.payload : <LinkifiedText text={msg.payload} linkClassName={s.link} />}
+          {unavailable ? (
+            msg.payload
+          ) : (
+            <LinkifiedText
+              text={msg.payload}
+              linkClassName={s.link}
+              mention={mention}
+              mentionClassName={w.mention}
+              mentionMeClassName={w.mentionMe}
+            />
+          )}
         </span>
       )}
       <ReactionChips groups={groups} nameOf={nameOf} onToggle={onReact} />

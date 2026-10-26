@@ -10,6 +10,8 @@ import { starsApi } from "../../api/stars";
 import { VoiceBar } from "./VoiceBar";
 import { placeNouns, roomWords } from "./words";
 import { currentBooking, doorSign, hhmm, useBookings } from "./work";
+import NotifyDialog from "../NotifyDialog";
+import { channelLevel, starLevel, STAR_DEFAULT, useNotifyStore } from "../../notifications/levels";
 import s from "./Constellation.module.css";
 
 interface Props {
@@ -18,6 +20,9 @@ interface Props {
   /** Открыта карта офиса (Звёзды «Работа»). */
   mapActive?: boolean;
   onOpenMap?: () => void;
+  /** Открыт раздел «Файлы». */
+  filesActive?: boolean;
+  onOpenFiles: () => void;
   onOpenChannel: (channel: StarChannel) => void;
   onAddChannel: (kind: ChannelKind) => void;
   onEditChannel: (channel: StarChannel) => void;
@@ -36,6 +41,8 @@ export default function ChannelSidebar({
   onOpenSettings,
   mapActive = false,
   onOpenMap,
+  filesActive = false,
+  onOpenFiles,
   onToggleMembers,
   membersOpen,
 }: Props) {
@@ -57,6 +64,9 @@ export default function ChannelSidebar({
   const channels = sortChannels(detail.channels);
   const manage = can(detail, "manage_channels");
   const { bookings, now } = useBookings(detail);
+  const notifySettings = useNotifyStore((st) => st.settings);
+  const [notifyOpen, setNotifyOpen] = useState(false);
+  const starQuiet = starLevel(notifySettings, detail.id) === "none";
 
   const section = (kind: ChannelKind, title: string) => {
     const list = channels.filter((c) => c.kind === kind);
@@ -90,6 +100,8 @@ export default function ChannelSidebar({
         </div>
         {list.map((c) => {
           const count = unread[c.id]?.count ?? 0;
+          const mentionCount = unread[c.id]?.mentions ?? 0;
+          const quiet = kind === "satellite" && channelLevel(notifySettings, detail.id, c.id) === "none";
           const inside = kind === "planet" ? (detail.voice?.[c.id] ?? []) : [];
           const busy = kind === "planet" ? currentBooking(bookings, c.id, now) : null;
           const sign = kind === "planet" ? doorSign(c, now) : null;
@@ -97,7 +109,7 @@ export default function ChannelSidebar({
             <div key={c.id}>
               <button
                 type="button"
-                className={c.id === activeChannelId && !mapActive ? s.channelActive : s.channel}
+                className={c.id === activeChannelId && !mapActive && !filesActive ? s.channelActive : s.channel}
                 onClick={() => onOpenChannel(c)}
                 onDoubleClick={
                   kind === "planet"
@@ -128,6 +140,7 @@ export default function ChannelSidebar({
                   {c.temporary ? " ⏳" : ""}
                   {c.slow_mode_sec ? " 🐢" : ""}
                   {c.announcement ? " 📢" : ""}
+                  {quiet ? " 🔕" : ""}
                   {sign ? ` ${sign.icon}` : ""}
                   {busy ? " 📅" : ""}
                 </span>
@@ -136,7 +149,17 @@ export default function ChannelSidebar({
                     {inside.length ? `${inside.length}/${c.capacity}` : `до ${c.capacity}`}
                   </span>
                 )}
-                {count > 0 && <span className={s.countBadge}>{count > 99 ? "99+" : count}</span>}
+                {mentionCount > 0 ? (
+                  <span className={s.countBadge} title={`Упоминаний: ${mentionCount}`}>
+                    @{mentionCount > 9 ? "9+" : mentionCount}
+                  </span>
+                ) : (
+                  count > 0 && (
+                    <span className={quiet ? `${s.countBadge} ${s.countBadgeQuiet}` : s.countBadge}>
+                      {count > 99 ? "99+" : count}
+                    </span>
+                  )
+                )}
               </button>
               {inside.length > 0 && (
                 <div className={s.presence}>
@@ -219,6 +242,15 @@ export default function ChannelSidebar({
         <button
           type="button"
           className={s.iconBtn}
+          onClick={() => setNotifyOpen(true)}
+          aria-label="Уведомления Звезды"
+          title="Уведомления Звезды"
+        >
+          {starQuiet ? "🔕" : "🔔"}
+        </button>
+        <button
+          type="button"
+          className={s.iconBtn}
           onClick={() => onOpenSettings()}
           aria-label="Настройки Звезды"
           title="Настройки Звезды"
@@ -228,11 +260,19 @@ export default function ChannelSidebar({
       </div>
       <div className={s.channels}>
         {section("satellite", "Спутники")}
+        <button
+          type="button"
+          className={filesActive ? s.channelActive : s.channel}
+          style={{ marginTop: 10 }}
+          onClick={onOpenFiles}
+        >
+          <span aria-hidden>📁</span>
+          <span className={s.channelName}>Файлы</span>
+        </button>
         {detail.kind === "work" && onOpenMap && (
           <button
             type="button"
             className={mapActive ? s.channelActive : s.channel}
-            style={{ marginTop: 10 }}
             onClick={onOpenMap}
           >
             <span aria-hidden>🗺</span>
@@ -256,6 +296,15 @@ export default function ChannelSidebar({
           </button>
         )}
       </div>
+      {notifyOpen && (
+        <NotifyDialog
+          scope="star"
+          targetId={detail.id}
+          title={`Уведомления: ${detail.name}`}
+          inherited={STAR_DEFAULT}
+          onClose={() => setNotifyOpen(false)}
+        />
+      )}
     </div>
   );
 }

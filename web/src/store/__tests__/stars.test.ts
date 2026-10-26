@@ -331,3 +331,32 @@ describe("threads", () => {
     expect(useStarsStore.getState().details.a).toMatchObject({ work_hours_enabled: true, work_hours: schedule });
   });
 });
+
+describe("mentions and notification levels", () => {
+  it("counts mentions separately and toasts only what the level allows", async () => {
+    const { useToastStore } = await import("../../notifications/toastStore");
+    const { useNotifyStore } = await import("../../notifications/levels");
+    const { mentionsForStar } = await import("../stars");
+    useNotifyStore.setState({ settings: {} });
+    useToastStore.setState({ toasts: [] });
+    await useStarsStore.getState().load();
+    useUiStore.setState({ tab: "chats" });
+
+    // По умолчанию в Звёздах — только упоминания: обычное сообщение без всплывашки.
+    emit({ type: "star_message", star_id: "a", message: message("a", "a-news", "p1") });
+    expect(useToastStore.getState().toasts).toHaveLength(0);
+
+    emit({ type: "star_message", star_id: "a", message: { ...message("a", "a-news", "p2"), mentions: [ME] } });
+    const st = useStarsStore.getState();
+    expect(st.unread["a-news"]).toMatchObject({ count: 2, mentions: 1 });
+    expect(mentionsForStar(st.unread, "a")).toBe(1);
+    expect(useToastStore.getState().toasts.map((t) => [t.starId, t.channelId])).toEqual([["a", "a-news"]]);
+
+    // В этом Спутнике — «Ничего»: даже @все молчит.
+    useNotifyStore.setState({
+      settings: { "channel:a-news": { scope: "channel", target_id: "a-news", level: "none", muted_until: null } },
+    });
+    emit({ type: "star_message", star_id: "a", message: { ...message("a", "a-news", "p3"), mention_all: true } });
+    expect(useToastStore.getState().toasts).toHaveLength(1);
+  });
+});

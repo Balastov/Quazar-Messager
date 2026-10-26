@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import type { ChannelKind, StarChannel } from "../../api/stars";
 import { useDoorsStore } from "../../store/doors";
-import { unreadForStar, useStarsStore } from "../../store/stars";
+import { mentionsForStar, unreadForStar, useStarsStore } from "../../store/stars";
+import StarFilesView from "./StarFilesView";
 import { IconConstellation } from "../icons";
 import ChannelDialog from "./ChannelDialog";
 import ChannelSidebar from "./ChannelSidebar";
@@ -37,6 +38,8 @@ export default function ConstellationView() {
   const setMobileChannelOpen = useStarsStore((st) => st.setMobileChannelOpen);
   const openJoinDialog = useStarsStore((st) => st.openJoinDialog);
   const dismissNotice = useStarsStore((st) => st.dismissNotice);
+  const viewByStar = useStarsStore((st) => st.viewByStar);
+  const setView = useStarsStore((st) => st.setView);
 
   const [createOpen, setCreateOpen] = useState(false);
   const [settingsTab, setSettingsTab] = useState<SettingsTab | null>(null);
@@ -47,21 +50,23 @@ export default function ConstellationView() {
   const isMobile = () => window.matchMedia("(max-width: 767px)").matches;
   const [channelDialog, setChannelDialog] = useState<ChannelDialogState>(null);
   const [loadError, setLoadError] = useState(false);
-  /** У рабочих Звёзд по умолчанию открыта карта офиса. */
-  const [mapByStar, setMapByStar] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     if (loaded) return;
     load().catch(() => setLoadError(true));
   }, [loaded, load]);
 
-  // Канал на экране — значит прочитан. На телефоне — только когда он открыт поверх списка.
+  // Канал на экране — значит прочитан. На телефоне — только когда он открыт поверх списка;
+  // открыты карта офиса или «Файлы» — канала не видно.
+  const activeView = activeStarId ? viewByStar[activeStarId] : undefined;
+  const activeKind = stars.find((st) => st.id === activeStarId)?.kind;
+  const channelOnScreen = (activeView ?? (activeKind === "work" ? "map" : "channel")) === "channel";
   useEffect(() => {
     const channelId = activeStarId ? activeChannelByStar[activeStarId] : null;
-    if (!channelId || !unread[channelId] || document.visibilityState !== "visible") return;
+    if (!channelId || !unread[channelId] || document.visibilityState !== "visible" || !channelOnScreen) return;
     const desktop = window.matchMedia("(min-width: 768px)").matches;
     if (desktop || mobileChannelOpen) void selectChannel(channelId);
-  }, [activeStarId, activeChannelByStar, unread, mobileChannelOpen, selectChannel]);
+  }, [activeStarId, activeChannelByStar, unread, mobileChannelOpen, selectChannel, channelOnScreen]);
 
   // Стуки в двери этой Звезды (кто может впускать — все, остальным — свои).
   useEffect(() => {
@@ -78,9 +83,12 @@ export default function ConstellationView() {
   const channelId = activeStarId ? (activeChannelByStar[activeStarId] ?? null) : null;
   const channel = detail?.channels.find((c) => c.id === channelId) ?? null;
 
-  const mapOpen = !!detail && detail.kind === "work" && (mapByStar[detail.id] ?? true);
+  /** У рабочих Звёзд по умолчанию открыта карта офиса. */
+  const view = detail ? (viewByStar[detail.id] ?? (detail.kind === "work" ? "map" : "channel")) : "channel";
+  const mapOpen = !!detail && detail.kind === "work" && view === "map";
+  const filesOpen = !!detail && view === "files";
   const setMapOpen = (open: boolean) => {
-    if (detail) setMapByStar((m) => ({ ...m, [detail.id]: open }));
+    if (detail) setView(detail.id, open ? "map" : "channel");
   };
 
   const openChannel = (c: StarChannel) => {
@@ -90,6 +98,9 @@ export default function ConstellationView() {
   };
 
   const renderContent = (onBack?: () => void) => {
+    if (detail && filesOpen) {
+      return <StarFilesView detail={detail} onBack={onBack} onOpenChannel={openChannel} />;
+    }
     if (detail && mapOpen) {
       return (
         <OfficeMap
@@ -131,6 +142,7 @@ export default function ConstellationView() {
       <nav className={s.rail} aria-label="Звёзды">
         {stars.map((star) => {
           const count = unreadForStar(unread, star.id);
+          const mentions = mentionsForStar(unread, star.id);
           const active = star.id === activeStarId;
           return (
             <button
@@ -146,7 +158,11 @@ export default function ConstellationView() {
               aria-current={active}
             >
               <StarAvatar name={star.name} url={star.avatar_url} />
-              {count > 0 && <span className={s.badge}>{count > 99 ? "99+" : count}</span>}
+              {count > 0 && (
+                <span className={s.badge} title={mentions ? `Упоминаний: ${mentions}` : undefined}>
+                  {mentions ? `@${mentions > 9 ? "9+" : mentions}` : count > 99 ? "99+" : count}
+                </span>
+              )}
             </button>
           );
         })}
@@ -200,8 +216,13 @@ export default function ConstellationView() {
             detail={detail}
             activeChannelId={channelId}
             mapActive={mapOpen}
+            filesActive={filesOpen}
             onOpenMap={() => {
               setMapOpen(true);
+              setMobileChannelOpen(true);
+            }}
+            onOpenFiles={() => {
+              setView(detail.id, "files");
               setMobileChannelOpen(true);
             }}
             onOpenChannel={openChannel}

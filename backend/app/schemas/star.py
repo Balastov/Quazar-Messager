@@ -131,13 +131,25 @@ class _StarText(BaseModel):
         return v
 
 
-class SendStarMessage(_StarText):
+class SendStarMessage(BaseModel):
+    # С файлом текст — необязательная подпись.
+    text: str = Field(default="", max_length=MAX_MESSAGE_LENGTH)
+    # Файл, загруженный в этот Спутник (POST …/files).
+    file_id: str | None = None
     # Ответ на сообщение этого же Спутника.
     reply_to_id: str | None = None
     # Ответ в ветке этого сообщения (корня).
     thread_id: str | None = None
     # Объявление с «Ознакомлен(а)» (только в Спутнике-объявлениях, только владелец и админы).
     ack_required: bool = False
+
+    @model_validator(mode="after")
+    def _text_or_file(self):
+        if not self.text.strip():
+            if not self.file_id:
+                raise ValueError("Сообщение не может быть пустым")
+            self.text = ""
+        return self
 
 
 class EditStarMessage(_StarText):
@@ -320,14 +332,34 @@ class LfgOut(BaseModel):
     created_by: str | None
 
 
+class StarFileOut(BaseModel):
+    id: str
+    name: str
+    mime: str
+    size: int
+
+
+class StarFileListItem(StarFileOut):
+    """Файл в разделе «Файлы» Звезды."""
+
+    channel_id: str
+    message_id: str | None
+    uploader: StarUserOut | None
+    created_at: datetime
+
+
 class StarMessageOut(BaseModel):
     id: str
     star_id: str
     channel_id: str
     sender: StarUserOut | None
     text: str
-    # text | system | poll | lfg
+    # text | system | poll | lfg | file
     kind: str = "text"
+    file: StarFileOut | None = None
+    # Упомянутые участники (@имя) и @все.
+    mentions: list[str] = []
+    mention_all: bool = False
     poll: PollOut | None = None
     lfg: LfgOut | None = None
     # Ответ в ветке — id корня; у корня — сводка ветки.

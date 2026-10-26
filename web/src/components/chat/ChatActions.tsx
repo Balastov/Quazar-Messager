@@ -7,6 +7,9 @@ import { useChatStore } from "../../store/chat";
 import { notifyInfo } from "../../notifications/notify";
 import MessageMenu, { type MenuAction } from "../messages/MessageMenu";
 import ReportDialog from "./ReportDialog";
+import NotifyDialog from "../NotifyDialog";
+import { CHAT_DEFAULT, chatLevel, levelSummary, settingKey, useNotifyStore } from "../../notifications/levels";
+import { chatTitle } from "../../store/chat";
 import TtlDialog from "./TtlDialog";
 
 interface Props {
@@ -27,7 +30,8 @@ export default function ChatActions({ chat, className, title = "Ещё", childre
   const block = useBlocksStore((st) => st.block);
   const unblock = useBlocksStore((st) => st.unblock);
   const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null);
-  const [dialog, setDialog] = useState<"ttl" | "report" | null>(null);
+  const [dialog, setDialog] = useState<"ttl" | "report" | "notify" | null>(null);
+  const notifySettings = useNotifyStore((st) => st.settings);
   const closeMenu = useCallback(() => setMenuAt(null), []);
 
   const peer = chat.type === "direct" ? chat.members.find((m) => m.user.id !== myId)?.user : undefined;
@@ -50,6 +54,10 @@ export default function ChatActions({ chat, className, title = "Ещё", childre
   };
 
   const actions: MenuAction[] = [];
+  if (chat.type !== "saved") {
+    const summary = levelSummary(chatLevel(notifySettings, chat.id), notifySettings[settingKey("chat", chat.id)]);
+    actions.push({ label: `🔔 Уведомления: ${summary.toLowerCase()}`, onClick: () => setDialog("notify") });
+  }
   if (chat.type === "direct") actions.push({ label: "Проверка шифрования", onClick: () => setShowE2ePanel(true) });
   actions.push({
     label: chat.ttl_seconds ? `Исчезающие: ${ttlLabel(chat.ttl_seconds)}` : "Исчезающие сообщения",
@@ -77,6 +85,16 @@ export default function ChatActions({ chat, className, title = "Ещё", childre
       </button>
       {menuAt && <MessageMenu at={menuAt} reaction={null} actions={actions} onClose={closeMenu} />}
       {dialog === "ttl" && <TtlDialog chat={chat} canChange={canChangeTtl} onClose={() => setDialog(null)} />}
+      {dialog === "notify" && (
+        <NotifyDialog
+          scope="chat"
+          targetId={chat.id}
+          title={`Уведомления: ${chatTitle(chat, myId)}`}
+          inherited={CHAT_DEFAULT}
+          mentions={chat.type === "group"}
+          onClose={() => setDialog(null)}
+        />
+      )}
       {dialog === "report" && peer && (
         <ReportDialog userId={peer.id} username={peer.username} chatId={chat.id} onClose={() => setDialog(null)} />
       )}

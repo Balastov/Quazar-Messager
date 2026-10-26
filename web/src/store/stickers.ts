@@ -3,6 +3,7 @@ import { stickersApi, type StickerInfo, type StickerPack } from "../api/stickers
 import { parseSticker, stickerPreview } from "../stickers/format";
 import { IMAGE_PREVIEW, parseImage } from "../attachments/image";
 import { parseVoice, voicePreview } from "../attachments/voice";
+import { filePreview, parseFile } from "../attachments/file";
 
 interface StickersState {
   packs: StickerPack[];
@@ -43,6 +44,8 @@ export function messagePreview(payload: string): string {
   if (parseImage(payload)) return IMAGE_PREVIEW;
   const voice = parseVoice(payload);
   if (voice) return voicePreview(voice);
+  const file = parseFile(payload);
+  if (file) return filePreview(file);
   const ref = parseSticker(payload);
   if (!ref) return payload;
   return stickerPreview(findSticker(ref.pack, ref.id)?.emoji);

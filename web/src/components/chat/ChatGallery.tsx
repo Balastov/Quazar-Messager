@@ -4,12 +4,14 @@ import type { Message } from "../../api/types";
 import { loadImageUrl } from "../../attachments/cache";
 import { parseImage, type ImageRef } from "../../attachments/image";
 import { parseVoice } from "../../attachments/voice";
+import { parseFile } from "../../attachments/file";
+import ChatFile from "./ChatFile";
 import { openMessages, useChatStore } from "../../store/chat";
 import { splitLinks } from "../../utils/linkify";
 import VoiceMessage from "../voice/VoiceMessage";
 import s from "./Chat.module.css";
 
-export type GalleryTab = "photos" | "voice" | "links";
+export type GalleryTab = "photos" | "voice" | "files" | "links";
 
 /** Ссылки ищем по истории не дальше стольких сообщений. */
 const LINK_SCAN_LIMIT = 2000;
@@ -17,14 +19,14 @@ const LINK_SCAN_LIMIT = 2000;
 const dateOf = (iso: string) => new Date(iso).toLocaleDateString("ru", { day: "numeric", month: "short", year: "numeric" });
 
 /**
- * Галерея в профиле: фото, голосовые, ссылки.
+ * Галерея в профиле: фото, голосовые, файлы, ссылки.
  * Сервер знает только, у каких сообщений есть вложения; что внутри — расшифровываем здесь.
  */
 export default function ChatGallery({ chatId, tab }: { chatId: string; tab: GalleryTab }) {
   return tab === "links" ? <Links chatId={chatId} /> : <Media chatId={chatId} kind={tab} />;
 }
 
-function Media({ chatId, kind }: { chatId: string; kind: "photos" | "voice" }) {
+function Media({ chatId, kind }: { chatId: string; kind: "photos" | "voice" | "files" }) {
   const openMessage = useChatStore((st) => st.openMessage);
   const [items, setItems] = useState<Message[]>([]);
   const [done, setDone] = useState(false);
@@ -46,7 +48,9 @@ function Media({ chatId, kind }: { chatId: string; kind: "photos" | "voice" }) {
 
   // Новое фото или голосовое в чате — перечитываем первую страницу.
   const attachmentsInFeed = useChatStore(
-    (st) => (st.messages[chatId] ?? []).filter((m) => parseImage(m.payload) || parseVoice(m.payload)).length
+    (st) =>
+      (st.messages[chatId] ?? []).filter((m) => parseImage(m.payload) || parseVoice(m.payload) || parseFile(m.payload))
+        .length
   );
 
   useEffect(() => {
@@ -63,7 +67,11 @@ function Media({ chatId, kind }: { chatId: string; kind: "photos" | "voice" }) {
     const ref = parseVoice(m.payload);
     return ref ? [{ m, ref }] : [];
   });
-  const shown = kind === "photos" ? photos.length : voices.length;
+  const files = items.flatMap((m) => {
+    const ref = parseFile(m.payload);
+    return ref ? [{ m, ref }] : [];
+  });
+  const shown = kind === "photos" ? photos.length : kind === "voice" ? voices.length : files.length;
 
   return (
     <>
@@ -71,6 +79,15 @@ function Media({ chatId, kind }: { chatId: string; kind: "photos" | "voice" }) {
         <div className={s.grid}>
           {photos.map(({ m, ref }) => (
             <Thumb key={m.id} chatId={chatId} image={ref} onOpen={() => void openMessage(chatId, m.id)} />
+          ))}
+        </div>
+      ) : kind === "files" ? (
+        <div className={s.galleryList}>
+          {files.map(({ m, ref }) => (
+            <div key={m.id} className={s.voiceRow}>
+              <ChatFile chatId={chatId} file={ref} />
+              <span className={s.galleryDate}>{dateOf(m.created_at)}</span>
+            </div>
           ))}
         </div>
       ) : (
@@ -84,7 +101,9 @@ function Media({ chatId, kind }: { chatId: string; kind: "photos" | "voice" }) {
         </div>
       )}
       {!loading && done && shown === 0 && (
-        <p className={s.optionHint}>{kind === "photos" ? "Фото пока нет" : "Голосовых пока нет"}</p>
+        <p className={s.optionHint}>
+          {kind === "photos" ? "Фото пока нет" : kind === "voice" ? "Голосовых пока нет" : "Файлов пока нет"}
+        </p>
       )}
       {!done && (
         <button type="button" className={s.more} disabled={loading} onClick={() => void load(items[items.length - 1]?.id)}>

@@ -163,6 +163,9 @@ class StarMessage(Base):
     reply_to_id: Mapped[str | None] = mapped_column(
         ForeignKey("star_messages.id", ondelete="SET NULL"), nullable=True
     )
+    # Упомянутые (@имя) — id участников; mention_all — @все (только модераторы и выше).
+    mentions: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    mention_all: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     edited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_now, index=True
@@ -394,3 +397,28 @@ class StarBooking(Base):
     reminded: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     started: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class StarFile(Base):
+    """Файл в Спутнике. Лежит открыто в MEDIA_ROOT/star_files/<id> (в Звёздах нет E2E),
+    отдаётся только участникам через API. Пока message_id пуст — загружен, но не отправлен."""
+
+    __tablename__ = "star_files"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    star_id: Mapped[str] = mapped_column(
+        ForeignKey("stars.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    channel_id: Mapped[str] = mapped_column(
+        ForeignKey("star_channels.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    message_id: Mapped[str | None] = mapped_column(
+        ForeignKey("star_messages.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    uploader_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    mime: Mapped[str] = mapped_column(String(127), nullable=False)
+    size: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, index=True)

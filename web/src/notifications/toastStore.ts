@@ -7,6 +7,9 @@ export interface AppToast {
   chatId?: string;
   /** Нажатие — открыть чат и прокрутить к этому сообщению. */
   messageId?: string;
+  /** Сообщение Спутника: нажатие открывает Звезду на этом Спутнике. */
+  starId?: string;
+  channelId?: string;
 }
 
 interface ToastState {

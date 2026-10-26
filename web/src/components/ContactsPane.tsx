@@ -5,6 +5,7 @@ import { useAuthStore } from "../store/auth";
 import { useChatStore } from "../store/chat";
 import { useUiStore } from "../store/ui";
 import { useUnreadStore } from "../store/unread";
+import { chatLevel, useNotifyStore } from "../notifications/levels";
 import {
   canSearchUsers,
   extractRuLocalDigits,
@@ -51,6 +52,7 @@ export default function ContactsPane() {
   const favoriteChatIds = useUiStore((st) => st.favoriteChatIds);
   const toggleFavorite = useUiStore((st) => st.toggleFavorite);
   const unreadCounts = useUnreadStore((st) => st.counts);
+  const notifySettings = useNotifyStore((st) => st.settings);
   // Найденные в телефонной книге (синхронизирует мобильное приложение).
   const phonebook = useContactsStore((st) => st.contacts);
   const phonebookNames = useContactsStore((st) => st.names);
@@ -350,6 +352,7 @@ export default function ContactsPane() {
           const fav = favoriteChatIds.includes(chat.id);
           const unread = unreadCounts[chat.id] ?? 0;
           const hasUnread = unread > 0;
+          const quiet = chat.type !== "saved" && chatLevel(notifySettings, chat.id) === "none";
           return (
             <button
               key={chat.id}
@@ -361,6 +364,11 @@ export default function ContactsPane() {
               <div className={s.meta}>
                 <div className={s.nameRow}>
                   <span className={hasUnread ? s.nameUnread : s.name}>{peer.username}</span>
+                  {quiet && (
+                    <span title="Уведомления выключены" aria-label="Уведомления выключены">
+                      🔕
+                    </span>
+                  )}
                 </div>
                 <PreviewLine chat={chat} className={hasUnread ? s.previewUnread : s.preview}>
                   {lastPreview(chat.id)}
@@ -371,7 +379,9 @@ export default function ContactsPane() {
                   {lastTime(chat.id, chat.created_at)}
                 </span>
                 {hasUnread ? (
-                  <span className={s.badge}>{unread > 99 ? "99+" : unread}</span>
+                  <span className={s.badge} style={quiet ? { opacity: 0.45 } : undefined}>
+                    {unread > 99 ? "99+" : unread}
+                  </span>
                 ) : (
                   <span
                     className={fav ? `${s.starBtn} ${s.starBtnOn}` : s.starBtn}

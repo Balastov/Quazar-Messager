@@ -1878,3 +1878,9 @@
   border: 1px solid var(--qz-border);
   background: url("/bg-desktop.jpg") center / cover no-repeat;
 }
+
+/* Непрочитанное в Спутнике без уведомлений — серым. */
+.countBadgeQuiet {
+  background: var(--qz-bg-soft);
+  color: var(--qz-text-muted);
+}

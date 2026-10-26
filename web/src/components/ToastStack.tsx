@@ -1,4 +1,5 @@
 import { useChatStore } from "../store/chat";
+import { useStarsStore } from "../store/stars";
 import { useToastStore } from "../notifications/toastStore";
 import s from "./ToastStack.module.css";
 
@@ -18,7 +19,8 @@ export default function ToastStack() {
           type="button"
           className={s.toast}
           onClick={() => {
-            if (toast.chatId && toast.messageId) void openMessage(toast.chatId, toast.messageId);
+            if (toast.starId && toast.channelId) void useStarsStore.getState().openChannelLink(toast.starId, toast.channelId);
+            else if (toast.chatId && toast.messageId) void openMessage(toast.chatId, toast.messageId);
             else if (toast.chatId) void selectChat(toast.chatId);
             dismiss(toast.id);
           }}

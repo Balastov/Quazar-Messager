@@ -18,6 +18,15 @@ import { formatWhen } from "../../chat/when";
 import g from "./Gaming.module.css";
 import w from "./Work.module.css";
 import AcksDialog from "./AcksDialog";
+import StarFileView from "./StarFileView";
+import NotifyDialog from "../NotifyDialog";
+import { channelLevel, levelSummary, settingKey, starLevel, useNotifyStore } from "../../notifications/levels";
+import { useMentionSuggest } from "../messages/MentionSuggest";
+import { isAllWord } from "../../chat/mentions";
+import { MAX_FILE_BYTES } from "../../attachments/file";
+import c from "../chat/Chat.module.css";
+import type { MentionKind } from "../LinkifiedText";
+import { isStaff, mentionsMe } from "../../store/stars";
 import UserAvatar from "../UserAvatar";
 import { IconBack, IconGear, IconSatellite, IconSend } from "../icons";
 import { apiError, can, formatTime, outranks } from "./rules";
@@ -64,6 +73,8 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
   const assets = useStarsStore((st) => st.assets[detail.id] ?? NO_ASSETS);
   const loadAssets = useStarsStore((st) => st.loadAssets);
   const openThread = useStarsStore((st) => st.openThread);
+  const sendFile = useStarsStore((st) => st.sendFile);
+  const notifySettings = useNotifyStore((st) => st.settings);
   const ack = useStarsStore((st) => st.ack);
   const typingIds = useTyping(satelliteTypingKey(channel.id));
   const [dialog, setDialog] = useState<"poll" | "lfg" | null>(null);
@@ -80,6 +91,10 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
   const isAdmin = detail.my_role === "owner" || detail.my_role === "admin";
   const announcement = !!channel.announcement;
   const [askAck, setAskAck] = useState(false);
+  const [notifyOpen, setNotifyOpen] = useState(false);
+  const [fileUpload, setFileUpload] = useState<{ name: string; share: number } | null>(null);
+  const [dragging, setDragging] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [acksOf, setAcksOf] = useState<StarMessage | null>(null);
 
   useEffect(() => {
@@ -97,6 +112,26 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
   const lastId = messages.length ? messages[messages.length - 1].id : null;
 
   const roleOf = (userId: string) => detail.members.find((mb) => mb.user.id === userId)?.role;
+  const others = useMemo(
+    () => detail.members.filter((mb) => mb.user.id !== myId).map((mb) => mb.user.username),
+    [detail.members, myId]
+  );
+  const mentionKind = useMemo<MentionKind>(() => {
+    const names = new Map(detail.members.map((mb) => [mb.user.username.toLowerCase(), mb.user.id]));
+    return (name) => {
+      if (isAllWord(name)) return "other";
+      const id = names.get(name.toLowerCase());
+      return id ? (id === myId ? "me" : "other") : null;
+    };
+  }, [detail.members, myId]);
+  const mention = useMentionSuggest({
+    text,
+    setText,
+    inputRef,
+    names: others,
+    allowAll: isStaff(detail.my_role),
+  });
+  const level = channelLevel(notifySettings, detail.id, channel.id);
   const nameOf = (userId: string) =>
     detail.members.find((mb) => mb.user.id === userId)?.user.username ?? "Бывший участник";
 
@@ -199,6 +234,7 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
   };
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (mention.onKeyDown(e)) return;
     if (e.key === "Escape" && (replyTo || editing)) {
       e.preventDefault();
       cancelContext();
@@ -248,6 +284,26 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
 
   const typingText = typingLabel(typingIds.map(nameOf));
 
+  const handleFiles = async (files: File[]) => {
+    if (composer || editing) return;
+    setError(null);
+    for (const file of files) {
+      if (file.size > MAX_FILE_BYTES) {
+        setError(`«${file.name}» больше 50 МБ — такой не отправить`);
+        continue;
+      }
+      setFileUpload({ name: file.name, share: 0 });
+      stickToBottom.current = true;
+      try {
+        await sendFile(file, { onProgress: (share) => setFileUpload({ name: file.name, share }) });
+      } catch (err) {
+        setError(apiError(err, `Не удалось отправить «${file.name}»`));
+      } finally {
+        setFileUpload(null);
+      }
+    }
+  };
+
   const showThread = (msg: StarMessage) => {
     setError(null);
     void openThread(msg).catch((err) => setError(apiError(err, "Не удалось открыть ветку")));
@@ -288,7 +344,24 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
   })();
 
   return (
-    <>
+    <div
+      className={w.satelliteRoot}
+      onDragOver={(e) => {
+        if (!e.dataTransfer.types.includes("Files") || composer) return;
+        e.preventDefault();
+        setDragging(true);
+      }}
+      onDragLeave={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragging(false);
+      }}
+      onDrop={(e) => {
+        if (!e.dataTransfer.files.length) return;
+        e.preventDefault();
+        setDragging(false);
+        void handleFiles(Array.from(e.dataTransfer.files));
+      }}
+    >
+      {dragging && <div className={c.dropZone}>Отпустите, чтобы отправить в «{channel.name}»</div>}
       <div className={s.channelHeader}>
         {onBack && (
           <button type="button" className={s.iconBtn} onClick={onBack} aria-label="Назад">
@@ -302,6 +375,15 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
             {announcement ? "📢 Объявления" : "Спутник"} · {detail.name} · без сквозного шифрования
           </span>
         </div>
+        <button
+          type="button"
+          className={s.iconBtn}
+          onClick={() => setNotifyOpen(true)}
+          aria-label="Уведомления Спутника"
+          title={`Уведомления: ${levelSummary(level, notifySettings[settingKey("channel", channel.id)])}`}
+        >
+          {level === "none" ? "🔕" : "🔔"}
+        </button>
         {can(detail, "manage_channels") && (
           <button
             type="button"
@@ -350,6 +432,7 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
               stickToBottom.current = false;
               revealMessage(listRef.current, id);
             }}
+            mention={mentionKind}
             onOpenThread={() => showThread(msg)}
             onAck={() => onAck(msg)}
             onShowAcks={msg.sender?.id === myId || isAdmin ? () => setAcksOf(msg) : undefined}
@@ -363,6 +446,11 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
         </div>
       )}
       {typingText && <div className={`${s.typingLine} ${m.typing}`}>{typingText}</div>}
+      {fileUpload && (
+        <div className={s.typingLine}>
+          📎 «{fileUpload.name}»: {fileUpload.share < 1 ? `загружаем ${Math.round(fileUpload.share * 100)}%` : "отправляем…"}
+        </div>
+      )}
       {replyTo && (
         <ComposerContext
           kind="reply"
@@ -383,6 +471,7 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
           Попросить подтвердить «Ознакомлен(а)»
         </label>
       )}
+      {mention.popup}
       {pickerOpen && (
         <StarPicker
           assets={assets}
@@ -398,12 +487,12 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
         <button
           type="button"
           className={g.composerExtra}
-          aria-label="Опрос или сбор группы"
-          title="Опрос или сбор группы"
+          aria-label="Файл, опрос или сбор группы"
+          title="Файл, опрос или сбор группы"
           disabled={!!editing}
           onClick={(e) => {
             const r = e.currentTarget.getBoundingClientRect();
-            setPlusMenu({ x: r.left, y: r.top - 100 });
+            setPlusMenu({ x: r.left, y: r.top - 140 });
           }}
         >
           +
@@ -414,7 +503,15 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
           value={text}
           onChange={(e) => {
             setText(e.target.value);
+            mention.syncCaret();
             if (!editing && e.target.value.trim()) sendSatelliteTyping(detail.id, channel.id);
+          }}
+          onSelect={mention.syncCaret}
+          onPaste={(e) => {
+            const files = Array.from(e.clipboardData.files);
+            if (!files.length || editing) return;
+            e.preventDefault();
+            void handleFiles(files);
           }}
           onKeyDown={onKeyDown}
           placeholder={`Написать в «${channel.name}»`}
@@ -450,6 +547,7 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
           at={plusMenu}
           reaction={null}
           actions={[
+            { label: "📎 Файл (до 50 МБ)", onClick: () => fileInputRef.current?.click() },
             { label: "📊 Опрос", onClick: () => setDialog("poll") },
             { label: "🎮 Сбор группы", onClick: () => setDialog("lfg") },
           ]}
@@ -459,6 +557,27 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
       {dialog === "poll" && <PollDialog starId={detail.id} channelId={channel.id} onClose={() => setDialog(null)} />}
       {dialog === "lfg" && <LfgDialog starId={detail.id} channelId={channel.id} onClose={() => setDialog(null)} />}
       {acksOf && <AcksDialog message={acksOf} onClose={() => setAcksOf(null)} />}
+      {notifyOpen && (
+        <NotifyDialog
+          scope="channel"
+          targetId={channel.id}
+          title={`Уведомления: #${channel.name}`}
+          inherited={starLevel(notifySettings, detail.id)}
+          inheritLabel={`Как во всей Звезде (${levelSummary(starLevel(notifySettings, detail.id), notifySettings[settingKey("star", detail.id)]).toLowerCase()})`}
+          onClose={() => setNotifyOpen(false)}
+        />
+      )}
+      <input
+        ref={fileInputRef}
+        type="file"
+        multiple
+        hidden
+        onChange={(e) => {
+          const files = Array.from(e.target.files ?? []);
+          e.target.value = "";
+          void handleFiles(files);
+        }}
+      />
 
       {menu && (
         <MessageMenu
@@ -471,12 +590,14 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
           onClose={closeMenu}
         />
       )}
-    </>
+    </div>
   );
 }
 
-/** Строка для цитаты: стикер — «Стикер», остальное как есть. */
+/** Строка для цитаты: стикер — «Стикер», файл без подписи — «📎 Файл», остальное как есть. */
 export function previewText(text: string): string {
+  // У файла без подписи текста нет.
+  if (!text) return "📎 Файл";
   return parseSticker(text) ? "Стикер" : text;
 }
 
@@ -498,6 +619,7 @@ export function SatelliteMessage({
   onOpenThread,
   onAck,
   onShowAcks,
+  mention,
 }: {
   msg: StarMessage;
   detail: StarDetail;
@@ -513,6 +635,8 @@ export function SatelliteMessage({
   onAck?: () => void;
   /** Кто ознакомился — автору и админам. */
   onShowAcks?: () => void;
+  /** Подсветка @имён. */
+  mention?: MentionKind;
 }) {
   const trigger = useMessageMenuTrigger(onOpenMenu);
   const stickersByKey = useStickersStore((st) => st.byKey);
@@ -528,7 +652,16 @@ export function SatelliteMessage({
   const packSticker = sticker && sticker.pack !== "star" ? stickersByKey[`${sticker.pack}/${sticker.id}`] : undefined;
   const color = memberColor(detail, msg.sender?.id);
   const body =
-    msg.kind === "poll" && msg.poll ? (
+    msg.kind === "file" && msg.file ? (
+      <>
+        <StarFileView starId={msg.star_id} file={msg.file} />
+        {msg.text && (
+          <div className={s.messageText}>
+            <StarText text={msg.text} emoji={emoji} linkClassName={s.messageLink} mention={mention} />
+          </div>
+        )}
+      </>
+    ) : msg.kind === "poll" && msg.poll ? (
       <PollCard message={msg} detail={detail} />
     ) : msg.kind === "lfg" && msg.lfg ? (
       <LfgCard message={msg} detail={detail} />
@@ -540,11 +673,15 @@ export function SatelliteMessage({
       <span className={s.messageTime}>Стикер недоступен</span>
     ) : (
       <div className={`${s.messageText} ${onlyEmoji(msg.text, emoji) ? g.bigEmoji : ""}`}>
-        <StarText text={msg.text} emoji={emoji} linkClassName={s.messageLink} />
+        <StarText text={msg.text} emoji={emoji} linkClassName={s.messageLink} mention={mention} />
       </div>
     );
   return (
-    <div data-mid={msg.id} className={`${s.message} ${m.menuHost}`} {...trigger}>
+    <div
+      data-mid={msg.id}
+      className={`${s.message} ${m.menuHost} ${mentionsMe(msg, myId) ? w.mentionedMessage : ""}`}
+      {...trigger}
+    >
       <UserAvatar
         username={msg.sender?.username ?? "?"}
         avatarUrl={msg.sender?.avatar_url ?? null}

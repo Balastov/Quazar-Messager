@@ -48,11 +48,11 @@ text = path.read_text()
 orig = text
 
 if re.search(r"client_max_body_size\s+\S+;", text):
-    text = re.sub(r"client_max_body_size\s+\S+;", "client_max_body_size 12m;", text)
+    text = re.sub(r"client_max_body_size\s+\S+;", "client_max_body_size 52m;", text)
 else:
     text = re.sub(
         r"(listen\s+443[^;]*;)",
-        r"\1\n\n    client_max_body_size 12m;",
+        r"\1\n\n    client_max_body_size 52m;",
         text,
         count=1,
     )

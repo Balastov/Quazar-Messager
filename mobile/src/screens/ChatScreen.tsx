@@ -32,6 +32,7 @@ import ChatImage from '../components/ChatImage';
 import {MAX_IMAGE_BYTES, parseImage} from '../attachments/image';
 import {loadImageUri} from '../attachments/cache';
 import {parseVoice, voicePreview} from '../attachments/voice';
+import {filePreview, formatSize, parseFile} from '../attachments/file';
 import MessageActions, {type MessageAction} from '../components/MessageActions';
 import {groupReactions, myReaction, toggledReaction} from '../chat/reactions';
 
@@ -46,6 +47,10 @@ function previewOf(payload: string, stickerEmoji: (pack: string, id: string) => 
   const voice = parseVoice(payload);
   if (voice) {
     return voicePreview(voice);
+  }
+  const file = parseFile(payload);
+  if (file) {
+    return filePreview(file);
   }
   const ref = parseSticker(payload);
   if (ref) {
@@ -455,6 +460,7 @@ export default function ChatScreen({route, navigation}: Props) {
     const plain =
       !parseImage(msg.payload) &&
       !parseVoice(msg.payload) &&
+      !parseFile(msg.payload) &&
       !parseSticker(msg.payload) &&
       !isUnreadable(msg.payload);
     const actions: MessageAction[] = [{label: 'Ответить', onPress: () => startReply(msg)}];
@@ -498,7 +504,8 @@ export default function ChatScreen({route, navigation}: Props) {
     const isOwn = item.sender_id === currentUser?.id;
     const image = parseImage(item.payload);
     const voice = image ? null : parseVoice(item.payload);
-    const ref = image || voice ? null : parseSticker(item.payload);
+    const file = image || voice ? null : parseFile(item.payload);
+    const ref = image || voice || file ? null : parseSticker(item.payload);
     const sticker = ref ? stickersByKey[`${ref.pack}/${ref.id}`] : undefined;
     // Стикер без пузыря; неизвестный (пак убрали с сервера) — строкой в пузыре.
     const asSticker = !!ref && (!!sticker || !stickersLoaded);
@@ -537,6 +544,10 @@ export default function ChatScreen({route, navigation}: Props) {
           <ChatImage chatId={item.chat_id} image={image} onLongPress={openActions} />
         ) : voice ? (
           <Text style={s.textMuted}>{voicePreview(voice)} — послушайте в веб-версии</Text>
+        ) : file ? (
+          <Text style={s.textMuted}>
+            {filePreview(file)} · {formatSize(file.size)} — скачайте в веб-версии
+          </Text>
         ) : asSticker ? (
           sticker ? (
             <Sticker sticker={sticker} size={STICKER_SIZE} animate />

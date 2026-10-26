@@ -4,6 +4,7 @@ import { useChatStore } from "../store/chat";
 import { useCallStore } from "../store/call";
 import { CHAT_DEFAULT, chatLevel, levelSummary, settingKey, useNotifyStore } from "../notifications/levels";
 import NotifyDialog from "./NotifyDialog";
+import CustomStatusBadge from "./status/CustomStatusBadge";
 import UserAvatar from "./UserAvatar";
 import { usePresence, usePresenceText } from "../store/presence";
 import { presenceTone } from "../utils/presence";
@@ -82,6 +83,7 @@ export default function PeerPanel() {
                 ? "Заблокирован(а)"
                 : (peerStatusText ?? "В Quazar")}
         </div>
+        {peer.id && <CustomStatusBadge userId={peer.id} />}
       </div>
 
       <div className={s.actions}>

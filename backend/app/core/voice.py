@@ -29,6 +29,12 @@ from app.ws.hub import manager
 logger = logging.getLogger(__name__)
 
 ROOM_PREFIX = "planet-"
+# Гости по ссылке (без аккаунта): identity = guest-<id ссылки>-<случайное>.
+GUEST_PREFIX = "guest-"
+
+
+def is_guest(identity: str | None) -> bool:
+    return bool(identity) and identity.startswith(GUEST_PREFIX)
 
 # Подменяется в тестах, чтобы работать с тестовой схемой БД.
 session_factory = AsyncSessionLocal
@@ -54,6 +60,8 @@ class VoiceParticipant:
     screen_sharing: bool = False
     # sid опубликованного трека экрана (из вебхука): по нему узнаём, что показ закончился.
     screen_track_sid: str | None = None
+    # Имя гостя по ссылке (у участников Звезды имя берут из списка участников).
+    guest_name: str | None = None
 
     def out(self) -> dict:
         return {
@@ -61,6 +69,7 @@ class VoiceParticipant:
             "joined_at": self.joined_at.isoformat(),
             "server_muted": self.server_muted,
             "screen_sharing": self.screen_sharing,
+            "guest_name": self.guest_name,
         }
 
     def publish_sources(self, listen_only: bool = False) -> list[str]:
@@ -143,10 +152,13 @@ async def broadcast(star_id: str, channel_id: str) -> None:
     )
 
 
-def _add(star_id: str, channel_id: str, user_id: str, listen_only: bool = False) -> None:
+def _add(star_id: str, channel_id: str, user_id: str, listen_only: bool = False, name: str | None = None) -> None:
     planet = _planets.setdefault(channel_id, Planet(star_id=star_id, listen_only=listen_only))
-    planet.participants.setdefault(user_id, VoiceParticipant(user_id=user_id))
-    if planet.host_id not in planet.participants:
+    participant = planet.participants.setdefault(user_id, VoiceParticipant(user_id=user_id))
+    if is_guest(user_id):
+        participant.guest_name = (name or "Гость")[:60]
+    # Главным может быть только участник Звезды, не гость.
+    elif planet.host_id not in planet.participants:
         planet.host_id = user_id
 
 
@@ -158,14 +170,15 @@ def _remove(channel_id: str, user_id: str) -> bool:
     if not planet.participants:
         _planets.pop(channel_id, None)
     elif planet.host_id == user_id:
-        planet.host_id = participants(channel_id)[0].user_id
+        members = [p.user_id for p in participants(channel_id) if not is_guest(p.user_id)]
+        planet.host_id = members[0] if members else None
     return True
 
 
 async def set_host(star_id: str, channel_id: str, user_id: str) -> bool:
-    """Передать звание главного другому присутствующему."""
+    """Передать звание главного другому присутствующему (не гостю)."""
     planet = _planets.get(channel_id)
-    if not planet or user_id not in planet.participants:
+    if not planet or user_id not in planet.participants or is_guest(user_id):
         return False
     planet.host_id = user_id
     await broadcast(star_id, channel_id)
@@ -319,7 +332,7 @@ async def handle_webhook(event: dict) -> None:
         if not info:
             return
         star_id, listen_only = info
-        _add(star_id, channel_id, identity, listen_only)
+        _add(star_id, channel_id, identity, listen_only, (event.get("participant") or {}).get("name"))
         doors.consume_pass(identity, channel_id)
         if listen_only:
             # Токен выдали до того, как Планету сделали «Только слушать», — забираем микрофон.
@@ -383,7 +396,7 @@ async def resync() -> None:
                 identity = p.get("identity")
                 if not identity:
                     continue
-                _add(star_id, channel_id, identity, listen_only)
+                _add(star_id, channel_id, identity, listen_only, p.get("name"))
                 screen = next(
                     (
                         t

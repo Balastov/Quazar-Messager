@@ -123,7 +123,18 @@ interface ChatState {
   setReminder: (chatId: string, messageId: string, at: Date) => Promise<void>;
   /** Открыть чат и прокрутить к сообщению (из напоминания). */
   revealRequest: { chatId: string; messageId: string } | null;
+  /** Открыть чат и прокрутить к сообщению (догружает историю, если оно старое). */
   openMessage: (chatId: string, messageId: string) => Promise<void>;
+  /** Есть ли в истории сообщения старше загруженных. */
+  historyDone: Record<string, boolean>;
+  /** Догрузить историю, пока не встретится messageId (или не кончится). true — нашли. */
+  loadUntil: (chatId: string, messageId: string) => Promise<boolean>;
+  /** Догрузить ещё страницу истории (для поиска). false — больше нечего. */
+  loadOlder: (chatId: string) => Promise<boolean>;
+  /** Закреплённые (свежие первыми); нет записи — ещё не загружали. */
+  pins: Record<string, Message[]>;
+  loadPins: (chatId: string) => Promise<void>;
+  pinMessage: (chatId: string, messageId: string, pinned: boolean) => Promise<void>;
   clearRevealRequest: () => void;
   /** Общие фоны чатов, уже расшифрованные: chatId → картинка. Нет ключа — фона нет. */
   backgrounds: Record<string, ImageRef>;
@@ -190,11 +201,12 @@ async function openReactions(
 
 /** Сообщение с сервера — расшифровать вместе с цитатой и реакциями, снять обёртку пересылки. */
 async function openMessage(m: Message, keys: DecryptionKey[]): Promise<Message> {
-  const { payload, forwardedFrom } = unwrapForward(await tryDecrypt(m.payload, keys));
+  const { payload, forwardedFrom, preview } = unwrapForward(await tryDecrypt(m.payload, keys));
   return {
     ...m,
     payload,
     forwarded_from: forwardedFrom,
+    link_preview: preview,
     reply_to: m.reply_to
       ? { ...m.reply_to, payload: unwrapForward(await tryDecrypt(m.reply_to.payload, keys)).payload }
       : null,
@@ -346,6 +358,11 @@ async function checkDirectE2E(
 }
 
 /** Сообщения с сервера (например, для галереи) — расшифровать, как в ленте. */
+/** Столько сообщений отдаёт сервер за раз; меньше — история кончилась. */
+const HISTORY_PAGE = 50;
+/** Глубже 2000 сообщений за переходом к старому сообщению не ходим. */
+const MAX_HISTORY_PAGES = 40;
+
 export async function openMessages(raw: Message[]): Promise<Message[]> {
   const keys = await loadDecryptionKeys();
   return Promise.all(raw.map((m) => openMessage(m, keys)));
@@ -442,6 +459,7 @@ export const useChatStore = create<ChatState>((set, get) => {
           created_at: event.timestamp,
           expires_at: event.expires_at ?? null,
           forwarded_from: unwrapped.forwardedFrom,
+          link_preview: unwrapped.preview,
           reply_to: event.reply_to
             ? {
                 ...event.reply_to,
@@ -506,10 +524,13 @@ export const useChatStore = create<ChatState>((set, get) => {
       }
 
       if (event.type === "message_edited") {
-        const payload = unwrapForward(await tryDecrypt(event.payload, await loadDecryptionKeys())).payload;
+        const opened = unwrapForward(await tryDecrypt(event.payload, await loadDecryptionKeys()));
+        const payload = opened.payload;
         updateMessages(event.chat_id, (msgs) =>
           msgs.map((m) => {
-            if (m.id === event.message_id) return { ...m, payload, edited_at: event.edited_at };
+            if (m.id === event.message_id) {
+              return { ...m, payload, edited_at: event.edited_at, link_preview: opened.preview };
+            }
             if (m.reply_to?.id === event.message_id) return { ...m, reply_to: { ...m.reply_to, payload } };
             return m;
           })
@@ -518,6 +539,15 @@ export const useChatStore = create<ChatState>((set, get) => {
 
       if (event.type === "message_deleted") {
         removeMessage(event.chat_id, event.message_id);
+        set((s) =>
+          s.pins[event.chat_id]
+            ? { pins: { ...s.pins, [event.chat_id]: s.pins[event.chat_id].filter((m) => m.id !== event.message_id) } }
+            : {}
+        );
+      }
+
+      if (event.type === "chat_pins" && (get().pins[event.chat_id] || get().activeChatId === event.chat_id)) {
+        void get().loadPins(event.chat_id).catch(() => {});
       }
 
       if (event.type === "message_reaction") {
@@ -645,6 +675,8 @@ export const useChatStore = create<ChatState>((set, get) => {
     showMigrationNotice: false,
     scheduled: {},
     revealRequest: null,
+    historyDone: {},
+    pins: {},
 
     dismissMigrationNotice: () => set({ showMigrationNotice: false }),
     setShowE2ePanel: (show) => set({ showE2ePanel: show }),
@@ -737,10 +769,14 @@ export const useChatStore = create<ChatState>((set, get) => {
         const rawMsgs = await messagesApi.list(chatId);
         const keys = await loadDecryptionKeys();
         const decrypted = await Promise.all(rawMsgs.map((m) => openMessage(m, keys)));
-        set((s) => ({ messages: { ...s.messages, [chatId]: decrypted } }));
+        set((s) => ({
+          messages: { ...s.messages, [chatId]: decrypted },
+          historyDone: { ...s.historyDone, [chatId]: rawMsgs.length < HISTORY_PAGE },
+        }));
       }
 
       set({ loadingMessages: false });
+      if (!get().pins[chatId]) void get().loadPins(chatId).catch(() => {});
 
       // History catch-up: mark received messages delivered, and read if visible.
       ackChatMessages(get, set, chatId, "delivered");
@@ -808,7 +844,7 @@ export const useChatStore = create<ChatState>((set, get) => {
       const out = await messagesApi.edit(chatId, messageId, payload);
       updateMessages(chatId, (msgs) =>
         msgs.map((m) => {
-          if (m.id === messageId) return { ...m, payload: plaintext, edited_at: out.edited_at };
+          if (m.id === messageId) return { ...m, payload: plaintext, edited_at: out.edited_at, link_preview: null };
           if (m.reply_to?.id === messageId) return { ...m, reply_to: { ...m.reply_to, payload: plaintext } };
           return m;
         })
@@ -960,7 +996,43 @@ export const useChatStore = create<ChatState>((set, get) => {
 
     openMessage: async (chatId, messageId) => {
       if (get().activeChatId !== chatId) await get().selectChat(chatId);
+      await get().loadUntil(chatId, messageId);
       set({ revealRequest: { chatId, messageId } });
+    },
+
+    loadOlder: async (chatId) => {
+      if (get().historyDone[chatId]) return false;
+      const loaded = get().messages[chatId] ?? [];
+      const page = await messagesApi.list(chatId, loaded[0]?.id);
+      const opened = await openMessages(page);
+      set((s) => {
+        const current = s.messages[chatId] ?? [];
+        const known = new Set(current.map((m) => m.id));
+        return {
+          messages: { ...s.messages, [chatId]: [...opened.filter((m) => !known.has(m.id)), ...current] },
+          historyDone: { ...s.historyDone, [chatId]: page.length < HISTORY_PAGE },
+        };
+      });
+      return page.length >= HISTORY_PAGE;
+    },
+
+    loadUntil: async (chatId, messageId) => {
+      for (let i = 0; i < MAX_HISTORY_PAGES; i++) {
+        if ((get().messages[chatId] ?? []).some((m) => m.id === messageId)) return true;
+        if (!(await get().loadOlder(chatId))) break;
+      }
+      return (get().messages[chatId] ?? []).some((m) => m.id === messageId);
+    },
+
+    loadPins: async (chatId) => {
+      const opened = await openMessages(await messagesApi.pins(chatId));
+      set((s) => ({ pins: { ...s.pins, [chatId]: opened } }));
+    },
+
+    pinMessage: async (chatId, messageId, pinned) => {
+      if (pinned) await messagesApi.pin(chatId, messageId);
+      else await messagesApi.unpin(chatId, messageId);
+      await get().loadPins(chatId);
     },
 
     clearRevealRequest: () => set({ revealRequest: null }),

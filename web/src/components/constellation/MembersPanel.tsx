@@ -15,6 +15,7 @@ import Dialog from "./Dialog";
 import { formatWhen } from "../../chat/when";
 import g from "./Gaming.module.css";
 import w from "./Work.module.css";
+import CustomStatusBadge from "../status/CustomStatusBadge";
 import { browserTimeZone, effectiveSchedule, memberWorkState } from "../../chat/workhours";
 
 const TIMEOUTS: { minutes: number; label: string }[] = [
@@ -157,6 +158,7 @@ export default function MembersPanel({ detail, onClose, fullscreen = false }: Pr
                           ))}
                       </span>
                     )}
+                    <CustomStatusBadge userId={member.user.id} />
                     {member.timeout_until && Date.parse(member.timeout_until) > Date.now() && (
                       <span className={s.memberStatus}>⏳ тайм-аут до {formatWhen(member.timeout_until)}</span>
                     )}

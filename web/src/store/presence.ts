@@ -10,9 +10,11 @@ import { socket } from "../ws/socket";
 import { usersApi } from "../api/users";
 import { useAuthStore } from "./auth";
 import {
+  activeCustom,
   activeManual,
   presenceText,
   statusFromEvent,
+  type CustomStatus,
   type ManualKind,
   type ManualStatus,
   type PresenceKind,
@@ -34,6 +36,7 @@ type ServerStatus = {
   away_since?: string | null;
   last_seen: string | null;
   manual?: ManualStatus | null;
+  custom?: CustomStatus | null;
 };
 type PresenceEvent = ({ type: "presence" } & ServerStatus) | { type: "presence_snapshot"; users: ServerStatus[] };
 
@@ -97,4 +100,25 @@ export function usePresenceText(userId: string | null | undefined): string | nul
   const status = usePresence(userId);
   usePresenceStore((st) => st.minute);
   return presenceText(status);
+}
+
+/** Свой статус человека (значок, текст, «до»), если действует. */
+export function useCustomStatus(userId: string | null | undefined): CustomStatus | null {
+  const status = usePresence(userId);
+  usePresenceStore((st) => st.minute);
+  return activeCustom(status);
+}
+
+/** Поставить свой статус; пустые значок и текст — снять. */
+export async function setMyCustomStatus(value: { icon: string | null; text: string; until: Date | null } | null): Promise<void> {
+  const body = value
+    ? { icon: value.icon, text: value.text, until: value.until ? value.until.toISOString() : null }
+    : { icon: null, text: "", until: null };
+  const out = await usersApi.setCustomStatus(body);
+  const myId = useAuthStore.getState().user?.id;
+  if (!myId) return;
+  usePresenceStore.setState((st) => {
+    const prev = st.byId[myId] ?? statusFromEvent({ status: "online", online: true, last_seen: null });
+    return { byId: { ...st.byId, [myId]: { ...prev, custom: out } } };
+  });
 }

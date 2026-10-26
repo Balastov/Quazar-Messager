@@ -1,0 +1,124 @@
+.bar {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--qz-border);
+  background: var(--qz-glass-bg);
+  backdrop-filter: var(--qz-glass-filter);
+  -webkit-backdrop-filter: var(--qz-glass-filter);
+}
+
+.main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 4px;
+  border: none;
+  background: none;
+  color: var(--qz-text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.marks {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-self: stretch;
+  justify-content: center;
+}
+
+.mark,
+.markOn {
+  width: 3px;
+  flex: 1;
+  max-height: 10px;
+  border-radius: 2px;
+  background: rgba(168, 85, 247, 0.35);
+}
+
+.markOn {
+  background: var(--qz-accent);
+}
+
+.texts {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.label {
+  font-size: 11px;
+  font-weight: 700;
+  color: #c4b5fd;
+}
+
+.preview {
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.all {
+  width: 32px;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  color: var(--qz-text-muted);
+  cursor: pointer;
+}
+
+.all:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--qz-text);
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.itemMain {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 1px solid var(--qz-border);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--qz-text);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.itemMain span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.unpin {
+  border: none;
+  border-radius: 999px;
+  padding: 6px 10px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--qz-text);
+  font-size: 12px;
+  cursor: pointer;
+}

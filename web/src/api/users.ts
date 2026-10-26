@@ -12,6 +12,11 @@ export const usersApi = {
   /** «На встрече» / «Не беспокоить» с таймером; kind=null — снять. */
   setStatus: (body: ManualStatusBody) => http.put("/users/me/status", body).then((r) => r.data),
   me: () => http.get<User>("/users/me").then((r) => r.data),
+  /** Свой статус: значок, текст, «до»; пустые значок и текст — снять (ответ null). */
+  setCustomStatus: (body: { icon: string | null; text: string; until: string | null }) =>
+    http
+      .put<{ icon: string | null; text: string; until: string | null } | null>("/users/me/custom-status", body)
+      .then((r) => r.data),
 
   search: (q: string) =>
     http.get<User[]>("/users/search", { params: { q } }).then((r) => r.data),

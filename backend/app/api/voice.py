@@ -99,11 +99,15 @@ async def join_planet(star_id: str, channel_id: str, current_user: CurrentUser, 
 async def _moderation_target(db: AsyncSession, star_id: str, channel_id: str, user: User, target_id: str):
     star, me = await _load_membership(db, star_id, user.id)
     await _planet(db, star_id, channel_id)
-    target = await _target_member(db, star_id, target_id)
-    if not (
-        rules.has_perm(me.role, Perm.VOICE_MODERATE, star.role_permissions)
-        and rules.outranks(me.role, target.role)
-    ):
+    if voice.is_guest(target_id):
+        # Гостя выключает и выводит модератор или главный в комнате.
+        allowed = rules.has_perm(me.role, Perm.VOICE_MODERATE, star.role_permissions) or voice.host(channel_id) == user.id
+    else:
+        target = await _target_member(db, star_id, target_id)
+        allowed = rules.has_perm(me.role, Perm.VOICE_MODERATE, star.role_permissions) and rules.outranks(
+            me.role, target.role
+        )
+    if not allowed:
         raise HTTPException(status_code=403, detail="Недостаточно прав")
     if not any(p.user_id == target_id for p in voice.participants(channel_id)):
         raise HTTPException(status_code=404, detail="Участника нет на Планете")

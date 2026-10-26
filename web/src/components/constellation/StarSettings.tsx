@@ -16,6 +16,7 @@ import { prepareBackground } from "../../utils/wallpaper";
 import Dialog from "./Dialog";
 import { AssetsTab, AuditTab, CommunityTab, TagsTab } from "./GamingSettings";
 import { WorkHoursTab } from "./WorkSettings";
+import { IntegrationsTab } from "./Integrations";
 import StarAvatar from "./StarAvatar";
 import {
   apiError,
@@ -43,6 +44,7 @@ export type SettingsTab =
   | "assets"
   | "audit"
   | "work"
+  | "integrations"
   | "star";
 
 interface Props {
@@ -66,6 +68,7 @@ export default function StarSettings({ detail, initialTab = "general", onClose }
     { id: "assets", label: "Стикеры и звуки", show: can(detail, "manage_channels") },
     { id: "audit", label: "Журнал", show: isAdmin },
     { id: "work", label: "Рабочее время", show: isAdmin && detail.kind === "work" },
+    { id: "integrations", label: "Интеграции", show: can(detail, "manage_channels") },
     { id: "star", label: "Звезда", show: isOwner },
   ];
   const visible = tabs.filter((t) => t.show);
@@ -99,6 +102,7 @@ export default function StarSettings({ detail, initialTab = "general", onClose }
       {tab === "assets" && <AssetsTab detail={detail} />}
       {tab === "audit" && <AuditTab detail={detail} />}
       {tab === "work" && <WorkHoursTab detail={detail} />}
+      {tab === "integrations" && <IntegrationsTab detail={detail} />}
       {tab === "star" && <StarTab detail={detail} onClose={onClose} />}
     </Dialog>
   );

@@ -87,7 +87,11 @@ export default function OfficeMap({ detail, onBack, onOpenPlanet, onAddRoom }: P
 
   const rectFor = (c: StarChannel): Rect => (editing && draft[c.id]) || rectOf(c)!;
   const memberName = (userId: string) =>
-    detail.members.find((m) => m.user.id === userId)?.user.username ?? "?";
+    detail.members.find((m) => m.user.id === userId)?.user.username ??
+    Object.values(detail.voice ?? {})
+      .flat()
+      .find((p) => p.user_id === userId)?.guest_name ??
+    "?";
   const iAmIn = (c: StarChannel) => voice.channelId === c.id && voice.status !== "idle";
 
   const startEditing = () => {

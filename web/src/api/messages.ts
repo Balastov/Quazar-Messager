@@ -4,6 +4,9 @@ import type { Message } from "./types";
 const base = (chatId: string) => `/chats/${chatId}/messages`;
 
 export const messagesApi = {
+  pins: (chatId: string) => http.get<Message[]>(`/chats/${chatId}/pins`).then((r) => r.data),
+  pin: (chatId: string, messageId: string) => http.put(`/chats/${chatId}/pins/${messageId}`),
+  unpin: (chatId: string, messageId: string) => http.delete(`/chats/${chatId}/pins/${messageId}`),
   list: (chatId: string, beforeId?: string) =>
     http
       .get<Message[]>(base(chatId), {

@@ -55,7 +55,7 @@ describe("statusFromEvent", () => {
   it("reads the full status and understands the old server", () => {
     expect(
       statusFromEvent({ status: "away", online: true, away_since: "x", last_seen: null, manual: { kind: "dnd", until: null } })
-    ).toEqual({ status: "away", online: true, awaySince: "x", lastSeen: null, manual: { kind: "dnd", until: null } });
+    ).toEqual({ status: "away", online: true, awaySince: "x", lastSeen: null, manual: { kind: "dnd", until: null }, custom: null });
     expect(statusFromEvent({ online: true, last_seen: null })).toMatchObject({ status: "online", manual: null });
     expect(statusFromEvent({ online: false, last_seen: "y" })).toMatchObject({ status: "offline", lastSeen: "y" });
   });

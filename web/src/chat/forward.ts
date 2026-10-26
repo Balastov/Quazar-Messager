@@ -4,6 +4,7 @@
  * с сообщением, так что сервер не знает ни что переслали, ни откуда.
  * Тот же формат — в mobile/src/chat/forward.ts.
  */
+import { unwrapPreview, type LinkPreview } from "./linkPreview";
 export const FORWARD_PREFIX = "FWD1:";
 const MAX_FROM = 64;
 
@@ -29,8 +30,13 @@ export function parseForward(payload: string): Forwarded | null {
   }
 }
 
-/** Снять обёртку: что показывать и от кого переслано (null — не пересланное). */
-export function unwrapForward(payload: string): { payload: string; forwardedFrom: string | null } {
+/** Снять обёртки: что показывать, от кого переслано (null — не пересланное) и превью ссылки. */
+export function unwrapForward(payload: string): {
+  payload: string;
+  forwardedFrom: string | null;
+  preview: LinkPreview | null;
+} {
   const fwd = parseForward(payload);
-  return fwd ? { payload: fwd.body, forwardedFrom: fwd.from } : { payload, forwardedFrom: null };
+  const inner = unwrapPreview(fwd ? fwd.body : payload);
+  return { payload: inner.payload, forwardedFrom: fwd ? fwd.from : null, preview: inner.preview };
 }

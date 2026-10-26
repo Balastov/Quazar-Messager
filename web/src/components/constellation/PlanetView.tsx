@@ -81,6 +81,8 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
   const canStopSharer =
     !!sharerId && sharerId !== myId && !!sharerRole && canStopScreen(detail, sharerRole);
   const canModerate = (userId: string) => {
+    // Гостя по ссылке выключает и выводит модератор или главный в комнате.
+    if (userId.startsWith("guest-")) return can(detail, "voice_moderate") || door.hostId === myId;
     const role = member(userId)?.role;
     return userId !== myId && !!role && can(detail, "voice_moderate") && outranks(detail.my_role, role);
   };
@@ -150,12 +152,12 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
                 return (
                   <div key={p.user_id} className={s.listItem}>
                     <UserAvatar
-                      username={m?.user.username ?? "?"}
+                      username={m?.user.username ?? p.guest_name ?? "?"}
                       avatarUrl={m?.user.avatar_url ?? null}
                       size="sm"
                     />
                     <div className={s.listMain}>
-                      <span className={s.listTitle}>{m?.user.username ?? "Участник"}</span>
+                      <span className={s.listTitle}>{m?.user.username ?? p.guest_name ?? "Участник"}</span>
                       {badge(p.user_id) && <span className={s.listSub}>{badge(p.user_id)}</span>}
                       {p.server_muted && (
                         <span className={`${s.listSub} ${s.voicePeerMuted}`}>
@@ -349,7 +351,7 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
                 {badge(peer.userId) && <span className={s.voicePeerState}>{badge(peer.userId)}</span>}
                 {peer.userId === sharerId && <span className={s.voicePeerState}>🖥 показывает экран</span>}
                 {!peer.isLocal && <PeerVolume userId={peer.userId} name={m?.user.username ?? peer.name} />}
-                {iAmHost && !peer.isLocal && (
+                {iAmHost && !peer.isLocal && !peer.userId.startsWith("guest-") && (
                   <button
                     type="button"
                     className={`${s.secondary} ${s.small}`}

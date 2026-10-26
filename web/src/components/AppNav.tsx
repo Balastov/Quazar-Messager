@@ -2,6 +2,8 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useAuthStore } from "../store/auth";
 import StatusPicker from "./StatusPicker";
+import CustomStatusEditor from "./status/CustomStatusEditor";
+import CustomStatusBadge from "./status/CustomStatusBadge";
 import { useChatStore } from "../store/chat";
 import { useStarsStore } from "../store/stars";
 import { useUiStore, type AppTab } from "../store/ui";
@@ -99,10 +101,12 @@ export default function AppNav() {
               className={s.profileBtn}
               onClick={() => setStatusOpen((open) => !open)}
               aria-expanded={statusOpen}
-              title="Статус: на встрече, не беспокоить"
+              title="Статус: свой, на встрече, не беспокоить"
             >
               <UserAvatar username={user.username} avatarUrl={user.avatar_url} size="sm" userId={user.id} />
-              <span className={s.profileName}>{user.username}</span>
+              <span className={s.profileName}>
+                <CustomStatusBadge userId={user.id} compact /> {user.username}
+              </span>
             </button>
             {statusOpen &&
               anchor &&
@@ -114,7 +118,11 @@ export default function AppNav() {
                   role="dialog"
                   aria-label="Статус"
                 >
-                  <div className={s.statusTitle}>Статус</div>
+                  <div className={s.statusTitle}>Свой статус</div>
+                  <CustomStatusEditor onDone={() => setStatusOpen(false)} />
+                  <div className={s.statusTitle} style={{ marginTop: 16 }}>
+                    На встрече или не беспокоить
+                  </div>
                   <StatusPicker onDone={() => setStatusOpen(false)} />
                 </div>,
                 document.body

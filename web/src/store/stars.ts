@@ -25,6 +25,7 @@ import { usersApi } from "../api/users";
 import { notifyInfo, notifyStarMessage } from "../notifications/notify";
 import { channelLevel, useNotifyStore, wants } from "../notifications/levels";
 import { memberWorkState } from "../chat/workhours";
+import type { LinkPreview } from "../chat/linkPreview";
 import { socket } from "../ws/socket";
 import { applyReaction } from "../chat/reactions";
 import { useAuthStore } from "./auth";
@@ -122,6 +123,10 @@ interface StarsState {
   mySchedule: WorkSchedule | null | undefined;
   /** Что открыто в каждой Звезде; нет записи — по умолчанию (у рабочих — карта). */
   viewByStar: Record<string, StarView>;
+  /** Закреплённые в Спутнике (свежие первыми); нет записи — не загружали. */
+  pins: Record<string, StarMessage[]>;
+  /** Прокрутить Спутник к сообщению (из поиска или закрепа). */
+  revealRequest: { channelId: string; messageId: string } | null;
 
   load: () => Promise<void>;
   /** Сверить список Звёзд с сервером (после обрыва связи, возвращения в приложение). */
@@ -131,7 +136,12 @@ interface StarsState {
   refreshStar: (starId: string) => Promise<void>;
   selectChannel: (channelId: string) => Promise<void>;
   loadOlder: (channelId: string) => Promise<void>;
-  sendMessage: (text: string, replyToId?: string, ackRequired?: boolean) => Promise<void>;
+  sendMessage: (text: string, replyToId?: string, ackRequired?: boolean, linkPreview?: LinkPreview | null) => Promise<void>;
+  loadPins: (starId: string, channelId: string) => Promise<void>;
+  pinMessage: (message: StarMessage, pinned: boolean) => Promise<void>;
+  /** Открыть Спутник (или ветку) и прокрутить к сообщению; догружает историю. */
+  jumpTo: (message: Pick<StarMessage, "id" | "star_id" | "channel_id" | "thread_id">) => Promise<void>;
+  clearReveal: () => void;
   /** Файл в открытый Спутник (или в открытую ветку). onProgress — доля загрузки 0…1. */
   sendFile: (file: File, opts?: { caption?: string; inThread?: boolean; onProgress?: (share: number) => void }) => Promise<void>;
   setView: (starId: string, view: StarView) => void;
@@ -233,6 +243,8 @@ const initialState = {
   bookings: {} as Record<string, StarBooking[]>,
   mySchedule: undefined as WorkSchedule | null | undefined,
   viewByStar: {} as Record<string, StarView>,
+  pins: {} as Record<string, StarMessage[]>,
+  revealRequest: null as { channelId: string; messageId: string } | null,
 };
 
 export const useStarsStore = create<StarsState>((set, get) => {
@@ -464,8 +476,18 @@ export const useStarsStore = create<StarsState>((set, get) => {
           return { ...d, voice };
         });
         break;
+      case "star_pins":
+        if (get().pins[event.channel_id] || activeChannelId() === event.channel_id) {
+          void get().loadPins(starId, event.channel_id).catch(() => {});
+        }
+        break;
       case "star_message_deleted":
         if (get().thread?.rootId === event.message_id) set({ thread: null });
+        set((s) =>
+          s.pins[event.channel_id]
+            ? { pins: { ...s.pins, [event.channel_id]: s.pins[event.channel_id].filter((m) => m.id !== event.message_id) } }
+            : {}
+        );
         // Ответы на удалённое остаются, но без цитаты — как после перезагрузки.
         patchMessages(event.channel_id, (list) =>
           list
@@ -483,6 +505,8 @@ export const useStarsStore = create<StarsState>((set, get) => {
                 edited_at: event.edited_at,
                 mentions: event.mentions ?? m.mentions,
                 mention_all: event.mention_all ?? m.mention_all,
+                // Текст другой — старое превью сервер убрал.
+                link_preview: null,
               };
             }
             if (m.reply_to?.id === event.message_id) return { ...m, reply_to: { ...m.reply_to, text: event.text } };
@@ -750,17 +774,14 @@ export const useStarsStore = create<StarsState>((set, get) => {
       }));
     },
 
-    sendMessage: async (text, replyToId, ackRequired) => {
+    sendMessage: async (text, replyToId, ackRequired, linkPreview) => {
       const starId = get().activeStarId;
       const channelId = activeChannelId();
       if (!starId || !channelId) return;
-      const message = await starsApi.send(
-        starId,
-        channelId,
-        text,
-        replyToId,
-        ackRequired ? { ack_required: true } : {}
-      );
+      const message = await starsApi.send(starId, channelId, text, replyToId, {
+        ...(ackRequired ? { ack_required: true } : {}),
+        ...(linkPreview ? { link_preview: linkPreview } : {}),
+      });
       handleEvent({ type: "star_message", star_id: starId, message });
     },
 
@@ -776,6 +797,35 @@ export const useStarsStore = create<StarsState>((set, get) => {
       });
       handleEvent({ type: "star_message", star_id: starId, message });
     },
+
+    loadPins: async (starId, channelId) => {
+      const list = await starsApi.pins(starId, channelId);
+      set((s) => ({ pins: { ...s.pins, [channelId]: list } }));
+    },
+
+    pinMessage: async (message, pinned) => {
+      if (pinned) await starsApi.pin(message.star_id, message.channel_id, message.id);
+      else await starsApi.unpin(message.star_id, message.channel_id, message.id);
+      await get().loadPins(message.star_id, message.channel_id);
+    },
+
+    jumpTo: async (message) => {
+      await get().openChannelLink(message.star_id, message.channel_id);
+      if (message.thread_id) {
+        // Ответ в ветке — открываем ветку его корня.
+        // Передаём сам ответ: openThread откроет ветку его корня и загрузит её целиком.
+        await get().openThread(message as StarMessage);
+        return;
+      }
+      for (let i = 0; i < 40; i++) {
+        if ((get().messages[message.channel_id] ?? []).some((m) => m.id === message.id)) break;
+        if (!get().hasMore[message.channel_id]) break;
+        await get().loadOlder(message.channel_id);
+      }
+      set({ revealRequest: { channelId: message.channel_id, messageId: message.id } });
+    },
+
+    clearReveal: () => set({ revealRequest: null }),
 
     setView: (starId, view) => set((s) => ({ viewByStar: { ...s.viewByStar, [starId]: view } })),
 

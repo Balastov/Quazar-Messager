@@ -33,6 +33,11 @@ from app.api.star_work import me_router as star_work_me_router
 from app.api.star_work import router as star_work_router
 from app.api.star_files import router as star_files_router
 from app.api.notify import router as notify_router
+from app.api.pins import router as pins_router
+from app.api.search import router as search_router
+from app.api.link_preview import router as link_preview_router
+from app.api.webhooks import hooks_router, router as webhooks_router
+from app.api.guests import public_router as guest_public_router, router as guests_router
 from app.api.stars import invites_router as star_invites_router
 from app.api.stars import router as stars_router
 from app.api.voice import router as voice_router
@@ -220,6 +225,11 @@ async def lifespan(app: FastAPI):
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS work_schedule JSON",
             "ALTER TABLE star_messages ADD COLUMN IF NOT EXISTS mentions JSON",
             "ALTER TABLE star_messages ADD COLUMN IF NOT EXISTS mention_all BOOLEAN NOT NULL DEFAULT false",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS custom_status JSON",
+            "ALTER TABLE star_messages ADD COLUMN IF NOT EXISTS link_preview JSON",
+            "ALTER TABLE star_messages ADD COLUMN IF NOT EXISTS webhook_id VARCHAR(36) REFERENCES star_webhooks(id) ON DELETE SET NULL",
+            "ALTER TABLE star_messages ADD COLUMN IF NOT EXISTS bot_name VARCHAR(48)",
+            "ALTER TABLE star_messages ADD COLUMN IF NOT EXISTS bot_kind VARCHAR(16)",
         ):
             await conn.execute(text(ddl))
     # Кто сейчас на Планетах — восстанавливаем из LiveKit после перезапуска (в фоне).
@@ -264,6 +274,13 @@ app.include_router(star_community_router)
 app.include_router(star_play_router)
 app.include_router(star_work_router)
 app.include_router(star_files_router)
+app.include_router(pins_router)
+app.include_router(search_router)
+app.include_router(link_preview_router)
+app.include_router(webhooks_router)
+app.include_router(hooks_router)
+app.include_router(guests_router)
+app.include_router(guest_public_router)
 app.include_router(star_invites_router)
 app.include_router(voice_router)
 app.include_router(office_router)

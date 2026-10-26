@@ -27,6 +27,12 @@ import { MAX_FILE_BYTES } from "../../attachments/file";
 import c from "../chat/Chat.module.css";
 import type { MentionKind } from "../LinkifiedText";
 import { isStaff, mentionsMe } from "../../store/stars";
+import PinBar from "../messages/PinBar";
+import LinkPreviewCard from "../messages/LinkPreviewCard";
+import StarSearchPanel from "./StarSearchPanel";
+import BotAvatar from "./BotAvatar";
+import { useComposerPreview } from "../../chat/useComposerPreview";
+import { IconSearch } from "../icons";
 import UserAvatar from "../UserAvatar";
 import { IconBack, IconGear, IconSatellite, IconSend } from "../icons";
 import { apiError, can, formatTime, outranks } from "./rules";
@@ -74,6 +80,13 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
   const loadAssets = useStarsStore((st) => st.loadAssets);
   const openThread = useStarsStore((st) => st.openThread);
   const sendFile = useStarsStore((st) => st.sendFile);
+  const pins = useStarsStore((st) => st.pins[channel.id]);
+  const loadPins = useStarsStore((st) => st.loadPins);
+  const pinMessage = useStarsStore((st) => st.pinMessage);
+  const jumpTo = useStarsStore((st) => st.jumpTo);
+  const revealRequest = useStarsStore((st) => st.revealRequest);
+  const clearReveal = useStarsStore((st) => st.clearReveal);
+  const [searchOpen, setSearchOpen] = useState(false);
   const notifySettings = useNotifyStore((st) => st.settings);
   const ack = useStarsStore((st) => st.ack);
   const typingIds = useTyping(satelliteTypingKey(channel.id));
@@ -132,6 +145,10 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
     allowAll: isStaff(detail.my_role),
   });
   const level = channelLevel(notifySettings, detail.id, channel.id);
+  const composerPreview = useComposerPreview(text, !editing);
+  // Закрепляют те, кто может удалять чужие сообщения (модераторы и выше).
+  const canPin = can(detail, "delete_messages");
+  const pinnedIds = new Set((pins ?? []).map((p) => p.id));
   const nameOf = (userId: string) =>
     detail.members.find((mb) => mb.user.id === userId)?.user.username ?? "Бывший участник";
 
@@ -152,6 +169,18 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
     setPickerOpen(false);
     setAskAck(false);
   }, [channel.id]);
+
+  useEffect(() => {
+    if (!pins) void loadPins(detail.id, channel.id).catch(() => {});
+  }, [detail.id, channel.id, pins, loadPins]);
+
+  // Из поиска или закрепа: прокрутить к сообщению, когда оно в ленте.
+  useEffect(() => {
+    if (!revealRequest || revealRequest.channelId !== channel.id) return;
+    stickToBottom.current = false;
+    requestAnimationFrame(() => revealMessage(listRef.current, revealRequest.messageId));
+    clearReveal();
+  }, [revealRequest, channel.id, messages, clearReveal]);
 
   // Сообщение, на которое отвечаем или которое правим, удалили — убираем и полосу над вводом.
   useEffect(() => {
@@ -218,13 +247,15 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
 
     const reply = replyTo;
     const withAck = announcement && askAck;
+    const preview = composerPreview.preview;
     setText("");
     setReplyTo(null);
     setAskAck(false);
+    composerPreview.reset();
     stickToBottom.current = true;
     resetTypingThrottle(satelliteTypingKey(channel.id));
     try {
-      await sendMessage(value, reply?.id, withAck);
+      await sendMessage(value, reply?.id, withAck, preview);
     } catch (err) {
       setText(value);
       setReplyTo(reply);
@@ -262,6 +293,13 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
     if (!announcement || isAdmin) actions.push({ label: "Ответить", onClick: () => startReply(msg) });
     if (msg.kind !== "system") {
       actions.push({ label: "💬 Ответить в ветке", onClick: () => showThread(msg) });
+    }
+    if (canPin && msg.kind !== "system") {
+      const pinned = pinnedIds.has(msg.id);
+      actions.push({
+        label: pinned ? "📌 Открепить" : "📌 Закрепить",
+        onClick: () => void pinMessage(msg, !pinned).catch((err) => setError(apiError(err, "Не удалось закрепить"))),
+      });
     }
     if (msg.sender?.id === myId && editable(msg)) actions.push({ label: "Изменить", onClick: () => startEdit(msg) });
     actions.push({
@@ -378,6 +416,16 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
         <button
           type="button"
           className={s.iconBtn}
+          onClick={() => setSearchOpen((o) => !o)}
+          aria-label="Поиск сообщений"
+          aria-pressed={searchOpen}
+          title="Поиск сообщений"
+        >
+          <IconSearch size={17} />
+        </button>
+        <button
+          type="button"
+          className={s.iconBtn}
           onClick={() => setNotifyOpen(true)}
           aria-label="Уведомления Спутника"
           title={`Уведомления: ${levelSummary(level, notifySettings[settingKey("channel", channel.id)])}`}
@@ -396,6 +444,26 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
           </button>
         )}
       </div>
+
+      {searchOpen && <StarSearchPanel detail={detail} channelId={channel.id} onClose={() => setSearchOpen(false)} />}
+      {!!pins?.length && (
+        <PinBar
+          items={pins.map((p) => ({
+            id: p.id,
+            author: p.bot_name ?? p.sender?.username ?? "Бывший участник",
+            text: previewText(p.text) || (p.file ? `📎 ${p.file.name}` : ""),
+          }))}
+          onOpen={(id) => void jumpTo({ id, star_id: detail.id, channel_id: channel.id, thread_id: null })}
+          onUnpin={
+            canPin
+              ? (id) => {
+                  const msg = pins.find((p) => p.id === id);
+                  if (msg) void pinMessage(msg, false).catch(() => {});
+                }
+              : undefined
+          }
+        />
+      )}
 
       <div className={s.messages} ref={listRef} onScroll={onScroll}>
         {hasMore && (
@@ -472,6 +540,11 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
         </label>
       )}
       {mention.popup}
+      {composerPreview.preview && !editing && (
+        <div style={{ padding: "0 16px 6px" }}>
+          <LinkPreviewCard preview={composerPreview.preview} onRemove={composerPreview.dismiss} />
+        </div>
+      )}
       {pickerOpen && (
         <StarPicker
           assets={assets}
@@ -682,16 +755,21 @@ export function SatelliteMessage({
       className={`${s.message} ${m.menuHost} ${mentionsMe(msg, myId) ? w.mentionedMessage : ""}`}
       {...trigger}
     >
-      <UserAvatar
-        username={msg.sender?.username ?? "?"}
-        avatarUrl={msg.sender?.avatar_url ?? null}
-        size="sm"
-      />
+      {msg.kind === "bot" ? (
+        <BotAvatar kind={msg.bot_kind} />
+      ) : (
+        <UserAvatar
+          username={msg.sender?.username ?? "?"}
+          avatarUrl={msg.sender?.avatar_url ?? null}
+          size="sm"
+        />
+      )}
       <div className={s.messageBody}>
         <div className={s.messageHead}>
           <span className={s.messageAuthor} style={color ? { color } : undefined}>
-            {msg.sender?.username ?? "Бывший участник"}
+            {msg.kind === "bot" ? (msg.bot_name ?? "Интеграция") : (msg.sender?.username ?? "Бывший участник")}
           </span>
+          {msg.kind === "bot" && <span className={w.botBadge}>бот</span>}
           <span className={s.messageTime}>
             {formatTime(msg.created_at)} <EditedMark at={msg.edited_at} />
           </span>
@@ -706,6 +784,7 @@ export function SatelliteMessage({
           </div>
         )}
         {body}
+        {msg.link_preview && <LinkPreviewCard preview={msg.link_preview} />}
         {!!msg.reactions?.length && (
           <div className={s.messageExtra}>
             <ReactionChips groups={groupReactions(msg.reactions, myId)} nameOf={nameOf} onToggle={onReact} />

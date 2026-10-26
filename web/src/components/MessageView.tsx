@@ -13,6 +13,7 @@ import {
   IconPhone,
   IconMic,
   IconPlus,
+  IconSearch,
   IconSend,
   IconSticker,
   IconVideo,
@@ -37,6 +38,12 @@ import { useMentionSuggest } from "./messages/MentionSuggest";
 import { isAllWord } from "../chat/mentions";
 import type { MentionKind } from "./LinkifiedText";
 import w from "./constellation/Work.module.css";
+import CustomStatusBadge from "./status/CustomStatusBadge";
+import PinBar from "./messages/PinBar";
+import ChatSearchPanel from "./messages/ChatSearchPanel";
+import LinkPreviewCard from "./messages/LinkPreviewCard";
+import { useComposerPreview } from "../chat/useComposerPreview";
+import { encodeWithPreview } from "../chat/linkPreview";
 import { canRecordVoice, RecorderError, VoiceRecorder } from "../voice/recorder";
 import VoiceMessage from "./voice/VoiceMessage";
 import VoiceRecorderBar from "./voice/VoiceRecorderBar";
@@ -127,6 +134,10 @@ export default function MessageView({ showBack = false }: Props) {
   const [fileUpload, setFileUpload] = useState<{ name: string; share: number } | null>(null);
   const [attachMenu, setAttachMenu] = useState<{ x: number; y: number } | null>(null);
   const [dragging, setDragging] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const pins = useChatStore((st) => (activeChatId ? st.pins[activeChatId] : undefined));
+  const pinMessage = useChatStore((st) => st.pinMessage);
+  const openMessage = useChatStore((st) => st.openMessage);
   const docInputRef = useRef<HTMLInputElement>(null);
   const [backgroundOpen, setBackgroundOpen] = useState(false);
   const [menu, setMenu] = useState<{ msg: Message; x: number; y: number } | null>(null);
@@ -230,6 +241,7 @@ export default function MessageView({ showBack = false }: Props) {
     };
   }, [isGroup, chat?.members, currentUser?.id]);
   const mention = useMentionSuggest({ text, setText, inputRef, names: groupNames, allowAll: isGroup });
+  const composerPreview = useComposerPreview(text, !editing);
 
   if (!activeChatId) {
     return (
@@ -271,6 +283,9 @@ export default function MessageView({ showBack = false }: Props) {
   const canDeleteForAll = (msg: Message) =>
     msg.sender_id === currentUser?.id ||
     (chat?.type === "group" && (myRole === "owner" || myRole === "admin"));
+  // Закрепляют оба в личном чате, владелец и админы — в группе.
+  const canPin = chat?.type !== "group" || myRole === "owner" || myRole === "admin";
+  const pinnedIds = new Set((pins ?? []).map((p) => p.id));
 
   const callBusy = callPhase !== "idle" && callPhase !== "ended";
   const canCall = isDirect && !!peer.id && !callBusy && !peerBlocked;
@@ -332,11 +347,13 @@ export default function MessageView({ showBack = false }: Props) {
     }
 
     const reply = replyTo;
+    const preview = composerPreview.preview;
     setText("");
     setReplyTo(null);
+    composerPreview.reset();
     resetTypingThrottle(chatTypingKey(activeChatId));
     try {
-      await sendMessage(activeChatId, payload, undefined, reply?.id);
+      await sendMessage(activeChatId, preview ? encodeWithPreview(payload, preview) : payload, undefined, reply?.id);
     } catch (err) {
       reportError(err, "Не удалось отправить сообщение");
       setText(payload);
@@ -523,6 +540,13 @@ export default function MessageView({ showBack = false }: Props) {
     }
     if (!isUnreadable(msg.payload)) actions.push({ label: "Переслать…", onClick: () => setForwarding(msg) });
     actions.push({ label: "Напомнить…", onClick: () => setWhenFor({ kind: "remind", msg }) });
+    if (canPin && activeChatId) {
+      const pinned = pinnedIds.has(msg.id);
+      actions.push({
+        label: pinned ? "📌 Открепить" : "📌 Закрепить",
+        onClick: () => void pinMessage(activeChatId, msg.id, !pinned).catch((err) => reportError(err, "Не удалось закрепить")),
+      });
+    }
     if (canDeleteForAll(msg)) {
       actions.push({ label: "Удалить у всех", danger: true, onClick: () => void handleDelete(msg, true) });
     }
@@ -616,7 +640,9 @@ export default function MessageView({ showBack = false }: Props) {
           <UserAvatar username={peer.username || "?"} avatarUrl={peer.avatar_url} size="sm" userId={peer.id} />
         )}
         <div className={s.headerInfo}>
-          <span className={s.name}>{peer.username}</span>
+          <span className={s.name}>
+            {peer.username} {isDirect && <CustomStatusBadge userId={presencePeerId} />}
+          </span>
           <span className={s.sub}>
             {typingText ? (
               <span className={m.typing}>{typingText}</span>
@@ -641,6 +667,16 @@ export default function MessageView({ showBack = false }: Props) {
           </span>
         </div>
         <div className={s.headerActions}>
+          <button
+            type="button"
+            className={s.iconBtn}
+            title="Поиск в чате"
+            aria-label="Поиск в чате"
+            aria-pressed={searchOpen}
+            onClick={() => setSearchOpen((o) => !o)}
+          >
+            <IconSearch size={18} />
+          </button>
           {!isSaved && (
             <>
               <button
@@ -703,6 +739,16 @@ export default function MessageView({ showBack = false }: Props) {
         <div className={s.bannerWarning}>{e2eError}</div>
       )}
       {sendError && <div className={s.bannerWarning}>{sendError}</div>}
+      {searchOpen && activeChatId && (
+        <ChatSearchPanel chatId={activeChatId} nameOf={nameOf} onClose={() => setSearchOpen(false)} />
+      )}
+      {!!pins?.length && activeChatId && (
+        <PinBar
+          items={pins.map((p) => ({ id: p.id, author: nameOf(p.sender_id), text: messagePreview(p.payload) }))}
+          onOpen={(id) => void openMessage(activeChatId, id)}
+          onUnpin={canPin ? (id) => void pinMessage(activeChatId, id, false).catch(() => {}) : undefined}
+        />
+      )}
 
       <div className={s.messages} ref={listRef}>
         {loadingMessages && <div className={s.hint}>Загрузка...</div>}
@@ -773,6 +819,11 @@ export default function MessageView({ showBack = false }: Props) {
           text={editing.payload}
           onCancel={cancelContext}
         />
+      )}
+      {composerPreview.preview && !editing && (
+        <div className={s.composerPreview}>
+          <LinkPreviewCard preview={composerPreview.preview} onRemove={composerPreview.dismiss} />
+        </div>
       )}
       {recording ? (
         <div className={s.composer}>
@@ -1068,6 +1119,7 @@ function ChatMessage({
           )}
         </span>
       )}
+      {msg.link_preview && !unavailable && <LinkPreviewCard preview={msg.link_preview} tone={isOwn ? "own" : "other"} />}
       <ReactionChips groups={groups} nameOf={nameOf} onToggle={onReact} />
       <span className={s.meta}>
         {msg.expires_at && (

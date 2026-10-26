@@ -9,6 +9,13 @@ export interface ManualStatus {
   until: string | null;
 }
 
+/** Свой статус: значок из набора, текст, «до» (null — пока не снимут). Только подпись. */
+export interface CustomStatus {
+  icon: string | null;
+  text: string;
+  until: string | null;
+}
+
 export interface PresenceStatus {
   /** online — работает с Quazar сейчас; away — отошёл(ла); offline — нет соединения. */
   status: PresenceKind;
@@ -19,6 +26,7 @@ export interface PresenceStatus {
   /** Когда был(а) в сети в последний раз (ISO), если не в сети. */
   lastSeen: string | null;
   manual: ManualStatus | null;
+  custom?: CustomStatus | null;
 }
 
 /** Событие сервера → статус. Старый сервер не присылал status — выводим из online. */
@@ -28,6 +36,7 @@ export function statusFromEvent(e: {
   away_since?: string | null;
   last_seen: string | null;
   manual?: ManualStatus | null;
+  custom?: CustomStatus | null;
 }): PresenceStatus {
   const status = e.status ?? (e.online ? "online" : "offline");
   return {
@@ -36,7 +45,16 @@ export function statusFromEvent(e: {
     awaySince: e.away_since ?? null,
     lastSeen: e.last_seen,
     manual: e.manual ?? null,
+    custom: e.custom ?? null,
   };
+}
+
+/** Свой статус, если он ещё действует. */
+export function activeCustom(status: PresenceStatus | undefined, now = new Date()): CustomStatus | null {
+  const custom = status?.custom;
+  if (!custom || (!custom.icon && !custom.text)) return null;
+  if (custom.until && new Date(custom.until).getTime() <= now.getTime()) return null;
+  return custom;
 }
 
 /** Ручной статус, если он ещё действует (истёкший сервер не снимает — не показываем сами). */

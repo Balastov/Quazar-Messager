@@ -1,6 +1,8 @@
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import type { DoorSignKind, StarChannel, StarDetail } from "../../api/stars";
+import { guestLinkUrl, starsApi, type DoorSignKind, type GuestLink, type StarChannel, type StarDetail } from "../../api/stars";
+import { can, roomDoor } from "./rules";
+import { formatWhen } from "../../chat/when";
 import { useAuthStore } from "../../store/auth";
 import { useStarsStore } from "../../store/stars";
 import Dialog from "./Dialog";
@@ -44,6 +46,7 @@ export default function WorkRoomExtras({ detail, channel }: { detail: StarDetail
       ) : (
         <RoomBookings detail={detail} channel={channel} />
       )}
+      <GuestLinks detail={detail} channel={channel} />
     </>
   );
 }
@@ -330,5 +333,123 @@ function BookingDialog({ detail, channel, onClose }: { detail: StarDetail; chann
         </button>
       </form>
     </Dialog>
+  );
+}
+
+const GUEST_HOURS: { hours: number; label: string }[] = [
+  { hours: 1, label: "1 час" },
+  { hours: 4, label: "4 часа" },
+  { hours: 24, label: "Сутки" },
+  { hours: 24 * 7, label: "Неделя" },
+];
+
+/** Кто может звать гостей — как на сервере (app/api/guests.py → can_invite_guests). */
+function canInviteGuests(detail: StarDetail, channel: StarChannel, myId: string | undefined): boolean {
+  const door = roomDoor(detail, channel, myId);
+  if (door.kind === "open") return can(detail, "invite");
+  return door.canAnswer;
+}
+
+/** Гостевая ссылка: человек без аккаунта заходит только в эту комнату. */
+function GuestLinks({ detail, channel }: { detail: StarDetail; channel: StarChannel }) {
+  const myId = useAuthStore((st) => st.user?.id);
+  const allowed = canInviteGuests(detail, channel, myId);
+  const [links, setLinks] = useState<GuestLink[]>([]);
+  const [open, setOpen] = useState(false);
+  const [hours, setHours] = useState(24);
+  const [busy, setBusy] = useState(false);
+  const [copied, setCopied] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const reload = useCallback(async () => {
+    setLinks(await starsApi.guestLinks(detail.id, channel.id));
+  }, [detail.id, channel.id]);
+
+  useEffect(() => {
+    if (allowed) void reload().catch(() => {});
+  }, [allowed, reload]);
+
+  if (!allowed) return null;
+
+  const copy = (code: string) =>
+    void navigator.clipboard
+      ?.writeText(guestLinkUrl(code))
+      .then(() => {
+        setCopied(code);
+        setTimeout(() => setCopied(null), 1500);
+      })
+      // Браузер не дал доступ к буферу (вкладка не в фокусе) — ссылка видна в списке.
+      .catch(() => {});
+
+  const create = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const link = await starsApi.createGuestLink(detail.id, channel.id, hours);
+      await reload();
+      copy(link.code);
+      setOpen(false);
+    } catch (err) {
+      setError(apiError(err, "Не удалось создать ссылку"));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className={w.bookings}>
+      <div className={s.row}>
+        <span className={w.sectionTitle} style={{ flex: 1 }}>
+          Гости
+        </span>
+        <button type="button" className={`${s.secondary} ${s.small}`} onClick={() => setOpen((o) => !o)}>
+          🔗 Позвать гостя
+        </button>
+      </div>
+      {open && (
+        <div className={s.row}>
+          <select className={s.select} style={{ width: "auto" }} value={hours} onChange={(e) => setHours(Number(e.target.value))}>
+            {GUEST_HOURS.map((h) => (
+              <option key={h.hours} value={h.hours}>
+                Ссылка на {h.label.toLowerCase()}
+              </option>
+            ))}
+          </select>
+          <button type="button" className={`${s.primary} ${s.small}`} disabled={busy} onClick={() => void create()}>
+            Создать и скопировать
+          </button>
+        </div>
+      )}
+      {open && (
+        <p className={s.hint}>
+          По ссылке человек без аккаунта войдёт только в «{channel.name}»: Спутников, участников и других комнат он не
+          увидит. Отзовёте ссылку — гостей по ней выведет из комнаты.
+        </p>
+      )}
+      {links.map((link) => (
+        <div key={link.id} className={w.booking} style={{ flexWrap: "wrap" }}>
+          <span className={w.bookingTitle} style={{ flexBasis: "100%" }}>
+            Действует до {formatWhen(link.expires_at)} · входов: {link.uses}
+          </span>
+          <button type="button" className={`${s.secondary} ${s.small}`} onClick={() => copy(link.code)}>
+            {copied === link.code ? "Скопировано" : "Копировать"}
+          </button>
+          <button
+            type="button"
+            className={`${s.danger} ${s.small}`}
+            onClick={() => {
+              if (!window.confirm("Отозвать ссылку? Гостей по ней выведет из комнаты.")) return;
+              void starsApi
+                .revokeGuestLink(detail.id, link.id)
+                .then(reload)
+                .catch((err) => setError(apiError(err)));
+            }}
+          >
+            Отозвать
+          </button>
+        </div>
+      ))}
+      {error && <div className={s.error}>{error}</div>}
+    </div>
   );
 }

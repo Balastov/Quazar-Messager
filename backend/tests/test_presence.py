@@ -208,6 +208,44 @@ class TestPresence(StarsTestBase):
         self.assertIsNone(presence._manual_out("dnd", now - timedelta(seconds=1)))
         self.assertEqual(presence._manual_out("meeting", None), {"kind": "meeting", "until": None})
 
+    async def test_custom_status_icon_text_until(self):
+        from datetime import datetime, timedelta, timezone
+
+        from fastapi import HTTPException
+        from pydantic import ValidationError
+
+        from app.api import users as users_api
+
+        await self.connect("alice")
+        self.events.clear()
+        until = datetime.now(timezone.utc) + timedelta(hours=2)
+        out = await users_api.set_my_custom_status(
+            users_api.CustomStatusIn(icon="plane", text="  в отпуске  до понедельника ", until=until),
+            current_user=self.users["alice"],
+        )
+        self.assertEqual((out.icon, out.text), ("plane", "в отпуске до понедельника"))
+        event = next(e for uid, e in self.events if e["type"] == "presence" and uid == self.uid("bob"))
+        self.assertEqual(event["custom"]["icon"], "plane")
+        self.assertIsNone(event["manual"])  # свой статус — отдельно от «на встрече» / «не беспокоить»
+        self.assertFalse(await presence.do_not_disturb(self.uid("alice")))
+
+        bob_ws = await self.connect("bob")
+        snapshot = next(e for sock, e in self.snapshots if sock is bob_ws)
+        alice = next(x for x in snapshot["users"] if x["user_id"] == self.uid("alice"))
+        self.assertEqual(alice["custom"]["text"], "в отпуске до понедельника")
+
+        with self.assertRaises(ValidationError):
+            users_api.CustomStatusIn(icon="<svg>", text="x")
+        with self.assertRaises(HTTPException):
+            await users_api.set_my_custom_status(
+                users_api.CustomStatusIn(text="x", until=datetime.now(timezone.utc) - timedelta(minutes=1)),
+                current_user=self.users["alice"],
+            )
+        self.assertIsNone(presence._custom_out({"icon": "x", "text": "", "until": "2000-01-01T00:00:00+00:00"}))
+
+        self.assertIsNone(await users_api.set_my_custom_status(users_api.CustomStatusIn(), current_user=self.users["alice"]))
+        self.assertIsNone(self.events[-1][1]["custom"])
+
     async def test_chats_and_contacts_make_status_visible(self):
         async with self.Session() as db:
             chat = Chat(type="direct")

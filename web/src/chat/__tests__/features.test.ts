@@ -13,8 +13,8 @@ describe("forward", () => {
   it("wraps and unwraps any content", () => {
     const payload = encodeForward("Аня", 'IMG1:{"id":"x"}');
     expect(parseForward(payload)).toEqual({ from: "Аня", body: 'IMG1:{"id":"x"}' });
-    expect(unwrapForward(payload)).toEqual({ payload: 'IMG1:{"id":"x"}', forwardedFrom: "Аня" });
-    expect(unwrapForward("просто текст")).toEqual({ payload: "просто текст", forwardedFrom: null });
+    expect(unwrapForward(payload)).toEqual({ payload: 'IMG1:{"id":"x"}', forwardedFrom: "Аня", preview: null });
+    expect(unwrapForward("просто текст")).toEqual({ payload: "просто текст", forwardedFrom: null, preview: null });
   });
 
   it("rejects broken and nested wrappers", () => {

@@ -131,6 +131,16 @@ class _StarText(BaseModel):
         return v
 
 
+class LinkPreview(BaseModel):
+    """Превью ссылки — собирает отправитель (POST /link-preview), картинку уменьшает сам."""
+
+    url: str = Field(max_length=2048, pattern=r"^https?://")
+    title: str = Field(min_length=1, max_length=200)
+    description: str = Field(default="", max_length=300)
+    site: str = Field(default="", max_length=100)
+    image: str | None = Field(default=None, max_length=120_000, pattern=r"^data:image/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$")
+
+
 class SendStarMessage(BaseModel):
     # С файлом текст — необязательная подпись.
     text: str = Field(default="", max_length=MAX_MESSAGE_LENGTH)
@@ -142,6 +152,7 @@ class SendStarMessage(BaseModel):
     thread_id: str | None = None
     # Объявление с «Ознакомлен(а)» (только в Спутнике-объявлениях, только владелец и админы).
     ack_required: bool = False
+    link_preview: LinkPreview | None = None
 
     @model_validator(mode="after")
     def _text_or_file(self):
@@ -262,6 +273,8 @@ class VoiceParticipantOut(BaseModel):
     screen_sharing: bool = False
     # Главный в комнате «По приглашениям»: первый вошедший, пока не выйдет или не передаст.
     is_host: bool = False
+    # Гость по ссылке: его имя (у участников Звезды — None).
+    guest_name: str | None = None
 
 
 class StarDetailOut(StarSummaryOut):
@@ -360,6 +373,10 @@ class StarMessageOut(BaseModel):
     # Упомянутые участники (@имя) и @все.
     mentions: list[str] = []
     mention_all: bool = False
+    link_preview: LinkPreview | None = None
+    # Сообщение интеграции (kind == "bot"): имя вебхука и сервис (github, grafana…).
+    bot_name: str | None = None
+    bot_kind: str | None = None
     poll: PollOut | None = None
     lfg: LfgOut | None = None
     # Ответ в ветке — id корня; у корня — сводка ветки.

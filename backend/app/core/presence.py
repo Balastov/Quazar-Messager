@@ -9,6 +9,7 @@
 
 Ручной статус («на встрече», «не беспокоить», с таймером) хранится в users и показывается
 поверх online/away/offline; истёкший клиенты не показывают сами (until в событии).
+Свой статус (значок, текст, «до») — отдельно от ручного и ни на что не влияет: только подпись.
 
 Статус человека видят те, с кем у него общий чат или Звезда, и те, у кого он в контактах.
 При каждом подключении человек получает сводку по всем, чей статус он видит (и свой).
@@ -50,12 +51,28 @@ _active: dict[WebSocket, bool] = {}
 _going_offline: dict[str, asyncio.Task] = {}
 # Ручной статус тех, кто подключён: user_id → (kind, until).
 _manual: dict[str, tuple[str, datetime | None]] = {}
+# Свой статус тех, кто подключён: user_id → {"icon", "text", "until"}.
+_custom: dict[str, dict] = {}
 
 
 def _manual_out(kind: str | None, until: datetime | None) -> dict | None:
     if kind not in MANUAL_KINDS or (until and until <= datetime.now(timezone.utc)):
         return None
     return {"kind": kind, "until": until.isoformat() if until else None}
+
+
+def _custom_out(raw: dict | None) -> dict | None:
+    """Свой статус, если он ещё действует."""
+    if not isinstance(raw, dict) or not (raw.get("icon") or raw.get("text")):
+        return None
+    until = raw.get("until")
+    if until:
+        try:
+            if datetime.fromisoformat(until) <= datetime.now(timezone.utc):
+                return None
+        except (TypeError, ValueError):
+            return None
+    return {"icon": raw.get("icon"), "text": raw.get("text") or "", "until": until}
 
 
 def status_of(user_id: str) -> str:
@@ -96,22 +113,26 @@ async def visible_to(user_id: str) -> list[dict]:
             select(UserContact.contact_id.label("uid")).where(UserContact.owner_id == user_id),
         ).subquery()
         rows = await db.execute(
-            select(User.id, User.last_seen_at, User.manual_status, User.manual_status_until).where(
+            select(User.id, User.last_seen_at, User.manual_status, User.manual_status_until, User.custom_status).where(
                 # Себя — тоже: так все устройства знают ваш ручной статус.
                 (User.id.in_(select(peers.c.uid))) | (User.id == user_id)
             )
         )
         return [
-            _status_event(uid, last_seen, _manual_out(kind, until))
-            for uid, last_seen, kind, until in rows
+            _status_event(uid, last_seen, _manual_out(kind, until), _custom_out(custom))
+            for uid, last_seen, kind, until, custom in rows
         ]
 
 
-def _status_event(user_id: str, last_seen: datetime | None, manual: dict | None = None) -> dict:
+def _status_event(
+    user_id: str, last_seen: datetime | None, manual: dict | None = None, custom: dict | None = None
+) -> dict:
     status = status_of(user_id)
     away_since = _away_since.get(user_id) if status == AWAY else None
     if manual is None and user_id in _manual:
         manual = _manual_out(*_manual[user_id])
+    if custom is None and user_id in _custom:
+        custom = _custom_out(_custom[user_id])
     return {
         "user_id": user_id,
         "status": status,
@@ -120,6 +141,7 @@ def _status_event(user_id: str, last_seen: datetime | None, manual: dict | None 
         "away_since": away_since.isoformat() if away_since else None,
         "last_seen": last_seen.isoformat() if status == OFFLINE and last_seen else None,
         "manual": manual,
+        "custom": custom,
     }
 
 
@@ -152,13 +174,17 @@ async def _load_manual(user_id: str) -> None:
     async with session_factory() as db:
         row = (
             await db.execute(
-                select(User.manual_status, User.manual_status_until).where(User.id == user_id)
+                select(User.manual_status, User.manual_status_until, User.custom_status).where(User.id == user_id)
             )
         ).first()
     if row and row[0]:
         _manual[user_id] = (row[0], row[1])
     else:
         _manual.pop(user_id, None)
+    if row and row[2]:
+        _custom[user_id] = row[2]
+    else:
+        _custom.pop(user_id, None)
 
 
 async def set_manual(user_id: str, kind: str | None, until: datetime | None) -> dict | None:
@@ -187,6 +213,24 @@ async def set_manual(user_id: str, kind: str | None, until: datetime | None) -> 
     except Exception as exc:  # noqa: BLE001
         logger.warning("manual status broadcast for %s failed: %s", user_id, exc)
     return manual
+
+
+async def set_custom(user_id: str, value: dict | None) -> dict | None:
+    """Свой статус {icon, text, until} или None — снять. Разослать всем, кто видит человека."""
+    async with session_factory() as db:
+        await db.execute(update(User).where(User.id == user_id).values(custom_status=value))
+        await db.commit()
+        last_seen = (await db.execute(select(User.last_seen_at).where(User.id == user_id))).scalar_one_or_none()
+    if value:
+        _custom[user_id] = value
+    else:
+        _custom.pop(user_id, None)
+    event = {"type": "presence", **_status_event(user_id, last_seen, custom=_custom_out(value))}
+    try:
+        await manager.broadcast_to_users([*await audience(user_id), user_id], event)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("custom status broadcast for %s failed: %s", user_id, exc)
+    return _custom_out(value)
 
 
 async def do_not_disturb(user_id: str) -> bool:
@@ -262,6 +306,7 @@ async def _go_offline_later(user_id: str) -> None:
         logger.warning("last_seen for %s failed: %s", user_id, exc)
     await _announce(user_id, _status_event(user_id, now))
     _manual.pop(user_id, None)
+    _custom.pop(user_id, None)
 
 
 def reset() -> None:
@@ -273,3 +318,4 @@ def reset() -> None:
     _away_since.clear()
     _active.clear()
     _manual.clear()
+    _custom.clear()

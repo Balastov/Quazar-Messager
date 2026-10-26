@@ -1081,6 +1081,9 @@ async def _messages_out(
             file=files.get(m.id),
             mentions=m.mentions or [],
             mention_all=m.mention_all,
+            link_preview=m.link_preview,
+            bot_name=m.bot_name,
+            bot_kind=m.bot_kind,
             thread_id=m.thread_id,
             thread_count=threads.get(m.id, (0, None, []))[0],
             thread_last_at=threads.get(m.id, (0, None, []))[1],
@@ -1193,6 +1196,7 @@ async def send_message(
         ack_required=body.ack_required,
         mentions=mentions,
         mention_all=everyone,
+        link_preview=body.link_preview.model_dump() if body.link_preview else None,
     )
     db.add(message)
     await db.flush()
@@ -1312,6 +1316,8 @@ async def edit_message(
     assert_can_post(star, me)
     assert_clean_text(star, me, body.text)
     message.text = body.text
+    # Ссылки в новом тексте другие — старое превью убираем.
+    message.link_preview = None
     # Упоминания пересчитываем для подсветки; push о правке не шлём.
     message.mentions, message.mention_all = await _mentions(db, star_id, me, body.text)
     message.edited_at = _now()

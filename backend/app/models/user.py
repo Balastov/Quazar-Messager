@@ -30,6 +30,8 @@ class User(Base):
     manual_status_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # Свой рабочий график {"days", "start", "end", "tz"} — поверх общего графика Звезды.
     work_schedule: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    # Свой статус: {"icon": имя значка, "text": до 80 символов, "until": ISO | None}.
+    custom_status: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)

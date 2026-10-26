@@ -353,3 +353,43 @@ async def set_my_status(
             raise HTTPException(status_code=422, detail="Не дольше недели")
     manual = await presence.set_manual(current_user.id, body.kind, until if body.kind else None)
     return ManualStatusOut(kind=manual["kind"] if manual else None, until=until if manual else None)
+
+
+class CustomStatusIn(BaseModel):
+    # Имя значка из набора клиента (Lucide): «coffee», «plane»…
+    icon: str | None = Field(default=None, pattern=r"^[a-z0-9-]{1,40}$")
+    text: str = Field(default="", max_length=80)
+    # До какого момента; None — пока не снимут.
+    until: datetime | None = None
+
+
+class CustomStatusOut(BaseModel):
+    icon: str | None
+    text: str
+    until: datetime | None
+
+
+@router.put("/me/custom-status", response_model=CustomStatusOut | None)
+async def set_my_custom_status(
+    body: CustomStatusIn,
+    current_user: Annotated[User, Depends(get_current_user)],
+):
+    """Свой статус: значок, текст и «до». Только подпись — уведомления и звонки он не трогает.
+    Пустые значок и текст — снять."""
+    text = " ".join(body.text.split())
+    if not body.icon and not text:
+        await presence.set_custom(current_user.id, None)
+        return None
+    until = body.until
+    if until is not None:
+        if until.tzinfo is None:
+            raise HTTPException(status_code=422, detail="Время — с часовым поясом")
+        now = datetime.now(timezone.utc)
+        if until <= now:
+            raise HTTPException(status_code=422, detail="Время окончания уже прошло")
+        if until - now > timedelta(days=365):
+            raise HTTPException(status_code=422, detail="Не дальше чем на год")
+    await presence.set_custom(
+        current_user.id, {"icon": body.icon, "text": text, "until": until.isoformat() if until else None}
+    )
+    return CustomStatusOut(icon=body.icon, text=text, until=until)

@@ -1,4 +1,5 @@
 import { http } from "./client";
+import type { LinkPreview } from "../chat/linkPreview";
 
 export type StarKind = "gaming" | "work";
 export type StarRole = "owner" | "admin" | "moderator" | "member";
@@ -74,6 +75,40 @@ export interface StarFilesPage {
   files: StarFileItem[];
   used_bytes: number;
   quota_bytes: number;
+}
+
+/** Входящий вебхук (интеграция) Спутника. */
+export interface StarWebhook {
+  id: string;
+  channel_id: string;
+  name: string;
+  kind: WebhookKind;
+  token: string;
+  created_at: string;
+  last_used_at: string | null;
+  last_error: string | null;
+}
+
+export type WebhookKind = "auto" | "github" | "gitlab" | "jira" | "grafana" | "alertmanager" | "generic";
+
+/** Адрес, который вставляют в настройки внешнего сервиса. */
+export function webhookUrl(hook: Pick<StarWebhook, "id" | "token">): string {
+  return `${window.location.origin}/api/hooks/${hook.id}/${hook.token}`;
+}
+
+/** Гостевая ссылка в комнату. */
+export interface GuestLink {
+  id: string;
+  code: string;
+  channel_id: string;
+  created_by: string | null;
+  created_at: string;
+  expires_at: string;
+  uses: number;
+}
+
+export function guestLinkUrl(code: string): string {
+  return `${window.location.origin}/guest/${code}`;
 }
 
 export interface StarAcks {
@@ -252,6 +287,8 @@ export interface VoicePresence {
   screen_sharing?: boolean;
   /** Главный в комнате «По приглашениям». */
   is_host?: boolean;
+  /** Гость по ссылке (без аккаунта): его имя; user_id тогда — guest-…. */
+  guest_name?: string | null;
 }
 
 export interface StarDetail extends StarSummary {
@@ -304,8 +341,13 @@ export interface StarMessage {
   edited_at?: string | null;
   reply_to?: StarMessageReply | null;
   reactions?: StarMessageReaction[];
-  /** text | system (приветствие) | poll | lfg | file */
-  kind?: "text" | "system" | "poll" | "lfg" | "file";
+  /** text | system (приветствие) | poll | lfg | file | bot (интеграция) */
+  kind?: "text" | "system" | "poll" | "lfg" | "file" | "bot";
+  /** Превью первой ссылки (собрал отправитель). */
+  link_preview?: LinkPreview | null;
+  /** Сообщение интеграции: имя вебхука и сервис (github, gitlab, jira, grafana, alertmanager, generic). */
+  bot_name?: string | null;
+  bot_kind?: string | null;
   /** У kind === "file"; text тогда — подпись (может быть пустой). */
   file?: StarFile | null;
   /** Упомянутые (@имя) участники и @все. */
@@ -425,6 +467,8 @@ export type StarEvent =
       mentions?: string[];
       mention_all?: boolean;
     }
+  /** Закреплённые в Спутнике изменились (свежие первыми). */
+  | { type: "star_pins"; star_id: string; channel_id: string; message_ids: string[] }
   /** emoji null — реакцию сняли. */
   | {
       type: "star_message_reaction";
@@ -573,7 +617,7 @@ export const starsApi = {
     channelId: string,
     text: string,
     replyToId?: string,
-    extra: { thread_id?: string; ack_required?: boolean; file_id?: string } = {}
+    extra: { thread_id?: string; ack_required?: boolean; file_id?: string; link_preview?: LinkPreview } = {}
   ) =>
     http
       .post<StarMessage>(`${base(starId)}/channels/${channelId}/messages`, {
@@ -601,6 +645,28 @@ export const starsApi = {
     http
       .get<ArrayBuffer>(`${base(starId)}/files/${fileId}`, { responseType: "arraybuffer" })
       .then((r) => new Uint8Array(r.data)),
+  pins: (starId: string, channelId: string) =>
+    http.get<StarMessage[]>(`${base(starId)}/channels/${channelId}/pins`).then((r) => r.data),
+  pin: (starId: string, channelId: string, messageId: string) =>
+    http.put(`${base(starId)}/channels/${channelId}/pins/${messageId}`),
+  unpin: (starId: string, channelId: string, messageId: string) =>
+    http.delete(`${base(starId)}/channels/${channelId}/pins/${messageId}`),
+  search: (starId: string, q: string, params: { channel_id?: string; before?: string } = {}) =>
+    http.get<StarMessage[]>(`${base(starId)}/search`, { params: { q, ...params } }).then((r) => r.data),
+  webhooks: (starId: string) => http.get<StarWebhook[]>(`${base(starId)}/webhooks`).then((r) => r.data),
+  createWebhook: (starId: string, channelId: string, body: { name: string; kind: WebhookKind }) =>
+    http.post<StarWebhook>(`${base(starId)}/channels/${channelId}/webhooks`, body).then((r) => r.data),
+  updateWebhook: (
+    starId: string,
+    webhookId: string,
+    body: { name?: string; kind?: WebhookKind; channel_id?: string; new_token?: boolean }
+  ) => http.patch<StarWebhook>(`${base(starId)}/webhooks/${webhookId}`, body).then((r) => r.data),
+  deleteWebhook: (starId: string, webhookId: string) => http.delete(`${base(starId)}/webhooks/${webhookId}`),
+  guestLinks: (starId: string, channelId: string) =>
+    http.get<GuestLink[]>(`${base(starId)}/planets/${channelId}/guest-links`).then((r) => r.data),
+  createGuestLink: (starId: string, channelId: string, hours: number) =>
+    http.post<GuestLink>(`${base(starId)}/planets/${channelId}/guest-links`, { hours }).then((r) => r.data),
+  revokeGuestLink: (starId: string, linkId: string) => http.delete(`${base(starId)}/guest-links/${linkId}`),
   thread: (starId: string, channelId: string, rootId: string) =>
     http
       .get<StarMessage[]>(`${base(starId)}/channels/${channelId}/threads/${rootId}`)

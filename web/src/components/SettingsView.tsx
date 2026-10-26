@@ -23,6 +23,8 @@ import ContactsImport from "./ContactsImport";
 import { playStarSound, type StarSoundEvent } from "../sounds/starSounds";
 import { activityTracker, IDLE_MINUTES_OPTIONS, systemIdleSupported } from "../presence/activity";
 import StatusPicker from "./StatusPicker";
+import CustomStatusEditor from "./status/CustomStatusEditor";
+import { previewsEnabled, setPreviewsEnabled } from "../chat/linkPreview";
 import { MyWorkSchedule } from "./constellation/WorkSettings";
 import { useWallpaperStore } from "../store/wallpaper";
 import { prepareBackground } from "../utils/wallpaper";
@@ -74,6 +76,7 @@ export default function SettingsView() {
   const phonebookTotal = useContactsStore((st) => st.total);
   const forgetPhonebook = useContactsStore((st) => st.forget);
 
+  const [linkPreviews, setLinkPreviews] = useState(() => previewsEnabled());
   const [prefs, setPrefs] = useState<NotifyPrefs>(() => getNotifyPrefs());
   const [permission, setPermission] = useState(browserPermission);
   const [status, setStatus] = useState<string | null>(null);
@@ -400,6 +403,12 @@ export default function SettingsView() {
             экран погас. 🔴 на встрече или не беспокоить — вы поставили сами. Иначе — «был(а) …».
           </p>
           <StatusPicker />
+          <h3 className={s.sectionTitle} style={{ marginTop: 16 }}>Свой статус</h3>
+          <p className={s.hint}>
+            Значок, текст и до какого времени — видят все, с кем у вас общий чат или Звезда. Только
+            подпись: уведомления и звонки работают как обычно.
+          </p>
+          <CustomStatusEditor />
           <label className={s.selectRow}>
             <span className={s.toggleLabel}>Считать, что я отошёл, через</span>
             <select
@@ -456,6 +465,28 @@ export default function SettingsView() {
             нерабочее время, а стуки и приглашения вне ваших часов придут без звука и уведомлений.
           </p>
           <MyWorkSchedule />
+        </section>
+
+        <section className={s.card}>
+          <h3 className={s.sectionTitle}>Превью ссылок</h3>
+          <label className={s.toggle}>
+            <input
+              type="checkbox"
+              checked={linkPreviews}
+              onChange={(e) => {
+                setLinkPreviews(e.target.checked);
+                setPreviewsEnabled(e.target.checked);
+              }}
+            />
+            <span className={s.toggleUi} />
+            <span className={s.toggleLabel}>Показывать превью ссылок, которые я отправляю</span>
+          </label>
+          <p className={s.hint}>
+            Пока вы пишете, сервер Quazar открывает первую ссылку из сообщения и берёт заголовок и
+            картинку — переписку он при этом не видит. В личных чатах превью уходит внутри
+            зашифрованного сообщения, собеседник сайт не открывает. Выключите, если не хотите,
+            чтобы сервер узнавал ваши ссылки.
+          </p>
         </section>
 
         <section className={s.card}>

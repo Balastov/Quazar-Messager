@@ -133,6 +133,8 @@ export type WsEvent =
   | { type: "call_media"; call_id: string; video: boolean; screen: boolean; from_user_id: string }
   /** Мой рабочий график сменили (в том числе на другом устройстве). */
   | { type: "my_work_schedule"; schedule: WorkSchedule | null }
+  /** Закреплённые в чате изменились. */
+  | { type: "chat_pins"; chat_id: string; message_ids: string[] }
   /** Мой уровень уведомлений сменили (в том числе на другом устройстве). */
   | {
       type: "notify_setting";
@@ -200,6 +202,8 @@ export interface Message {
   reactions?: MessageReaction[];
   /** Только в сторе: сообщение переслано — от кого (из зашифрованной обёртки «FWD1:»). */
   forwarded_from?: string | null;
+  /** Превью первой ссылки (собрал отправитель, пришло внутри сообщения). */
+  link_preview?: import("../chat/linkPreview").LinkPreview | null;
 }
 
 export interface TokenResponse {

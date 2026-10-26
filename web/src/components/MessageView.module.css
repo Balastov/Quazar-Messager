@@ -465,3 +465,8 @@
   font-weight: 600;
   color: #d8b4fe;
 }
+
+/* Превью ссылки над полем ввода. */
+.composerPreview {
+  padding: 0 12px 6px;
+}

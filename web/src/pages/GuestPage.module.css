@@ -1,0 +1,138 @@
+.page {
+  min-height: 100dvh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: var(--qz-wallpaper, #0f1117);
+  color: var(--qz-text);
+  box-sizing: border-box;
+}
+
+.card {
+  width: 100%;
+  max-width: 420px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 24px;
+  border-radius: 20px;
+  border: 1px solid var(--qz-glass-border);
+  background: var(--qz-glass-bg-strong, rgba(20, 16, 36, 0.85));
+  backdrop-filter: var(--qz-glass-filter);
+  -webkit-backdrop-filter: var(--qz-glass-filter);
+  box-sizing: border-box;
+}
+
+.logo {
+  width: 44px;
+  height: 44px;
+}
+
+.title {
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.sub,
+.hint {
+  margin: 0;
+  font-size: 13px;
+  color: var(--qz-text-muted);
+}
+
+.error {
+  font-size: 13px;
+  color: var(--qz-danger);
+}
+
+.form,
+.controls {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.input {
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--qz-border);
+  background: var(--qz-glass-inner);
+  color: var(--qz-text);
+  font-size: 15px;
+}
+
+.primary,
+.secondary,
+.danger {
+  border: none;
+  border-radius: 999px;
+  padding: 12px 18px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.primary {
+  background: var(--qz-outgoing);
+  color: #fff;
+}
+
+.secondary {
+  background: var(--qz-bg-soft);
+  border: 1px solid var(--qz-border);
+  color: var(--qz-text);
+}
+
+.danger {
+  background: rgba(248, 113, 113, 0.16);
+  border: 1px solid rgba(248, 113, 113, 0.45);
+  color: #fecaca;
+}
+
+.primary:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.people {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.person {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(168, 85, 247, 0.3);
+  font-weight: 700;
+  box-shadow: 0 0 0 2px transparent;
+  transition: box-shadow 0.15s;
+}
+
+.speaking {
+  box-shadow: 0 0 0 3px #22c55e;
+}
+
+.personName {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.personState {
+  font-size: 12px;
+  color: var(--qz-text-muted);
+}

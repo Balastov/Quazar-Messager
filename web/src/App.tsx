@@ -2,6 +2,7 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { useAuthStore } from "./store/auth";
 import AuthPage from "./pages/AuthPage";
 import MessengerPage from "./pages/MessengerPage";
+import GuestPage from "./pages/GuestPage";
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const token = useAuthStore((s) => s.token);
@@ -25,6 +26,8 @@ export default function App() {
             </PublicRoute>
           }
         />
+        {/* Гость по ссылке в комнату — без входа в аккаунт. */}
+        <Route path="/guest/:code" element={<GuestPage />} />
         <Route
           path="/*"
           element={

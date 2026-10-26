@@ -40,6 +40,8 @@ export function auditText(e: AuditEntry): string {
       return d.op === "give" ? `${who} выдал(а) ${whom} роль «${d.name}»` : `${who} снял(а) с ${whom} роль «${d.name}»`;
     case "transfer":
       return `${who} передал(а) Звезду ${whom}`;
+    case "webhook":
+      return d.op === "delete" ? `${who} удалил(а) интеграцию «${d.name}»` : `${who} подключил(а) интеграцию «${d.name}»`;
     default:
       return `${who}: ${e.action}`;
   }

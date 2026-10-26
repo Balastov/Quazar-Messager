@@ -166,6 +166,14 @@ class StarMessage(Base):
     # Упомянутые (@имя) — id участников; mention_all — @все (только модераторы и выше).
     mentions: Mapped[list | None] = mapped_column(JSON, nullable=True)
     mention_all: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    # Превью первой ссылки (собрал отправитель): url, title, description, site, image (data: URL).
+    link_preview: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    # Сообщение от интеграции (kind == "bot"): имя и сервис запоминаем — вебхук могут удалить.
+    webhook_id: Mapped[str | None] = mapped_column(
+        ForeignKey("star_webhooks.id", ondelete="SET NULL", use_alter=True), nullable=True
+    )
+    bot_name: Mapped[str | None] = mapped_column(String(48), nullable=True)
+    bot_kind: Mapped[str | None] = mapped_column(String(16), nullable=True)
     edited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_now, index=True
@@ -422,3 +430,51 @@ class StarFile(Base):
     mime: Mapped[str] = mapped_column(String(127), nullable=False)
     size: Mapped[int] = mapped_column(Integer, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, index=True)
+
+
+class StarWebhook(Base):
+    """Входящий вебхук: POST /hooks/<id>/<token> пишет сообщение в Спутник от имени интеграции."""
+
+    __tablename__ = "star_webhooks"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    star_id: Mapped[str] = mapped_column(
+        ForeignKey("stars.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    channel_id: Mapped[str] = mapped_column(
+        ForeignKey("star_channels.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    name: Mapped[str] = mapped_column(String(48), nullable=False)
+    # auto | github | gitlab | jira | grafana | alertmanager | generic
+    kind: Mapped[str] = mapped_column(String(16), nullable=False, default="auto")
+    token: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_by: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Последняя ошибка разбора (чтобы в настройках было видно, почему сообщений нет).
+    last_error: Mapped[str | None] = mapped_column(String(200), nullable=True)
+
+
+class StarGuestLink(Base):
+    """Гостевая ссылка в одну комнату рабочей Звезды (/guest/<code>), без регистрации."""
+
+    __tablename__ = "star_guest_links"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    code: Mapped[str] = mapped_column(String(32), nullable=False, unique=True, index=True)
+    star_id: Mapped[str] = mapped_column(
+        ForeignKey("stars.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    channel_id: Mapped[str] = mapped_column(
+        ForeignKey("star_channels.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    created_by: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    revoked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # Сколько раз по ней зашли.
+    uses: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

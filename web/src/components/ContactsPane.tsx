@@ -6,6 +6,7 @@ import { useChatStore } from "../store/chat";
 import { useUiStore } from "../store/ui";
 import { useUnreadStore } from "../store/unread";
 import { chatLevel, useNotifyStore } from "../notifications/levels";
+import CustomStatusBadge from "./status/CustomStatusBadge";
 import {
   canSearchUsers,
   extractRuLocalDigits,
@@ -364,6 +365,7 @@ export default function ContactsPane() {
               <div className={s.meta}>
                 <div className={s.nameRow}>
                   <span className={hasUnread ? s.nameUnread : s.name}>{peer.username}</span>
+                  {chat.type === "direct" && <CustomStatusBadge userId={peer.id} compact />}
                   {quiet && (
                     <span title="Уведомления выключены" aria-label="Уведомления выключены">
                       🔕

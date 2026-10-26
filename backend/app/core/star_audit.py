@@ -19,6 +19,7 @@ ACTIONS = (
     "settings",
     "tag",
     "transfer",
+    "webhook",
 )
 
 

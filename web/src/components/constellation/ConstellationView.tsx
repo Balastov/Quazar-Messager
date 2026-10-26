@@ -227,6 +227,7 @@ export default function ConstellationView() {
             }}
             onOpenChannel={openChannel}
             onAddChannel={(kind) => setChannelDialog({ kind })}
+            onAddRoom={(floorId) => setChannelDialog({ kind: "planet", floorId })}
             onEditChannel={(c) => setChannelDialog({ kind: c.kind, channel: c })}
             onOpenSettings={(tab) => setSettingsTab(tab ?? "general")}
             membersOpen={membersOpen}

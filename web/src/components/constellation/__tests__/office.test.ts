@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { fits, GRID_H, GRID_W, MAX_W, MIN_SIZE, moveRect, overlaps, resizeRect } from "../office";
+import type { StarChannel, StarFloor } from "../../../api/stars";
+import { fits, GRID_H, GRID_W, groupByFloor, MAX_W, MIN_SIZE, moveRect, overlaps, resizeRect } from "../office";
 
 describe("office geometry", () => {
   it("allows touching walls but not overlapping", () => {
@@ -19,5 +20,31 @@ describe("office geometry", () => {
     expect(resizeRect(room, 10, 0).w).toBe(GRID_W - 28);
     expect(resizeRect(room, -10, -10)).toMatchObject({ w: MIN_SIZE, h: MIN_SIZE });
     expect(resizeRect({ x: 0, y: 0, w: 4, h: 4 }, 100, 0).w).toBe(MAX_W);
+  });
+});
+
+describe("groupByFloor", () => {
+  const floor = (id: string, position: number) => ({ id, name: id, position, version: 0 }) as StarFloor;
+  const room = (id: string, floor_id: string | null) => ({ id, floor_id }) as StarChannel;
+
+  it("groups rooms by floor in floor order, keeping empty floors", () => {
+    const groups = groupByFloor(
+      [room("a", "f2"), room("b", "f1"), room("c", "f2")],
+      [floor("f2", 1), floor("f1", 0), floor("f3", 2)]
+    );
+    expect(groups.map((g) => [g.floor.id, g.rooms.map((r) => r.id)])).toEqual([
+      ["f1", ["b"]],
+      ["f2", ["a", "c"]],
+      ["f3", []],
+    ]);
+  });
+
+  it("puts rooms without a known floor on the first floor", () => {
+    const groups = groupByFloor([room("a", null), room("b", "gone")], [floor("f1", 0), floor("f2", 1)]);
+    expect(groups[0].rooms.map((r) => r.id)).toEqual(["a", "b"]);
+  });
+
+  it("returns nothing when there are no floors", () => {
+    expect(groupByFloor([room("a", null)], [])).toEqual([]);
   });
 });

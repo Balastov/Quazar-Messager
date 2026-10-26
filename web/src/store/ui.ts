@@ -21,6 +21,8 @@ interface UiState {
   idleMinutes: number;
   /** Панель «Участники» в Созвездии открыта (на ПК). */
   starMembersOpen: boolean;
+  /** Свёрнутые этажи в списке комнат Рабочих Звёзд. */
+  collapsedFloorIds: string[];
   setTab: (tab: AppTab) => void;
   setMobileChatOpen: (open: boolean) => void;
   setPeerPanelOpen: (open: boolean) => void;
@@ -29,6 +31,7 @@ interface UiState {
   setSystemIdle: (on: boolean) => void;
   setIdleMinutes: (minutes: number) => void;
   setStarMembersOpen: (open: boolean) => void;
+  toggleFloor: (floorId: string) => void;
   toggleFavorite: (chatId: string) => void;
   isFavorite: (chatId: string) => boolean;
 }
@@ -45,6 +48,7 @@ export const useUiStore = create<UiState>()(
       systemIdle: false,
       idleMinutes: 5,
       starMembersOpen: false,
+      collapsedFloorIds: [],
 
       setTab: (tab) => set({ tab, mobileChatOpen: false }),
       setMobileChatOpen: (mobileChatOpen) => set({ mobileChatOpen }),
@@ -54,6 +58,12 @@ export const useUiStore = create<UiState>()(
       setSystemIdle: (systemIdle) => set({ systemIdle }),
       setIdleMinutes: (idleMinutes) => set({ idleMinutes }),
       setStarMembersOpen: (starMembersOpen) => set({ starMembersOpen }),
+      toggleFloor: (floorId) =>
+        set((s) => ({
+          collapsedFloorIds: s.collapsedFloorIds.includes(floorId)
+            ? s.collapsedFloorIds.filter((id) => id !== floorId)
+            : [...s.collapsedFloorIds, floorId],
+        })),
 
       toggleFavorite: (chatId) =>
         set((s) => ({
@@ -75,6 +85,7 @@ export const useUiStore = create<UiState>()(
         systemIdle: state.systemIdle,
         idleMinutes: state.idleMinutes,
         starMembersOpen: state.starMembersOpen,
+        collapsedFloorIds: state.collapsedFloorIds,
       }),
     }
   )

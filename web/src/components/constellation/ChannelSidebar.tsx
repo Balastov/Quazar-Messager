@@ -14,6 +14,8 @@ import NotifyDialog from "../NotifyDialog";
 import { channelLevel, starLevel, STAR_DEFAULT, useNotifyStore } from "../../notifications/levels";
 import s from "./Constellation.module.css";
 import { displayName } from "../../utils/profile";
+import { useUiStore } from "../../store/ui";
+import { groupByFloor } from "./office";
 
 interface Props {
   detail: StarDetail;
@@ -26,6 +28,8 @@ interface Props {
   onOpenFiles: () => void;
   onOpenChannel: (channel: StarChannel) => void;
   onAddChannel: (kind: ChannelKind) => void;
+  /** Добавить комнату на этаж (Звёзды «Работа»). */
+  onAddRoom?: (floorId: string) => void;
   onEditChannel: (channel: StarChannel) => void;
   onOpenSettings: (tab?: "invites") => void;
   /** Показать или скрыть участников со статусами. */
@@ -38,6 +42,7 @@ export default function ChannelSidebar({
   activeChannelId,
   onOpenChannel,
   onAddChannel,
+  onAddRoom,
   onEditChannel,
   onOpenSettings,
   mapActive = false,
@@ -68,6 +73,154 @@ export default function ChannelSidebar({
   const notifySettings = useNotifyStore((st) => st.settings);
   const [notifyOpen, setNotifyOpen] = useState(false);
   const starQuiet = starLevel(notifySettings, detail.id) === "none";
+  const collapsedFloors = useUiStore((st) => st.collapsedFloorIds);
+  const toggleFloor = useUiStore((st) => st.toggleFloor);
+
+  const row = (c: StarChannel, kind: ChannelKind) => {
+    const count = unread[c.id]?.count ?? 0;
+    const mentionCount = unread[c.id]?.mentions ?? 0;
+    const quiet = kind === "satellite" && channelLevel(notifySettings, detail.id, c.id) === "none";
+    const inside = kind === "planet" ? (detail.voice?.[c.id] ?? []) : [];
+    const busy = kind === "planet" ? currentBooking(bookings, c.id, now) : null;
+    const sign = kind === "planet" ? doorSign(c, now) : null;
+    return (
+      <div key={c.id}>
+        <button
+          type="button"
+          className={c.id === activeChannelId && !mapActive && !filesActive ? s.channelActive : s.channel}
+          onClick={() => onOpenChannel(c)}
+          onDoubleClick={
+            kind === "planet"
+              ? () => void useDoorsStore.getState().enterRoom(detail, c)
+              : manage
+                ? () => onEditChannel(c)
+                : undefined
+          }
+          title={
+            kind === "planet"
+              ? [
+                  busy ? `Занято до ${hhmm(busy.ends_at)}: «${busy.title}»` : "",
+                  sign ? `Табличка: ${sign.icon} ${sign.text}` : "",
+                  `Двойной клик — ${roomWords(detail.kind, c.name).enter}`,
+                ]
+                  .filter(Boolean)
+                  .join("\n")
+              : undefined
+          }
+        >
+          {kind === "satellite" ? <IconSatellite /> : <IconPlanet />}
+          <span className={`${s.channelName} ${count ? s.channelUnread : ""}`}>
+            {c.room_kind === "lobby" ? "🛋 " : ""}
+            {c.name}
+            {c.room_kind !== "lobby" && c.access === "invite" ? " 🔒" : ""}
+            {c.room_kind !== "lobby" && c.access === "personal" ? " 🔑" : ""}
+            {c.listen_only ? " 🎧" : ""}
+            {c.temporary ? " ⏳" : ""}
+            {c.slow_mode_sec ? " 🐢" : ""}
+            {c.announcement ? " 📢" : ""}
+            {quiet ? " 🔕" : ""}
+            {sign ? ` ${sign.icon}` : ""}
+            {busy ? " 📅" : ""}
+          </span>
+          {kind === "planet" && (
+            <span className={s.channelHint}>
+              {inside.length ? `${inside.length}/${c.capacity}` : `до ${c.capacity}`}
+            </span>
+          )}
+          {mentionCount > 0 ? (
+            <span className={s.countBadge} title={`Упоминаний: ${mentionCount}`}>
+              @{mentionCount > 9 ? "9+" : mentionCount}
+            </span>
+          ) : (
+            count > 0 && (
+              <span className={quiet ? `${s.countBadge} ${s.countBadgeQuiet}` : s.countBadge}>
+                {count > 99 ? "99+" : count}
+              </span>
+            )
+          )}
+        </button>
+        {inside.length > 0 && (
+          <div className={s.presence}>
+            {inside.map((p) => {
+              const name =
+                displayName(detail.members.find((m) => m.user.id === p.user_id)?.user) ?? p.guest_name ?? "Участник";
+              const talking = c.id === voiceChannelId && speaking.has(p.user_id);
+              return (
+                <div key={p.user_id} className={s.presenceRow}>
+                  <span
+                    className={talking ? `${s.presenceDot} ${s.presenceDotSpeaking}` : s.presenceDot}
+                    aria-label={talking ? `${name} говорит` : undefined}
+                  >
+                    {initials(name)}
+                  </span>
+                  <span className={s.presenceName}>{name}</span>
+                  {p.is_host && c.access === "invite" && c.room_kind !== "lobby" && (
+                    <span title="Главный в комнате: впускает и зовёт">👑</span>
+                  )}
+                  {p.server_muted && <span title="Микрофон выключил модератор">🔇</span>}
+                  {p.screen_sharing && <span title="Показывает экран">🖥</span>}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // Рабочая Звезда: комнаты по этажам. Единственный этаж не сворачивается.
+  const floorList = (rooms: StarChannel[]) => {
+    const groups = groupByFloor(rooms, detail.floors);
+    const single = groups.length <= 1;
+    return groups.map(({ floor, rooms: onFloor }) => {
+      const open = single || !collapsedFloors.includes(floor.id);
+      const people = onFloor.reduce((n, c) => n + (detail.voice?.[c.id]?.length ?? 0), 0);
+      const unreadCount = onFloor.reduce((n, c) => n + (unread[c.id]?.count ?? 0), 0);
+      // В свёрнутом этаже оставляем открытую сейчас комнату — чтобы не терять, где ты.
+      const shown = open ? onFloor : onFloor.filter((c) => c.id === activeChannelId && !mapActive && !filesActive);
+      return (
+        <div key={floor.id} className={s.floor}>
+          <div className={s.floorHeader}>
+            {single ? (
+              <span className={s.floorTitle}>
+                <span className={s.floorName}>{floor.name}</span>
+              </span>
+            ) : (
+              <button
+                type="button"
+                className={s.floorToggle}
+                onClick={() => toggleFloor(floor.id)}
+                aria-expanded={open}
+                title={open ? "Свернуть этаж" : "Развернуть этаж"}
+              >
+                <span className={open ? `${s.floorChevron} ${s.floorChevronOpen}` : s.floorChevron} aria-hidden>
+                  ›
+                </span>
+                <span className={s.floorName}>{floor.name}</span>
+                {!open && unreadCount > 0 && <span className={s.floorUnread} aria-label="Есть непрочитанные" />}
+              </button>
+            )}
+            <span className={s.floorMeta} title={people ? `В комнатах этажа: ${people}` : undefined}>
+              {people > 0 ? `👤 ${people}` : onFloor.length}
+            </span>
+            {manage && onAddRoom && (
+              <button
+                type="button"
+                className={s.floorAdd}
+                onClick={() => onAddRoom(floor.id)}
+                title={`Добавить комнату: ${floor.name}`}
+                aria-label={`Добавить комнату: ${floor.name}`}
+              >
+                +
+              </button>
+            )}
+          </div>
+          {shown.map((c) => row(c, "planet"))}
+          {open && onFloor.length === 0 && <div className={s.floorEmpty}>Комнат нет</div>}
+        </div>
+      );
+    });
+  };
 
   const section = (kind: ChannelKind, title: string) => {
     const list = channels.filter((c) => c.kind === kind);
@@ -99,98 +252,8 @@ export default function ChannelSidebar({
             </button>
           )}
         </div>
-        {list.map((c) => {
-          const count = unread[c.id]?.count ?? 0;
-          const mentionCount = unread[c.id]?.mentions ?? 0;
-          const quiet = kind === "satellite" && channelLevel(notifySettings, detail.id, c.id) === "none";
-          const inside = kind === "planet" ? (detail.voice?.[c.id] ?? []) : [];
-          const busy = kind === "planet" ? currentBooking(bookings, c.id, now) : null;
-          const sign = kind === "planet" ? doorSign(c, now) : null;
-          return (
-            <div key={c.id}>
-              <button
-                type="button"
-                className={c.id === activeChannelId && !mapActive && !filesActive ? s.channelActive : s.channel}
-                onClick={() => onOpenChannel(c)}
-                onDoubleClick={
-                  kind === "planet"
-                    ? () => void useDoorsStore.getState().enterRoom(detail, c)
-                    : manage
-                      ? () => onEditChannel(c)
-                      : undefined
-                }
-                title={
-                  kind === "planet"
-                    ? [
-                        busy ? `Занято до ${hhmm(busy.ends_at)}: «${busy.title}»` : "",
-                        sign ? `Табличка: ${sign.icon} ${sign.text}` : "",
-                        `Двойной клик — ${roomWords(detail.kind, c.name).enter}`,
-                      ]
-                        .filter(Boolean)
-                        .join("\n")
-                    : undefined
-                }
-              >
-                {kind === "satellite" ? <IconSatellite /> : <IconPlanet />}
-                <span className={`${s.channelName} ${count ? s.channelUnread : ""}`}>
-                  {c.room_kind === "lobby" ? "🛋 " : ""}
-                  {c.name}
-                  {c.room_kind !== "lobby" && c.access === "invite" ? " 🔒" : ""}
-                  {c.room_kind !== "lobby" && c.access === "personal" ? " 🔑" : ""}
-                  {c.listen_only ? " 🎧" : ""}
-                  {c.temporary ? " ⏳" : ""}
-                  {c.slow_mode_sec ? " 🐢" : ""}
-                  {c.announcement ? " 📢" : ""}
-                  {quiet ? " 🔕" : ""}
-                  {sign ? ` ${sign.icon}` : ""}
-                  {busy ? " 📅" : ""}
-                </span>
-                {kind === "planet" && (
-                  <span className={s.channelHint}>
-                    {inside.length ? `${inside.length}/${c.capacity}` : `до ${c.capacity}`}
-                  </span>
-                )}
-                {mentionCount > 0 ? (
-                  <span className={s.countBadge} title={`Упоминаний: ${mentionCount}`}>
-                    @{mentionCount > 9 ? "9+" : mentionCount}
-                  </span>
-                ) : (
-                  count > 0 && (
-                    <span className={quiet ? `${s.countBadge} ${s.countBadgeQuiet}` : s.countBadge}>
-                      {count > 99 ? "99+" : count}
-                    </span>
-                  )
-                )}
-              </button>
-              {inside.length > 0 && (
-                <div className={s.presence}>
-                  {inside.map((p) => {
-                    const name =
-                      displayName(detail.members.find((m) => m.user.id === p.user_id)?.user) ?? p.guest_name ?? "Участник";
-                    const talking = c.id === voiceChannelId && speaking.has(p.user_id);
-                    return (
-                      <div key={p.user_id} className={s.presenceRow}>
-                        <span
-                          className={talking ? `${s.presenceDot} ${s.presenceDotSpeaking}` : s.presenceDot}
-                          aria-label={talking ? `${name} говорит` : undefined}
-                        >
-                          {initials(name)}
-                        </span>
-                        <span className={s.presenceName}>{name}</span>
-                        {p.is_host && c.access === "invite" && c.room_kind !== "lobby" && (
-                          <span title="Главный в комнате: впускает и зовёт">👑</span>
-                        )}
-                        {p.server_muted && <span title="Микрофон выключил модератор">🔇</span>}
-                        {p.screen_sharing && <span title="Показывает экран">🖥</span>}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          );
-        })}
-        {list.length === 0 && (
+        {kind === "planet" && detail.kind === "work" ? floorList(list) : list.map((c) => row(c, kind))}
+        {list.length === 0 && !(kind === "planet" && detail.kind === "work" && detail.floors.length > 0) && (
           <div className={s.channelHint} style={{ padding: "6px 10px" }}>
             {kind === "satellite" ? "Спутников нет" : `${placeNouns(detail.kind).manyGen} нет`}
           </div>

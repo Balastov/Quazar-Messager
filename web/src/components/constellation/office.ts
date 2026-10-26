@@ -2,7 +2,7 @@
  * Геометрия карты офиса на клиенте — те же правила, что на сервере (backend/app/core/office.py).
  * Координаты и размеры в клетках сетки.
  */
-import type { RoomKind, StarChannel } from "../../api/stars";
+import type { RoomKind, StarChannel, StarFloor } from "../../api/stars";
 
 export const GRID_W = 32;
 export const GRID_H = 20;
@@ -63,4 +63,20 @@ export function resizeRect(start: Rect, dw: number, dh: number): Rect {
 
 export function sameRect(a: Rect | null | undefined, b: Rect | null | undefined): boolean {
   return !!a && !!b && a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h;
+}
+
+export interface FloorGroup {
+  floor: StarFloor;
+  rooms: StarChannel[];
+}
+
+/** Комнаты по этажам в порядке этажей. Комната без этажа (или с удалённым) — на первом. */
+export function groupByFloor(rooms: StarChannel[], floors: StarFloor[]): FloorGroup[] {
+  const sorted = [...floors].sort((a, b) => a.position - b.position);
+  const groups = sorted.map((floor) => ({ floor, rooms: [] as StarChannel[] }));
+  for (const room of rooms) {
+    const group = groups.find((g) => g.floor.id === room.floor_id) ?? groups[0];
+    group?.rooms.push(room);
+  }
+  return groups;
 }

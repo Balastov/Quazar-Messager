@@ -1,9 +1,12 @@
 from datetime import datetime
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, ValidationInfo, field_validator
 
 from app.core.phone import normalize_ru_phone
 from app.core.profile import normalize_email, normalize_person_name, normalize_username
+
+
+NAME_LABELS = {"first_name": "Имя", "last_name": "Фамилия"}
 
 
 class UserRegister(BaseModel):
@@ -42,8 +45,8 @@ class UserRegister(BaseModel):
 
     @field_validator("first_name", "last_name")
     @classmethod
-    def name_valid(cls, v: str | None) -> str | None:
-        return normalize_person_name(v)
+    def name_valid(cls, v: str | None, info: ValidationInfo) -> str | None:
+        return normalize_person_name(v, NAME_LABELS[info.field_name])
 
 
 class UserLogin(BaseModel):
@@ -77,8 +80,8 @@ class UpdateProfile(BaseModel):
 
     @field_validator("first_name", "last_name")
     @classmethod
-    def name_valid(cls, v: str | None) -> str | None:
-        return normalize_person_name(v)
+    def name_valid(cls, v: str | None, info: ValidationInfo) -> str | None:
+        return normalize_person_name(v, NAME_LABELS[info.field_name])
 
 
 class UsernameCheckOut(BaseModel):

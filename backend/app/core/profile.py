@@ -5,6 +5,8 @@ import unicodedata
 
 from pydantic import TypeAdapter, EmailStr, ValidationError
 
+from app.core.censor import find_violation, violation_message
+
 USERNAME_MIN = 3
 USERNAME_MAX = 32
 NAME_MAX = 64
@@ -36,6 +38,8 @@ def normalize_username(value: str) -> str:
         raise ValueError("Точка не может стоять в конце никнейма или два раза подряд")
     if v.lower() in RESERVED_USERNAMES:
         raise ValueError("Этот никнейм зарезервирован")
+    if category := find_violation(v, nickname=True):
+        raise ValueError(f"Никнейм содержит {violation_message(category)}. Выберите другой")
     return v
 
 
@@ -52,8 +56,9 @@ def normalize_email(value: str | None) -> str | None:
         raise ValueError("Некорректный адрес почты") from None
 
 
-def normalize_person_name(value: str | None) -> str | None:
-    """Имя или фамилия на любом языке. Пустое — не указано."""
+def normalize_person_name(value: str | None, label: str = "Имя", *, censor: bool = True) -> str | None:
+    """Имя или фамилия на любом языке. Пустое — не указано.
+    censor=False — для уже существующих данных (перенос старого ника в имя)."""
     v = " ".join((value or "").split())
     if not v:
         return None
@@ -63,6 +68,8 @@ def normalize_person_name(value: str | None) -> str | None:
         raise ValueError("Недопустимые символы")
     if not any(ch.isalpha() for ch in v):
         raise ValueError("Нужна хотя бы одна буква")
+    if censor and (category := find_violation(v, nickname=False)):
+        raise ValueError(f"{label} содержит {violation_message(category)}")
     return v
 
 

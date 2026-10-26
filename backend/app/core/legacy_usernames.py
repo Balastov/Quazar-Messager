@@ -73,7 +73,7 @@ def with_suffix(nick: str, n: int) -> str:
 def name_from_nick(old: str) -> str | None:
     """«Иван_Петров» → «Иван Петров» для поля «Имя»; None — если не годится в имя."""
     try:
-        return normalize_person_name(re.sub(r"[_.]+", " ", old)[:NAME_MAX])
+        return normalize_person_name(re.sub(r"[_.]+", " ", old)[:NAME_MAX], censor=False)
     except ValueError:
         return None
 

@@ -5,6 +5,7 @@ import { usersApi } from "../api/users";
 import type { User } from "../api/types";
 import UserAvatar from "./UserAvatar";
 import s from "./ChatList.module.css";
+import { displayName } from "../utils/profile";
 
 export default function ChatList() {
   const { chats, activeChatId, loadChats, selectChat, openDirectChat } = useChatStore();
@@ -41,7 +42,7 @@ export default function ChatList() {
     }
     const other = chat.members.find((m) => m.user.id !== currentUser?.id)?.user;
     return {
-      username: other?.username ?? "Неизвестный",
+      username: displayName(other) ?? "Неизвестный",
       avatar_url: other?.avatar_url ?? null,
     };
   };
@@ -72,8 +73,8 @@ export default function ChatList() {
             {!searching && results.length === 0 && <div className={s.hint}>Никого не найдено</div>}
             {results.map((u) => (
               <button key={u.id} className={s.userResult} onClick={() => handleUserClick(u)}>
-                <UserAvatar username={u.username} avatarUrl={u.avatar_url} size="sm" />
-                {u.username}
+                <UserAvatar username={displayName(u)} avatarUrl={u.avatar_url} size="sm" />
+                {displayName(u)}
               </button>
             ))}
           </div>
@@ -89,8 +90,8 @@ export default function ChatList() {
               className={chat.id === activeChatId ? s.activeItem : s.item}
               onClick={() => selectChat(chat.id)}
             >
-              <UserAvatar username={peer.username} avatarUrl={peer.avatar_url} />
-              <span className={s.name}>{peer.username}</span>
+              <UserAvatar username={displayName(peer)} avatarUrl={peer.avatar_url} />
+              <span className={s.name}>{displayName(peer)}</span>
             </button>
           );
         })}

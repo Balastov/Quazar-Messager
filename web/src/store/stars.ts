@@ -30,6 +30,7 @@ import { socket } from "../ws/socket";
 import { applyReaction } from "../chat/reactions";
 import { useAuthStore } from "./auth";
 import { useUiStore } from "./ui";
+import { displayName } from "../utils/profile";
 
 const ROLE_RANK: Record<StarRole, number> = { member: 0, moderator: 1, admin: 2, owner: 3 };
 const PAGE_SIZE = 50;
@@ -613,7 +614,7 @@ export const useStarsStore = create<StarsState>((set, get) => {
     const channel = detail?.channels.find((c) => c.id === message.channel_id);
     const where = `#${channel?.name ?? "Спутник"}${message.thread_id ? " · ветка" : ""}`;
     void notifyStarMessage({
-      title: `${message.sender?.username ?? "Участник"} · ${where} · ${detail?.name ?? "Звезда"}`,
+      title: `${displayName(message.sender) ?? "Участник"} · ${where} · ${detail?.name ?? "Звезда"}`,
       body: message.text || (message.file ? `📎 ${message.file.name}` : ""),
       starId,
       channelId: message.channel_id,

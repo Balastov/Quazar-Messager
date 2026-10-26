@@ -19,6 +19,7 @@ import type {Chat, User} from '../api/types';
 import {useContactsStore} from '../store/contacts';
 import ContactsPrompt from '../contacts/ContactsPrompt';
 import PresenceDot from '../components/PresenceDot';
+import {displayName} from '../utils/profile';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Chats'>;
 
@@ -80,7 +81,7 @@ export default function ChatsScreen({navigation}: Props) {
     const other = chat.members.find(m => m.user.id !== currentUser?.id);
     // Как человек записан в телефонной книге — так и показываем.
     const fromPhonebook = contacts.find(c => c.user.id === other?.user.id)?.name;
-    return fromPhonebook || other?.user.username || 'Неизвестный';
+    return fromPhonebook || displayName(other?.user) || 'Неизвестный';
   };
 
   // Контакты из книги, с которыми ещё нет чата, — в начале списка.
@@ -94,7 +95,10 @@ export default function ChatsScreen({navigation}: Props) {
   const contactMatches =
     q.length >= 2
       ? contacts.filter(
-          c => c.name.toLowerCase().includes(q) || c.user.username.toLowerCase().includes(q),
+          c =>
+            c.name.toLowerCase().includes(q) ||
+            c.user.username.toLowerCase().includes(q) ||
+            displayName(c.user).toLowerCase().includes(q),
         )
       : [];
 
@@ -102,7 +106,7 @@ export default function ChatsScreen({navigation}: Props) {
     navigation.navigate('Chat', {chatId: chat.id, title: chatName(chat)});
   };
 
-  const startDirectChat = async (user: User, title = user.username) => {
+  const startDirectChat = async (user: User, title = displayName(user)) => {
     setSearch('');
     setResults([]);
     const chatId = await openDirectChat(user.id);
@@ -144,12 +148,12 @@ export default function ChatsScreen({navigation}: Props) {
           {contactMatches.map(c => (
             <Pressable key={`c-${c.user.id}`} style={s.userRow} onPress={() => startDirectChat(c.user, c.name)}>
               <View style={s.avatar}>
-                <Text style={s.avatarText}>{(c.name || c.user.username)[0].toUpperCase()}</Text>
+                <Text style={s.avatarText}>{(c.name || displayName(c.user))[0].toUpperCase()}</Text>
                 <PresenceDot userId={c.user.id} />
               </View>
               <View>
                 <Text style={s.userName}>{c.name}</Text>
-                <Text style={s.contactSub}>📇 из контактов · {c.user.username}</Text>
+                <Text style={s.contactSub}>📇 из контактов · @{c.user.username}</Text>
               </View>
             </Pressable>
           ))}
@@ -160,10 +164,13 @@ export default function ChatsScreen({navigation}: Props) {
           {results.filter(u => !contactMatches.some(c => c.user.id === u.id)).map(u => (
             <Pressable key={u.id} style={s.userRow} onPress={() => startDirectChat(u)}>
               <View style={s.avatar}>
-                <Text style={s.avatarText}>{u.username[0].toUpperCase()}</Text>
+                <Text style={s.avatarText}>{displayName(u)[0].toUpperCase()}</Text>
                 <PresenceDot userId={u.id} />
               </View>
-              <Text style={s.userName}>{u.username}</Text>
+              <View>
+                <Text style={s.userName}>{displayName(u)}</Text>
+                <Text style={s.contactSub}>@{u.username}</Text>
+              </View>
             </Pressable>
           ))}
         </View>
@@ -191,12 +198,12 @@ export default function ChatsScreen({navigation}: Props) {
               {newContacts.map(c => (
                 <Pressable key={c.user.id} style={s.chatItem} onPress={() => startDirectChat(c.user, c.name)}>
                   <View style={s.avatar}>
-                    <Text style={s.avatarText}>{(c.name || c.user.username)[0].toUpperCase()}</Text>
+                    <Text style={s.avatarText}>{(c.name || displayName(c.user))[0].toUpperCase()}</Text>
                     <PresenceDot userId={c.user.id} />
                   </View>
                   <View>
                     <Text style={s.chatName}>{c.name}</Text>
-                    <Text style={s.contactSub}>в Quazar · {c.user.username}</Text>
+                    <Text style={s.contactSub}>в Quazar · @{c.user.username}</Text>
                   </View>
                 </Pressable>
               ))}

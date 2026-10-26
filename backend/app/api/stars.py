@@ -93,7 +93,9 @@ def _forbid(detail: str = "Недостаточно прав") -> HTTPException:
 
 
 def _user_out(user: User) -> StarUserOut:
-    return StarUserOut(id=user.id, username=user.username, avatar_url=user.avatar_url)
+    return StarUserOut(
+        id=user.id, username=user.username, display_name=user.display_name, avatar_url=user.avatar_url
+    )
 
 
 async def _load_membership(db: AsyncSession, star_id: str, user_id: str) -> tuple[Star, StarMember]:
@@ -785,7 +787,7 @@ async def _greet(db: AsyncSession, star: Star, user: User) -> None:
         channel_id=channel.id,
         sender_id=user.id,
         kind="system",
-        text=template.replace("{name}", user.username)[: rules.MAX_MESSAGE_LENGTH],
+        text=template.replace("{name}", user.display_name)[: rules.MAX_MESSAGE_LENGTH],
     )
     db.add(message)
     await db.commit()
@@ -1253,7 +1255,7 @@ async def _push_message(
         targets,
         {
             "type": "star_message",
-            "title": f"{sender.username} · #{channel.name} · {star.name}",
+            "title": f"{sender.display_name} · #{channel.name} · {star.name}",
             "body": body[:200],
             "star_id": star.id,
             "channel_id": channel.id,

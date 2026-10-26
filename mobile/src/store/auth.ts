@@ -13,6 +13,7 @@ interface AuthState {
   user: User | null;
   hydrated: boolean;
   setToken: (token: string) => Promise<void>;
+  setUser: (user: User) => void;
   logout: () => void;
 }
 
@@ -30,6 +31,8 @@ export const useAuthStore = create<AuthState>()(
         socket.connect(token);
         void useE2EStore.getState().sync(user.id);
       },
+
+      setUser: (user: User) => set({user}),
 
       logout: () => {
         setAuthToken(null);

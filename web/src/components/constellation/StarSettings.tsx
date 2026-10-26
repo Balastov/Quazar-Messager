@@ -32,6 +32,7 @@ import {
 } from "./rules";
 import s from "./Constellation.module.css";
 import { usePresenceText } from "../../store/presence";
+import { displayName } from "../../utils/profile";
 
 export type SettingsTab =
   | "general"
@@ -323,10 +324,10 @@ function MembersTab({ detail }: { detail: StarDetail }) {
         const bannable = !isMe && canBan(detail.my_role, m.role);
         return (
           <div key={m.user.id} className={s.listItem}>
-            <UserAvatar username={m.user.username} avatarUrl={m.user.avatar_url} size="sm" userId={m.user.id} />
+            <UserAvatar username={displayName(m.user)} avatarUrl={m.user.avatar_url} size="sm" userId={m.user.id} />
             <div className={s.listMain}>
               <span className={s.listTitle}>
-                {m.user.username}
+                {displayName(m.user)}
                 {isMe ? " (вы)" : ""}
               </span>
               <span className={s.listSub}>
@@ -340,7 +341,7 @@ function MembersTab({ detail }: { detail: StarDetail }) {
                 style={{ width: "auto" }}
                 value=""
                 disabled={busy}
-                aria-label={`Роль ${m.user.username}`}
+                aria-label={`Роль ${displayName(m.user)}`}
                 onChange={(e) => {
                   const role = e.target.value as (typeof roles)[number];
                   if (role) void run(() => setRole(m.user.id, role));
@@ -361,7 +362,7 @@ function MembersTab({ detail }: { detail: StarDetail }) {
                 disabled={busy}
                 title="Убрать из Звезды. Сможет вернуться по новому приглашению."
                 onClick={() => {
-                  if (window.confirm(`Выгнать ${m.user.username}? Вернуться можно по новому приглашению.`)) {
+                  if (window.confirm(`Выгнать ${displayName(m.user)}? Вернуться можно по новому приглашению.`)) {
                     void run(() => kick(m.user.id));
                   }
                 }}
@@ -378,7 +379,7 @@ function MembersTab({ detail }: { detail: StarDetail }) {
                 onClick={() => {
                   if (
                     window.confirm(
-                      `Заблокировать ${m.user.username}? Вернуться нельзя, пока блокировку не снимут.`
+                      `Заблокировать ${displayName(m.user)}? Вернуться нельзя, пока блокировку не снимут.`
                     )
                   ) {
                     void run(() => ban(m.user.id));
@@ -618,9 +619,9 @@ function BansTab({ detail }: { detail: StarDetail }) {
       </p>
       {bans?.map((b) => (
         <div key={b.user.id} className={s.listItem}>
-          <UserAvatar username={b.user.username} avatarUrl={b.user.avatar_url} size="sm" />
+          <UserAvatar username={displayName(b.user)} avatarUrl={b.user.avatar_url} size="sm" />
           <div className={s.listMain}>
-            <span className={s.listTitle}>{b.user.username}</span>
+            <span className={s.listTitle}>{displayName(b.user)}</span>
             <span className={s.listSub}>
               с {new Date(b.created_at).toLocaleDateString("ru", { day: "numeric", month: "long" })}
             </span>
@@ -633,7 +634,7 @@ function BansTab({ detail }: { detail: StarDetail }) {
               void run(async () => {
                 await starsApi.unban(detail.id, b.user.id);
                 await reload();
-              }, `Блокировка ${b.user.username} снята`)
+              }, `Блокировка ${displayName(b.user)} снята`)
             }
           >
             Разблокировать
@@ -675,7 +676,7 @@ function StarTab({ detail, onClose }: { detail: StarDetail; onClose: () => void 
           <option value="">{candidates.length ? "Выберите участника…" : "Некому передать"}</option>
           {candidates.map((m) => (
             <option key={m.user.id} value={m.user.id}>
-              {m.user.username} · {ROLE_LABEL[m.role]}
+              {displayName(m.user)} · {ROLE_LABEL[m.role]}
             </option>
           ))}
         </select>
@@ -684,7 +685,7 @@ function StarTab({ detail, onClose }: { detail: StarDetail; onClose: () => void 
           className={s.secondary}
           disabled={busy || !target}
           onClick={() => {
-            const name = candidates.find((m) => m.user.id === target)?.user.username;
+            const name = displayName(candidates.find((m) => m.user.id === target)?.user);
             if (window.confirm(`Передать Звезду «${detail.name}» пользователю ${name}?`)) {
               void run(() => transferStar(target), "Звезда передана");
             }

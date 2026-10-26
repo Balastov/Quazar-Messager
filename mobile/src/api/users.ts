@@ -6,5 +6,8 @@ export const usersApi = {
   setStatus: (body: {kind: 'meeting' | 'dnd' | null; until: string | null}) =>
     http.put('/users/me/status', body).then(r => r.data),
   me: () => http.get<User>('/users/me').then(r => r.data),
+  /** Никнейм, почта, имя, фамилия; не присланное не меняется, '' — убрать. */
+  updateMe: (body: Partial<Pick<User, 'username' | 'email' | 'first_name' | 'last_name'>>) =>
+    http.patch<User>('/users/me', body).then(r => r.data),
   search: (q: string) => http.get<User[]>('/users/search', {params: {q}}).then(r => r.data),
 };

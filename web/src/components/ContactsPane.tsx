@@ -28,6 +28,7 @@ import { typingLabel } from "../chat/typing";
 import type { Chat } from "../api/types";
 import m from "./messages/Messages.module.css";
 import SavedAvatar from "./chat/SavedAvatar";
+import { displayName } from "../utils/profile";
 
 /** Строка под именем чата: последнее сообщение, а пока кто-то набирает — «печатает…». */
 function PreviewLine({ chat, className, children }: { chat: Chat; className: string; children: string }) {
@@ -35,7 +36,7 @@ function PreviewLine({ chat, className, children }: { chat: Chat; className: str
   if (!typing.length) return <span className={className}>{children}</span>;
   const label =
     chat.type === "group"
-      ? typingLabel(typing.map((id) => chat.members.find((mb) => mb.user.id === id)?.user.username ?? "Кто-то"))
+      ? typingLabel(typing.map((id) => displayName(chat.members.find((mb) => mb.user.id === id)?.user) ?? "Кто-то"))
       : "печатает…";
   return <span className={`${className} ${m.typing}`}>{label}</span>;
 }
@@ -100,7 +101,7 @@ export default function ContactsPane() {
     return {
       id: other?.id ?? null,
       // Как человек записан в телефонной книге — так и показываем.
-      username: (other && phonebookNames[other.id]) || other?.username || "Неизвестный",
+      username: (other && phonebookNames[other.id]) || displayName(other) || "Неизвестный",
       avatar_url: other?.avatar_url ?? null,
       phone: other?.phone ?? null,
     };
@@ -147,7 +148,7 @@ export default function ContactsPane() {
     const q = search.trim().toLowerCase();
     if (!q) return phonebook;
     return phonebook.filter(
-      (c) => c.name.toLowerCase().includes(q) || c.user.username.toLowerCase().includes(q)
+      (c) => c.name.toLowerCase().includes(q) || c.user.username.toLowerCase().includes(q) || displayName(c.user).toLowerCase().includes(q)
     );
   }, [phonebook, search]);
 
@@ -279,10 +280,10 @@ export default function ContactsPane() {
                 })();
               }}
             >
-              <UserAvatar username={u.username} avatarUrl={u.avatar_url} size="sm" userId={u.id} />
+              <UserAvatar username={displayName(u)} avatarUrl={u.avatar_url} size="sm" userId={u.id} />
               <span className={s.userMeta}>
-                <span className={s.userName}>{u.username}</span>
-                <span className={s.userPhone}>{formatRuPhoneDisplay(u.phone)}</span>
+                <span className={s.userName}>{displayName(u)}</span>
+                <span className={s.userPhone}>@{displayName(u)} · {formatRuPhoneDisplay(u.phone)}</span>
               </span>
             </button>
           ))}
@@ -300,16 +301,16 @@ export default function ContactsPane() {
               onClick={() => void openContact(c.user.id)}
             >
               <UserAvatar
-                username={c.name || c.user.username}
+                username={c.name || displayName(c.user)}
                 avatarUrl={c.user.avatar_url}
                 userId={c.user.id}
               />
               <div className={s.meta}>
                 <div className={s.nameRow}>
-                  <span className={s.name}>{c.name || c.user.username}</span>
+                  <span className={s.name}>{c.name || displayName(c.user)}</span>
                 </div>
                 <span className={s.preview}>
-                  {c.user.username} · {formatRuPhoneDisplay(c.user.phone)}
+                  @{displayName(c.user)} · {formatRuPhoneDisplay(c.user.phone)}
                 </span>
               </div>
             </button>
@@ -361,10 +362,10 @@ export default function ContactsPane() {
               className={chat.id === activeChatId ? s.itemActive : s.item}
               onClick={() => void openChat(chat.id)}
             >
-              <UserAvatar username={peer.username} avatarUrl={peer.avatar_url} userId={peer.id} />
+              <UserAvatar username={displayName(peer)} avatarUrl={peer.avatar_url} userId={peer.id} />
               <div className={s.meta}>
                 <div className={s.nameRow}>
-                  <span className={hasUnread ? s.nameUnread : s.name}>{peer.username}</span>
+                  <span className={hasUnread ? s.nameUnread : s.name}>{displayName(peer)}</span>
                   {chat.type === "direct" && <CustomStatusBadge userId={peer.id} compact />}
                   {quiet && (
                     <span title="Уведомления выключены" aria-label="Уведомления выключены">

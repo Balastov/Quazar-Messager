@@ -1,12 +1,13 @@
 /** Человеческие строки журнала Звезды (действия — backend/app/core/star_audit.py). */
 import type { AuditEntry } from "../../api/stars";
 import { ROLE_LABEL } from "./rules";
+import { displayName } from "../../utils/profile";
 
 const TIMEOUT_LABEL: Record<number, string> = { 5: "5 минут", 60: "1 час", 1440: "1 день", 10080: "1 неделю" };
 
 export function auditText(e: AuditEntry): string {
-  const who = e.actor?.username ?? "Кто-то";
-  const whom = e.target?.username ?? "участника";
+  const who = displayName(e.actor) ?? "Кто-то";
+  const whom = displayName(e.target) ?? "участника";
   const d = e.details as Record<string, unknown>;
   const channel = typeof d.name === "string" ? `«${d.name}»` : "";
   switch (e.action) {

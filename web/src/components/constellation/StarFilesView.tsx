@@ -7,6 +7,7 @@ import { downloadStarFile } from "./StarFileView";
 import { apiError } from "./rules";
 import s from "./Constellation.module.css";
 import w from "./Work.module.css";
+import { displayName } from "../../utils/profile";
 
 type Kind = "all" | "images" | "docs";
 
@@ -125,7 +126,7 @@ export default function StarFilesView({
                   {f.name}
                 </span>
                 <span className={w.fileMeta}>
-                  {formatSize(f.size)} · {f.uploader?.username ?? "бывший участник"} · {formatWhen(f.created_at)} · #
+                  {formatSize(f.size)} · {displayName(f.uploader) ?? "бывший участник"} · {formatWhen(f.created_at)} · #
                   {channelName(f.channel_id)}
                 </span>
               </div>

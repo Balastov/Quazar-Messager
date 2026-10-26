@@ -16,6 +16,7 @@ import { formatWhen } from "../../chat/when";
 import s from "./Constellation.module.css";
 import g from "./Gaming.module.css";
 import w from "./Work.module.css";
+import { displayName } from "../../utils/profile";
 
 const NO_ASSETS: StarAsset[] = [];
 
@@ -77,7 +78,7 @@ export default function ThreadPanel({ detail, fullscreen = false }: Props) {
   const timedOut = me?.timeout_until && Date.parse(me.timeout_until) > Date.now() ? me.timeout_until : null;
 
   const nameOf = (userId: string) =>
-    detail.members.find((mb) => mb.user.id === userId)?.user.username ?? "Бывший участник";
+    displayName(detail.members.find((mb) => mb.user.id === userId)?.user) ?? "Бывший участник";
   const roleOf = (userId: string) => detail.members.find((mb) => mb.user.id === userId)?.role;
   const canDelete = (msg: StarMessage) => {
     if (msg.sender?.id === myId) return true;

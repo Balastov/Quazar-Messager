@@ -95,7 +95,7 @@ async def _contacts_out(db: AsyncSession, user_id: str) -> ContactsOut:
     ).all()
     sync = await db.get(ContactSync, user_id)
     contacts = [
-        ContactOut(user=UserOut.model_validate(user), name=contact.name or user.username)
+        ContactOut(user=UserOut.model_validate(user), name=contact.name or user.display_name)
         for contact, user in rows
     ]
     contacts.sort(key=lambda c: c.name.lower())

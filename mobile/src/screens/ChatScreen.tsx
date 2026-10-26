@@ -35,6 +35,7 @@ import {parseVoice, voicePreview} from '../attachments/voice';
 import {filePreview, formatSize, parseFile} from '../attachments/file';
 import MessageActions, {type MessageAction} from '../components/MessageActions';
 import {groupReactions, myReaction, toggledReaction} from '../chat/reactions';
+import {displayName} from '../utils/profile';
 
 const STICKER_SIZE = 150;
 const NO_TYPING: string[] = [];
@@ -145,7 +146,7 @@ export default function ChatScreen({route, navigation}: Props) {
     if (userId && userId === currentUser?.id) {
       return 'Вы';
     }
-    return chat?.members.find(m => m.user.id === userId)?.user.username ?? 'Участник';
+    return displayName(chat?.members.find(m => m.user.id === userId)?.user) ?? 'Участник';
   };
   const stickerEmoji = (pack: string, id: string) => stickersByKey[`${pack}/${id}`]?.emoji;
   const typingText = typingIds.length

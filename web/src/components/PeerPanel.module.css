@@ -32,6 +32,12 @@
   font-weight: 700;
 }
 
+.nick {
+  margin-top: -4px;
+  font-size: 13px;
+  color: var(--qz-text-muted);
+}
+
 .status {
   font-size: 12px;
   color: var(--qz-text-muted);

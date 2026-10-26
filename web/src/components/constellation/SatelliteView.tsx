@@ -55,6 +55,7 @@ import {
   revealMessage,
   useMessageMenuTrigger,
 } from "../messages/parts";
+import { displayName } from "../../utils/profile";
 
 const EMPTY: StarMessage[] = [];
 const NO_ASSETS: StarAsset[] = [];
@@ -150,7 +151,7 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
   const canPin = can(detail, "delete_messages");
   const pinnedIds = new Set((pins ?? []).map((p) => p.id));
   const nameOf = (userId: string) =>
-    detail.members.find((mb) => mb.user.id === userId)?.user.username ?? "Бывший участник";
+    displayName(detail.members.find((mb) => mb.user.id === userId)?.user) ?? "Бывший участник";
 
   const canDelete = (msg: StarMessage) => {
     if (msg.sender?.id === myId) return true;
@@ -450,7 +451,7 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
         <PinBar
           items={pins.map((p) => ({
             id: p.id,
-            author: p.bot_name ?? p.sender?.username ?? "Бывший участник",
+            author: p.bot_name ?? displayName(p.sender) ?? "Бывший участник",
             text: previewText(p.text) || (p.file ? `📎 ${p.file.name}` : ""),
           }))}
           onOpen={(id) => void jumpTo({ id, star_id: detail.id, channel_id: channel.id, thread_id: null })}
@@ -522,7 +523,7 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
       {replyTo && (
         <ComposerContext
           kind="reply"
-          title={`Ответ ${replyTo.sender?.id === myId ? "себе" : (replyTo.sender?.username ?? "участнику")}`}
+          title={`Ответ ${replyTo.sender?.id === myId ? "себе" : (displayName(replyTo.sender) ?? "участнику")}`}
           text={previewText(replyTo.text)}
           onCancel={cancelContext}
         />
@@ -759,7 +760,7 @@ export function SatelliteMessage({
         <BotAvatar kind={msg.bot_kind} />
       ) : (
         <UserAvatar
-          username={msg.sender?.username ?? "?"}
+          username={displayName(msg.sender) ?? "?"}
           avatarUrl={msg.sender?.avatar_url ?? null}
           size="sm"
         />
@@ -767,7 +768,7 @@ export function SatelliteMessage({
       <div className={s.messageBody}>
         <div className={s.messageHead}>
           <span className={s.messageAuthor} style={color ? { color } : undefined}>
-            {msg.kind === "bot" ? (msg.bot_name ?? "Интеграция") : (msg.sender?.username ?? "Бывший участник")}
+            {msg.kind === "bot" ? (msg.bot_name ?? "Интеграция") : (displayName(msg.sender) ?? "Бывший участник")}
           </span>
           {msg.kind === "bot" && <span className={w.botBadge}>бот</span>}
           <span className={s.messageTime}>
@@ -777,7 +778,7 @@ export function SatelliteMessage({
         {msg.reply_to && (
           <div className={s.messageExtra}>
             <ReplyQuote
-              author={msg.reply_to.sender?.username ?? "Бывший участник"}
+              author={displayName(msg.reply_to.sender) ?? "Бывший участник"}
               text={previewText(msg.reply_to.text)}
               onClick={() => onQuoteClick(msg.reply_to!.id)}
             />

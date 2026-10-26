@@ -13,6 +13,7 @@ import Dialog from "./Dialog";
 import { apiError, ROOM_LABEL, SELECTABLE_ROOM_KINDS } from "./rules";
 import s from "./Constellation.module.css";
 import { placeNouns } from "./words";
+import { displayName } from "../../utils/profile";
 
 const ROOM_KINDS = SELECTABLE_ROOM_KINDS;
 
@@ -70,7 +71,7 @@ export default function ChannelDialog({
   const [listenOnly, setListenOnly] = useState<boolean>(channel?.listen_only ?? false);
   const [slowMode, setSlowMode] = useState<number>(channel?.slow_mode_sec ?? 0);
   const [announcement, setAnnouncement] = useState<boolean>(channel?.announcement ?? false);
-  const sortedMembers = [...members].sort((a, b) => a.user.username.localeCompare(b.user.username, "ru"));
+  const sortedMembers = [...members].sort((a, b) => displayName(a.user).localeCompare(displayName(b.user), "ru"));
   const floorEditable = !channel || canEditMap;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -180,7 +181,7 @@ export default function ChannelDialog({
               </option>
               {sortedMembers.map((m) => (
                 <option key={m.user.id} value={m.user.id}>
-                  {m.user.username}
+                  {displayName(m.user)}
                 </option>
               ))}
             </select>

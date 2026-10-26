@@ -7,6 +7,7 @@ import {ensureCallPermissions} from '../calls/permissions';
 import {socket} from '../ws/socket';
 import {useAuthStore} from './auth';
 import {useChatStore} from './chat';
+import {displayName} from '../utils/profile';
 
 type EndReason =
   | 'hangup'
@@ -52,7 +53,7 @@ let endClearTimer: ReturnType<typeof setTimeout> | null = null;
 function resolvePeerMeta(chatId: string, peerUserId: string) {
   const chat = useChatStore.getState().chats.find(c => c.id === chatId);
   const user = chat?.members.find(m => m.user.id === peerUserId)?.user;
-  return {peerUsername: user?.username ?? 'Собеседник'};
+  return {peerUsername: displayName(user) ?? 'Собеседник'};
 }
 
 function cleanupPeer() {

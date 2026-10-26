@@ -260,7 +260,7 @@ async def new_temporary_planet(star_id: str, body: TempPlanetBody, current_user:
     """Временная Планета: создаёт любой участник, в лимит Планет не входит, пустая — исчезает сама."""
     star, me = await _load_membership(db, star_id, current_user.id)
     assert_can_post(star, me)
-    name = " ".join((body.name or "").split()) or f"Планета {current_user.username}"
+    name = " ".join((body.name or "").split()) or f"Планета {current_user.display_name}"
     return await create_temporary_planet(db, star_id, current_user.id, name)
 
 

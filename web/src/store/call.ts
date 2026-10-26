@@ -10,6 +10,7 @@ import { socket } from "../ws/socket";
 import { useAuthStore } from "./auth";
 import { useChatStore } from "./chat";
 import { useVoiceStore } from "./voice";
+import { displayName } from "../utils/profile";
 
 type EndReason =
   | "hangup"
@@ -225,7 +226,7 @@ function resolvePeerMeta(chatId: string, peerUserId: string) {
   const chat = useChatStore.getState().chats.find((c) => c.id === chatId);
   const user = chat?.members.find((m) => m.user.id === peerUserId)?.user;
   return {
-    peerUsername: user?.username ?? "Собеседник",
+    peerUsername: displayName(user) ?? "Собеседник",
     peerAvatarUrl: user?.avatar_url ?? null,
   };
 }

@@ -1,0 +1,51 @@
+// Профиль: имя для показа и правила никнейма — как на сервере (backend/app/core/profile.py).
+
+export const USERNAME_MAX = 32;
+
+const RESERVED = new Set([
+  'all', 'everyone', 'here', 'admin', 'administrator', 'support', 'system', 'quazar',
+  'moderator', 'root', 'me', 'saved',
+]);
+
+type Named = {username: string; display_name?: string | null};
+
+/** «Имя Фамилия», если указаны, иначе никнейм. Нет пользователя — undefined (для «?? запасное»). */
+export function displayName(u: Named): string;
+export function displayName(u: Named | null | undefined): string | undefined;
+export function displayName(u: Named | null | undefined): string | undefined {
+  if (!u) {
+    return undefined;
+  }
+  return u.display_name?.trim() || u.username;
+}
+
+/** Что не так с никнеймом (без похода на сервер); null — по правилам подходит. */
+export function usernameProblem(raw: string): string | null {
+  const v = raw.trim().replace(/^@/, '');
+  if (v.length < 3 || v.length > USERNAME_MAX) {
+    return `Никнейм — от 3 до ${USERNAME_MAX} символов`;
+  }
+  if (!/^[A-Za-z][A-Za-z0-9_.]*$/.test(v)) {
+    return 'Никнейм — латинские буквы, цифры, «_» и «.», начинается с буквы';
+  }
+  if (v.endsWith('.') || v.includes('..')) {
+    return 'Точка не может стоять в конце никнейма или два раза подряд';
+  }
+  if (RESERVED.has(v.toLowerCase())) {
+    return 'Этот никнейм зарезервирован';
+  }
+  return null;
+}
+
+/** Текст ошибки API: detail строкой или первая ошибка валидации без «Value error, ». */
+export function apiErrorText(err: unknown, fallback = 'Что-то пошло не так'): string {
+  const detail = (err as {response?: {data?: {detail?: string | {msg?: string}[]}}})?.response
+    ?.data?.detail;
+  if (typeof detail === 'string') {
+    return detail;
+  }
+  if (Array.isArray(detail) && detail[0]?.msg) {
+    return String(detail[0].msg).replace(/^Value error, /, '');
+  }
+  return fallback;
+}

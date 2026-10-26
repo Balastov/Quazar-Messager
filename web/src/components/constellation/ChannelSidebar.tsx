@@ -13,6 +13,7 @@ import { currentBooking, doorSign, hhmm, useBookings } from "./work";
 import NotifyDialog from "../NotifyDialog";
 import { channelLevel, starLevel, STAR_DEFAULT, useNotifyStore } from "../../notifications/levels";
 import s from "./Constellation.module.css";
+import { displayName } from "../../utils/profile";
 
 interface Props {
   detail: StarDetail;
@@ -165,7 +166,7 @@ export default function ChannelSidebar({
                 <div className={s.presence}>
                   {inside.map((p) => {
                     const name =
-                      detail.members.find((m) => m.user.id === p.user_id)?.user.username ?? p.guest_name ?? "Участник";
+                      displayName(detail.members.find((m) => m.user.id === p.user_id)?.user) ?? p.guest_name ?? "Участник";
                     const talking = c.id === voiceChannelId && speaking.has(p.user_id);
                     return (
                       <div key={p.user_id} className={s.presenceRow}>

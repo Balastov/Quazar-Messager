@@ -181,6 +181,8 @@ class SetStarReaction(BaseModel):
 class StarUserOut(BaseModel):
     id: str
     username: str
+    # «Имя Фамилия» или никнейм, если имя не указано.
+    display_name: str = ""
     avatar_url: str | None
 
 

@@ -15,6 +15,7 @@ from app.core.star_assets import stars_media_dir
 from app.core import attachments, scheduler, voice
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal, Base, engine
+from app.core.legacy_usernames import migrate_legacy_usernames
 from app.models import Attachment, Call, PushSubscription, Star  # noqa: F401 — register tables for create_all
 from app.api.auth import router as auth_router
 from app.api.users import router as users_router
@@ -124,6 +125,39 @@ async def lifespan(app: FastAPI):
                     CREATE UNIQUE INDEX IF NOT EXISTS ix_users_phone ON users (phone)
                     WHERE phone IS NOT NULL;
                   END IF;
+                END $$;
+                """
+            )
+        )
+        # Профиль: почта (колонка могла остаться от входа по почте), имя и фамилия.
+        await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS email VARCHAR(254)"))
+        await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS first_name VARCHAR(64)"))
+        await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS last_name VARCHAR(64)"))
+        # Старые ники не латиницей → латиница, прежний ник — в «Имя» (до индекса ниже).
+        await migrate_legacy_usernames(conn)
+        # Никнейм и почта уникальны без учёта регистра. Если в старых данных уже есть
+        # «Alex» и «alex», индекс не создастся — тогда занятость проверяет только код.
+        await conn.execute(
+            text(
+                """
+                DO $$
+                BEGIN
+                  CREATE UNIQUE INDEX IF NOT EXISTS ux_users_username_lower ON users (lower(username));
+                EXCEPTION WHEN unique_violation THEN
+                  RAISE WARNING 'users: duplicate usernames differing only by case';
+                END $$;
+                """
+            )
+        )
+        await conn.execute(
+            text(
+                """
+                DO $$
+                BEGIN
+                  CREATE UNIQUE INDEX IF NOT EXISTS ux_users_email_lower ON users (lower(email))
+                  WHERE email IS NOT NULL;
+                EXCEPTION WHEN unique_violation THEN
+                  RAISE WARNING 'users: duplicate emails differing only by case';
                 END $$;
                 """
             )

@@ -152,3 +152,70 @@
   color: var(--qz-danger);
   font-size: 13px;
 }
+
+.lead {
+  margin: -4px 0 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--qz-text-muted);
+}
+
+.pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+@media (max-width: 360px) {
+  .pair {
+    grid-template-columns: 1fr;
+  }
+}
+
+.nickField {
+  position: relative;
+}
+
+.nickAt {
+  position: absolute;
+  left: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--qz-text-muted);
+  font-size: 16px;
+  pointer-events: none;
+}
+
+.input.nickInput {
+  padding-left: 30px;
+}
+
+.hint,
+.hintOk,
+.hintBad {
+  margin: 6px 2px 0;
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--qz-text-muted);
+}
+
+.hintOk {
+  color: var(--qz-success, #4ade80);
+}
+
+.hintBad {
+  color: var(--qz-danger);
+}
+
+.skip {
+  background: none;
+  border: none;
+  color: var(--qz-text-muted);
+  font-size: 14px;
+  padding: 6px;
+  cursor: pointer;
+}
+
+.skip:hover {
+  color: var(--qz-text);
+}

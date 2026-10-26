@@ -51,6 +51,7 @@ import { useUnreadStore } from "./unread";
 import { messagePreview } from "./stickers";
 import { applyReaction } from "../chat/reactions";
 import type { Chat, Message, MessageReaction } from "../api/types";
+import { displayName } from "../utils/profile";
 
 function isTabVisible(): boolean {
   return typeof document === "undefined" || document.visibilityState === "visible";
@@ -373,7 +374,7 @@ export function chatTitle(chat: Chat | undefined, myId = useAuthStore.getState()
   if (!chat) return "чат";
   if (chat.type === "saved") return "Избранное";
   if (chat.type === "group") return chat.name ?? "Группа";
-  return chat.members.find((m) => m.user.id !== myId)?.user.username ?? "Собеседник";
+  return displayName(chat.members.find((m) => m.user.id !== myId)?.user) ?? "Собеседник";
 }
 
 /** Исчезнувшие сообщения убираем сами, не дожидаясь события сервера (он чистит раз в 5 с). */
@@ -502,7 +503,7 @@ export const useChatStore = create<ChatState>((set, get) => {
 
           const chat = get().chats.find((c) => c.id === event.chat_id);
           const sender =
-            chat?.members.find((m) => m.user.id === event.sender_id)?.user.username ??
+            displayName(chat?.members.find((m) => m.user.id === event.sender_id)?.user) ??
             "Новое сообщение";
           // Уровень уведомлений чата: в группе «только упоминания» — @имя, @все или ответ мне.
           const me = useAuthStore.getState().user;
@@ -578,7 +579,7 @@ export const useChatStore = create<ChatState>((set, get) => {
         const myId = useAuthStore.getState().user?.id;
         if (event.changed_by !== myId) {
           const chat = get().chats.find((c) => c.id === event.chat_id);
-          const who = chat?.members.find((m) => m.user.id === event.changed_by)?.user.username ?? "Собеседник";
+          const who = displayName(chat?.members.find((m) => m.user.id === event.changed_by)?.user) ?? "Собеседник";
           notifyInfo({
             title: who,
             body: event.ttl_seconds
@@ -621,6 +622,23 @@ export const useChatStore = create<ChatState>((set, get) => {
           }
           return { messages: updated };
         });
+      }
+
+      if (event.type === "user_updated") {
+        const auth = useAuthStore.getState();
+        // У события нет почты — её сохраняем свою.
+        if (auth.user?.id === event.user.id) auth.setUser({ ...auth.user, ...event.user });
+        set((st) => ({
+          chats: st.chats.map((c) =>
+            c.members.some((m) => m.user.id === event.user.id)
+              ? {
+                  ...c,
+                  members: c.members.map((m) => (m.user.id === event.user.id ? { ...m, user: event.user } : m)),
+                }
+              : c
+          ),
+        }));
+        return;
       }
 
       if (event.type === "key_changed") {
@@ -907,7 +925,7 @@ export const useChatStore = create<ChatState>((set, get) => {
       const source = get().chats.find((c) => c.id === message.chat_id);
       const from =
         message.forwarded_from ??
-        source?.members.find((m) => m.user.id === message.sender_id)?.user.username ??
+        displayName(source?.members.find((m) => m.user.id === message.sender_id)?.user) ??
         "Неизвестный";
       let body = message.payload;
       let attachmentId: string | undefined;

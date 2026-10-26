@@ -5,6 +5,7 @@ import { formatWhen } from "../../chat/when";
 import { useStarsStore } from "../../store/stars";
 import { apiError } from "./rules";
 import s from "../messages/SearchBar.module.css";
+import { displayName } from "../../utils/profile";
 
 /** Поиск по Спутникам Звезды (на сервере): текст сообщений и названия файлов. */
 export default function StarSearchPanel({
@@ -56,7 +57,7 @@ export default function StarSearchPanel({
   };
 
   const channelName = (id: string) => detail.channels.find((c) => c.id === id)?.name ?? "Спутник";
-  const author = (m: StarMessage) => m.bot_name ?? m.sender?.username ?? "Бывший участник";
+  const author = (m: StarMessage) => m.bot_name ?? displayName(m.sender) ?? "Бывший участник";
 
   return (
     <div className={s.panel}>

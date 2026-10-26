@@ -5,6 +5,7 @@ import { useCallStore } from "../store/call";
 import UserAvatar from "./UserAvatar";
 import { IconPhone, IconVideo } from "./icons";
 import s from "./CallsView.module.css";
+import { displayName } from "../utils/profile";
 
 function formatWhen(iso: string) {
   try {
@@ -56,7 +57,7 @@ export default function CallsView() {
       return {
         chatId: c.id,
         userId: other?.id ?? "",
-        username: other?.username ?? "Неизвестный",
+        username: displayName(other) ?? "Неизвестный",
         avatar_url: other?.avatar_url ?? null,
       };
     })

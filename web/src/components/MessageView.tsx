@@ -71,6 +71,7 @@ import {
   revealMessage,
   useMessageMenuTrigger,
 } from "./messages/parts";
+import { displayName } from "../utils/profile";
 
 const STICKER_SIZE = 160;
 /** Сколько столбиков живой волны видно во время записи. */
@@ -269,14 +270,14 @@ export default function MessageView({ showBack = false }: Props) {
     const other = chat.members.find((m) => m.user.id !== currentUser?.id)?.user;
     return {
       id: other?.id ?? null,
-      username: other?.username ?? "",
+      username: displayName(other) ?? "",
       avatar_url: other?.avatar_url ?? null,
     };
   })();
 
   const nameOf = (userId: string | null | undefined) => {
     if (userId && userId === currentUser?.id) return "Вы";
-    return chat?.members.find((mb) => mb.user.id === userId)?.user.username ?? "Участник";
+    return displayName(chat?.members.find((mb) => mb.user.id === userId)?.user) ?? "Участник";
   };
 
   const myRole = chat?.members.find((mb) => mb.user.id === currentUser?.id)?.role;

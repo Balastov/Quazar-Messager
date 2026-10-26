@@ -20,6 +20,7 @@ import { apiError, can, doorKind, initials, roomDoor } from "./rules";
 import s from "./Constellation.module.css";
 import w from "./Work.module.css";
 import { currentBooking, doorSign, hhmm, useBookings } from "./work";
+import { displayName } from "../../utils/profile";
 
 interface Props {
   detail: StarDetail;
@@ -87,7 +88,7 @@ export default function OfficeMap({ detail, onBack, onOpenPlanet, onAddRoom }: P
 
   const rectFor = (c: StarChannel): Rect => (editing && draft[c.id]) || rectOf(c)!;
   const memberName = (userId: string) =>
-    detail.members.find((m) => m.user.id === userId)?.user.username ??
+    displayName(detail.members.find((m) => m.user.id === userId)?.user) ??
     Object.values(detail.voice ?? {})
       .flat()
       .find((p) => p.user_id === userId)?.guest_name ??

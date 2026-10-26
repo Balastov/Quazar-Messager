@@ -15,6 +15,8 @@ import {useAuthStore} from '../store/auth';
 import {useContactsStore} from '../store/contacts';
 import {setMyManualStatus, useMyManualStatus} from '../store/presence';
 import {MANUAL_LABEL, untilText, type ManualKind} from '../utils/presence';
+import {displayName} from '../utils/profile';
+import ProfileEditor from '../components/ProfileEditor';
 
 const DURATIONS: {label: string; until: () => Date | null}[] = [
   {label: '30 мин', until: () => new Date(Date.now() + 30 * 60_000)},
@@ -66,11 +68,20 @@ export default function ProfileScreen({navigation}: Props) {
     <ScrollView style={s.root} contentContainerStyle={s.content}>
       <View style={s.card}>
         <View style={s.avatar}>
-          <Text style={s.avatarText}>{user?.username?.[0]?.toUpperCase() ?? '?'}</Text>
+          <Text style={s.avatarText}>{displayName(user)?.[0]?.toUpperCase() ?? '?'}</Text>
         </View>
-        <Text style={s.name}>{user?.username}</Text>
-        <Text style={s.muted}>{user?.phone}</Text>
+        <Text style={s.name}>{displayName(user)}</Text>
+        <Text style={[s.muted, s.center]}>
+          @{user?.username} · {user?.phone}
+        </Text>
       </View>
+
+      {user && (
+        <View style={s.card}>
+          <Text style={s.title}>Профиль</Text>
+          <ProfileEditor user={user} />
+        </View>
+      )}
 
       <View style={s.card}>
         <Text style={s.title}>Статус</Text>
@@ -202,6 +213,7 @@ const s = StyleSheet.create({
   row: {flexDirection: 'row', alignItems: 'center', gap: 12},
   title: {color: '#fff', fontSize: 15, fontWeight: '600'},
   muted: {color: '#9b93b8', fontSize: 13, lineHeight: 18},
+  center: {textAlign: 'center'},
   status: {gap: 6},
   link: {color: '#c4b5fd', fontSize: 14, fontWeight: '600'},
   warn: {color: '#fbbf24', fontSize: 13, lineHeight: 18},

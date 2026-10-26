@@ -5,14 +5,20 @@ from sqlalchemy import JSON, Boolean, DateTime, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
+from app.core.profile import display_name
 
 
 class User(Base):
     __tablename__ = "users"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    # Никнейм латиницей (app/core/profile.py); уникален без учёта регистра — индекс в main.py.
     username: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
     phone: Mapped[str] = mapped_column(String(20), unique=True, nullable=False, index=True)
+    # Необязательные: почта (в нижнем регистре, уникальна) и имя для отображения на любом языке.
+    email: Mapped[str | None] = mapped_column(String(254), nullable=True)
+    first_name: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    last_name: Mapped[str | None] = mapped_column(String(64), nullable=True)
     password_hash: Mapped[str] = mapped_column(String(256), nullable=False)
     avatar_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Личный фон приложения (/media/backgrounds/…); видит только сам пользователь.
@@ -38,3 +44,7 @@ class User(Base):
     )
 
     memberships: Mapped[list["ChatMember"]] = relationship("ChatMember", back_populates="user")  # noqa: F821
+
+    @property
+    def display_name(self) -> str:
+        return display_name(self.first_name, self.last_name, self.username)

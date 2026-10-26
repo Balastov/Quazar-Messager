@@ -5,6 +5,7 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy import or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.avatars import (
@@ -20,13 +21,14 @@ from app.core.backgrounds import (
     delete_background,
     save_background,
 )
+from app.core.accounts import TAKEN, email_taken, username_taken
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.core.e2e import decode_public_key_b64
 from app.core.e2e_users import get_direct_chat_partner_ids
 from app.core.security import verify_password
 from app.models.user import User
-from app.schemas.user import UserOut
+from app.schemas.user import MeOut, UpdateProfile, UserOut
 from app.ws.hub import manager
 from app.core import presence
 
@@ -103,12 +105,50 @@ async def _set_public_key_and_notify(
     )
 
 
-@router.get("/me", response_model=UserOut)
+@router.get("/me", response_model=MeOut)
 async def get_me(current_user: Annotated[User, Depends(get_current_user)]):
     return current_user
 
 
-@router.post("/me/avatar", response_model=UserOut)
+@router.patch("/me", response_model=MeOut)
+async def update_me(
+    body: UpdateProfile,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Никнейм, почта, имя и фамилия. Собеседники в личных чатах узнают о смене сразу."""
+    fields = body.model_fields_set
+    if "username" in fields and body.username is None:
+        raise HTTPException(status_code=422, detail="Никнейм обязателен")
+    if body.username and body.username != current_user.username:
+        if await username_taken(db, body.username, exclude_id=current_user.id):
+            raise HTTPException(status_code=400, detail=TAKEN["username"])
+        current_user.username = body.username
+    if "email" in fields:
+        if body.email and await email_taken(db, body.email, exclude_id=current_user.id):
+            raise HTTPException(status_code=400, detail=TAKEN["email"])
+        current_user.email = body.email
+    if "first_name" in fields:
+        current_user.first_name = body.first_name
+    if "last_name" in fields:
+        current_user.last_name = body.last_name
+
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(status_code=400, detail="Никнейм или почта уже заняты") from None
+    await db.refresh(current_user)
+
+    partner_ids = await get_direct_chat_partner_ids(current_user.id, db)
+    await manager.broadcast_to_users(
+        [*partner_ids, current_user.id],
+        {"type": "user_updated", "user": UserOut.model_validate(current_user).model_dump(mode="json")},
+    )
+    return current_user
+
+
+@router.post("/me/avatar", response_model=MeOut)
 async def upload_avatar(
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
@@ -188,7 +228,7 @@ async def remove_my_background(
     return await _background_changed(current_user)
 
 
-@router.delete("/me/avatar", response_model=UserOut)
+@router.delete("/me/avatar", response_model=MeOut)
 async def remove_avatar(
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
@@ -274,7 +314,7 @@ async def search_users(
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    """Поиск пользователей по username или номеру телефона (+7…)."""
+    """Поиск пользователей по никнейму, имени и фамилии или номеру телефона (+7…)."""
     query = q.strip()
     if len(query) < 2 and len(re.sub(r"\D", "", query)) < 3:
         raise HTTPException(status_code=422, detail="Query too short")
@@ -288,7 +328,10 @@ async def search_users(
 
     conditions = []
     if len(query) >= 2:
-        conditions.append(User.username.ilike(f"%{query}%"))
+        like = f"%{query.lstrip('@')}%"
+        conditions.append(User.username.ilike(like))
+        conditions.append(User.first_name.ilike(like))
+        conditions.append(User.last_name.ilike(like))
     if len(local) >= 3:
         conditions.append(User.phone.ilike(f"%{local}%"))
     if len(digits) >= 3 and digits != local:

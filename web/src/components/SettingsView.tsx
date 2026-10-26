@@ -38,6 +38,9 @@ const STAR_SOUNDS: [StarSoundEvent, string][] = [
   ["invite", "Приглашение"],
 ];
 import UserAvatar from "./UserAvatar";
+import ProfileEditor from "./profile/ProfileEditor";
+import { displayName } from "../utils/profile";
+import { formatRuPhoneDisplay } from "../utils/phone";
 import MicCheck from "./MicCheck";
 import AudioDevices from "./AudioDevices";
 import { IconLogout } from "./icons";
@@ -127,12 +130,16 @@ export default function SettingsView() {
 
         <section className={s.card}>
           <div className={s.profileRow}>
-            <UserAvatar username={user.username} avatarUrl={user.avatar_url} size="lg" />
+            <UserAvatar username={displayName(user)} avatarUrl={user.avatar_url} size="lg" />
             <div className={s.meta}>
-              <div className={s.name}>{user.username}</div>
-              <div className={s.phone}>{user.phone}</div>
+              <div className={s.name}>{displayName(user)}</div>
+              <div className={s.phone}>
+                @{user.username} · {formatRuPhoneDisplay(user.phone)}
+              </div>
             </div>
           </div>
+          <h3 className={s.sectionTitle}>Профиль</h3>
+          <ProfileEditor user={user} />
           <h3 className={s.sectionTitle}>Аватар</h3>
           <p className={s.hint}>JPEG, PNG, WebP или GIF. Не больше 3 МБ.</p>
           <div className={s.rowBtns}>

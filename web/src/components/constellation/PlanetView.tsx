@@ -19,6 +19,7 @@ import { confirmKnock } from "./work";
 import s from "./Constellation.module.css";
 import { usePresence, usePresenceText } from "../../store/presence";
 import { presenceTone } from "../../utils/presence";
+import { displayName } from "../../utils/profile";
 
 interface Props {
   detail: StarDetail;
@@ -63,7 +64,7 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
 
   const member = (userId: string) => detail.members.find((m) => m.user.id === userId);
   const cabinetOwnerName = personal
-    ? (member(channel.cabinet_owner_id ?? "")?.user.username ?? "без хозяина")
+    ? (displayName(member(channel.cabinet_owner_id ?? "")?.user) ?? "без хозяина")
     : "";
   /** «главный» в комнате по приглашениям, «хозяин» — в своём кабинете. */
   const badge = (userId: string) =>
@@ -76,7 +77,7 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
     presence.find((p) => p.user_id === userId)?.server_muted ?? false;
   // Кто показывает экран — решает сервер; чужие треки экрана без слота не показываем.
   const sharerId = presence.find((p) => p.screen_sharing)?.user_id ?? null;
-  const sharerName = sharerId ? (member(sharerId)?.user.username ?? "Участник") : "";
+  const sharerName = sharerId ? (displayName(member(sharerId)?.user) ?? "Участник") : "";
   const sharerRole = sharerId ? member(sharerId)?.role : undefined;
   const canStopSharer =
     !!sharerId && sharerId !== myId && !!sharerRole && canStopScreen(detail, sharerRole);
@@ -152,12 +153,12 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
                 return (
                   <div key={p.user_id} className={s.listItem}>
                     <UserAvatar
-                      username={m?.user.username ?? p.guest_name ?? "?"}
+                      username={displayName(m?.user) ?? p.guest_name ?? "?"}
                       avatarUrl={m?.user.avatar_url ?? null}
                       size="sm"
                     />
                     <div className={s.listMain}>
-                      <span className={s.listTitle}>{m?.user.username ?? p.guest_name ?? "Участник"}</span>
+                      <span className={s.listTitle}>{displayName(m?.user) ?? p.guest_name ?? "Участник"}</span>
                       {badge(p.user_id) && <span className={s.listSub}>{badge(p.user_id)}</span>}
                       {p.server_muted && (
                         <span className={`${s.listSub} ${s.voicePeerMuted}`}>
@@ -336,13 +337,13 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
                   className={`${s.voiceAvatar} ${peer.speaking && peer.micOn ? s.voiceAvatarSpeaking : ""}`}
                 >
                   <UserAvatar
-                    username={m?.user.username ?? peer.name}
+                    username={displayName(m?.user) ?? peer.name}
                     avatarUrl={m?.user.avatar_url ?? null}
                     size="lg"
                   />
                 </div>
                 <span className={s.voicePeerName}>
-                  {m?.user.username ?? peer.name}
+                  {displayName(m?.user) ?? peer.name}
                   {peer.isLocal ? " (вы)" : ""}
                 </span>
                 <span className={`${s.voicePeerState} ${state.muted ? s.voicePeerMuted : ""}`}>
@@ -350,13 +351,13 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
                 </span>
                 {badge(peer.userId) && <span className={s.voicePeerState}>{badge(peer.userId)}</span>}
                 {peer.userId === sharerId && <span className={s.voicePeerState}>🖥 показывает экран</span>}
-                {!peer.isLocal && <PeerVolume userId={peer.userId} name={m?.user.username ?? peer.name} />}
+                {!peer.isLocal && <PeerVolume userId={peer.userId} name={displayName(m?.user) ?? peer.name} />}
                 {iAmHost && !peer.isLocal && !peer.userId.startsWith("guest-") && (
                   <button
                     type="button"
                     className={`${s.secondary} ${s.small}`}
                     onClick={() => {
-                      const name = m?.user.username ?? peer.name;
+                      const name = displayName(m?.user) ?? peer.name;
                       if (window.confirm(`Сделать ${name} главным ${nouns.inside}? Впускать и звать будет он.`)) {
                         void moderate(() => starsApi.makeHost(detail.id, channel.id, peer.userId));
                       }
@@ -384,7 +385,7 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
                       type="button"
                       className={`${s.danger} ${s.small}`}
                       onClick={() => {
-                        const name = m?.user.username ?? peer.name;
+                        const name = displayName(m?.user) ?? peer.name;
                         if (window.confirm(words.removeConfirm(name))) {
                           void moderate(() => starsApi.voiceRemove(detail.id, channel.id, peer.userId));
                         }
@@ -566,9 +567,9 @@ function InviteDialog({
       <div className={s.list}>
         {candidates.map((m) => (
           <div key={m.user.id} className={s.listItem}>
-            <UserAvatar username={m.user.username} avatarUrl={m.user.avatar_url} size="sm" userId={m.user.id} />
+            <UserAvatar username={displayName(m.user)} avatarUrl={m.user.avatar_url} size="sm" userId={m.user.id} />
             <div className={s.listMain}>
-              <span className={s.listTitle}>{m.user.username}</span>
+              <span className={s.listTitle}>{displayName(m.user)}</span>
               <MemberPresence userId={m.user.id} />
             </div>
             <button

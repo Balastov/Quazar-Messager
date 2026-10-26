@@ -1,7 +1,14 @@
 export interface User {
   id: string;
+  /** Никнейм латиницей — для @упоминаний и поиска. */
   username: string;
   phone: string;
+  first_name?: string | null;
+  last_name?: string | null;
+  /** «Имя Фамилия» или никнейм, если имя не указано. */
+  display_name?: string;
+  /** Только у себя (GET /users/me). */
+  email?: string | null;
   avatar_url: string | null;
   created_at: string;
 }

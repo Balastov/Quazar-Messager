@@ -16,6 +16,7 @@ import {
   IconSettings,
 } from "./icons";
 import s from "./AppNav.module.css";
+import { displayName } from "../utils/profile";
 
 const ITEMS: { id: AppTab; label: string; Icon: typeof IconChat }[] = [
   { id: "contacts", label: "Контакты", Icon: IconContacts },
@@ -105,7 +106,7 @@ export default function AppNav() {
             >
               <UserAvatar username={user.username} avatarUrl={user.avatar_url} size="sm" userId={user.id} />
               <span className={s.profileName}>
-                <CustomStatusBadge userId={user.id} compact /> {user.username}
+                <CustomStatusBadge userId={user.id} compact /> {displayName(user)}
               </span>
             </button>
             {statusOpen &&

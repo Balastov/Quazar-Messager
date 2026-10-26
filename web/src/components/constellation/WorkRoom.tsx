@@ -11,6 +11,7 @@ import { bookingRange, currentBooking, DOOR_SIGNS, doorSign, hhmm, upcomingBooki
 import s from "./Constellation.module.css";
 import g from "./Gaming.module.css";
 import w from "./Work.module.css";
+import { displayName } from "../../utils/profile";
 
 const SIGN_CLASS: Partial<Record<DoorSignKind, string>> = {
   dnd: w.signDnd,
@@ -170,7 +171,7 @@ function RoomBookings({ detail, channel }: { detail: StarDetail; channel: StarCh
   const current = currentBooking(bookings, channel.id, now);
   const isAdmin = detail.my_role === "owner" || detail.my_role === "admin";
   const nameOf = (id: string | null) =>
-    detail.members.find((m) => m.user.id === id)?.user.username ?? "бывший участник";
+    displayName(detail.members.find((m) => m.user.id === id)?.user) ?? "бывший участник";
 
   return (
     <div className={w.bookings}>
@@ -248,7 +249,9 @@ function BookingDialog({ detail, channel, onClose }: { detail: StarDetail; chann
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const others = detail.members.filter(
-    (m) => m.user.id !== myId && m.user.username.toLowerCase().includes(query.trim().toLowerCase())
+    (m) =>
+      m.user.id !== myId &&
+      [m.user.username, displayName(m.user)].some((n) => n.toLowerCase().includes(query.trim().toLowerCase()))
   );
 
   const submit = async (e: React.FormEvent) => {
@@ -318,7 +321,7 @@ function BookingDialog({ detail, channel, onClose }: { detail: StarDetail; chann
                     })
                   }
                 />
-                {m.user.username}
+                {displayName(m.user)}
               </label>
             ))}
           </div>

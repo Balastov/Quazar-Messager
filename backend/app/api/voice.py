@@ -88,7 +88,7 @@ async def join_planet(star_id: str, channel_id: str, current_user: CurrentUser, 
     token = livekit.participant_token(
         room=room,
         identity=current_user.id,
-        name=current_user.username,
+        name=current_user.display_name,
         metadata={"star_id": star_id, "channel_id": channel_id},
         # «Только слушать» или тайм-аут — без микрофона.
         sources=() if channel.listen_only or timed_out else (livekit.SOURCE_MICROPHONE,),
@@ -148,9 +148,8 @@ async def start_screen(star_id: str, channel_id: str, current_user: CurrentUser,
     try:
         started = await voice.start_screen(star_id, channel_id, current_user.id)
     except voice.ScreenBusy as busy:
-        name = (
-            await db.execute(select(User.username).where(User.id == busy.user_id))
-        ).scalar_one_or_none()
+        busy_user = await db.get(User, busy.user_id)
+        name = busy_user.display_name if busy_user else None
         raise HTTPException(
             status_code=409, detail=f"Сейчас экран показывает {name or 'другой участник'}"
         ) from None

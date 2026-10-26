@@ -54,6 +54,8 @@ export type WsEvent =
   | { type: "typing"; chat_id: string; user_id: string }
   | { type: "message_status"; message_id: string; status: string; updated_by: string }
   | { type: "key_changed"; user_id: string; public_key: string; updated_at: string }
+  /** Собеседник (или я на другом устройстве) сменил имя или никнейм. */
+  | { type: "user_updated"; user: User }
   | {
       type: "call_invite";
       call_id: string;
@@ -148,8 +150,15 @@ export type WsEvent =
 // Re-export existing domain types from the previous types file content
 export interface User {
   id: string;
+  /** Никнейм латиницей — для @упоминаний и поиска. */
   username: string;
   phone: string;
+  first_name?: string | null;
+  last_name?: string | null;
+  /** «Имя Фамилия» или никнейм, если имя не указано. */
+  display_name?: string;
+  /** Только у себя (GET /users/me). */
+  email?: string | null;
   avatar_url: string | null;
   created_at: string;
 }

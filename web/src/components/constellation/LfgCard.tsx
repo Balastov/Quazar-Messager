@@ -7,6 +7,7 @@ import { formatWhen } from "../../chat/when";
 import UserAvatar from "../UserAvatar";
 import { apiError } from "./rules";
 import g from "./Gaming.module.css";
+import { displayName } from "../../utils/profile";
 
 /** Сбор группы: кто записался, сколько мест, когда; в начале — временная Планета для всех. */
 export default function LfgCard({ message, detail }: { message: StarMessage; detail: StarDetail }) {
@@ -38,8 +39,8 @@ export default function LfgCard({ message, detail }: { message: StarMessage; det
         {Array.from({ length: lfg.slots }, (_, i) => {
           const user = lfg.members[i] ? member(lfg.members[i]) : undefined;
           return user ? (
-            <span key={i} className={g.slot} title={user.username}>
-              <UserAvatar username={user.username} avatarUrl={user.avatar_url} size="sm" userId={user.id} />
+            <span key={i} className={g.slot} title={displayName(user)}>
+              <UserAvatar username={displayName(user)} avatarUrl={user.avatar_url} size="sm" userId={user.id} />
             </span>
           ) : (
             <span key={i} className={g.slotEmpty} aria-label="Свободное место" />

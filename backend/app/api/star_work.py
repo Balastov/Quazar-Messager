@@ -316,7 +316,7 @@ async def create_booking(star_id: str, channel_id: str, body: BookingBody, curre
         booking, owner = clash
         raise HTTPException(
             status_code=409,
-            detail=f"Комната занята: «{booking.title}» ({owner.username if owner else 'кто-то'}) "
+            detail=f"Комната занята: «{booking.title}» ({owner.display_name if owner else 'кто-то'}) "
             f"с {_local(star, booking.starts_at)} до {_local(star, booking.ends_at)}",
         )
     booking = StarBooking(

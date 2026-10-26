@@ -201,9 +201,8 @@ def _invite_payload(call: ActiveCall) -> dict:
 
 async def _username(user_id: str) -> str:
     async with AsyncSessionLocal() as db:
-        result = await db.execute(select(User.username).where(User.id == user_id))
-        name = result.scalar_one_or_none()
-        return name or "Собеседник"
+        user = await db.get(User, user_id)
+        return user.display_name if user else "Собеседник"
 
 
 async def _assert_direct_member(db: AsyncSession, chat_id: str, user_id: str, peer_id: str) -> bool:

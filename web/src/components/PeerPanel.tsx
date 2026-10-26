@@ -14,6 +14,7 @@ import ChatGallery, { type GalleryTab } from "./chat/ChatGallery";
 import SavedAvatar from "./chat/SavedAvatar";
 import { useIsBlocked } from "../store/blocks";
 import s from "./PeerPanel.module.css";
+import { displayName } from "../utils/profile";
 
 export default function PeerPanel() {
   const activeChatId = useChatStore((st) => st.activeChatId);
@@ -46,13 +47,15 @@ export default function PeerPanel() {
       ? {
           id: null as string | null,
           username: chat.type === "saved" ? "Избранное" : (chat.name ?? "Группа"),
+          nick: null as string | null,
           avatar_url: null as string | null,
         }
       : (() => {
           const other = chat.members.find((m) => m.user.id !== currentUser?.id)?.user;
           return {
             id: other?.id ?? null,
-            username: other?.username ?? "Неизвестный",
+            username: displayName(other) ?? "Неизвестный",
+            nick: other?.username ?? null,
             avatar_url: other?.avatar_url ?? null,
           };
         })();
@@ -68,6 +71,7 @@ export default function PeerPanel() {
           <UserAvatar username={peer.username} avatarUrl={peer.avatar_url} size="lg" userId={peer.id} />
         )}
         <div className={s.name}>{peer.username}</div>
+        {peer.nick && <div className={s.nick}>@{peer.nick}</div>}
         <div
           className={`${s.status} ${
             blocked

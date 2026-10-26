@@ -6,6 +6,7 @@ import { isStaff, useStarsStore } from "../../store/stars";
 import { formatWhen } from "../../chat/when";
 import { apiError } from "./rules";
 import g from "./Gaming.module.css";
+import { displayName } from "../../utils/profile";
 
 /** Опрос в Спутнике: голосование, полоски результатов, кто голосовал (если не анонимный). */
 export default function PollCard({ message, detail }: { message: StarMessage; detail: StarDetail }) {
@@ -17,7 +18,7 @@ export default function PollCard({ message, detail }: { message: StarMessage; de
   const voted = poll.my_votes.length > 0;
   const showResults = voted || poll.closed;
   const max = Math.max(1, ...poll.options.map((o) => o.votes));
-  const nameOf = (id: string) => detail.members.find((m) => m.user.id === id)?.user.username ?? "участник";
+  const nameOf = (id: string) => displayName(detail.members.find((m) => m.user.id === id)?.user) ?? "участник";
   const canClose = !poll.closed && (poll.created_by === myId || isStaff(detail.my_role));
 
   const send = async (options: number[]) => {

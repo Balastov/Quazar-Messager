@@ -12,18 +12,33 @@ import {
 import {authApi} from '../api/auth';
 import {useAuthStore} from '../store/auth';
 import {formatRuPhoneMask, isCompleteRuPhone, toE164Ru} from '../utils/phone';
+import {apiErrorText, USERNAME_MAX} from '../utils/profile';
+import {useUsernameCheck} from '../hooks/useUsernameCheck';
+
+// register — обязательное (телефон, никнейм, пароль); about — предлагаем имя и почту.
+type Mode = 'login' | 'register' | 'about';
 
 export default function AuthScreen() {
-  const [mode, setMode] = useState<'login' | 'register'>('login');
+  const [mode, setMode] = useState<Mode>('login');
   const [username, setUsername] = useState('');
   const [phone, setPhone] = useState('+7');
   const [password, setPassword] = useState('');
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
+  const [email, setEmail] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const check = useUsernameCheck(mode === 'register' ? username : '');
 
   const setToken = useAuthStore(s => s.setToken);
+  const nick = username.trim().replace(/^@/, '');
 
-  const submit = async () => {
+  const switchMode = (next: Mode) => {
+    setError('');
+    setMode(next);
+  };
+
+  const login = async () => {
     setError('');
     const e164 = toE164Ru(phone);
     if (!e164 || !isCompleteRuPhone(phone)) {
@@ -32,18 +47,122 @@ export default function AuthScreen() {
     }
     setLoading(true);
     try {
-      const data =
-        mode === 'login'
-          ? await authApi.login(e164, password)
-          : await authApi.register(username, e164, password);
+      const data = await authApi.login(e164, password);
       await setToken(data.access_token);
     } catch (err: unknown) {
-      const detail = (err as {response?: {data?: {detail?: string}}})?.response?.data?.detail;
-      setError(detail ?? 'Что-то пошло не так');
+      setError(apiErrorText(err));
     } finally {
       setLoading(false);
     }
   };
+
+  const toAbout = () => {
+    setError('');
+    if (!isCompleteRuPhone(phone)) {
+      setError('Введите номер в формате +7 (999) 000-00-00');
+    } else if (check.state === 'bad') {
+      setError(check.message);
+    } else if (password.length < 8) {
+      setError('Пароль — не короче 8 символов');
+    } else {
+      setMode('about');
+    }
+  };
+
+  const register = async (withAbout: boolean) => {
+    setError('');
+    setLoading(true);
+    try {
+      const data = await authApi.register({
+        username: nick,
+        phone: toE164Ru(phone)!,
+        password,
+        ...(withAbout ? {first_name: firstName, last_name: lastName, email} : {}),
+      });
+      await setToken(data.access_token);
+    } catch (err: unknown) {
+      const text = apiErrorText(err);
+      setError(text);
+      // Номер или никнейм успели занять — это поля первого шага.
+      if (/номер|никнейм|Phone|ароль/i.test(text)) {
+        setMode('register');
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (mode === 'about') {
+    const hasAbout = !!(firstName.trim() || lastName.trim() || email.trim());
+    return (
+      <KeyboardAvoidingView
+        style={s.root}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+        <View style={s.card}>
+          <Pressable onPress={() => switchMode('register')} hitSlop={8}>
+            <Text style={s.back}>← Назад</Text>
+          </Pressable>
+          <Text style={s.title}>Как вас представить?</Text>
+          <Text style={s.lead}>
+            Имя и фамилию увидят собеседники вместо @{nick}. Почта пригодится, чтобы восстановить
+            доступ. Всё это можно указать и позже в профиле.
+          </Text>
+          <TextInput
+            style={s.input}
+            placeholder="Имя"
+            placeholderTextColor="#555"
+            value={firstName}
+            onChangeText={setFirstName}
+            maxLength={64}
+            textContentType="givenName"
+            autoFocus
+          />
+          <TextInput
+            style={s.input}
+            placeholder="Фамилия"
+            placeholderTextColor="#555"
+            value={lastName}
+            onChangeText={setLastName}
+            maxLength={64}
+            textContentType="familyName"
+          />
+          <TextInput
+            style={s.input}
+            placeholder="Электронная почта"
+            placeholderTextColor="#555"
+            value={email}
+            onChangeText={setEmail}
+            maxLength={254}
+            keyboardType="email-address"
+            autoCapitalize="none"
+            textContentType="emailAddress"
+          />
+
+          {error !== '' && <Text style={s.error}>{error}</Text>}
+
+          <Pressable
+            style={[s.submit, (loading || !hasAbout) && s.disabled]}
+            onPress={() => void register(true)}
+            disabled={loading || !hasAbout}>
+            {loading ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <Text style={s.submitText}>Готово</Text>
+            )}
+          </Pressable>
+          <Pressable style={s.skip} onPress={() => void register(false)} disabled={loading}>
+            <Text style={s.skipText}>Пропустить</Text>
+          </Pressable>
+        </View>
+      </KeyboardAvoidingView>
+    );
+  }
+
+  const isLogin = mode === 'login';
+  const disabled =
+    loading ||
+    !isCompleteRuPhone(phone) ||
+    (!isLogin && (check.state !== 'ok' || password.length < 8));
 
   return (
     <KeyboardAvoidingView
@@ -54,27 +173,17 @@ export default function AuthScreen() {
 
         <View style={s.tabs}>
           <Pressable
-            style={[s.tab, mode === 'login' && s.activeTab]}
-            onPress={() => setMode('login')}>
-            <Text style={[s.tabText, mode === 'login' && s.activeTabText]}>Войти</Text>
+            style={[s.tab, isLogin && s.activeTab]}
+            onPress={() => switchMode('login')}>
+            <Text style={[s.tabText, isLogin && s.activeTabText]}>Войти</Text>
           </Pressable>
           <Pressable
-            style={[s.tab, mode === 'register' && s.activeTab]}
-            onPress={() => setMode('register')}>
-            <Text style={[s.tabText, mode === 'register' && s.activeTabText]}>Регистрация</Text>
+            style={[s.tab, !isLogin && s.activeTab]}
+            onPress={() => switchMode('register')}>
+            <Text style={[s.tabText, !isLogin && s.activeTabText]}>Регистрация</Text>
           </Pressable>
         </View>
 
-        {mode === 'register' && (
-          <TextInput
-            style={s.input}
-            placeholder="Имя пользователя"
-            placeholderTextColor="#555"
-            value={username}
-            onChangeText={setUsername}
-            autoCapitalize="none"
-          />
-        )}
         <TextInput
           style={s.input}
           placeholder="+7 (999) 000-00-00"
@@ -83,6 +192,36 @@ export default function AuthScreen() {
           onChangeText={text => setPhone(formatRuPhoneMask(text))}
           keyboardType="phone-pad"
         />
+        {!isLogin && (
+          <>
+            <TextInput
+              style={[s.input, s.nickInput]}
+              placeholder="@никнейм"
+              placeholderTextColor="#555"
+              value={username}
+              onChangeText={text => setUsername(text.replace(/\s/g, ''))}
+              maxLength={USERNAME_MAX + 1}
+              autoCapitalize="none"
+              autoCorrect={false}
+              keyboardType="ascii-capable"
+              textContentType="username"
+            />
+            <Text
+              style={[
+                s.hint,
+                check.state === 'bad' && s.hintBad,
+                check.state === 'ok' && s.hintOk,
+              ]}>
+              {check.state === 'bad'
+                ? check.message
+                : check.state === 'ok'
+                  ? 'Никнейм свободен'
+                  : check.state === 'checking'
+                    ? 'Проверяем…'
+                    : 'Латиницей: по нему вас найдут и @упомянут'}
+            </Text>
+          </>
+        )}
         <TextInput
           style={s.input}
           placeholder="Пароль"
@@ -95,15 +234,13 @@ export default function AuthScreen() {
         {error !== '' && <Text style={s.error}>{error}</Text>}
 
         <Pressable
-          style={[s.submit, (loading || !isCompleteRuPhone(phone)) && s.disabled]}
-          onPress={submit}
-          disabled={loading || !isCompleteRuPhone(phone)}>
+          style={[s.submit, disabled && s.disabled]}
+          onPress={() => (isLogin ? void login() : toAbout())}
+          disabled={disabled}>
           {loading ? (
             <ActivityIndicator color="#fff" />
           ) : (
-            <Text style={s.submitText}>
-              {mode === 'login' ? 'Войти' : 'Создать аккаунт'}
-            </Text>
+            <Text style={s.submitText}>{isLogin ? 'Войти' : 'Далее'}</Text>
           )}
         </Pressable>
       </View>
@@ -145,6 +282,15 @@ const s = StyleSheet.create({
     marginBottom: 12,
   },
   error: {color: '#ff6b6b', fontSize: 13, marginBottom: 10},
+  nickInput: {marginBottom: 4},
+  hint: {color: '#888', fontSize: 12, marginBottom: 12, marginLeft: 2},
+  hintOk: {color: '#4ade80'},
+  hintBad: {color: '#ff6b6b'},
+  back: {color: '#888', fontSize: 13, marginBottom: 16},
+  title: {color: '#fff', fontSize: 20, fontWeight: '700', marginBottom: 6},
+  lead: {color: '#9b93b8', fontSize: 13, lineHeight: 18, marginBottom: 16},
+  skip: {alignItems: 'center', paddingVertical: 12},
+  skipText: {color: '#888', fontSize: 14},
   submit: {
     backgroundColor: '#6c63ff',
     borderRadius: 10,

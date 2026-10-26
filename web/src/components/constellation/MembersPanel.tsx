@@ -26,6 +26,7 @@ const TIMEOUTS: { minutes: number; label: string }[] = [
 ];
 import { placeNouns } from "./words";
 import s from "./Constellation.module.css";
+import { displayName } from "../../utils/profile";
 
 interface Props {
   detail: StarDetail;
@@ -123,14 +124,14 @@ export default function MembersPanel({ detail, onClose, fullscreen = false }: Pr
                   className={`${s.memberRow} ${group.key === "offline" ? s.memberRowOffline : ""}`}
                 >
                   <UserAvatar
-                    username={member.user.username}
+                    username={displayName(member.user)}
                     avatarUrl={member.user.avatar_url}
                     size="sm"
                     userId={member.user.id}
                   />
                   <div className={s.memberMain}>
                     <span className={s.memberName} style={{ color: memberColor(detail, member.user.id) }}>
-                      {member.user.username}
+                      {displayName(member.user)}
                       {isMe ? " (вы)" : ""}
                       {member.role !== "member" && <span className={s.memberRole}>{ROLE_LABEL[member.role]}</span>}
                     </span>
@@ -184,7 +185,7 @@ export default function MembersPanel({ detail, onClose, fullscreen = false }: Pr
                     <button
                       type="button"
                       className={s.memberWrite}
-                      aria-label={`Действия: ${member.user.username}`}
+                      aria-label={`Действия: ${displayName(member.user)}`}
                       title="Модерация и роли"
                       onClick={(e) => {
                         const r = e.currentTarget.getBoundingClientRect();
@@ -199,7 +200,7 @@ export default function MembersPanel({ detail, onClose, fullscreen = false }: Pr
                       type="button"
                       className={s.memberWrite}
                       onClick={() => void write(member.user.id)}
-                      aria-label={`Написать ${member.user.username}`}
+                      aria-label={`Написать ${displayName(member.user)}`}
                       title="Написать"
                     >
                       <IconChat size={17} />
@@ -213,7 +214,7 @@ export default function MembersPanel({ detail, onClose, fullscreen = false }: Pr
       </div>
       {menu && <MessageMenu at={menu} reaction={null} actions={memberActions(menu.member)} onClose={closeMenu} />}
       {tagsFor && (
-        <Dialog title={`Роли: ${tagsFor.user.username}`} onClose={() => setTagsFor(null)}>
+        <Dialog title={`Роли: ${displayName(tagsFor.user)}`} onClose={() => setTagsFor(null)}>
           <MemberTags detail={detail} userId={tagsFor.user.id} onError={setError} />
         </Dialog>
       )}

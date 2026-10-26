@@ -31,6 +31,7 @@ import {
   ROLE_LABEL,
 } from "./rules";
 import s from "./Constellation.module.css";
+import ss from "./StarSettings.module.css";
 import { usePresenceText } from "../../store/presence";
 import { displayName } from "../../utils/profile";
 
@@ -58,41 +59,75 @@ export default function StarSettings({ detail, initialTab = "general", onClose }
   const isOwner = detail.my_role === "owner";
   const isAdmin = isOwner || detail.my_role === "admin";
 
-  const tabs: { id: SettingsTab; label: string; show: boolean }[] = [
-    { id: "general", label: "Общее", show: true },
-    { id: "members", label: `Участники · ${detail.member_count}`, show: true },
-    { id: "invites", label: "Приглашения", show: can(detail, "invite") },
-    { id: "permissions", label: "Права", show: isOwner },
-    { id: "bans", label: "Блокировки", show: isAdmin },
-    { id: "community", label: "Сообщество", show: isAdmin },
-    { id: "tags", label: "Роли", show: isAdmin },
-    { id: "assets", label: "Стикеры и звуки", show: can(detail, "manage_channels") },
-    { id: "audit", label: "Журнал", show: isAdmin },
-    { id: "work", label: "Рабочее время", show: isAdmin && detail.kind === "work" },
-    { id: "integrations", label: "Интеграции", show: can(detail, "manage_channels") },
-    { id: "star", label: "Звезда", show: isOwner },
+  // Разделы по группам: слева на ПК, плитками сверху на телефоне.
+  const groups: { title: string; tabs: { id: SettingsTab; label: string; show: boolean }[] }[] = [
+    {
+      title: "Звезда",
+      tabs: [
+        { id: "general", label: "Общее", show: true },
+        { id: "members", label: `Участники · ${detail.member_count}`, show: true },
+        { id: "invites", label: "Приглашения", show: can(detail, "invite") },
+      ],
+    },
+    {
+      title: "Сообщество",
+      tabs: [
+        { id: "community", label: "Правила и приветствие", show: isAdmin },
+        { id: "tags", label: "Роли", show: isAdmin },
+        { id: "assets", label: "Стикеры и звуки", show: can(detail, "manage_channels") },
+      ],
+    },
+    {
+      title: "Работа",
+      tabs: [
+        { id: "work", label: "Рабочее время", show: isAdmin && detail.kind === "work" },
+        { id: "integrations", label: "Интеграции", show: can(detail, "manage_channels") },
+      ],
+    },
+    {
+      title: "Порядок",
+      tabs: [
+        { id: "permissions", label: "Права ролей", show: isOwner },
+        { id: "bans", label: "Блокировки", show: isAdmin },
+        { id: "audit", label: "Журнал", show: isAdmin },
+      ],
+    },
+    {
+      title: "Владелец",
+      tabs: [{ id: "star", label: "Передать или удалить", show: isOwner }],
+    },
   ];
-  const visible = tabs.filter((t) => t.show);
+  const shown = groups
+    .map((gr) => ({ ...gr, tabs: gr.tabs.filter((t) => t.show) }))
+    .filter((gr) => gr.tabs.length > 0);
+  const visible = shown.flatMap((gr) => gr.tabs);
   const [tab, setTab] = useState<SettingsTab>(
     visible.some((t) => t.id === initialTab) ? initialTab : "general"
   );
 
   return (
-    <Dialog title={detail.name} onClose={onClose} wide>
-      <div className={s.tabs} role="tablist">
-        {visible.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            role="tab"
-            aria-selected={tab === t.id}
-            className={tab === t.id ? s.tabActive : s.tab}
-            onClick={() => setTab(t.id)}
-          >
-            {t.label}
-          </button>
+    <Dialog title={`Настройки · ${detail.name}`} onClose={onClose} className={ss.dialog}>
+      <div className={ss.layout}>
+      <nav className={ss.nav} role="tablist" aria-label="Разделы настроек">
+        {shown.map((gr) => (
+          <div key={gr.title} className={ss.group}>
+            <div className={ss.groupTitle}>{gr.title}</div>
+            {gr.tabs.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                role="tab"
+                aria-selected={tab === t.id}
+                className={tab === t.id ? `${ss.item} ${ss.itemActive}` : ss.item}
+                onClick={() => setTab(t.id)}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
         ))}
-      </div>
+      </nav>
+      <section className={ss.content} role="tabpanel" aria-label={visible.find((t) => t.id === tab)?.label}>
       {tab === "general" && <GeneralTab detail={detail} onClose={onClose} />}
       {tab === "members" && <MembersTab detail={detail} />}
       {tab === "invites" && <InvitesTab detail={detail} />}
@@ -105,6 +140,8 @@ export default function StarSettings({ detail, initialTab = "general", onClose }
       {tab === "work" && <WorkHoursTab detail={detail} />}
       {tab === "integrations" && <IntegrationsTab detail={detail} />}
       {tab === "star" && <StarTab detail={detail} onClose={onClose} />}
+      </section>
+      </div>
     </Dialog>
   );
 }

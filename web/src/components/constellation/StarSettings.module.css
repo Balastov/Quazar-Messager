@@ -1,0 +1,114 @@
+/* Настройки Звезды: на ПК — разделы слева, содержимое справа; на телефоне — разделы плитками сверху. */
+
+.dialog {
+  max-width: 880px;
+  height: min(680px, calc(100dvh - 32px));
+  overflow: hidden;
+}
+
+.layout {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: 20px;
+}
+
+.nav {
+  width: 200px;
+  flex-shrink: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding-right: 16px;
+  border-right: 1px solid var(--qz-border);
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.groupTitle {
+  padding: 0 10px 4px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--qz-text-dim);
+}
+
+.item {
+  padding: 8px 10px;
+  border: none;
+  border-radius: 10px;
+  background: none;
+  color: var(--qz-text-muted);
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.item:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--qz-text);
+}
+
+.itemActive,
+.itemActive:hover {
+  background: var(--qz-accent-soft);
+  color: var(--qz-text);
+  font-weight: 600;
+}
+
+.content {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding-right: 4px;
+}
+
+@media (max-width: 719px) {
+  .dialog {
+    height: calc(100dvh - 32px);
+  }
+
+  .layout {
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .nav {
+    width: auto;
+    max-height: 40%;
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 0 0 12px;
+    border-right: none;
+    border-bottom: 1px solid var(--qz-border);
+  }
+
+  .group {
+    display: contents;
+  }
+
+  .groupTitle {
+    display: none;
+  }
+
+  .item {
+    padding: 7px 12px;
+    border: 1px solid var(--qz-border);
+    border-radius: var(--qz-radius-pill);
+    font-size: 13px;
+  }
+
+  .itemActive {
+    border-color: var(--qz-border-strong);
+  }
+}

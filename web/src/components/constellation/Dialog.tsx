@@ -5,10 +5,12 @@ interface Props {
   title: string;
   onClose: () => void;
   wide?: boolean;
+  /** Своя ширина и высота окна (поверх обычной). */
+  className?: string;
   children: React.ReactNode;
 }
 
-export default function Dialog({ title, onClose, wide = false, children }: Props) {
+export default function Dialog({ title, onClose, wide = false, className, children }: Props) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
@@ -20,7 +22,7 @@ export default function Dialog({ title, onClose, wide = false, children }: Props
   return (
     <div className={s.overlay} onClick={onClose}>
       <div
-        className={wide ? `${s.dialog} ${s.dialogWide}` : s.dialog}
+        className={[s.dialog, wide ? s.dialogWide : "", className ?? ""].filter(Boolean).join(" ")}
         role="dialog"
         aria-modal="true"
         aria-label={title}

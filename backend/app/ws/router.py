@@ -1,17 +1,17 @@
 import asyncio
 import json
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.core.security import decode_token
-from app.models.chat import ChatMember
+from app.models.chat import Chat, ChatMember
 from app.models.message import Message
 from app.core import presence
-from app.api.messages import new_message_event
+from app.api.messages import deliver
 from app.ws import calls as call_signaling
 from app.ws import typing as typing_signals
 from app.ws.hub import manager
@@ -80,36 +80,20 @@ async def websocket_endpoint(websocket: WebSocket, token: str, state: str = "act
 
 
 async def _handle_send_message(data: dict, sender_id: str):
+    """Отправка по WebSocket — по тем же правилам, что и POST /chats/{id}/messages."""
     chat_id = data.get("chat_id")
     payload = data.get("payload")
-    if not chat_id or not payload:
+    if not isinstance(chat_id, str) or not isinstance(payload, str) or not payload:
         return
 
     async with AsyncSessionLocal() as db:
-        # Проверяем, что sender является участником чата
-        result = await db.execute(
-            select(ChatMember).where(
-                ChatMember.chat_id == chat_id,
-                ChatMember.user_id == sender_id,
-            )
-        )
-        if not result.scalar_one_or_none():
+        if not await _is_chat_member(db, chat_id, sender_id):
             return
-
-        message = Message(chat_id=chat_id, sender_id=sender_id, payload=payload)
-        db.add(message)
-        await db.flush()
-
-        # Получаем всех участников чата
-        members_result = await db.execute(
-            select(ChatMember.user_id).where(ChatMember.chat_id == chat_id)
-        )
-        member_ids = [row[0] for row in members_result.all()]
-
-        await db.commit()
-        await db.refresh(message)
-
-    await manager.broadcast_to_users(member_ids, new_message_event(message))
+        chat = (await db.execute(select(Chat).where(Chat.id == chat_id))).scalar_one()
+        try:
+            await deliver(db, chat, sender_id, payload)
+        except HTTPException:
+            return
 
 
 def _collect_message_ids(data: dict) -> list[str]:

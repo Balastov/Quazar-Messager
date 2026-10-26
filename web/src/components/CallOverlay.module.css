@@ -92,6 +92,7 @@
 .actions {
   margin-top: 18px;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: center;
   gap: 18px;
@@ -242,9 +243,37 @@
   color: rgba(244, 241, 255, 0.8);
 }
 
-.mute:disabled {
+.mute:disabled,
+.muteOn:disabled,
+.screenOn:disabled {
   opacity: 0.4;
   cursor: not-allowed;
+}
+
+/* Я показываю экран. */
+.screenOn {
+  min-width: 64px;
+  height: 44px;
+  padding: 0 14px;
+  border: 1px solid rgba(52, 211, 153, 0.6);
+  border-radius: var(--qz-radius-pill);
+  background: rgba(52, 211, 153, 0.22);
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+/* Экран собеседника — целиком, без обрезки; свой экран — без зеркала. */
+.remoteScreen {
+  object-fit: contain;
+}
+
+.localScreen {
+  object-fit: contain;
+  transform: none;
+  background: #000;
 }
 
 @media (max-width: 767px) {

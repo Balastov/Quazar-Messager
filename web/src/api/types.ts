@@ -44,6 +44,7 @@ export type WsEvent =
       status: string;
       timestamp: string;
       reply_to?: MessageReply | null;
+      expires_at?: string | null;
     }
   | { type: "message_edited"; chat_id: string; message_id: string; payload: string; edited_at: string }
   /** Удалили у всех — или я сам «удалил у меня» на другом устройстве. */
@@ -120,6 +121,16 @@ export type WsEvent =
   | { type: "user_background"; background_url: string | null }
   /** Общий фон чата сменил кто-то из участников. */
   | { type: "chat_background"; chat_id: string; background: string | null; changed_by: string }
+  /** Исчезающие сообщения включили / выключили / поменяли срок. */
+  | { type: "chat_ttl"; chat_id: string; ttl_seconds: number | null; changed_by: string }
+  /** Я заблокировал или разблокировал кого-то (в том числе на другом устройстве). */
+  | { type: "blocks_changed"; user_id: string; blocked: boolean }
+  /** Мои отложенные сообщения в чате изменились (запланировал, отменил, отправилось). */
+  | { type: "scheduled_changed"; chat_id: string }
+  /** Пора напомнить о сообщении. */
+  | { type: "reminder"; reminder_id: string; chat_id: string; message_id: string }
+  /** Собеседник по звонку включил/выключил камеру или показ экрана. */
+  | { type: "call_media"; call_id: string; video: boolean; screen: boolean; from_user_id: string }
   | { type: "pong" };
 
 // Re-export existing domain types from the previous types file content
@@ -139,13 +150,16 @@ export interface ChatMember {
 
 export interface Chat {
   id: string;
-  type: "direct" | "group";
+  /** saved — «Избранное», чат с самим собой. */
+  type: "direct" | "group" | "saved";
   name: string | null;
   created_at: string;
   /** Последнее сообщение / звонок / создание чата. */
   last_activity_at?: string | null;
   /** Общий фон: «IMG1:{…}», в личных чатах — зашифрованный ENC2. null — фон приложения. */
   background?: string | null;
+  /** Исчезающие сообщения: сколько секунд живёт новое (null — не исчезают). */
+  ttl_seconds?: number | null;
   members: ChatMember[];
 }
 
@@ -170,8 +184,12 @@ export interface Message {
   status: "sent" | "delivered" | "read";
   created_at: string;
   edited_at?: string | null;
+  /** Исчезающее сообщение: когда пропадёт у всех. */
+  expires_at?: string | null;
   reply_to?: MessageReply | null;
   reactions?: MessageReaction[];
+  /** Только в сторе: сообщение переслано — от кого (из зашифрованной обёртки «FWD1:»). */
+  forwarded_from?: string | null;
 }
 
 export interface TokenResponse {

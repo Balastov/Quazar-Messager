@@ -10,6 +10,7 @@ import time
 
 from sqlalchemy import select
 
+from app.core.blocks import block_state, direct_peer
 from app.core.database import AsyncSessionLocal
 from app.models.chat import ChatMember
 from app.models.star import StarChannel, StarMember
@@ -57,8 +58,12 @@ async def _chat_typing(chat_id: str, user_id: str) -> None:
         member_ids = (
             await db.execute(select(ChatMember.user_id).where(ChatMember.chat_id == chat_id))
         ).scalars().all()
-    if user_id not in member_ids:
-        return
+        if user_id not in member_ids:
+            return
+        # Заблокированный (и заблокировавший) в личном чате не видят «печатает…».
+        peer = await direct_peer(db, chat_id, user_id)
+        if peer and any(await block_state(db, user_id, peer)):
+            return
     await manager.broadcast_to_users(
         list(member_ids),
         {"type": "typing", "chat_id": chat_id, "user_id": user_id},

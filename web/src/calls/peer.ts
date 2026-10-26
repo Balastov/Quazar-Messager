@@ -19,6 +19,11 @@ export type PeerCallbacks = {
 /**
  * WebRTC peer for 1:1 audio / video calls.
  * Signaling stays the same; `media.video` selects camera at invite time.
+ *
+ * Камеру и показ экрана можно включить посреди разговора, в том числе в аудиозвонке: звонящий
+ * всегда заводит видеоканал (addTransceiver, sendrecv), а принимающий разрешает в нём отправку.
+ * Дальше камера или экран просто подставляются в этот канал (replaceTrack) — без нового
+ * offer/answer. Собеседнику о смене сообщает сигнал call_media.
  */
 export class CallPeer {
   private pc: RTCPeerConnection | null = null;
@@ -238,6 +243,8 @@ export class CallPeer {
 
   async createOffer(): Promise<RTCSessionDescriptionInit> {
     const pc = await this.ensurePeer();
+    // Аудиозвонок: пустой видеоканал, чтобы потом включить камеру или экран без пересогласования.
+    if (!this.videoTransceiver()) pc.addTransceiver("video", { direction: "sendrecv" });
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
     return pc.localDescription!.toJSON();
@@ -261,6 +268,9 @@ export class CallPeer {
     await pc.setRemoteDescription(sdp);
     this.remoteSet = true;
     await this.flushIce();
+    // Видеоканал из offer, в который нам пока нечего слать, — разрешаем и отправку.
+    const video = this.videoTransceiver();
+    if (video && video.direction === "recvonly") video.direction = "sendrecv";
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
     return pc.localDescription!.toJSON();
@@ -294,15 +304,59 @@ export class CallPeer {
     });
   }
 
-  setCameraEnabled(enabled: boolean) {
-    this.localStream?.getVideoTracks().forEach((t) => {
-      t.enabled = enabled;
+  private videoTransceiver(): RTCRtpTransceiver | null {
+    return (
+      this.pc
+        ?.getTransceivers()
+        .find((t) => t.receiver.track?.kind === "video" && t.currentDirection !== "stopped") ?? null
+    );
+  }
+
+  /** Можно ли сейчас слать видео: видеоканал есть и согласован на отправку. */
+  canSendVideo(): boolean {
+    const dir = this.videoTransceiver()?.currentDirection;
+    return dir === "sendrecv" || dir === "sendonly";
+  }
+
+  /** Подставить в видеоканал камеру, экран или ничего (null). Прежняя дорожка останавливается. */
+  async setOutgoingVideo(track: MediaStreamTrack | null): Promise<void> {
+    const transceiver = this.videoTransceiver();
+    if (!transceiver || !this.localStream) throw new Error("Видео в этом звонке недоступно");
+    await transceiver.sender.replaceTrack(track);
+    for (const old of this.localStream.getVideoTracks()) {
+      if (old === track) continue;
+      this.localStream.removeTrack(old);
+      old.stop();
+    }
+    if (track && !this.localStream.getVideoTracks().includes(track)) this.localStream.addTrack(track);
+  }
+
+  /** Включить камеру посреди разговора. */
+  async startCamera(): Promise<void> {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: false,
+      video: { facingMode: this.facingMode, width: { ideal: 1280 }, height: { ideal: 720 } },
     });
+    await this.setOutgoingVideo(stream.getVideoTracks()[0] ?? null);
+  }
+
+  /** Показ экрана: возвращает дорожку (её «ended» — человек нажал «Закрыть доступ» в браузере). */
+  async startScreen(): Promise<MediaStreamTrack> {
+    const stream = await navigator.mediaDevices.getDisplayMedia({
+      video: { frameRate: { ideal: 15, max: 30 } },
+      audio: false,
+    });
+    const track = stream.getVideoTracks()[0];
+    if (!track) throw new Error("Экран не выбран");
+    // Текст и мелкие детали важнее плавности.
+    track.contentHint = "detail";
+    await this.setOutgoingVideo(track);
+    return track;
   }
 
   /** Switch front/back camera on devices that support it. */
   async flipCamera(): Promise<MediaStream | null> {
-    if (!this.media.video || !this.pc || !this.localStream) return this.localStream;
+    if (!this.pc || !this.localStream?.getVideoTracks().length) return this.localStream;
 
     const nextFacing = this.facingMode === "user" ? "environment" : "user";
     let newStream: MediaStream;

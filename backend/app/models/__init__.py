@@ -1,5 +1,12 @@
 from app.models.chat import Chat, ChatMember
-from app.models.message import HiddenMessage, Message, MessageReaction
+from app.models.message import (
+    HiddenMessage,
+    Message,
+    MessageReaction,
+    MessageReminder,
+    ScheduledMessage,
+)
+from app.models.moderation import UserBlock, UserReport
 from app.models.attachment import Attachment
 from app.models.user import User
 from app.models.call import Call
@@ -23,6 +30,10 @@ __all__ = [
     "Message",
     "MessageReaction",
     "HiddenMessage",
+    "ScheduledMessage",
+    "MessageReminder",
+    "UserBlock",
+    "UserReport",
     "Attachment",
     "Call",
     "PushSubscription",

@@ -66,6 +66,11 @@ class TestMultiDeviceCalls(unittest.IsolatedAsyncioTestCase):
         async def name(_user_id):
             return "Алиса"
 
+        self.blocks = (False, False)
+
+        async def block_state(*_args):
+            return self.blocks
+
         for target, fake in (
             ("_assert_direct_member", allowed),
             ("_persist_create", nothing),
@@ -73,6 +78,8 @@ class TestMultiDeviceCalls(unittest.IsolatedAsyncioTestCase):
             ("send_push_to_user", nothing),
             ("user_has_push", allowed),
             ("_username", name),
+            ("block_state", block_state),
+            ("_persist_missed", nothing),
         ):
             patcher = mock.patch.object(calls, target, fake)
             patcher.start()
@@ -140,6 +147,28 @@ class TestMultiDeviceCalls(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(self.bob_phone.types()[-2:], ["call_offer", "call_ice"])
         self.assertEqual(len(self.bob_pc.sent), pc_before)
+
+    async def test_media_change_reaches_the_peer_device(self):
+        await self.accept_on_phone()
+        await calls.handle_call_event(
+            {"type": "call_media", "call_id": "c1", "video": True, "screen": "yes"}, "alice", self.alice
+        )
+        event = self.bob_phone.sent[-1]
+        self.assertEqual(
+            (event["type"], event["video"], event["screen"], event["from_user_id"]),
+            ("call_media", True, False, "alice"),
+        )
+
+    async def test_call_to_someone_who_blocked_you_looks_offline(self):
+        self.blocks = (False, True)
+        bob_before = len(self.bob_phone.sent)
+        await calls.handle_call_event(
+            {"type": "call_invite", "call_id": "c2", "chat_id": "chat2", "callee_id": "bob"},
+            "carol",
+            None,
+        )
+        self.assertEqual(len(self.bob_phone.sent), bob_before)
+        self.assertIsNone(calls.get_active_call("c2"))
 
     async def test_other_device_cannot_answer_or_hang_up(self):
         await self.accept_on_phone()

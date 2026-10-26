@@ -1,9 +1,10 @@
 import { create } from "zustand";
 import { chatsApi } from "../api/chats";
-import { messagesApi } from "../api/messages";
+import { messagesApi, remindersApi, scheduledApi } from "../api/messages";
 import { attachmentsApi } from "../api/attachments";
 import {
   AttachmentError,
+  decryptFile,
   detectImageMime,
   encodeImage,
   encryptFile,
@@ -13,7 +14,9 @@ import {
 } from "../attachments/image";
 import { MAX_SOURCE_BYTES, prepareImage } from "../attachments/compress";
 import { seedImageUrl, seedVoiceUrl } from "../attachments/cache";
-import { encodeVoice } from "../attachments/voice";
+import { encodeVoice, parseVoice } from "../attachments/voice";
+import { encodeForward, unwrapForward } from "../chat/forward";
+import { ttlLabel } from "../chat/ttl";
 import type { Recording } from "../voice/recorder";
 import { socket } from "../ws/socket";
 import { E2EError } from "../crypto/errors";
@@ -32,7 +35,7 @@ import {
   type TrustCheckResult,
   type TrustStatus,
 } from "../crypto/trust";
-import { notifyIncomingMessage } from "../notifications/notify";
+import { notifyIncomingMessage, notifyReminder, notifyInfo } from "../notifications/notify";
 import {
   applyLocalStatus,
   pickAckIds,
@@ -98,6 +101,25 @@ interface ChatState {
   hideMessage: (chatId: string, messageId: string) => Promise<void>;
   /** Поставить, сменить (emoji) или снять (null) свою реакцию. */
   react: (chatId: string, messageId: string, emoji: string | null) => Promise<void>;
+  /** Переслать в другой чат (в том числе в «Избранное»); фото и голосовые загружаются заново. */
+  forwardMessage: (message: Message, targetChatId: string) => Promise<void>;
+  /** «Избранное»: найти или создать, не открывая. */
+  ensureSavedChat: () => Promise<Chat>;
+  /** Открыть «Избранное» (создаётся при первом открытии). */
+  openSavedChat: () => Promise<void>;
+  /** Исчезающие сообщения: секунды или null — выключить. */
+  setChatTtl: (chatId: string, ttlSeconds: number | null) => Promise<void>;
+  /** Мои отложенные сообщения по чатам (текст уже расшифрован). */
+  scheduled: Record<string, ScheduledView[]>;
+  loadScheduled: (chatId: string) => Promise<void>;
+  scheduleMessage: (chatId: string, plaintext: string, at: Date, replyToId?: string) => Promise<void>;
+  cancelScheduled: (chatId: string, id: string) => Promise<void>;
+  /** «Напомнить об этом сообщении». */
+  setReminder: (chatId: string, messageId: string, at: Date) => Promise<void>;
+  /** Открыть чат и прокрутить к сообщению (из напоминания). */
+  revealRequest: { chatId: string; messageId: string } | null;
+  openMessage: (chatId: string, messageId: string) => Promise<void>;
+  clearRevealRequest: () => void;
   /** Общие фоны чатов, уже расшифрованные: chatId → картинка. Нет ключа — фона нет. */
   backgrounds: Record<string, ImageRef>;
   /** Сменить общий фон чата (null — убрать); собеседник увидит его сразу. */
@@ -108,6 +130,13 @@ interface ChatState {
   verifyActivePeer: () => Promise<void>;
   acceptActivePeerKey: () => Promise<void>;
   refreshE2EStatus: () => Promise<void>;
+}
+
+export interface ScheduledView {
+  id: string;
+  text: string;
+  sendAt: string;
+  replyToId: string | null;
 }
 
 const sentPlaintextById = new Map<string, string>();
@@ -154,13 +183,15 @@ async function openReactions(
   return opened.filter((r): r is MessageReaction => r !== null);
 }
 
-/** Сообщение с сервера — расшифровать вместе с цитатой и реакциями. */
+/** Сообщение с сервера — расшифровать вместе с цитатой и реакциями, снять обёртку пересылки. */
 async function openMessage(m: Message, keys: DecryptionKey[]): Promise<Message> {
+  const { payload, forwardedFrom } = unwrapForward(await tryDecrypt(m.payload, keys));
   return {
     ...m,
-    payload: await tryDecrypt(m.payload, keys),
+    payload,
+    forwarded_from: forwardedFrom,
     reply_to: m.reply_to
-      ? { ...m.reply_to, payload: await tryDecrypt(m.reply_to.payload, keys) }
+      ? { ...m.reply_to, payload: unwrapForward(await tryDecrypt(m.reply_to.payload, keys)).payload }
       : null,
     reactions: await openReactions(m.reactions, keys),
   };
@@ -174,7 +205,7 @@ async function loadAccountKeys() {
 
 /** Текст для отправки в чат: в личном — зашифрованный E2E для собеседника и для себя (ENC2). */
 async function sealForChat(chat: Chat, myId: string, plaintext: string): Promise<string> {
-  if (chat.type !== "direct") return plaintext;
+  if (chat.type === "group") return plaintext;
 
   let myPublicKey: string;
   try {
@@ -188,6 +219,9 @@ async function sealForChat(chat: Chat, myId: string, plaintext: string): Promise
       "Не удалось загрузить ключи шифрования на этом устройстве"
     );
   }
+
+  // «Избранное» — только себе.
+  if (chat.type === "saved") return encryptMessage(plaintext, myPublicKey, myPublicKey);
 
   const otherUserId = getOtherUserId(chat, myId);
   if (!otherUserId) {
@@ -306,7 +340,39 @@ async function checkDirectE2E(
   return { ...ui, trust };
 }
 
+/** Сообщения с сервера (например, для галереи) — расшифровать, как в ленте. */
+export async function openMessages(raw: Message[]): Promise<Message[]> {
+  const keys = await loadDecryptionKeys();
+  return Promise.all(raw.map((m) => openMessage(m, keys)));
+}
+
+/** Название чата для подписей: имя собеседника, название группы или «Избранное». */
+export function chatTitle(chat: Chat | undefined, myId = useAuthStore.getState().user?.id): string {
+  if (!chat) return "чат";
+  if (chat.type === "saved") return "Избранное";
+  if (chat.type === "group") return chat.name ?? "Группа";
+  return chat.members.find((m) => m.user.id !== myId)?.user.username ?? "Собеседник";
+}
+
+/** Исчезнувшие сообщения убираем сами, не дожидаясь события сервера (он чистит раз в 5 с). */
+const EXPIRY_TICK_MS = 5000;
+
 export const useChatStore = create<ChatState>((set, get) => {
+  if (typeof window !== "undefined") {
+    window.setInterval(() => {
+      const now = Date.now();
+      const { messages } = get();
+      let changed = false;
+      const next: Record<string, Message[]> = {};
+      for (const [chatId, msgs] of Object.entries(messages)) {
+        const kept = msgs.filter((m) => !m.expires_at || Date.parse(m.expires_at) > now);
+        if (kept.length !== msgs.length) changed = true;
+        next[chatId] = kept;
+      }
+      if (changed) set({ messages: next });
+    }, EXPIRY_TICK_MS);
+  }
+
   /** Запомнить фон чата: payload — как на сервере, ref — расшифрованный. */
   function applyBackground(chatId: string, payload: string | null, ref: ImageRef | null) {
     set((s) => {
@@ -359,6 +425,8 @@ export const useChatStore = create<ChatState>((set, get) => {
         } else {
           decryptedPayload = await tryDecrypt(event.payload, await loadDecryptionKeys());
         }
+        const unwrapped = unwrapForward(decryptedPayload);
+        decryptedPayload = unwrapped.payload;
 
         const msg: Message = {
           id: event.message_id,
@@ -367,10 +435,14 @@ export const useChatStore = create<ChatState>((set, get) => {
           payload: decryptedPayload,
           status: event.status as Message["status"],
           created_at: event.timestamp,
+          expires_at: event.expires_at ?? null,
+          forwarded_from: unwrapped.forwardedFrom,
           reply_to: event.reply_to
             ? {
                 ...event.reply_to,
-                payload: await tryDecrypt(event.reply_to.payload, await loadDecryptionKeys()),
+                payload: unwrapForward(
+                  await tryDecrypt(event.reply_to.payload, await loadDecryptionKeys())
+                ).payload,
               }
             : null,
           reactions: [],
@@ -424,7 +496,7 @@ export const useChatStore = create<ChatState>((set, get) => {
       }
 
       if (event.type === "message_edited") {
-        const payload = await tryDecrypt(event.payload, await loadDecryptionKeys());
+        const payload = unwrapForward(await tryDecrypt(event.payload, await loadDecryptionKeys())).payload;
         updateMessages(event.chat_id, (msgs) =>
           msgs.map((m) => {
             if (m.id === event.message_id) return { ...m, payload, edited_at: event.edited_at };
@@ -457,6 +529,39 @@ export const useChatStore = create<ChatState>((set, get) => {
               : m
           )
         );
+      }
+
+      if (event.type === "chat_ttl") {
+        set((s) => ({
+          chats: s.chats.map((c) => (c.id === event.chat_id ? { ...c, ttl_seconds: event.ttl_seconds } : c)),
+        }));
+        const myId = useAuthStore.getState().user?.id;
+        if (event.changed_by !== myId) {
+          const chat = get().chats.find((c) => c.id === event.chat_id);
+          const who = chat?.members.find((m) => m.user.id === event.changed_by)?.user.username ?? "Собеседник";
+          notifyInfo({
+            title: who,
+            body: event.ttl_seconds
+              ? `Включил(а) исчезающие сообщения: ${ttlLabel(event.ttl_seconds)}`
+              : "Выключил(а) исчезающие сообщения",
+            chatId: event.chat_id,
+          });
+        }
+      }
+
+      if (event.type === "scheduled_changed" && get().scheduled[event.chat_id]) {
+        await get().loadScheduled(event.chat_id);
+      }
+
+      if (event.type === "reminder") {
+        const message = get().messages[event.chat_id]?.find((m) => m.id === event.message_id);
+        const chat = get().chats.find((c) => c.id === event.chat_id);
+        notifyReminder({
+          reminderId: event.reminder_id,
+          chatId: event.chat_id,
+          messageId: event.message_id,
+          body: message ? messagePreview(message.payload) : `Сообщение в чате «${chatTitle(chat)}»`,
+        });
       }
 
       if (event.type === "chat_background") {
@@ -528,6 +633,8 @@ export const useChatStore = create<ChatState>((set, get) => {
     peerUserId: null,
     showE2ePanel: false,
     showMigrationNotice: false,
+    scheduled: {},
+    revealRequest: null,
 
     dismissMigrationNotice: () => set({ showMigrationNotice: false }),
     setShowE2ePanel: (show) => set({ showE2ePanel: show }),
@@ -596,6 +703,11 @@ export const useChatStore = create<ChatState>((set, get) => {
         e2eTrust = status.trust?.status ?? null;
         peerFingerprint = status.trust?.fingerprint ?? null;
         peerUserId = getOtherUserId(chat, myId);
+      } else if (chat?.type === "saved") {
+        // «Избранное» шифруется своим ключом — нужен только он.
+        const keys = await loadAccountKeys().catch(() => null);
+        e2eReady = !!keys;
+        e2eError = keys ? null : NO_DEVICE_KEY_ERROR;
       }
 
       useUnreadStore.getState().clear(chatId);
@@ -728,6 +840,101 @@ export const useChatStore = create<ChatState>((set, get) => {
       await chatsApi.setBackground(chatId, payload, ref.id);
       applyBackground(chatId, payload, ref);
     },
+
+    forwardMessage: async (message, targetChatId) => {
+      const source = get().chats.find((c) => c.id === message.chat_id);
+      const from =
+        message.forwarded_from ??
+        source?.members.find((m) => m.user.id === message.sender_id)?.user.username ??
+        "Неизвестный";
+      let body = message.payload;
+      let attachmentId: string | undefined;
+
+      // Картинку и голосовое заново шифруем и загружаем в целевой чат: вложение привязано к чату.
+      const image = parseImage(body);
+      const voice = image ? null : parseVoice(body);
+      if (image || voice) {
+        // Не через blob: URL — fetch к нему запрещён CSP (connect-src).
+        const ref = image ?? voice!;
+        const bytes = decryptFile(await attachmentsApi.download(message.chat_id, ref.id), ref.key);
+        if (!bytes) throw new AttachmentError("Не удалось прочитать вложение — оно могло устареть");
+        const { blob, key } = encryptFile(bytes);
+        const { id } = await attachmentsApi.upload(targetChatId, blob);
+        attachmentId = id;
+        if (image) {
+          seedImageUrl(id, bytes, image.mime);
+          body = encodeImage({ ...image, id, key });
+        } else {
+          seedVoiceUrl(id, bytes, voice!.mime);
+          body = encodeVoice({ ...voice!, id, key });
+        }
+      }
+      await get().sendMessage(targetChatId, encodeForward(from, body), attachmentId);
+    },
+
+    ensureSavedChat: async () => {
+      const known = get().chats.find((c) => c.type === "saved");
+      if (known) return known;
+      const chat = await chatsApi.openSaved();
+      set((s) => ({
+        chats: s.chats.find((c) => c.id === chat.id) ? s.chats : [chat, ...s.chats],
+      }));
+      return chat;
+    },
+
+    openSavedChat: async () => {
+      const chat = await get().ensureSavedChat();
+      await get().selectChat(chat.id);
+    },
+
+    setChatTtl: async (chatId, ttlSeconds) => {
+      await chatsApi.setTtl(chatId, ttlSeconds);
+      set((s) => ({
+        chats: s.chats.map((c) => (c.id === chatId ? { ...c, ttl_seconds: ttlSeconds } : c)),
+      }));
+    },
+
+    loadScheduled: async (chatId) => {
+      const items = await scheduledApi.list(chatId);
+      const keys = await loadDecryptionKeys();
+      const views = await Promise.all(
+        items.map(async (item) => ({
+          id: item.id,
+          text: messagePreview(unwrapForward(await tryDecrypt(item.payload, keys)).payload),
+          sendAt: item.send_at,
+          replyToId: item.reply_to_id,
+        }))
+      );
+      set((s) => ({ scheduled: { ...s.scheduled, [chatId]: views } }));
+    },
+
+    scheduleMessage: async (chatId, plaintext, at, replyToId) => {
+      const chat = get().chats.find((c) => c.id === chatId);
+      const myId = useAuthStore.getState().user?.id;
+      if (!chat || !myId) return;
+      // Шифруем сейчас: сервер хранит и в срок отправит уже готовый шифротекст.
+      const payload = await sealForChat(chat, myId, plaintext);
+      await scheduledApi.create(chatId, payload, at, replyToId);
+      await get().loadScheduled(chatId);
+    },
+
+    cancelScheduled: async (chatId, id) => {
+      await scheduledApi.cancel(chatId, id);
+      set((s) => ({
+        scheduled: { ...s.scheduled, [chatId]: (s.scheduled[chatId] ?? []).filter((x) => x.id !== id) },
+      }));
+    },
+
+    setReminder: async (chatId, messageId, at) => {
+      await remindersApi.set(chatId, messageId, at);
+    },
+
+    openMessage: async (chatId, messageId) => {
+      if (get().activeChatId !== chatId) await get().selectChat(chatId);
+      set({ revealRequest: { chatId, messageId } });
+    },
+
+    clearRevealRequest: () => set({ revealRequest: null }),
 
     openDirectChat: async (userId) => {
       const chat = await chatsApi.createDirect(userId);

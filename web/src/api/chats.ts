@@ -17,4 +17,11 @@ export const chatsApi = {
     http.put(`/chats/${chatId}/background`, { payload, attachment_id: attachmentId }),
 
   removeBackground: (chatId: string) => http.delete(`/chats/${chatId}/background`),
+
+  /** «Избранное»: создаётся при первом открытии. */
+  openSaved: () => http.post<Chat>("/chats/saved").then((r) => r.data),
+
+  /** Исчезающие сообщения: 3600 / 86400 / 604800 секунд или null — выключить. */
+  setTtl: (chatId: string, ttlSeconds: number | null) =>
+    http.put(`/chats/${chatId}/ttl`, { ttl_seconds: ttlSeconds }),
 };

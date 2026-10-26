@@ -34,6 +34,17 @@ import { MIN_VOICE_SEC, parseVoice } from "../attachments/voice";
 import { canRecordVoice, RecorderError, VoiceRecorder } from "../voice/recorder";
 import VoiceMessage from "./voice/VoiceMessage";
 import VoiceRecorderBar from "./voice/VoiceRecorderBar";
+import ChatActions from "./chat/ChatActions";
+import ForwardDialog from "./chat/ForwardDialog";
+import ScheduledBar from "./chat/ScheduledBar";
+import SavedAvatar from "./chat/SavedAvatar";
+import WhenDialog from "./chat/WhenDialog";
+import c from "./chat/Chat.module.css";
+import { formatWhen } from "../chat/when";
+import { timeLeft, ttlLabel } from "../chat/ttl";
+import { useBlocksStore, useIsBlocked } from "../store/blocks";
+import { notifyInfo } from "../notifications/notify";
+import { apiError } from "./constellation/rules";
 import type { Message } from "../api/types";
 import { groupReactions, myReaction, toggledReaction } from "../chat/reactions";
 import { typingLabel } from "../chat/typing";
@@ -79,6 +90,10 @@ export default function MessageView({ showBack = false }: Props) {
     deleteMessage,
     hideMessage,
     react,
+    scheduleMessage,
+    setReminder,
+    revealRequest,
+    clearRevealRequest,
     e2eReady,
     e2eError,
     e2eTrust,
@@ -106,6 +121,10 @@ export default function MessageView({ showBack = false }: Props) {
   const recorderRef = useRef<VoiceRecorder | null>(null);
   const [recording, setRecording] = useState<{ elapsed: number; levels: number[] } | null>(null);
   const [sendingVoice, setSendingVoice] = useState(false);
+  const [forwarding, setForwarding] = useState<Message | null>(null);
+  /** Окно «когда»: отложить отправку текста из поля или напомнить о сообщении. */
+  const [whenFor, setWhenFor] = useState<{ kind: "schedule"; text: string } | { kind: "remind"; msg: Message } | null>(null);
+  const [sendMenu, setSendMenu] = useState<{ x: number; y: number } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -117,7 +136,8 @@ export default function MessageView({ showBack = false }: Props) {
   const chat = chats.find((c) => c.id === activeChatId);
   const msgs = activeChatId ? (messages[activeChatId] ?? []) : [];
   const isDirect = chat?.type === "direct";
-  const inputDisabled = isDirect && e2eReady === false;
+  const isSaved = chat?.type === "saved";
+  const inputDisabled = (isDirect || isSaved) && e2eReady === false;
   const lastId = msgs.length ? msgs[msgs.length - 1].id : null;
 
   useEffect(() => {
@@ -161,6 +181,19 @@ export default function MessageView({ showBack = false }: Props) {
       ? (chat.members.find((m) => m.user.id !== currentUser?.id)?.user.id ?? null)
       : null;
   const peerPresenceRaw = usePresence(presencePeerId);
+  const peerBlocked = useIsBlocked(presencePeerId);
+  const closeSendMenu = useCallback(() => setSendMenu(null), []);
+  // Правая кнопка или долгое нажатие на «Отправить» — «Отправить позже».
+  const sendTrigger = useMessageMenuTrigger((x, y) => setSendMenu({ x, y }));
+
+  // Открыли чат из напоминания — прокручиваем к сообщению, когда оно в ленте.
+  useEffect(() => {
+    if (!revealRequest || revealRequest.chatId !== activeChatId || loadingMessages) return;
+    if (!revealMessage(listRef.current, revealRequest.messageId)) {
+      notifyInfo({ title: "Напоминание", body: "Сообщение уже удалено или слишком давнее" });
+    }
+    clearRevealRequest();
+  }, [revealRequest, activeChatId, loadingMessages, clearRevealRequest]);
   const peerStatusText = usePresenceText(presencePeerId);
   const groupOnline = usePresenceStore((st) =>
     chat?.type === "group"
@@ -188,8 +221,8 @@ export default function MessageView({ showBack = false }: Props) {
 
   const peer = (() => {
     if (!chat) return { id: null as string | null, username: "", avatar_url: null as string | null };
-    if (chat.type === "group") {
-      return { id: null, username: chat.name ?? "Группа", avatar_url: null };
+    if (chat.type === "group" || chat.type === "saved") {
+      return { id: null, username: chat.type === "saved" ? "Избранное" : (chat.name ?? "Группа"), avatar_url: null };
     }
     const other = chat.members.find((m) => m.user.id !== currentUser?.id)?.user;
     return {
@@ -210,14 +243,15 @@ export default function MessageView({ showBack = false }: Props) {
     (chat?.type === "group" && (myRole === "owner" || myRole === "admin"));
 
   const callBusy = callPhase !== "idle" && callPhase !== "ended";
+  const canCall = isDirect && !!peer.id && !callBusy && !peerBlocked;
 
   const handleAudioCall = () => {
-    if (!activeChatId || !peer.id || !isDirect || callBusy) return;
+    if (!activeChatId || !peer.id || !canCall) return;
     void startAudioCall(activeChatId, peer.id);
   };
 
   const handleVideoCall = () => {
-    if (!activeChatId || !peer.id || !isDirect || callBusy) return;
+    if (!activeChatId || !peer.id || !canCall) return;
     void startVideoCall(activeChatId, peer.id);
   };
 
@@ -382,7 +416,7 @@ export default function MessageView({ showBack = false }: Props) {
     if (e.key === "ArrowUp" && !text && !editing && !inputDisabled) {
       const last = [...msgs]
         .reverse()
-        .find((x) => x.sender_id === currentUser?.id && isPlainText(x.payload));
+        .find((x) => x.sender_id === currentUser?.id && !x.forwarded_from && isPlainText(x.payload));
       if (last) {
         e.preventDefault();
         startEdit(last);
@@ -422,13 +456,15 @@ export default function MessageView({ showBack = false }: Props) {
     const plain = isPlainText(msg.payload);
     const actions: MenuAction[] = [];
     if (!inputDisabled) actions.push({ label: "Ответить", onClick: () => startReply(msg) });
-    if (own && plain && !inputDisabled) actions.push({ label: "Изменить", onClick: () => startEdit(msg) });
+    if (own && plain && !msg.forwarded_from && !inputDisabled) actions.push({ label: "Изменить", onClick: () => startEdit(msg) });
     if (plain) {
       actions.push({
         label: "Копировать текст",
         onClick: () => void navigator.clipboard?.writeText(msg.payload).catch(() => {}),
       });
     }
+    if (!isUnreadable(msg.payload)) actions.push({ label: "Переслать…", onClick: () => setForwarding(msg) });
+    actions.push({ label: "Напомнить…", onClick: () => setWhenFor({ kind: "remind", msg }) });
     if (canDeleteForAll(msg)) {
       actions.push({ label: "Удалить у всех", danger: true, onClick: () => void handleDelete(msg, true) });
     }
@@ -464,6 +500,7 @@ export default function MessageView({ showBack = false }: Props) {
         : s.e2eDotWarn;
 
   const subtitle = (() => {
+    if (isSaved) return "Видите только вы · E2E";
     if (!isDirect) {
       return onlineInGroup > 0 ? `Группа · ${onlineInGroup} в сети · без E2E` : "Группа · без E2E";
     }
@@ -492,7 +529,11 @@ export default function MessageView({ showBack = false }: Props) {
             <IconBack />
           </button>
         )}
-        <UserAvatar username={peer.username || "?"} avatarUrl={peer.avatar_url} size="sm" userId={peer.id} />
+        {isSaved ? (
+          <SavedAvatar size="sm" />
+        ) : (
+          <UserAvatar username={peer.username || "?"} avatarUrl={peer.avatar_url} size="sm" userId={peer.id} />
+        )}
         <div className={s.headerInfo}>
           <span className={s.name}>{peer.username}</span>
           <span className={s.sub}>
@@ -513,29 +554,34 @@ export default function MessageView({ showBack = false }: Props) {
                 )}
                 {isDirect && <span className={e2eDotClass} />}
                 {subtitle}
+                {chat?.ttl_seconds ? ` · ⏱ ${ttlLabel(chat.ttl_seconds)}` : ""}
               </>
             )}
           </span>
         </div>
         <div className={s.headerActions}>
-          <button
-            type="button"
-            className={s.iconBtn}
-            title={isDirect ? "Аудиозвонок" : "Звонки только в личных чатах"}
-            disabled={!isDirect || !peer.id || callBusy}
-            onClick={handleAudioCall}
-          >
-            <IconPhone size={18} />
-          </button>
-          <button
-            type="button"
-            className={s.iconBtn}
-            title={isDirect ? "Видеозвонок" : "Звонки только в личных чатах"}
-            disabled={!isDirect || !peer.id || callBusy}
-            onClick={handleVideoCall}
-          >
-            <IconVideo size={18} />
-          </button>
+          {!isSaved && (
+            <>
+              <button
+                type="button"
+                className={s.iconBtn}
+                title={isDirect ? "Аудиозвонок" : "Звонки только в личных чатах"}
+                disabled={!canCall}
+                onClick={handleAudioCall}
+              >
+                <IconPhone size={18} />
+              </button>
+              <button
+                type="button"
+                className={s.iconBtn}
+                title={isDirect ? "Видеозвонок" : "Звонки только в личных чатах"}
+                disabled={!canCall}
+                onClick={handleVideoCall}
+              >
+                <IconVideo size={18} />
+              </button>
+            </>
+          )}
           <button
             type="button"
             className={s.iconBtn}
@@ -546,14 +592,11 @@ export default function MessageView({ showBack = false }: Props) {
           >
             <IconImage size={18} />
           </button>
-          <button
-            type="button"
-            className={s.iconBtn}
-            title="Безопасность"
-            onClick={() => setShowE2ePanel(true)}
-          >
-            <IconMore size={18} />
-          </button>
+          {chat && (
+            <ChatActions chat={chat} className={s.iconBtn} title="Ещё">
+              <IconMore size={18} />
+            </ChatActions>
+          )}
         </div>
       </div>
 
@@ -608,7 +651,20 @@ export default function MessageView({ showBack = false }: Props) {
         <div ref={bottomRef} />
       </div>
 
+      {peerBlocked ? (
+        <div className={c.blockedBar}>
+          Вы заблокировали {peer.username}
+          <button
+            type="button"
+            className={s.bannerAction}
+            onClick={() => void useBlocksStore.getState().unblock(peer.id!).catch(() => {})}
+          >
+            Разблокировать
+          </button>
+        </div>
+      ) : (
       <div className={s.composerWrap}>
+      <ScheduledBar chatId={activeChatId} />
       {stickersOpen && (
         <StickerPicker
           onPick={(packId, st) => void handleSticker(packId, st)}
@@ -696,6 +752,8 @@ export default function MessageView({ showBack = false }: Props) {
             type="submit"
             disabled={!text.trim() || inputDisabled}
             aria-label={editing ? "Сохранить" : "Отправить"}
+            title={editing ? undefined : "Правая кнопка — отправить позже"}
+            {...(editing ? {} : sendTrigger)}
           >
             {editing ? "✓" : <IconSend size={18} />}
           </button>
@@ -714,6 +772,7 @@ export default function MessageView({ showBack = false }: Props) {
       </form>
       )}
       </div>
+      )}
 
       {menu && (
         <MessageMenu
@@ -730,6 +789,53 @@ export default function MessageView({ showBack = false }: Props) {
           onClose={closeMenu}
         />
       )}
+
+      {sendMenu && (
+        <MessageMenu
+          at={sendMenu}
+          reaction={null}
+          actions={[
+            {
+              label: "Отправить позже…",
+              onClick: () => {
+                const value = text.trim();
+                if (value) setWhenFor({ kind: "schedule", text: value });
+              },
+            },
+          ]}
+          onClose={closeSendMenu}
+        />
+      )}
+
+      {whenFor && activeChatId && (
+        <WhenDialog
+          title={whenFor.kind === "schedule" ? "Отправить позже" : "Напомнить о сообщении"}
+          hint={
+            whenFor.kind === "schedule"
+              ? "Сообщение зашифруется сейчас и уйдёт само в выбранное время — даже если вы будете не в сети."
+              : "Придёт уведомление, а по нажатию откроется это сообщение."
+          }
+          onPick={async (at) => {
+            try {
+              if (whenFor.kind === "schedule") {
+                await scheduleMessage(activeChatId, whenFor.text, at, replyTo?.id);
+                setText("");
+                setReplyTo(null);
+                notifyInfo({ title: "Отложено", body: `Отправится ${formatWhen(at)}` });
+              } else {
+                await setReminder(activeChatId, whenFor.msg.id, at);
+                notifyInfo({ title: "Напомним", body: formatWhen(at) });
+              }
+            } catch (err) {
+              if (err instanceof E2EError) throw err;
+              throw new Error(apiError(err, "Не получилось — попробуйте ещё раз"));
+            }
+          }}
+          onClose={() => setWhenFor(null)}
+        />
+      )}
+
+      {forwarding && <ForwardDialog message={forwarding} onClose={() => setForwarding(null)} />}
 
       {backgroundOpen && (
         <ChatBackgroundDialog
@@ -801,6 +907,11 @@ function ChatMessage({
   return (
     <div data-mid={msg.id} className={`${bubbleClass} ${m.menuHost}`} {...trigger}>
       {showAuthor && !isOwn && <span className={s.author}>{nameOf(msg.sender_id)}</span>}
+      {msg.forwarded_from && (
+        <span className={c.forwarded}>
+          Переслано от <b>{msg.forwarded_from}</b>
+        </span>
+      )}
       {msg.reply_to && (
         <ReplyQuote
           tone={isOwn && !asSticker ? "own" : "other"}
@@ -828,6 +939,11 @@ function ChatMessage({
       )}
       <ReactionChips groups={groups} nameOf={nameOf} onToggle={onReact} />
       <span className={s.meta}>
+        {msg.expires_at && (
+          <span className={c.expiry} title={`Исчезнет через ${timeLeft(msg.expires_at)}`} aria-label="Исчезающее">
+            ⏱
+          </span>
+        )}
         <EditedMark at={msg.edited_at} />
         {new Date(msg.created_at).toLocaleTimeString("ru", {
           hour: "2-digit",

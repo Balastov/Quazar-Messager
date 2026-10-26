@@ -6,6 +6,7 @@ export default function ToastStack() {
   const toasts = useToastStore((st) => st.toasts);
   const dismiss = useToastStore((st) => st.dismiss);
   const selectChat = useChatStore((st) => st.selectChat);
+  const openMessage = useChatStore((st) => st.openMessage);
 
   if (toasts.length === 0) return null;
 
@@ -17,7 +18,8 @@ export default function ToastStack() {
           type="button"
           className={s.toast}
           onClick={() => {
-            if (toast.chatId) void selectChat(toast.chatId);
+            if (toast.chatId && toast.messageId) void openMessage(toast.chatId, toast.messageId);
+            else if (toast.chatId) void selectChat(toast.chatId);
             dismiss(toast.id);
           }}
         >

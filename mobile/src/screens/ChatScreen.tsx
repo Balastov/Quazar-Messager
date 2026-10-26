@@ -458,7 +458,7 @@ export default function ChatScreen({route, navigation}: Props) {
       !parseSticker(msg.payload) &&
       !isUnreadable(msg.payload);
     const actions: MessageAction[] = [{label: 'Ответить', onPress: () => startReply(msg)}];
-    if (own && plain) {
+    if (own && plain && !msg.forwarded_from) {
       actions.push({label: 'Изменить', onPress: () => startEdit(msg)});
     }
     actions.push({label: 'Удалить', danger: true, onPress: () => confirmDelete(msg)});
@@ -516,7 +516,10 @@ export default function ChatScreen({route, navigation}: Props) {
         onLongPress={openActions}
         delayLongPress={350}
         style={[containerStyle, highlightId === item.id && s.highlight]}>
-        {!isDirect && !isOwn && <Text style={s.author}>{nameOf(item.sender_id)}</Text>}
+        {chat?.type === 'group' && !isOwn && <Text style={s.author}>{nameOf(item.sender_id)}</Text>}
+        {item.forwarded_from && (
+          <Text style={s.forwarded}>Переслано от {item.forwarded_from}</Text>
+        )}
         {item.reply_to && (
           <Pressable
             style={[s.quote, isOwn && !asSticker && s.quoteOwn]}
@@ -562,6 +565,7 @@ export default function ChatScreen({route, navigation}: Props) {
           </View>
         )}
         <View style={[s.meta, image && s.imageMeta]}>
+          {item.expires_at && <Text style={s.time}>⏱</Text>}
           {item.edited_at && <Text style={s.time}>изм.</Text>}
           <Text style={s.time}>
             {new Date(item.created_at).toLocaleTimeString('ru', {
@@ -742,6 +746,7 @@ const s = StyleSheet.create({
   headerBusy: {color: '#f87171'},
   headerTyping: {color: '#c4b5fd'},
   author: {color: '#d8b4fe', fontSize: 12, fontWeight: '600', marginBottom: 2},
+  forwarded: {color: 'rgba(255,255,255,0.75)', fontSize: 12, fontStyle: 'italic', marginBottom: 2},
   highlight: {borderWidth: 2, borderColor: '#c084fc'},
   quote: {
     borderLeftWidth: 3,

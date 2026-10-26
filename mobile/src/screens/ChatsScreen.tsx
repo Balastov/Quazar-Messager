@@ -76,6 +76,7 @@ export default function ChatsScreen({navigation}: Props) {
 
   const chatName = (chat: Chat) => {
     if (chat.type === 'group') {return chat.name ?? 'Группа';}
+    if (chat.type === 'saved') {return 'Избранное';}
     const other = chat.members.find(m => m.user.id !== currentUser?.id);
     // Как человек записан в телефонной книге — так и показываем.
     const fromPhonebook = contacts.find(c => c.user.id === other?.user.id)?.name;

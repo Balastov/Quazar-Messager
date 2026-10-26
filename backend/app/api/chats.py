@@ -12,7 +12,13 @@ from app.models.call import Call
 from app.models.chat import Chat, ChatMember
 from app.models.message import Message
 from app.models.user import User
-from app.schemas.chat import ChatOut, CreateDirectChat, CreateGroupChat, SetChatBackground
+from app.schemas.chat import (
+    ChatOut,
+    CreateDirectChat,
+    CreateGroupChat,
+    SetChatBackground,
+    SetChatTtl,
+)
 from app.ws.hub import manager
 
 router = APIRouter(prefix="/chats", tags=["chats"])
@@ -117,6 +123,29 @@ async def create_direct_chat(
     return await _load_chat(chat.id, db)
 
 
+@router.post("/saved", response_model=ChatOut)
+async def open_saved_chat(
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """«Избранное» — чат с самим собой. Один на человека: создаётся при первом открытии."""
+    existing = (
+        await db.execute(
+            select(Chat.id)
+            .join(ChatMember, ChatMember.chat_id == Chat.id)
+            .where(Chat.type == "saved", ChatMember.user_id == current_user.id)
+        )
+    ).scalar_one_or_none()
+    if existing:
+        return await _load_chat(existing, db)
+    chat = Chat(type="saved")
+    db.add(chat)
+    await db.flush()
+    db.add(ChatMember(chat_id=chat.id, user_id=current_user.id, role="owner"))
+    await db.commit()
+    return await _load_chat(chat.id, db)
+
+
 @router.post("/group", response_model=ChatOut, status_code=status.HTTP_201_CREATED)
 async def create_group_chat(
     body: CreateGroupChat,
@@ -218,3 +247,39 @@ async def remove_chat_background(
     chat.background_attachment_id = None
     await db.commit()
     await _background_changed(chat, current_user, db)
+
+
+@router.put("/{chat_id}/ttl", status_code=status.HTTP_204_NO_CONTENT)
+async def set_chat_ttl(
+    chat_id: str,
+    body: SetChatTtl,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Исчезающие сообщения. В личном чате включает любой из двоих, в группе — владелец и админы.
+    Действует на сообщения, отправленные после включения."""
+    chat = await _member_chat(chat_id, current_user, db)
+    if chat.type == "group":
+        role = (
+            await db.execute(
+                select(ChatMember.role).where(
+                    ChatMember.chat_id == chat_id, ChatMember.user_id == current_user.id
+                )
+            )
+        ).scalar_one()
+        if role not in ("owner", "admin"):
+            raise HTTPException(status_code=403, detail="Менять могут владелец и админы группы")
+    chat.ttl_seconds = body.ttl_seconds
+    await db.commit()
+    member_ids = (
+        await db.execute(select(ChatMember.user_id).where(ChatMember.chat_id == chat_id))
+    ).scalars().all()
+    await manager.broadcast_to_users(
+        list(member_ids),
+        {
+            "type": "chat_ttl",
+            "chat_id": chat_id,
+            "ttl_seconds": chat.ttl_seconds,
+            "changed_by": current_user.id,
+        },
+    )

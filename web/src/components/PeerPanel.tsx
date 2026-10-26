@@ -7,25 +7,29 @@ import UserAvatar from "./UserAvatar";
 import { usePresence, usePresenceText } from "../store/presence";
 import { presenceTone } from "../utils/presence";
 import { IconChat, IconMore, IconPhone, IconVideo } from "./icons";
+import ChatActions from "./chat/ChatActions";
+import ChatGallery, { type GalleryTab } from "./chat/ChatGallery";
+import SavedAvatar from "./chat/SavedAvatar";
+import { useIsBlocked } from "../store/blocks";
 import s from "./PeerPanel.module.css";
 
 export default function PeerPanel() {
   const activeChatId = useChatStore((st) => st.activeChatId);
   const chats = useChatStore((st) => st.chats);
-  const setShowE2ePanel = useChatStore((st) => st.setShowE2ePanel);
   const currentUser = useAuthStore((st) => st.user);
   const startAudioCall = useCallStore((st) => st.startAudioCall);
   const startVideoCall = useCallStore((st) => st.startVideoCall);
   const callPhase = useCallStore((st) => st.phase);
   const callBusy = callPhase !== "idle" && callPhase !== "ended";
   const [notifyOn, setNotifyOn] = useState(() => getNotifyPrefs().enabled);
-  const [mediaTab, setMediaTab] = useState<"media" | "files" | "links">("media");
+  const [mediaTab, setMediaTab] = useState<GalleryTab>("photos");
 
   const chat = chats.find((c) => c.id === activeChatId);
   const peerId =
     chat?.type === "direct" ? chat.members.find((m) => m.user.id !== currentUser?.id)?.user.id : null;
   const peerPresence = usePresence(peerId);
   const peerStatusText = usePresenceText(peerId);
+  const blocked = useIsBlocked(peerId);
   if (!chat || !activeChatId) {
     return (
       <aside className={s.root}>
@@ -35,8 +39,12 @@ export default function PeerPanel() {
   }
 
   const peer =
-    chat.type === "group"
-      ? { id: null as string | null, username: chat.name ?? "Группа", avatar_url: null as string | null }
+    chat.type === "group" || chat.type === "saved"
+      ? {
+          id: null as string | null,
+          username: chat.type === "saved" ? "Избранное" : (chat.name ?? "Группа"),
+          avatar_url: null as string | null,
+        }
       : (() => {
           const other = chat.members.find((m) => m.user.id !== currentUser?.id)?.user;
           return {
@@ -46,19 +54,31 @@ export default function PeerPanel() {
           };
         })();
 
-  const canCall = chat.type === "direct" && !!peer.id && !callBusy;
+  const canCall = chat.type === "direct" && !!peer.id && !callBusy && !blocked;
 
   return (
     <aside className={s.root}>
       <div className={s.profile}>
-        <UserAvatar username={peer.username} avatarUrl={peer.avatar_url} size="lg" userId={peer.id} />
+        {chat.type === "saved" ? (
+          <SavedAvatar size="lg" />
+        ) : (
+          <UserAvatar username={peer.username} avatarUrl={peer.avatar_url} size="lg" userId={peer.id} />
+        )}
         <div className={s.name}>{peer.username}</div>
         <div
           className={`${s.status} ${
-            { online: s.statusOnline, away: s.statusAway, busy: s.statusBusy, none: "" }[presenceTone(peerPresence) ?? "none"] ?? ""
+            blocked
+              ? ""
+              : ({ online: s.statusOnline, away: s.statusAway, busy: s.statusBusy, none: "" }[presenceTone(peerPresence) ?? "none"] ?? "")
           }`}
         >
-          {chat.type === "group" ? "Группа" : (peerStatusText ?? "В Quazar")}
+          {chat.type === "group"
+            ? "Группа"
+            : chat.type === "saved"
+              ? "Заметки и пересланное — видите только вы"
+              : blocked
+                ? "Заблокирован(а)"
+                : (peerStatusText ?? "В Quazar")}
         </div>
       </div>
 
@@ -67,40 +87,46 @@ export default function PeerPanel() {
           <IconChat size={18} />
           Чат
         </button>
-        <button
-          type="button"
-          className={s.action}
-          title="Аудиозвонок"
-          disabled={!canCall}
-          onClick={() => {
-            if (peer.id) void startAudioCall(activeChatId, peer.id);
-          }}
-        >
-          <IconPhone size={18} />
-          Звонок
-        </button>
-        <button
-          type="button"
-          className={s.action}
-          title="Видеозвонок"
-          disabled={!canCall}
-          onClick={() => {
-            if (peer.id) void startVideoCall(activeChatId, peer.id);
-          }}
-        >
-          <IconVideo size={18} />
-          Видео
-        </button>
-        <button type="button" className={s.action} onClick={() => setShowE2ePanel(true)}>
+        {chat.type !== "saved" && (
+          <>
+            <button
+              type="button"
+              className={s.action}
+              title="Аудиозвонок"
+              disabled={!canCall}
+              onClick={() => {
+                if (peer.id) void startAudioCall(activeChatId, peer.id);
+              }}
+            >
+              <IconPhone size={18} />
+              Звонок
+            </button>
+            <button
+              type="button"
+              className={s.action}
+              title="Видеозвонок"
+              disabled={!canCall}
+              onClick={() => {
+                if (peer.id) void startVideoCall(activeChatId, peer.id);
+              }}
+            >
+              <IconVideo size={18} />
+              Видео
+            </button>
+          </>
+        )}
+        <ChatActions chat={chat} className={s.action}>
           <IconMore size={18} />
           Ещё
-        </button>
+        </ChatActions>
       </div>
 
-      <section className={s.section}>
-        <div className={s.sectionTitle}>О себе</div>
-        <p className={s.about}>Пользователь Quazar Messager</p>
-      </section>
+      {chat.type !== "saved" && (
+        <section className={s.section}>
+          <div className={s.sectionTitle}>О себе</div>
+          <p className={s.about}>Пользователь Quazar Messager</p>
+        </section>
+      )}
 
       <div className={s.row}>
         <span>Уведомления</span>
@@ -121,8 +147,8 @@ export default function PeerPanel() {
         <div className={s.mediaTabs}>
           {(
             [
-              ["media", "Медиа"],
-              ["files", "Файлы"],
+              ["photos", "Фото"],
+              ["voice", "Голосовые"],
               ["links", "Ссылки"],
             ] as const
           ).map(([id, label]) => (
@@ -136,10 +162,7 @@ export default function PeerPanel() {
             </button>
           ))}
         </div>
-        <p className={s.mediaEmpty}>
-          Общие вложения появятся здесь.
-          <span className={s.soon}> Скоро.</span>
-        </p>
+        <ChatGallery chatId={activeChatId} tab={mediaTab} />
       </section>
     </aside>
   );

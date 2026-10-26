@@ -44,6 +44,10 @@ interface CallState {
   noiseSuppressionActive: boolean;
   remoteStream: MediaStream | null;
   localStream: MediaStream | null;
+  /** Что я сейчас показываю собеседнику: камеру, экран или ничего. */
+  localVideo: LocalVideo;
+  /** Что показывает собеседник (по его сигналу call_media). */
+  remoteVideo: RemoteVideo;
   error: string | null;
   endReason: EndReason;
   reconnecting: Reconnecting;
@@ -60,8 +64,13 @@ interface CallState {
   toggleNoiseSuppression: () => Promise<void>;
   /** Выбрали другой микрофон в настройках устройств. */
   switchMicrophone: () => Promise<void>;
-  toggleCamera: () => void;
+  /** Камера вкл/выкл — и в аудиозвонке тоже (звонок становится видео). */
+  toggleCamera: () => Promise<void>;
   flipCamera: () => Promise<void>;
+  /** Показ экрана вкл/выкл. */
+  toggleScreenShare: () => Promise<void>;
+  /** Можно ли в этом звонке включать видео (собеседник поддерживает, соединение готово). */
+  canSendVideo: () => boolean;
   loadHistory: () => Promise<void>;
   clearEnded: () => void;
   prepareIncomingFromPush: (info: {
@@ -72,6 +81,24 @@ interface CallState {
     media?: CallMedia | null;
   }) => void;
 }
+
+export type LocalVideo = "camera" | "screen" | null;
+export interface RemoteVideo {
+  video: boolean;
+  screen: boolean;
+}
+
+/** Видео в начале звонка: видеозвонок — камеры с обеих сторон, аудио — ничего. */
+function initialVideo(media: CallMedia): { localVideo: LocalVideo; remoteVideo: RemoteVideo; cameraOff: boolean } {
+  return {
+    localVideo: media.video ? "camera" : null,
+    remoteVideo: { video: !!media.video, screen: false },
+    cameraOff: !media.video,
+  };
+}
+
+/** До экрана была камера — по окончании показа вернуть её. */
+let cameraBeforeScreen = false;
 
 let peer: CallPeer | null = null;
 let endClearTimer: ReturnType<typeof setTimeout> | null = null;
@@ -206,6 +233,20 @@ function resolvePeerMeta(chatId: string, peerUserId: string) {
 function cleanupPeer() {
   peer?.close();
   peer = null;
+  cameraBeforeScreen = false;
+}
+
+/** Сказать собеседнику, что я теперь показываю. */
+function sendMedia(localVideo: LocalVideo) {
+  const callId = useCallStore.getState().callId;
+  if (!callId) return;
+  socket.send({ type: "call_media", call_id: callId, video: localVideo === "camera", screen: localVideo === "screen" });
+}
+
+function exitPictureInPicture() {
+  if (typeof document !== "undefined" && document.pictureInPictureElement) {
+    void document.exitPictureInPicture().catch(() => {});
+  }
 }
 
 function stopRing() {
@@ -287,8 +328,9 @@ function finishCall(reason: EndReason, error: string | null = null) {
     localStream: null,
     muted: false,
     noiseSuppressionActive: false,
-    cameraOff: false,
+    ...initialVideo({ audio: true, video: false }),
   });
+  exitPictureInPicture();
   scheduleClear();
   void useCallStore.getState().loadHistory();
 }
@@ -322,7 +364,7 @@ async function beginOutgoingCall(
     media,
     muted: false,
     noiseSuppressionActive: false,
-    cameraOff: false,
+    ...initialVideo(media),
     error: null,
     endReason: null,
     remoteStream: null,
@@ -408,6 +450,7 @@ export const useCallStore = create<CallState>((set, get) => {
             chatId: event.chat_id,
             peerUserId: event.caller_id,
             media: event.media ?? { audio: true, video: false },
+            ...initialVideo(event.media ?? { audio: true, video: false }),
             error: null,
             endReason: null,
             ...meta,
@@ -571,6 +614,12 @@ export const useCallStore = create<CallState>((set, get) => {
           break;
         }
 
+        case "call_media": {
+          if (event.call_id !== get().callId) return;
+          set({ remoteVideo: { video: event.video, screen: event.screen } });
+          break;
+        }
+
         case "call_error": {
           if (event.call_id && get().callId && event.call_id !== get().callId) return;
           finishCall("error", event.error || "Ошибка звонка");
@@ -594,7 +643,7 @@ export const useCallStore = create<CallState>((set, get) => {
     muted: false,
     noiseSuppression: getNoiseSuppressionPref(),
     noiseSuppressionActive: false,
-    cameraOff: false,
+    ...initialVideo({ audio: true, video: false }),
     remoteStream: null,
     localStream: null,
     error: null,
@@ -621,7 +670,7 @@ export const useCallStore = create<CallState>((set, get) => {
         chatId: info.chatId,
         peerUserId: peerUserId,
         media: info.media ?? { audio: true, video: false },
-        cameraOff: false,
+        ...initialVideo(info.media ?? { audio: true, video: false }),
         error: null,
         endReason: null,
         ...meta,
@@ -644,7 +693,7 @@ export const useCallStore = create<CallState>((set, get) => {
       void clearCallNotification(callId);
       await useVoiceStore.getState().leave();
       applyIosRoute();
-      set({ phase: "connecting", error: null, cameraOff: false });
+      set({ phase: "connecting", error: null });
       try {
         const p = await ensurePeer(media);
         const local = await p.startLocalMedia();
@@ -706,15 +755,63 @@ export const useCallStore = create<CallState>((set, get) => {
       set({ muted: next });
     },
 
-    toggleCamera: () => {
-      if (!get().media.video) return;
-      const next = !get().cameraOff;
-      peer?.setCameraEnabled(!next);
-      set({ cameraOff: next });
+    canSendVideo: () => !!peer?.canSendVideo(),
+
+    toggleCamera: async () => {
+      if (!peer) return;
+      const turnOn = get().localVideo !== "camera";
+      try {
+        if (turnOn) await peer.startCamera();
+        else await peer.setOutgoingVideo(null);
+      } catch {
+        set({ error: turnOn ? "Не удалось включить камеру" : "Не удалось выключить камеру" });
+        return;
+      }
+      const localVideo: LocalVideo = turnOn ? "camera" : null;
+      cameraBeforeScreen = false;
+      set({ localVideo, cameraOff: !turnOn, localStream: peer.getLocalStream(), error: null });
+      sendMedia(localVideo);
+    },
+
+    toggleScreenShare: async () => {
+      if (!peer) return;
+      const p = peer;
+      if (get().localVideo === "screen") {
+        // Показ закончили кнопкой в звонке — возвращаем камеру, если она была.
+        try {
+          if (cameraBeforeScreen) await p.startCamera();
+          else await p.setOutgoingVideo(null);
+        } catch {
+          await p.setOutgoingVideo(null).catch(() => {});
+          cameraBeforeScreen = false;
+        }
+        const localVideo: LocalVideo = cameraBeforeScreen ? "camera" : null;
+        cameraBeforeScreen = false;
+        set({ localVideo, cameraOff: localVideo !== "camera", localStream: p.getLocalStream() });
+        sendMedia(localVideo);
+        return;
+      }
+      cameraBeforeScreen = get().localVideo === "camera";
+      let track: MediaStreamTrack;
+      try {
+        track = await p.startScreen();
+      } catch (err) {
+        cameraBeforeScreen = false;
+        // Человек сам закрыл окно выбора экрана — это не ошибка.
+        if (err instanceof DOMException && err.name === "NotAllowedError") return;
+        set({ error: "Не удалось показать экран" });
+        return;
+      }
+      // «Закрыть доступ» в панели браузера — показ закончился сам.
+      track.addEventListener("ended", () => {
+        if (peer === p && get().localVideo === "screen") void get().toggleScreenShare();
+      });
+      set({ localVideo: "screen", cameraOff: true, localStream: p.getLocalStream(), error: null });
+      sendMedia("screen");
     },
 
     flipCamera: async () => {
-      if (!get().media.video || get().cameraOff) return;
+      if (get().localVideo !== "camera") return;
       try {
         const stream = await peer?.flipCamera();
         if (stream) set({ localStream: stream });
@@ -749,7 +846,7 @@ export const useCallStore = create<CallState>((set, get) => {
         endReason: null,
         muted: false,
         noiseSuppressionActive: false,
-        cameraOff: false,
+        ...initialVideo({ audio: true, video: false }),
         media: { audio: true, video: false },
       });
     },

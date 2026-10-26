@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { useBlocksStore } from "../store/blocks";
 import { useChatStore } from "../store/chat";
 import { useCallStore } from "../store/call";
 import { useUiStore } from "../store/ui";
@@ -55,6 +56,7 @@ export default function MessengerPage() {
     useUiStore.setState({ mobileChatOpen: false });
     void useStickersStore.getState().load();
     void useContactsStore.getState().load();
+    void useBlocksStore.getState().load().catch(() => {});
     // «В сети» / «отошёл»: следим, работают ли с этим устройством.
     activityTracker?.start();
     activityTracker?.setIdleAfter(useUiStore.getState().idleMinutes);

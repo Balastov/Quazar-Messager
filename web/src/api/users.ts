@@ -37,4 +37,21 @@ export const usersApi = {
 
   removeBackground: () =>
     http.delete<{ background_url: string | null }>("/users/me/background").then((r) => r.data),
+
+  blocks: () => http.get<User[]>("/users/me/blocks").then((r) => r.data),
+  block: (userId: string) => http.put(`/users/${userId}/block`),
+  unblock: (userId: string) => http.delete(`/users/${userId}/block`),
+  report: (userId: string, body: ReportBody) =>
+    http.post<{ id: string }>(`/users/${userId}/report`, body).then((r) => r.data),
 };
+
+export type ReportReason = "spam" | "abuse" | "fraud" | "other";
+
+export interface ReportBody {
+  reason: ReportReason;
+  comment?: string;
+  chat_id?: string;
+  /** Последние сообщения, расшифрованные здесь, — только с согласия. */
+  evidence?: { sender: "me" | "them"; at: string; text: string }[];
+  block?: boolean;
+}

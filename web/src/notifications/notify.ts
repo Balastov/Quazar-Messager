@@ -253,3 +253,33 @@ export async function notifyDoor(
     // ignore
   }
 }
+
+/** Напоминание о сообщении: всплывашка, а если вкладка скрыта — системное уведомление.
+ * Тег тот же, что у push от сервера, — одно и то же напоминание не покажется дважды. */
+export async function notifyReminder(info: {
+  reminderId: string;
+  chatId: string;
+  messageId: string;
+  body: string;
+}): Promise<void> {
+  useToastStore.getState().push({
+    title: "🔔 Напоминание",
+    body: truncate(info.body),
+    chatId: info.chatId,
+    messageId: info.messageId,
+  });
+  void playSoftChime();
+  if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+    await showSystemNotification({
+      title: "Напоминание",
+      body: truncate(info.body),
+      chatId: info.chatId,
+      tag: `quazar-reminder-${info.reminderId}`,
+    });
+  }
+}
+
+/** Служебная всплывашка в приложении (без звука и системных уведомлений). */
+export function notifyInfo(info: { title: string; body: string; chatId?: string }): void {
+  useToastStore.getState().push(info);
+}

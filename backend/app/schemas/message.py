@@ -45,5 +45,7 @@ class MessageOut(BaseModel):
     status: str
     created_at: datetime
     edited_at: datetime | None = None
+    # Исчезающее сообщение: когда пропадёт у всех.
+    expires_at: datetime | None = None
     reply_to: ReplyOut | None = None
     reactions: list[ReactionOut] = []

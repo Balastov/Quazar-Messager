@@ -25,6 +25,7 @@ import { chatTypingKey, useTyping } from "../store/typing";
 import { typingLabel } from "../chat/typing";
 import type { Chat } from "../api/types";
 import m from "./messages/Messages.module.css";
+import SavedAvatar from "./chat/SavedAvatar";
 
 /** Строка под именем чата: последнее сообщение, а пока кто-то набирает — «печатает…». */
 function PreviewLine({ chat, className, children }: { chat: Chat; className: string; children: string }) {
@@ -40,7 +41,7 @@ function PreviewLine({ chat, className, children }: { chat: Chat; className: str
 type Filter = "all" | "favorites" | "phonebook";
 
 export default function ContactsPane() {
-  const { chats, activeChatId, loadChats, selectChat, openDirectChat, messages } =
+  const { chats, activeChatId, loadChats, selectChat, openDirectChat, openSavedChat, messages } =
     useChatStore();
   const currentUser = useAuthStore((st) => st.user);
   // Превью «Стикер 😂» обновится, когда загрузится каталог стикеров.
@@ -84,10 +85,10 @@ export default function ContactsPane() {
   }, [search]);
 
   const chatPeer = (chat: (typeof chats)[0]) => {
-    if (chat.type === "group") {
+    if (chat.type === "group" || chat.type === "saved") {
       return {
         id: null as string | null,
-        username: chat.name ?? "Группа",
+        username: chat.type === "saved" ? "Избранное" : (chat.name ?? "Группа"),
         avatar_url: null as string | null,
         phone: null as string | null,
       };
@@ -116,8 +117,13 @@ export default function ContactsPane() {
     return new Date(ts).toLocaleTimeString("ru", { hour: "2-digit", minute: "2-digit" });
   };
 
+  const savedChat = chats.find((c) => c.type === "saved");
+  const showSaved =
+    filter === "all" && (!search.trim() || "избранное".includes(search.trim().toLowerCase()));
+
   const filtered = useMemo(() => {
-    let list = chats;
+    // «Избранное» — отдельной строкой сверху.
+    let list = chats.filter((c) => c.type !== "saved");
     if (filter === "favorites") {
       list = list.filter((c) => favoriteChatIds.includes(c.id));
     }
@@ -308,7 +314,31 @@ export default function ContactsPane() {
         </div>
       ) : (
       <div className={s.list}>
-        {filtered.length === 0 && (
+        {showSaved && (
+          <button
+            type="button"
+            className={savedChat && savedChat.id === activeChatId ? s.itemActive : s.item}
+            onClick={() =>
+              void openSavedChat().then(() => {
+                setTab("chats");
+                setMobileChatOpen(true);
+              })
+            }
+          >
+            <SavedAvatar />
+            <div className={s.meta}>
+              <div className={s.nameRow}>
+                <span className={s.name}>Избранное</span>
+              </div>
+              <span className={s.preview}>
+                {savedChat && messages[savedChat.id]?.length
+                  ? lastPreview(savedChat.id)
+                  : "Заметки и пересланное"}
+              </span>
+            </div>
+          </button>
+        )}
+        {filtered.length === 0 && !showSaved && (
           <div className={s.hint}>
             {filter === "favorites"
               ? "Нет избранных чатов — отметьте звездой"

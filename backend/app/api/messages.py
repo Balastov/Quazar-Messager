@@ -1,13 +1,14 @@
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import delete, select
+from sqlalchemy import delete, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import attachments as attachment_files
+from app.core.blocks import block_state, direct_peer
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.core.reactions import REACTIONS
@@ -26,6 +27,20 @@ from app.schemas.message import (
 from app.ws.hub import manager
 
 router = APIRouter(prefix="/chats/{chat_id}/messages", tags=["messages"])
+
+E2E_PREFIXES = ("ENC1:", "ENC2:")
+
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def visible_to(user_id: str, now: datetime | None = None):
+    """Сообщения, которые человек видит: не «удалены у меня» и ещё не исчезли."""
+    hidden = select(HiddenMessage.message_id).where(HiddenMessage.user_id == user_id)
+    return Message.id.not_in(hidden) & or_(
+        Message.expires_at.is_(None), Message.expires_at > (now or _now())
+    )
 
 
 async def _get_chat_member_ids(chat_id: str, db: AsyncSession) -> list[str]:
@@ -92,6 +107,7 @@ async def messages_out(db: AsyncSession, messages: list[Message]) -> list[Messag
             status=m.status,
             created_at=m.created_at,
             edited_at=m.edited_at,
+            expires_at=m.expires_at,
             reply_to=_reply_out(replies.get(m.reply_to_id)) if m.reply_to_id else None,
             reactions=reactions[m.id],
         )
@@ -109,7 +125,89 @@ def new_message_event(message: Message, reply_to: Message | None = None) -> dict
         "status": message.status,
         "timestamp": message.created_at.isoformat(),
         "reply_to": r.model_dump() if (r := _reply_out(reply_to)) else None,
+        "expires_at": message.expires_at.isoformat() if message.expires_at else None,
     }
+
+
+async def deliver(
+    db: AsyncSession,
+    chat: Chat,
+    sender_id: str,
+    payload: str,
+    *,
+    reply_to: Message | None = None,
+    attachment_id: str | None = None,
+) -> Message:
+    """Создать сообщение и разослать его. Общая для отправки и отложенных сообщений.
+
+    - «Избранное» принимает только зашифрованное (старый клиент не отправит туда открытый текст).
+    - Я заблокировал собеседника — 403. Он заблокировал меня — сообщение сохраняется, но у него
+      скрыто и ему не приходит: у меня остаётся одна галочка, как в WhatsApp.
+    - В чате с исчезающими сообщениями проставляется expires_at.
+    """
+    if chat.type == "saved" and not payload.startswith(E2E_PREFIXES):
+        raise HTTPException(status_code=422, detail="В «Избранном» сообщения только зашифрованные")
+
+    hidden_for: str | None = None
+    peer = await direct_peer(db, chat.id, sender_id)
+    if peer:
+        i_blocked, they_blocked = await block_state(db, sender_id, peer)
+        if i_blocked:
+            raise HTTPException(
+                status_code=403, detail="Вы заблокировали пользователя — разблокируйте, чтобы писать"
+            )
+        if they_blocked:
+            hidden_for = peer
+
+    message = Message(
+        chat_id=chat.id,
+        sender_id=sender_id,
+        payload=payload,
+        reply_to_id=reply_to.id if reply_to else None,
+        expires_at=_now() + timedelta(seconds=chat.ttl_seconds) if chat.ttl_seconds else None,
+    )
+    db.add(message)
+    await db.flush()
+    if attachment_id:
+        attachment = (
+            await db.execute(
+                select(Attachment).where(
+                    Attachment.id == attachment_id,
+                    Attachment.chat_id == chat.id,
+                    Attachment.uploader_id == sender_id,
+                    Attachment.message_id.is_(None),
+                )
+            )
+        ).scalar_one_or_none()
+        if not attachment:
+            raise HTTPException(status_code=422, detail="Attachment not found")
+        attachment.message_id = message.id
+    if hidden_for:
+        db.add(HiddenMessage(user_id=hidden_for, message_id=message.id))
+    await db.commit()
+    await db.refresh(message)
+
+    recipients = [uid for uid in await _get_chat_member_ids(chat.id, db) if uid != hidden_for]
+    await manager.broadcast_to_users(user_ids=recipients, event=new_message_event(message, reply_to))
+    return message
+
+
+async def purge(db: AsyncSession, chat_id: str, message_ids: list[str]) -> None:
+    """Удалить сообщения у всех: строки, картинки и голосовые с диска, событие участникам."""
+    if not message_ids:
+        return
+    attachment_ids = (
+        await db.execute(select(Attachment.id).where(Attachment.message_id.in_(message_ids)))
+    ).scalars().all()
+    await db.execute(delete(Message).where(Message.id.in_(message_ids)))
+    await db.commit()
+    for attachment_id in attachment_ids:
+        attachment_files.delete_file(attachment_id)
+    member_ids = await _get_chat_member_ids(chat_id, db)
+    for message_id in message_ids:
+        await manager.broadcast_to_users(
+            member_ids, {"type": "message_deleted", "chat_id": chat_id, "message_id": message_id}
+        )
 
 
 @router.get("", response_model=list[MessageOut])
@@ -122,8 +220,7 @@ async def get_messages(
 ):
     await _assert_member(chat_id, current_user.id, db)
 
-    hidden = select(HiddenMessage.message_id).where(HiddenMessage.user_id == current_user.id)
-    query = select(Message).where(Message.chat_id == chat_id, Message.id.not_in(hidden))
+    query = select(Message).where(Message.chat_id == chat_id, visible_to(current_user.id))
     if before_id:
         # курсорная пагинация по id (uuid не сортируется по времени, используем created_at)
         result = await db.execute(select(Message.created_at).where(Message.id == before_id))
@@ -158,36 +255,45 @@ async def send_message(
         if not reply_to:
             raise HTTPException(status_code=422, detail="Сообщение для ответа не найдено")
 
-    message = Message(
-        chat_id=chat_id,
-        sender_id=current_user.id,
-        payload=body.payload,
-        reply_to_id=reply_to.id if reply_to else None,
+    chat = (await db.execute(select(Chat).where(Chat.id == chat_id))).scalar_one()
+    message = await deliver(
+        db,
+        chat,
+        current_user.id,
+        body.payload,
+        reply_to=reply_to,
+        attachment_id=body.attachment_id,
     )
-    db.add(message)
-    if body.attachment_id:
-        attachment = (
-            await db.execute(
-                select(Attachment).where(
-                    Attachment.id == body.attachment_id,
-                    Attachment.chat_id == chat_id,
-                    Attachment.uploader_id == current_user.id,
-                    Attachment.message_id.is_(None),
-                )
-            )
-        ).scalar_one_or_none()
-        if not attachment:
-            raise HTTPException(status_code=422, detail="Attachment not found")
-        await db.flush()
-        attachment.message_id = message.id
-    await db.commit()
-    await db.refresh(message)
-
-    # Рассылаем через WebSocket всем участникам чата
-    member_ids = await _get_chat_member_ids(chat_id, db)
-    await manager.broadcast_to_users(user_ids=member_ids, event=new_message_event(message, reply_to))
-
     return (await messages_out(db, [message]))[0]
+
+
+@router.get("/media", response_model=list[MessageOut])
+async def list_media(
+    chat_id: str,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    limit: int = Query(60, ge=1, le=100),
+    before_id: str | None = Query(None),
+):
+    """Сообщения с вложениями (фото, голосовые) — для галереи в профиле, свежие первыми.
+
+    Что внутри, сервер не знает (в личных чатах зашифровано) — клиент разбирает сам.
+    """
+    await _assert_member(chat_id, current_user.id, db)
+    with_attachment = select(Attachment.message_id).where(
+        Attachment.chat_id == chat_id, Attachment.message_id.is_not(None)
+    )
+    query = select(Message).where(
+        Message.chat_id == chat_id, Message.id.in_(with_attachment), visible_to(current_user.id)
+    )
+    if before_id:
+        cursor = (
+            await db.execute(select(Message.created_at).where(Message.id == before_id))
+        ).scalar_one_or_none()
+        if cursor:
+            query = query.where(Message.created_at < cursor)
+    rows = await db.execute(query.order_by(Message.created_at.desc()).limit(limit))
+    return await messages_out(db, list(rows.scalars().all()))
 
 
 @router.patch("/{message_id}", response_model=MessageOut)
@@ -242,18 +348,7 @@ async def delete_message(
             raise HTTPException(status_code=403, detail="Удалить у всех можно только своё сообщение")
 
     # Картинка уходит вместе с сообщением — и с диска сразу, а не при уборке.
-    attachment_ids = (
-        await db.execute(select(Attachment.id).where(Attachment.message_id == message.id))
-    ).scalars().all()
-    await db.delete(message)
-    await db.commit()
-    for attachment_id in attachment_ids:
-        attachment_files.delete_file(attachment_id)
-
-    await manager.broadcast_to_users(
-        await _get_chat_member_ids(chat_id, db),
-        {"type": "message_deleted", "chat_id": chat_id, "message_id": message_id},
-    )
+    await purge(db, chat_id, [message.id])
 
 
 @router.post("/{message_id}/hide", status_code=status.HTTP_204_NO_CONTENT)
@@ -293,6 +388,10 @@ async def set_reaction(
     chat_type = (await db.execute(select(Chat.type).where(Chat.id == chat_id))).scalar_one()
     if chat_type == "group" and body.payload not in REACTIONS:
         raise HTTPException(status_code=422, detail="Такой реакции нет")
+    peer = await direct_peer(db, chat_id, current_user.id)
+    if peer and any(await block_state(db, current_user.id, peer)):
+        # Заблокировавшему реакции не доходят; заблокировавший сам ставить не может.
+        raise HTTPException(status_code=403, detail="Пользователь заблокирован")
 
     now = datetime.now(timezone.utc)
     await db.execute(

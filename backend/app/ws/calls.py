@@ -10,12 +10,13 @@ Protocol (extensible):
     call_answer  { call_id, sdp }
     call_ice     { call_id, candidate }
     call_resume  { call_id, device_id? } — the device is back after a dropped connection
+    call_media   { call_id, video, screen } — my camera / screen share went on or off mid-call
   (call_invite / call_accept may carry device_id — a per-tab id that lets a device resume
   even before the server notices its old connection is dead)
 
   server → client (relay / control):
     call_invite | call_ringing | call_accept | call_reject | call_hangup
-    call_offer | call_answer | call_ice
+    call_offer | call_answer | call_ice | call_media
     call_unavailable | call_busy | call_error
     call_reconnecting | call_reconnected { call_id, user_id } — the peer lost / regained connection
     call_resumed | call_resume_failed { call_id } — reply to call_resume
@@ -40,6 +41,7 @@ from typing import Any
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.blocks import block_state
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.core.push import send_push_to_user, user_has_push
@@ -292,7 +294,7 @@ async def handle_call_event(data: dict, user_id: str, ws: Any = None) -> None:
         await _handle_reject(data, user_id, ws)
     elif event_type == "call_hangup":
         await _handle_hangup(data, user_id, ws)
-    elif event_type in ("call_offer", "call_answer", "call_ice"):
+    elif event_type in ("call_offer", "call_answer", "call_ice", "call_media"):
         await _relay_signaling(data, user_id, ws)
     elif event_type == "call_resume":
         await _handle_resume(data, user_id, ws)
@@ -332,8 +334,26 @@ async def _handle_invite(data: dict, caller_id: str, ws: Any = None) -> None:
 
     async with AsyncSessionLocal() as db:
         ok = await _assert_direct_member(db, chat_id, caller_id, callee_id)
+        i_blocked, they_blocked = await block_state(db, caller_id, callee_id) if ok else (False, False)
     if not ok:
         await manager.send_to_user(caller_id, {"type": "call_error", "error": "not_allowed"})
+        return
+    if i_blocked:
+        await manager.send_to_user(caller_id, {"type": "call_error", "error": "blocked"})
+        return
+    if they_blocked:
+        # Заблокировавший звонка не видит; звонящему — как будто собеседник не в сети.
+        await _persist_missed(call_id, chat_id, caller_id, callee_id, media)
+        await manager.send_to_user(
+            caller_id,
+            {
+                "type": "call_unavailable",
+                "call_id": call_id,
+                "chat_id": chat_id,
+                "callee_id": callee_id,
+                "reason": "offline",
+            },
+        )
         return
 
     if user_busy(callee_id):
@@ -552,6 +572,18 @@ async def _relay_signaling(data: dict, user_id: str, ws: Any = None) -> None:
             call,
             peer,
             {"type": event_type, "call_id": call_id, "sdp": sdp, "from_user_id": user_id},
+        )
+    elif event_type == "call_media":
+        await _send_to_call_device(
+            call,
+            peer,
+            {
+                "type": "call_media",
+                "call_id": call_id,
+                "video": data.get("video") is True,
+                "screen": data.get("screen") is True,
+                "from_user_id": user_id,
+            },
         )
     elif event_type == "call_ice":
         candidate = data.get("candidate")

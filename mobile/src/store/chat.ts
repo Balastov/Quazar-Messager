@@ -28,6 +28,7 @@ import {decryptMessage, encryptMessage, isEncrypted} from '../crypto/message';
 import {useAuthStore} from './auth';
 import {useE2EStore} from './e2e';
 import {applyReaction} from '../chat/reactions';
+import {unwrapForward} from '../chat/forward';
 import type {Chat, Message, MessageReaction} from '../api/types';
 
 /** Пока человек набирает, сообщаем серверу не чаще этого. */
@@ -114,13 +115,15 @@ async function openReactions(
   return opened.filter((r): r is MessageReaction => r !== null);
 }
 
-/** Сообщение с сервера — расшифровать вместе с цитатой и реакциями. */
+/** Сообщение с сервера — расшифровать вместе с цитатой и реакциями, снять обёртку пересылки. */
 async function openMessage(m: Message, myPrivKeys: string[]): Promise<Message> {
+  const {payload, forwardedFrom} = unwrapForward(await tryDecrypt(m.payload, myPrivKeys));
   return {
     ...m,
-    payload: await tryDecrypt(m.payload, myPrivKeys),
+    payload,
+    forwarded_from: forwardedFrom,
     reply_to: m.reply_to
-      ? {...m.reply_to, payload: await tryDecrypt(m.reply_to.payload, myPrivKeys)}
+      ? {...m.reply_to, payload: unwrapForward(await tryDecrypt(m.reply_to.payload, myPrivKeys)).payload}
       : null,
     reactions: await openReactions(m.reactions, myPrivKeys),
   };
@@ -128,19 +131,23 @@ async function openMessage(m: Message, myPrivKeys: string[]): Promise<Message> {
 
 /** Текст для отправки в чат: в личном — зашифрованный E2E для собеседника и для себя (ENC2). */
 async function sealForChat(chat: Chat, myId: string, plaintext: string): Promise<string> {
-  // Личные чаты — только E2E: без ключей не отправляем, а не шлём открытым текстом.
-  if (chat.type !== 'direct') {
+  // Личные чаты и «Избранное» — только E2E: без ключей не отправляем, а не шлём открытым текстом.
+  if (chat.type === 'group') {
     return plaintext;
-  }
-  const otherUserId = getOtherUserId(chat, myId);
-  if (!otherUserId) {
-    throw new Error('Не удалось определить собеседника');
   }
   const myKeys = useE2EStore.getState().status === 'ready' ? await loadKeys() : null;
   if (!myKeys) {
     throw new Error(
       'Ключи шифрования на этом устройстве не восстановлены. Восстановите их из резервной копии.',
     );
+  }
+  // «Избранное» — только себе.
+  if (chat.type === 'saved') {
+    return encryptMessage(plaintext, myKeys.publicKey, myKeys.publicKey);
+  }
+  const otherUserId = getOtherUserId(chat, myId);
+  if (!otherUserId) {
+    throw new Error('Не удалось определить собеседника');
   }
   const recipientKey = await fetchUserPublicKey(otherUserId);
   if (!recipientKey) {
@@ -205,7 +212,25 @@ async function openBackground(payload: string | null | undefined): Promise<Image
   return parseImage(await tryDecrypt(payload, await loadDecryptionKeys()));
 }
 
+/** Исчезнувшие сообщения убираем сами, не дожидаясь события сервера. */
+const EXPIRY_TICK_MS = 5000;
+
 export const useChatStore = create<ChatState>((set, get) => {
+  setInterval(() => {
+    const now = Date.now();
+    const {messages} = get();
+    let changed = false;
+    const next: Record<string, Message[]> = {};
+    for (const [chatId, msgs] of Object.entries(messages)) {
+      const kept = msgs.filter(m => !m.expires_at || Date.parse(m.expires_at) > now);
+      changed = changed || kept.length !== msgs.length;
+      next[chatId] = kept;
+    }
+    if (changed) {
+      set({messages: next});
+    }
+  }, EXPIRY_TICK_MS);
+
   const typingTimers = new Map<string, ReturnType<typeof setTimeout>>();
   const typingSentAt = new Map<string, number>();
 
@@ -279,7 +304,7 @@ export const useChatStore = create<ChatState>((set, get) => {
     }
 
     if (event.type === 'message_edited') {
-      const payload = await tryDecrypt(event.payload, await loadDecryptionKeys());
+      const payload = unwrapForward(await tryDecrypt(event.payload, await loadDecryptionKeys())).payload;
       updateMessages(event.chat_id, msgs =>
         msgs.map(m => {
           if (m.id === event.message_id) {
@@ -291,6 +316,12 @@ export const useChatStore = create<ChatState>((set, get) => {
           return m;
         }),
       );
+    }
+
+    if (event.type === 'chat_ttl') {
+      set(s => ({
+        chats: s.chats.map(c => (c.id === event.chat_id ? {...c, ttl_seconds: event.ttl_seconds} : c)),
+      }));
     }
 
     if (event.type === 'message_deleted') {
@@ -321,7 +352,9 @@ export const useChatStore = create<ChatState>((set, get) => {
     if (event.type === 'new_message') {
       const myId = useAuthStore.getState().user?.id;
       const keys = await loadDecryptionKeys();
-      const decryptedPayload = await tryDecrypt(event.payload, keys);
+      const {payload: decryptedPayload, forwardedFrom} = unwrapForward(
+        await tryDecrypt(event.payload, keys),
+      );
       setTyping(event.chat_id, event.sender_id, false);
 
       const msg: Message = {
@@ -331,8 +364,10 @@ export const useChatStore = create<ChatState>((set, get) => {
         payload: decryptedPayload,
         status: event.status as Message['status'],
         created_at: event.timestamp,
+        expires_at: event.expires_at ?? null,
+        forwarded_from: forwardedFrom,
         reply_to: event.reply_to
-          ? {...event.reply_to, payload: await tryDecrypt(event.reply_to.payload, keys)}
+          ? {...event.reply_to, payload: unwrapForward(await tryDecrypt(event.reply_to.payload, keys)).payload}
           : null,
         reactions: [],
       };

@@ -5,7 +5,7 @@ import { useDevicesStore } from "../store/devices";
 import AudioDevices from "./AudioDevices";
 import Dialog from "./constellation/Dialog";
 import UserAvatar from "./UserAvatar";
-import { IconPhone, IconVideo } from "./icons";
+import { IconPhone, IconScreenShare, IconScreenStop, IconVideo } from "./icons";
 import s from "./CallOverlay.module.css";
 
 /** «Переподключение… 7 с» и пояснение, чья связь пропала. */
@@ -78,6 +78,10 @@ export default function CallOverlay() {
   const toggleMute = useCallStore((st) => st.toggleMute);
   const toggleCamera = useCallStore((st) => st.toggleCamera);
   const flipCamera = useCallStore((st) => st.flipCamera);
+  const toggleScreenShare = useCallStore((st) => st.toggleScreenShare);
+  const canSendVideo = useCallStore((st) => st.canSendVideo);
+  const localVideo = useCallStore((st) => st.localVideo);
+  const remoteVideo = useCallStore((st) => st.remoteVideo);
   const noiseSuppression = useCallStore((st) => st.noiseSuppression);
   const noiseSuppressionActive = useCallStore((st) => st.noiseSuppressionActive);
   const toggleNoiseSuppression = useCallStore((st) => st.toggleNoiseSuppression);
@@ -89,52 +93,52 @@ export default function CallOverlay() {
   const localVideoRef = useRef<HTMLVideoElement>(null);
 
   const isVideo = media.video === true;
+  const remoteShows = remoteVideo.video || remoteVideo.screen;
+  // Видео появилось хотя бы с одной стороны — даже в аудиозвонке переходим на экран с видео.
   const showVideoStage =
-    isVideo && (phase === "outgoing" || phase === "connecting" || phase === "active" || phase === "incoming");
+    (isVideo || !!localVideo || remoteShows) &&
+    (phase === "outgoing" || phase === "connecting" || phase === "active" || phase === "incoming");
+  const showRemoteVideo = !!remoteStream && remoteShows;
 
+  // Звук собеседника всегда идёт через <audio>, видео — без звука: при переключениях
+  // камеры и экрана звук не прерывается и не двоится.
   useEffect(() => {
     const el = audioRef.current;
     if (!el) return;
-    // When video UI is up, remote audio plays via the remote <video>.
-    if (isVideo && showVideoStage) {
-      el.srcObject = null;
-      return;
-    }
     if (remoteStream) {
       el.srcObject = remoteStream;
       void el.play().catch(() => undefined);
     } else {
       el.srcObject = null;
     }
-  }, [remoteStream, isVideo, showVideoStage]);
+  }, [remoteStream]);
 
   useEffect(() => {
     const el = remoteVideoRef.current;
     if (!el) return;
-    if (remoteStream) {
+    if (remoteStream && showRemoteVideo) {
       el.srcObject = remoteStream;
       void el.play().catch(() => undefined);
     } else {
       el.srcObject = null;
     }
-  }, [remoteStream, showVideoStage]);
+  }, [remoteStream, showRemoteVideo, showVideoStage]);
 
   // Звук собеседника — в выбранный динамик (где браузер это умеет).
   useEffect(() => {
     void applyOutput(audioRef.current, output);
-    void applyOutput(remoteVideoRef.current, output);
-  }, [output, remoteStream, showVideoStage]);
+  }, [output, remoteStream]);
 
   useEffect(() => {
     const el = localVideoRef.current;
     if (!el) return;
-    if (localStream && !cameraOff) {
+    if (localStream && localVideo) {
       el.srcObject = localStream;
       void el.play().catch(() => undefined);
     } else {
       el.srcObject = null;
     }
-  }, [localStream, cameraOff, showVideoStage]);
+  }, [localStream, localVideo, cameraOff, showVideoStage]);
 
   if (phase === "idle") return null;
 
@@ -155,6 +159,51 @@ export default function CallOverlay() {
       🎧
     </button>
   );
+
+  const videoReady = phase === "active" && canSendVideo();
+  const videoHint = phase !== "active" ? "Станет доступно, когда соединение установится" : "Собеседник не поддерживает видео в этом звонке";
+  const canShareScreen = typeof navigator !== "undefined" && !!navigator.mediaDevices?.getDisplayMedia;
+  const canPip = typeof document !== "undefined" && document.pictureInPictureEnabled && showRemoteVideo;
+
+  const videoButtons = (
+    <>
+      <button
+        type="button"
+        className={localVideo === "camera" ? s.mute : s.muteOn}
+        onClick={() => void toggleCamera()}
+        disabled={!videoReady}
+        aria-label={localVideo === "camera" ? "Выключить камеру" : "Включить камеру"}
+        title={videoReady ? (localVideo === "camera" ? "Выключить камеру" : "Включить камеру") : videoHint}
+      >
+        <IconVideo size={16} />
+        {localVideo === "camera" ? "" : " off"}
+      </button>
+      {canShareScreen && (
+        <button
+          type="button"
+          className={localVideo === "screen" ? s.screenOn : s.mute}
+          onClick={() => void toggleScreenShare()}
+          disabled={!videoReady}
+          aria-label={localVideo === "screen" ? "Остановить показ экрана" : "Показать экран"}
+          title={videoReady ? (localVideo === "screen" ? "Остановить показ экрана" : "Показать экран") : videoHint}
+        >
+          {localVideo === "screen" ? <IconScreenStop size={16} /> : <IconScreenShare size={16} />}
+        </button>
+      )}
+    </>
+  );
+
+  const pipButton = canPip ? (
+    <button
+      type="button"
+      className={s.mute}
+      onClick={() => void remoteVideoRef.current?.requestPictureInPicture().catch(() => {})}
+      aria-label="Картинка в картинке"
+      title="Картинка в картинке: видео собеседника поверх других окон"
+    >
+      ⧉
+    </button>
+  ) : null;
 
   const noiseButton = (
     <button
@@ -180,8 +229,14 @@ export default function CallOverlay() {
 
       {showVideoStage ? (
         <div className={s.videoStage}>
-          {remoteStream ? (
-            <video ref={remoteVideoRef} className={s.remoteVideo} autoPlay playsInline />
+          {showRemoteVideo ? (
+            <video
+              ref={remoteVideoRef}
+              className={remoteVideo.screen ? `${s.remoteVideo} ${s.remoteScreen}` : s.remoteVideo}
+              autoPlay
+              playsInline
+              muted
+            />
           ) : (
             <div className={s.videoPlaceholder}>
               <UserAvatar username={name} avatarUrl={peerAvatarUrl} size="lg" />
@@ -195,8 +250,14 @@ export default function CallOverlay() {
           )}
 
           <div className={s.localPip}>
-            {localStream && !cameraOff ? (
-              <video ref={localVideoRef} className={s.localVideo} autoPlay playsInline muted />
+            {localStream && localVideo ? (
+              <video
+                ref={localVideoRef}
+                className={localVideo === "screen" ? `${s.localVideo} ${s.localScreen}` : s.localVideo}
+                autoPlay
+                playsInline
+                muted
+              />
             ) : (
               <div className={s.localOff}>Камера выкл.</div>
             )}
@@ -241,24 +302,17 @@ export default function CallOverlay() {
                   </button>
                   {noiseButton}
                   {devicesButton}
-                  <button
-                    type="button"
-                    className={cameraOff ? s.muteOn : s.mute}
-                    onClick={toggleCamera}
-                    aria-label={cameraOff ? "Включить камеру" : "Выключить камеру"}
-                  >
-                    <IconVideo size={16} />
-                    {cameraOff ? " off" : ""}
-                  </button>
+                  {videoButtons}
                   <button
                     type="button"
                     className={s.mute}
                     onClick={() => void flipCamera()}
                     aria-label="Переключить камеру"
-                    disabled={cameraOff}
+                    disabled={localVideo !== "camera"}
                   >
                     Flip
                   </button>
+                  {pipButton}
                   <button type="button" className={s.reject} onClick={hangup} aria-label="Завершить">
                     <IconPhone size={22} />
                   </button>
@@ -307,7 +361,8 @@ export default function CallOverlay() {
                   {muted ? "Mic off" : "Mic"}
                 </button>
                 {noiseButton}
-                  {devicesButton}
+                {devicesButton}
+                {videoButtons}
                 <button type="button" className={s.reject} onClick={hangup} aria-label="Завершить">
                   <IconPhone size={22} />
                 </button>

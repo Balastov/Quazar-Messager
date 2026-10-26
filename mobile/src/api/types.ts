@@ -14,13 +14,16 @@ export interface ChatMember {
 
 export interface Chat {
   id: string;
-  type: 'direct' | 'group';
+  /** saved — «Избранное», чат с самим собой. */
+  type: 'direct' | 'group' | 'saved';
   name: string | null;
   created_at: string;
   /** Последнее сообщение / звонок / создание чата. */
   last_activity_at?: string | null;
   /** Общий фон: «IMG1:{…}», в личных чатах — зашифрованный ENC2 (как в web). */
   background?: string | null;
+  /** Исчезающие сообщения: сколько секунд живёт новое (null — не исчезают). */
+  ttl_seconds?: number | null;
   members: ChatMember[];
 }
 
@@ -45,8 +48,12 @@ export interface Message {
   status: 'sent' | 'delivered' | 'read';
   created_at: string;
   edited_at?: string | null;
+  /** Исчезающее сообщение: когда пропадёт у всех. */
+  expires_at?: string | null;
   reply_to?: MessageReply | null;
   reactions?: MessageReaction[];
+  /** Только в сторе: переслано — от кого (из зашифрованной обёртки «FWD1:»). */
+  forwarded_from?: string | null;
 }
 
 export interface TokenResponse {
@@ -107,7 +114,9 @@ export type WsEvent =
       status: string;
       timestamp: string;
       reply_to?: MessageReply | null;
+      expires_at?: string | null;
     }
+  | {type: 'chat_ttl'; chat_id: string; ttl_seconds: number | null; changed_by: string}
   | {type: 'message_edited'; chat_id: string; message_id: string; payload: string; edited_at: string}
   /** Удалили у всех — или я сам «удалил у меня» на другом устройстве. */
   | {type: 'message_deleted'; chat_id: string; message_id: string}

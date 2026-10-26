@@ -5,6 +5,8 @@ export interface AppToast {
   title: string;
   body: string;
   chatId?: string;
+  /** Нажатие — открыть чат и прокрутить к этому сообщению. */
+  messageId?: string;
 }
 
 interface ToastState {

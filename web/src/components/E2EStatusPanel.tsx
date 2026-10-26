@@ -1,3 +1,5 @@
+import { useCallback, useState } from "react";
+import { FingerprintQr, FingerprintScanner, type ScanResult } from "./chat/KeyQr";
 import s from "./E2EStatusPanel.module.css";
 
 interface Props {
@@ -17,6 +19,18 @@ export default function E2EStatusPanel({
   onAcceptKey,
   onClose,
 }: Props) {
+  const [mode, setMode] = useState<"digits" | "qr" | "scan">("digits");
+  const [scan, setScan] = useState<ScanResult | null>(null);
+
+  const onScan = useCallback(
+    (result: ScanResult) => {
+      setScan(result);
+      setMode("digits");
+      if (result === "match" && trustStatus !== "ok" && trustStatus !== "changed") onVerify();
+    },
+    [onVerify, trustStatus]
+  );
+
   const statusLabel = () => {
     switch (trustStatus) {
       case "ok":
@@ -54,10 +68,43 @@ export default function E2EStatusPanel({
         {fingerprint ? (
           <div className={s.fingerprintBox}>
             <span className={s.fingerprintLabel}>Код безопасности</span>
-            <code className={s.fingerprint}>{fingerprint}</code>
+            {mode === "digits" && <code className={s.fingerprint}>{fingerprint}</code>}
+            {mode === "qr" && <FingerprintQr fingerprint={fingerprint} />}
+            {mode === "scan" && <FingerprintScanner fingerprint={fingerprint} onResult={onScan} />}
             <p className={s.hint}>
-              Сверьте этот код с собеседником лично или по другому защищённому каналу.
+              {mode === "qr"
+                ? `Пусть ${username} откроет эту панель у себя и отсканирует QR.`
+                : mode === "scan"
+                  ? `Наведите камеру на QR в панели «Проверка шифрования» у ${username}.`
+                  : "Сверьте код с собеседником лично или по другому защищённому каналу — или отсканируйте QR, если вы рядом."}
             </p>
+            {scan === "match" && <p className={s.scanOk}>✓ Коды совпали — ключ настоящий</p>}
+            {scan === "mismatch" && (
+              <p className={s.scanBad}>
+                Коды не совпадают. Возможно, ключ подменили — не пишите ничего важного и сверьтесь лично.
+              </p>
+            )}
+            <div className={s.modes}>
+              {(
+                [
+                  ["digits", "Цифры"],
+                  ["qr", "Мой QR"],
+                  ["scan", "Сканировать"],
+                ] as const
+              ).map(([id, label]) => (
+                <button
+                  key={id}
+                  type="button"
+                  className={mode === id ? s.modeActive : s.mode}
+                  onClick={() => {
+                    setScan(null);
+                    setMode(id);
+                  }}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
           </div>
         ) : (
           <p className={s.hint}>Публичный ключ собеседника недоступен.</p>

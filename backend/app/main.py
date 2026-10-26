@@ -11,7 +11,7 @@ from sqlalchemy import text
 
 from app.core.avatars import avatars_dir
 from app.core.backgrounds import backgrounds_dir
-from app.core import attachments, voice
+from app.core import attachments, scheduler, voice
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal, Base, engine
 from app.models import Attachment, Call, PushSubscription, Star  # noqa: F401 — register tables for create_all
@@ -19,6 +19,8 @@ from app.api.auth import router as auth_router
 from app.api.users import router as users_router
 from app.api.chats import router as chats_router
 from app.api.messages import router as messages_router
+from app.api.later import reminders_router, scheduled_router
+from app.api.moderation import router as moderation_router
 from app.api.attachments import router as attachments_router
 from app.api.calls import router as calls_router
 from app.api.push import router as push_router
@@ -169,14 +171,29 @@ async def lifespan(app: FastAPI):
                 "edited_at TIMESTAMP WITH TIME ZONE"
             )
         )
+    # «Избранное» — новый тип чата. create_all существующий enum не меняет; новое значение
+    # нельзя использовать в той же транзакции, где его добавили, — поэтому отдельная транзакция.
+    async with engine.begin() as conn:
+        await conn.execute(text("ALTER TYPE chat_type ADD VALUE IF NOT EXISTS 'saved'"))
+        # Исчезающие сообщения (таблицы отложенных, напоминаний, блокировок — create_all выше).
+        await conn.execute(text("ALTER TABLE chats ADD COLUMN IF NOT EXISTS ttl_seconds INTEGER"))
+        await conn.execute(
+            text("ALTER TABLE messages ADD COLUMN IF NOT EXISTS expires_at TIMESTAMP WITH TIME ZONE")
+        )
+        await conn.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_messages_expires_at ON messages (expires_at)")
+        )
     # Кто сейчас на Планетах — восстанавливаем из LiveKit после перезапуска (в фоне).
     app.state.voice_resync = asyncio.create_task(voice.resync())
     # Неотправленные картинки и файлы удалённых чатов — раз в час.
     app.state.attachments_sweep = asyncio.create_task(
         attachments.sweep_forever(AsyncSessionLocal)
     )
+    # Отложенные сообщения, напоминания, исчезающие сообщения — раз в 5 секунд.
+    app.state.scheduler = asyncio.create_task(scheduler.run_forever(AsyncSessionLocal))
     yield
     app.state.attachments_sweep.cancel()
+    app.state.scheduler.cancel()
 
 
 app = FastAPI(title="Quazar Messager API", version="0.1.0", lifespan=lifespan)
@@ -192,9 +209,12 @@ app.add_middleware(
 app.add_middleware(SecurityHeadersMiddleware)
 
 app.include_router(auth_router)
+app.include_router(moderation_router)
 app.include_router(users_router)
 app.include_router(chats_router)
 app.include_router(messages_router)
+app.include_router(scheduled_router)
+app.include_router(reminders_router)
 app.include_router(attachments_router)
 app.include_router(calls_router)
 app.include_router(push_router)

@@ -199,7 +199,7 @@ export default function ContactsPane() {
           <IconSearch />
           <input
             className={s.search}
-            placeholder="Имя или телефон +7…"
+            placeholder="Никнейм, имя или телефон +7…"
             value={search}
             onChange={(e) => {
               const raw = e.target.value;
@@ -261,9 +261,11 @@ export default function ContactsPane() {
           {searching && <div className={s.hint}>Поиск...</div>}
           {!searching && results.length === 0 && (
             <div className={s.hint}>
-              {looksLikePhoneQuery(search)
-                ? "Нет пользователя Quazar с таким номером"
-                : "Никого не найдено"}
+              {!looksLikePhoneQuery(search)
+                ? "Никого не найдено"
+                : extractRuLocalDigits(search).length < 10
+                  ? "Введите номер целиком — по части номера не ищем"
+                  : "По этому номеру никого не нашли. Человек мог скрыть номер — попробуйте никнейм или имя"}
             </div>
           )}
           {results.map((u) => (
@@ -283,7 +285,8 @@ export default function ContactsPane() {
               <UserAvatar username={displayName(u)} avatarUrl={u.avatar_url} size="sm" userId={u.id} />
               <span className={s.userMeta}>
                 <span className={s.userName}>{displayName(u)}</span>
-                <span className={s.userPhone}>@{displayName(u)} · {formatRuPhoneDisplay(u.phone)}</span>
+                <span className={s.userPhone}>@{u.username}
+                  {u.phone && ` · ${formatRuPhoneDisplay(u.phone)}`}</span>
               </span>
             </button>
           ))}
@@ -310,7 +313,8 @@ export default function ContactsPane() {
                   <span className={s.name}>{c.name || displayName(c.user)}</span>
                 </div>
                 <span className={s.preview}>
-                  @{displayName(c.user)} · {formatRuPhoneDisplay(c.user.phone)}
+                  @{c.user.username}
+                  {c.user.phone && ` · ${formatRuPhoneDisplay(c.user.phone)}`}
                 </span>
               </div>
             </button>

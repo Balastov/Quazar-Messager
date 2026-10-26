@@ -19,6 +19,9 @@ class User(Base):
     email: Mapped[str | None] = mapped_column(String(254), nullable=True)
     first_name: Mapped[str | None] = mapped_column(String(64), nullable=True)
     last_name: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # Можно ли найти по номеру (поиск, телефонная книга) и видеть номер. None — ещё не выбрал:
+    # клиент спросит при входе, а пока номер скрыт.
+    phone_discoverable: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     password_hash: Mapped[str] = mapped_column(String(256), nullable=False)
     avatar_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Личный фон приложения (/media/backgrounds/…); видит только сам пользователь.
@@ -44,6 +47,11 @@ class User(Base):
     )
 
     memberships: Mapped[list["ChatMember"]] = relationship("ChatMember", back_populates="user")  # noqa: F821
+
+    @property
+    def visible_phone(self) -> str | None:
+        """Номер глазами других: только если разрешили находить по нему."""
+        return self.phone if self.phone_discoverable else None
 
     @property
     def display_name(self) -> str:

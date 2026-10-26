@@ -74,7 +74,9 @@ class StarsTestBase(unittest.IsolatedAsyncioTestCase):
         self.users: dict[str, User] = {}
         async with self.Session() as db:
             for i, name in enumerate(["owner", "admin", "mod", "alice", "bob", "carol"]):
-                user = User(username=name, phone=f"+7900000000{i}", password_hash="x")
+                user = User(
+                    username=name, phone=f"+7900000000{i}", password_hash="x", phone_discoverable=True
+                )
                 db.add(user)
                 self.users[name] = user
             await db.commit()

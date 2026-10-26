@@ -5,6 +5,7 @@ import { useAuthStore } from "../store/auth";
 import { formatRuPhoneMask, isCompleteRuPhone, toE164Ru } from "../utils/phone";
 import { apiErrorText, USERNAME_MAX } from "../utils/profile";
 import { useUsernameCheck } from "../components/profile/useUsernameCheck";
+import PhoneVisibilityChoice from "../components/profile/PhoneVisibilityChoice";
 import s from "./AuthPage.module.css";
 
 // register — обязательное (телефон, никнейм, пароль); about — предлагаем имя и почту.
@@ -18,6 +19,8 @@ export default function AuthPage() {
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
+  // Без значения по умолчанию: «Да» или «Нет» человек выбирает сам.
+  const [phoneDiscoverable, setPhoneDiscoverable] = useState<boolean | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const usernameCheck = useUsernameCheck(screen === "register" ? username : "");
@@ -56,6 +59,7 @@ export default function AuthPage() {
     if (!isCompleteRuPhone(phone)) return setError("Введите номер в формате +7 (999) 000-00-00");
     if (usernameCheck.state === "bad") return setError(usernameCheck.message);
     if (password.length < 8) return setError("Пароль — не короче 8 символов");
+    if (phoneDiscoverable === null) return setError("Выберите, можно ли найти вас по номеру");
     setScreen("about");
   };
 
@@ -67,6 +71,7 @@ export default function AuthPage() {
         username: username.trim().replace(/^@/, ""),
         phone: toE164Ru(phone)!,
         password,
+        phone_discoverable: phoneDiscoverable!,
         ...(withAbout ? { first_name: firstName, last_name: lastName, email } : {}),
       });
       await setToken(data.access_token);
@@ -227,6 +232,11 @@ export default function AuthPage() {
               required
               autoComplete={isLogin ? "current-password" : "new-password"}
             />
+            {!isLogin && (
+              <div className={s.choice}>
+                <PhoneVisibilityChoice value={phoneDiscoverable} onChange={setPhoneDiscoverable} />
+              </div>
+            )}
             {error && <p className={s.error}>{error}</p>}
             <button
               className={s.submit}
@@ -234,7 +244,7 @@ export default function AuthPage() {
               disabled={
                 loading ||
                 !isCompleteRuPhone(phone) ||
-                (!isLogin && (usernameCheck.state !== "ok" || password.length < 8))
+                (!isLogin && (usernameCheck.state !== "ok" || password.length < 8 || phoneDiscoverable === null))
               }
             >
               {loading ? "..." : isLogin ? "Войти" : "Далее"}

@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 from app.core.phone import normalize_ru_phone
 from app.core.profile import normalize_email, normalize_person_name, normalize_username
@@ -12,6 +12,8 @@ class UserRegister(BaseModel):
     username: str
     phone: str
     password: str
+    # Обязательный выбор без значения по умолчанию: можно ли найти по номеру.
+    phone_discoverable: bool
     email: str | None = None
     first_name: str | None = None
     last_name: str | None = None
@@ -61,6 +63,7 @@ class UpdateProfile(BaseModel):
     email: str | None = None
     first_name: str | None = None
     last_name: str | None = None
+    phone_discoverable: bool | None = None
 
     @field_validator("username")
     @classmethod
@@ -90,11 +93,11 @@ class TokenResponse(BaseModel):
 
 
 class UserOut(BaseModel):
-    """Пользователь глазами других: почту не показываем."""
+    """Пользователь глазами других: почту не показываем, номер — только если по нему можно найти."""
 
     id: str
     username: str
-    phone: str
+    phone: str | None = Field(default=None, validation_alias="visible_phone")
     first_name: str | None = None
     last_name: str | None = None
     display_name: str
@@ -105,4 +108,7 @@ class UserOut(BaseModel):
 
 
 class MeOut(UserOut):
+    phone: str
     email: str | None = None
+    # None — ещё не выбирал: клиент покажет окно с выбором.
+    phone_discoverable: bool | None = None

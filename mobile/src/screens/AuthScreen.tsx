@@ -14,6 +14,7 @@ import {useAuthStore} from '../store/auth';
 import {formatRuPhoneMask, isCompleteRuPhone, toE164Ru} from '../utils/phone';
 import {apiErrorText, USERNAME_MAX} from '../utils/profile';
 import {useUsernameCheck} from '../hooks/useUsernameCheck';
+import PhoneVisibilityChoice from '../components/PhoneVisibilityChoice';
 
 // register — обязательное (телефон, никнейм, пароль); about — предлагаем имя и почту.
 type Mode = 'login' | 'register' | 'about';
@@ -26,6 +27,8 @@ export default function AuthScreen() {
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
+  // Без значения по умолчанию: «Да» или «Нет» человек выбирает сам.
+  const [phoneDiscoverable, setPhoneDiscoverable] = useState<boolean | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const check = useUsernameCheck(mode === 'register' ? username : '');
@@ -64,6 +67,8 @@ export default function AuthScreen() {
       setError(check.message);
     } else if (password.length < 8) {
       setError('Пароль — не короче 8 символов');
+    } else if (phoneDiscoverable === null) {
+      setError('Выберите, можно ли найти вас по номеру');
     } else {
       setMode('about');
     }
@@ -77,6 +82,7 @@ export default function AuthScreen() {
         username: nick,
         phone: toE164Ru(phone)!,
         password,
+        phone_discoverable: phoneDiscoverable!,
         ...(withAbout ? {first_name: firstName, last_name: lastName, email} : {}),
       });
       await setToken(data.access_token);
@@ -162,7 +168,7 @@ export default function AuthScreen() {
   const disabled =
     loading ||
     !isCompleteRuPhone(phone) ||
-    (!isLogin && (check.state !== 'ok' || password.length < 8));
+    (!isLogin && (check.state !== 'ok' || password.length < 8 || phoneDiscoverable === null));
 
   return (
     <KeyboardAvoidingView
@@ -230,6 +236,11 @@ export default function AuthScreen() {
           onChangeText={setPassword}
           secureTextEntry
         />
+        {!isLogin && (
+          <View style={s.choice}>
+            <PhoneVisibilityChoice value={phoneDiscoverable} onChange={setPhoneDiscoverable} />
+          </View>
+        )}
 
         {error !== '' && <Text style={s.error}>{error}</Text>}
 
@@ -283,6 +294,7 @@ const s = StyleSheet.create({
   },
   error: {color: '#ff6b6b', fontSize: 13, marginBottom: 10},
   nickInput: {marginBottom: 4},
+  choice: {borderTopWidth: 1, borderTopColor: '#2a2d3a', paddingTop: 14, marginTop: 2, marginBottom: 14},
   hint: {color: '#888', fontSize: 12, marginBottom: 12, marginLeft: 2},
   hintOk: {color: '#4ade80'},
   hintBad: {color: '#ff6b6b'},

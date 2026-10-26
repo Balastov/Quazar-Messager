@@ -5,6 +5,8 @@ export interface RegisterBody {
   username: string;
   phone: string;
   password: string;
+  /** Обязательный выбор: можно ли найти по номеру. */
+  phone_discoverable: boolean;
   email?: string;
   first_name?: string;
   last_name?: string;

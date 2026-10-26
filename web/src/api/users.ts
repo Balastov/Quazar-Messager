@@ -13,7 +13,7 @@ export const usersApi = {
   setStatus: (body: ManualStatusBody) => http.put("/users/me/status", body).then((r) => r.data),
   me: () => http.get<User>("/users/me").then((r) => r.data),
   /** Никнейм, почта, имя, фамилия; не присланное не меняется, "" — убрать. */
-  updateMe: (body: Partial<Pick<User, "username" | "email" | "first_name" | "last_name">>) =>
+  updateMe: (body: Partial<Pick<User, "username" | "email" | "first_name" | "last_name" | "phone_discoverable">>) =>
     http.patch<User>("/users/me", body).then((r) => r.data),
   /** Свой статус: значок, текст, «до»; пустые значок и текст — снять (ответ null). */
   setCustomStatus: (body: { icon: string | null; text: string; until: string | null }) =>

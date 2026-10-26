@@ -17,6 +17,7 @@ import {setMyManualStatus, useMyManualStatus} from '../store/presence';
 import {MANUAL_LABEL, untilText, type ManualKind} from '../utils/presence';
 import {displayName} from '../utils/profile';
 import ProfileEditor from '../components/ProfileEditor';
+import PhoneVisibilitySetting from '../components/PhoneVisibilitySetting';
 
 const DURATIONS: {label: string; until: () => Date | null}[] = [
   {label: '30 мин', until: () => new Date(Date.now() + 30 * 60_000)},
@@ -73,6 +74,7 @@ export default function ProfileScreen({navigation}: Props) {
         <Text style={s.name}>{displayName(user)}</Text>
         <Text style={[s.muted, s.center]}>
           @{user?.username} · {user?.phone}
+          {user?.phone_discoverable === false ? ' · скрыт' : ''}
         </Text>
       </View>
 
@@ -80,6 +82,12 @@ export default function ProfileScreen({navigation}: Props) {
         <View style={s.card}>
           <Text style={s.title}>Профиль</Text>
           <ProfileEditor user={user} />
+        </View>
+      )}
+
+      {user && (
+        <View style={s.card}>
+          <PhoneVisibilitySetting user={user} />
         </View>
       )}
 

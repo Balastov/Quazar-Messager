@@ -39,7 +39,9 @@ class TestProfileRules(unittest.TestCase):
             UserRegister(username="alex", password="password1")  # type: ignore[call-arg]
         with self.assertRaises(ValidationError):
             UserRegister(phone="+79991234567", password="password1")  # type: ignore[call-arg]
-        body = UserRegister(username="alex", phone="89991234567", password="password1", email="")
+        body = UserRegister(
+            username="alex", phone="89991234567", password="password1", phone_discoverable=True, email=""
+        )
         self.assertIsNone(body.email)
 
     def test_display_name(self):
@@ -58,7 +60,7 @@ class TestProfileApi(StarsTestBase):
             return await fn(*args, current_user=current, db=db, **kwargs)
 
     async def register(self, **fields):
-        body = UserRegister(**{"password": "password1", **fields})
+        body = UserRegister(**{"password": "password1", "phone_discoverable": True, **fields})
         async with self.Session() as db:
             return await auth.register(body, db=db)
 
@@ -68,6 +70,7 @@ class TestProfileApi(StarsTestBase):
 
     async def test_register_with_optional_fields(self):
         await self.register(
+            phone_discoverable=False,
             username="Neo", phone="+79991112233", email="Neo@Matrix.io", first_name="Томас", last_name="Андерсон"
         )
         async with self.Session() as db:
@@ -120,6 +123,45 @@ class TestProfileApi(StarsTestBase):
         async with self.Session() as db:
             found = await users.search_users("васил", current_user=self.users["bob"], db=db)
         self.assertEqual([u.username for u in found], ["carol"])
+
+
+class TestHiddenPhone(StarsTestBase):
+    async def call(self, fn, *args, user: str, **kwargs):
+        async with self.Session() as db:
+            current = await db.get(User, self.users[user].id)
+            return await fn(*args, current_user=current, db=db, **kwargs)
+
+    async def search(self, q: str, user: str = "bob"):
+        async with self.Session() as db:
+            return [u.username for u in await users.search_users(q, current_user=self.users[user], db=db)]
+
+    def test_register_requires_choice(self):
+        with self.assertRaises(ValidationError):
+            UserRegister(username="alex", phone="+79991234567", password="password1")  # type: ignore[call-arg]
+
+    async def test_hidden_phone(self):
+        carol = self.users["carol"].phone
+        # Найти можно только по номеру целиком, не по кусочку.
+        self.assertEqual(await self.search(carol), ["carol"])
+        self.assertEqual(await self.search(carol[-4:]), [])
+
+        me = await self.call(users.update_me, UpdateProfile(phone_discoverable=False), user="carol")
+        self.assertEqual(await self.search(carol), [])
+        self.assertEqual(await self.search("carol"), ["carol"])
+        # Номер не видит никто, кроме самого пользователя.
+        self.assertIsNone(UserOut.model_validate(me).phone)
+        self.assertEqual(MeOut.model_validate(me).phone, carol)
+        self.assertFalse(MeOut.model_validate(me).phone_discoverable)
+        await self.expect_error(422, users.update_me, UpdateProfile(phone_discoverable=None), user="carol")
+
+    async def test_unchosen_is_hidden(self):
+        async with self.Session() as db:
+            user = await db.get(User, self.users["carol"].id)
+            user.phone_discoverable = None
+            await db.commit()
+        self.assertEqual(await self.search(self.users["carol"].phone), [])
+        self.assertIsNone(MeOut.model_validate(user).phone_discoverable)
+        self.assertIsNone(UserOut.model_validate(user).phone)
 
 
 if __name__ == "__main__":

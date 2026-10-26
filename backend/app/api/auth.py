@@ -45,6 +45,7 @@ async def register(body: UserRegister, db: Annotated[AsyncSession, Depends(get_d
         email=body.email,
         first_name=body.first_name,
         last_name=body.last_name,
+        phone_discoverable=body.phone_discoverable,
         password_hash=hash_password(body.password),
     )
     db.add(user)

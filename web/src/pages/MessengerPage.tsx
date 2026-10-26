@@ -30,6 +30,7 @@ import { useVoiceStore } from "../store/voice";
 import E2EKeyGate from "../components/E2EKeyGate";
 import ContactsPrompt from "../components/ContactsPrompt";
 import s from "./MessengerPage.module.css";
+import PhoneVisibilityGate from "../components/profile/PhoneVisibilityGate";
 
 type CallEventDetail = {
   callId?: string | null;
@@ -258,6 +259,7 @@ export default function MessengerPage() {
       {!showMobileChat && <NotifyPrompt />}
       <ToastStack />
       <E2EKeyGate />
+      <PhoneVisibilityGate />
       <ContactsPrompt />
       <VoiceBarHost />
       <DoorToasts />

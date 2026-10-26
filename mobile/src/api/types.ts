@@ -2,13 +2,16 @@ export interface User {
   id: string;
   /** Никнейм латиницей — для @упоминаний и поиска. */
   username: string;
-  phone: string;
+  /** null — скрыт: человек не разрешил находить себя по номеру. Свой виден всегда. */
+  phone: string | null;
   first_name?: string | null;
   last_name?: string | null;
   /** «Имя Фамилия» или никнейм, если имя не указано. */
   display_name?: string;
   /** Только у себя (GET /users/me). */
   email?: string | null;
+  /** Только у себя: можно ли найти по номеру; null — ещё не выбирал (спросим окном). */
+  phone_discoverable?: boolean | null;
   avatar_url: string | null;
   created_at: string;
 }

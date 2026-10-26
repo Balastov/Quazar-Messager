@@ -8,6 +8,7 @@ import ChatsScreen from '../screens/ChatsScreen';
 import ChatScreen from '../screens/ChatScreen';
 import KeysScreen from '../screens/KeysScreen';
 import ProfileScreen from '../screens/ProfileScreen';
+import PhoneVisibilityGate from '../components/PhoneVisibilityGate';
 
 export type RootStackParamList = {
   Auth: undefined;
@@ -62,6 +63,7 @@ export default function Navigation() {
           </>
         )}
       </Stack.Navigator>
+      {token && <PhoneVisibilityGate />}
     </NavigationContainer>
   );
 }

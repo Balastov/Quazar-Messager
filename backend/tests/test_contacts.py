@@ -7,6 +7,7 @@ from sqlalchemy import func, select
 
 from app.api import contacts as api
 from app.models.contact import UserContact
+from app.models.user import User
 from tests.stars_base import StarsTestBase
 
 
@@ -19,6 +20,21 @@ class TestContacts(StarsTestBase):
         await super().asyncSetUp()
         api._recent_syncs.clear()
         self.addCleanup(api._recent_syncs.clear)
+
+    async def test_hidden_phone_not_found_by_phonebook(self):
+        entries = book(("Кэрол", ["+79000000005"]), ("Боб", ["+79000000004"]))
+        out = await self.call(api.sync_contacts, entries, user="alice")
+        self.assertEqual(len(out.contacts), 2)
+
+        async with self.Session() as db:
+            carol = await db.get(User, self.users["carol"].id)
+            carol.phone_discoverable = False
+            await db.commit()
+        # Уже найденный пропадает из списка, и заново по номеру не находится.
+        out = await self.call(api.my_contacts, user="alice")
+        self.assertEqual([c.name for c in out.contacts], ["Боб"])
+        out = await self.call(api.sync_contacts, entries, user="alice")
+        self.assertEqual([c.name for c in out.contacts], ["Боб"])
 
     async def stored_rows(self) -> int:
         async with self.Session() as db:

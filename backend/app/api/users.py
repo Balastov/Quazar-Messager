@@ -26,6 +26,7 @@ from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.core.e2e import decode_public_key_b64
 from app.core.e2e_users import get_direct_chat_partner_ids
+from app.core.phone import normalize_ru_phone
 from app.core.security import verify_password
 from app.models.user import User
 from app.schemas.user import MeOut, UpdateProfile, UserOut
@@ -132,6 +133,10 @@ async def update_me(
         current_user.first_name = body.first_name
     if "last_name" in fields:
         current_user.last_name = body.last_name
+    if "phone_discoverable" in fields:
+        if body.phone_discoverable is None:
+            raise HTTPException(status_code=422, detail="Выберите «Да» или «Нет»")
+        current_user.phone_discoverable = body.phone_discoverable
 
     try:
         await db.commit()
@@ -314,17 +319,11 @@ async def search_users(
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    """Поиск пользователей по никнейму, имени и фамилии или номеру телефона (+7…)."""
+    """Поиск по никнейму, имени и фамилии; по номеру (+7…) — только целиком и только тех,
+    кто разрешил находить себя по номеру."""
     query = q.strip()
     if len(query) < 2 and len(re.sub(r"\D", "", query)) < 3:
         raise HTTPException(status_code=422, detail="Query too short")
-
-    digits = re.sub(r"\D", "", query)
-    local = digits
-    if local.startswith("8") and len(local) == 11:
-        local = local[1:]
-    elif local.startswith("7") and len(local) == 11:
-        local = local[1:]
 
     conditions = []
     if len(query) >= 2:
@@ -332,10 +331,13 @@ async def search_users(
         conditions.append(User.username.ilike(like))
         conditions.append(User.first_name.ilike(like))
         conditions.append(User.last_name.ilike(like))
-    if len(local) >= 3:
-        conditions.append(User.phone.ilike(f"%{local}%"))
-    if len(digits) >= 3 and digits != local:
-        conditions.append(User.phone.ilike(f"%{digits}%"))
+    # По кусочку номера не ищем: так перебором находились бы и чужие номера.
+    try:
+        phone = normalize_ru_phone(query)
+    except ValueError:
+        phone = None
+    if phone:
+        conditions.append((User.phone == phone) & User.phone_discoverable.is_(True))
 
     if not conditions:
         return []

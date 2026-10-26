@@ -90,7 +90,12 @@ async def _contacts_out(db: AsyncSession, user_id: str) -> ContactsOut:
         await db.execute(
             select(UserContact, User)
             .join(User, User.id == UserContact.contact_id)
-            .where(UserContact.owner_id == user_id, User.is_active.is_(True))
+            # Скрыл номер — из чужих списков «из телефонной книги» пропадает.
+            .where(
+                UserContact.owner_id == user_id,
+                User.is_active.is_(True),
+                User.phone_discoverable.is_(True),
+            )
         )
     ).all()
     sync = await db.get(ContactSync, user_id)
@@ -120,7 +125,10 @@ async def sync_contacts(body: SyncIn, current_user: CurrentUser, db: Db):
             (
                 await db.execute(
                     select(User).where(
-                        User.phone.in_(names), User.id != current_user.id, User.is_active.is_(True)
+                        User.phone.in_(names),
+                        User.id != current_user.id,
+                        User.is_active.is_(True),
+                        User.phone_discoverable.is_(True),
                     )
                 )
             )

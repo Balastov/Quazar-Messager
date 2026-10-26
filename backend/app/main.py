@@ -133,6 +133,8 @@ async def lifespan(app: FastAPI):
         await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS email VARCHAR(254)"))
         await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS first_name VARCHAR(64)"))
         await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS last_name VARCHAR(64)"))
+        # Можно ли найти по номеру; NULL — ещё не выбрал (спросим при входе).
+        await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS phone_discoverable BOOLEAN"))
         # Старые ники не латиницей → латиница, прежний ник — в «Имя» (до индекса ниже).
         await migrate_legacy_usernames(conn)
         # Никнейм и почта уникальны без учёта регистра. Если в старых данных уже есть

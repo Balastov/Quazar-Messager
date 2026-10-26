@@ -57,7 +57,11 @@ async def upload_file(
     if declared_size > star_files.MAX_FILE_BYTES:
         raise HTTPException(status_code=413, detail=TOO_LARGE)
     used = await _used(db, star_id)
-    if used + declared_size > _quota():
+    # Владельцу ресурса — без лимита места Звезды (лимит одного файла остаётся).
+    unlimited = current_user.is_superuser or bool(
+        (await db.execute(select(User.is_superuser).where(User.id == star.owner_id))).scalar_one_or_none()
+    )
+    if not unlimited and used + declared_size > _quota():
         raise HTTPException(
             status_code=507,
             detail=f"В Звезде закончилось место под файлы ({settings.STAR_FILES_QUOTA_MB // 1024} ГБ) — удалите старые",
@@ -70,7 +74,7 @@ async def upload_file(
     file_id = str(uuid.uuid4())
     try:
         size = await star_files.save_stream(
-            file_id, request.stream(), limit=min(star_files.MAX_FILE_BYTES, _quota() - used)
+            file_id, request.stream(), limit=star_files.MAX_FILE_BYTES if unlimited else min(star_files.MAX_FILE_BYTES, _quota() - used)
         )
     except star_files.FileTooLarge:
         raise HTTPException(status_code=413, detail=TOO_LARGE) from None

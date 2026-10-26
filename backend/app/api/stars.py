@@ -99,7 +99,12 @@ def _user_out(user: User) -> StarUserOut:
 
 
 async def _load_membership(db: AsyncSession, star_id: str, user_id: str) -> tuple[Star, StarMember]:
-    """Звезда и участие текущего пользователя. Чужим Звёздам — 404, чтобы не раскрывать их."""
+    """Звезда и участие текущего пользователя. Чужим Звёздам — 404, чтобы не раскрывать их.
+
+    Владелец ресурса в любой Звезде действует как её владелец — и там, где он не участник
+    (тогда для остальных его как бы нет: в списке участников он не появляется). Его участие
+    подменяется копией с ролью owner, в базу она не попадает.
+    """
     row = (
         await db.execute(
             select(Star, StarMember)
@@ -107,9 +112,25 @@ async def _load_membership(db: AsyncSession, star_id: str, user_id: str) -> tupl
             .where(Star.id == star_id, StarMember.user_id == user_id)
         )
     ).first()
+    if await _is_superuser(db, user_id):
+        star = row[0] if row else await db.get(Star, star_id)
+        if not star:
+            raise HTTPException(status_code=404, detail="Звезда не найдена")
+        real = row[1] if row else None
+        return star, StarMember(
+            star_id=star.id,
+            user_id=user_id,
+            role="owner",
+            joined_at=real.joined_at if real else _now(),
+            rules_accepted_at=_now(),
+        )
     if not row:
         raise HTTPException(status_code=404, detail="Звезда не найдена")
     return row[0], row[1]
+
+
+async def _is_superuser(db: AsyncSession, user_id: str) -> bool:
+    return bool((await db.execute(select(User.is_superuser).where(User.id == user_id))).scalar_one_or_none())
 
 
 async def _require_perm(db: AsyncSession, star_id: str, user: User, perm: Perm) -> tuple[Star, StarMember]:
@@ -396,7 +417,7 @@ async def list_stars(current_user: CurrentUser, db: Db):
 @router.post("", response_model=StarDetailOut, status_code=status.HTTP_201_CREATED)
 async def create_star(body: CreateStar, current_user: CurrentUser, db: Db):
     await _lock_user(db, current_user.id)
-    if await _owned_count(db, current_user.id) >= rules.MAX_OWNED_STARS:
+    if not current_user.is_superuser and await _owned_count(db, current_user.id) >= rules.MAX_OWNED_STARS:
         raise HTTPException(
             status_code=409,
             detail=f"Можно создать не больше {rules.MAX_OWNED_STARS} Звёзд. "
@@ -539,18 +560,25 @@ async def transfer_star(star_id: str, body: TransferStar, current_user: CurrentU
     target = await _target_member(db, star_id, body.user_id)
 
     await _lock_user(db, body.user_id)
-    if await _owned_count(db, body.user_id) >= rules.MAX_OWNED_STARS:
+    if not await _is_superuser(db, body.user_id) and await _owned_count(db, body.user_id) >= rules.MAX_OWNED_STARS:
         raise HTTPException(
             status_code=409,
             detail=f"У этого участника уже {rules.MAX_OWNED_STARS} своих Звезды — передать нельзя.",
         )
 
+    # Прежний владелец — админом (владелец ресурса может передать и чужую Звезду).
+    previous = (
+        await db.execute(select(StarMember).where(StarMember.star_id == star_id, StarMember.user_id == star.owner_id))
+    ).scalar_one_or_none()
     star.owner_id = body.user_id
     target.role = "owner"
-    me.role = "admin"
+    if previous:
+        previous.role = "admin"
     await db.commit()
 
-    for member in (target, me):
+    for member in (target, previous):
+        if not member:
+            continue
         await _broadcast(
             db, star_id, {"type": "star_member_upsert", "member": (await _member_out(db, member)).model_dump(mode="json")}
         )
@@ -560,8 +588,16 @@ async def transfer_star(star_id: str, body: TransferStar, current_user: CurrentU
 
 @router.post("/{star_id}/leave", status_code=status.HTTP_204_NO_CONTENT)
 async def leave_star(star_id: str, current_user: CurrentUser, db: Db):
-    _, me = await _load_membership(db, star_id, current_user.id)
-    if me.role == "owner":
+    star, _ = await _load_membership(db, star_id, current_user.id)
+    # Настоящая роль (у владельца ресурса в _load_membership она всегда owner).
+    real = (
+        await db.execute(
+            select(StarMember.role).where(StarMember.star_id == star_id, StarMember.user_id == current_user.id)
+        )
+    ).scalar_one_or_none()
+    if real is None:
+        raise HTTPException(status_code=400, detail="Вы не участник этой Звезды")
+    if real == "owner":
         raise HTTPException(
             status_code=400, detail="Владелец не может выйти: передайте Звезду или удалите её."
         )
@@ -751,7 +787,8 @@ async def join_by_invite(code: str, current_user: CurrentUser, db: Db):
     ).scalar_one_or_none()
     if banned:
         raise _forbid("Вы заблокированы в этой Звезде")
-    if await _member_count(db, star.id) >= rules.MAX_STAR_MEMBERS:
+    # В Звёздах владельца ресурса лимита участников нет.
+    if not await _is_superuser(db, star.owner_id) and await _member_count(db, star.id) >= rules.MAX_STAR_MEMBERS:
         raise HTTPException(
             status_code=409, detail=f"В Звезде уже {rules.MAX_STAR_MEMBERS} участников — мест нет."
         )
@@ -848,7 +885,7 @@ async def create_channel(star_id: str, body: CreateChannel, current_user: Curren
         )
     ).one()
     count, max_position = existing
-    limit = rules.channel_limit(star.kind, body.kind)
+    limit = None if current_user.is_superuser else rules.channel_limit(star.kind, body.kind)
     if limit is not None and count >= limit:
         noun = "Спутников" if body.kind == "satellite" else "Планет"
         raise HTTPException(

@@ -10,6 +10,7 @@ from app.core.database import AsyncSessionLocal
 from app.core.security import decode_token
 from app.models.chat import Chat, ChatMember
 from app.models.message import Message
+from app.models.user import User
 from app.core import presence
 from app.api.messages import deliver
 from app.ws import calls as call_signaling
@@ -25,6 +26,11 @@ _STATUS_RANK = {"sent": 0, "delivered": 1, "read": 2}
 async def websocket_endpoint(websocket: WebSocket, token: str, state: str = "active"):
     user_id = decode_token(token)
     if not user_id:
+        await websocket.close(code=4001)
+        return
+    async with AsyncSessionLocal() as db:
+        blocked = (await db.execute(select(User.blocked_at).where(User.id == user_id))).scalar_one_or_none()
+    if blocked:
         await websocket.close(code=4001)
         return
 

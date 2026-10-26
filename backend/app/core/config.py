@@ -25,6 +25,9 @@ class Settings(BaseSettings):
     ATTACHMENT_TTL_DAYS: int = 30
     # Сколько места под файлы Спутников у одной Звезды (МБ). Файлы хранятся, пока живо сообщение.
     STAR_FILES_QUOTA_MB: int = 5120
+    # Ники владельцев ресурса через запятую: при старте получают роль (если ещё нет).
+    # Задаётся только в окружении сервера (.env.prod), в коде имён нет.
+    SUPERUSER_BOOTSTRAP: str = ""
 
     # WebRTC ICE — comma-separated URLs. TURN strongly recommended for production mobile.
     WEBRTC_STUN_URLS: str = "stun:stun.l.google.com:19302,stun:stun1.l.google.com:19302"

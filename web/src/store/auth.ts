@@ -1,12 +1,14 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import { setAuthToken } from "../api/client";
+import axios from "axios";
+import { http, setAuthToken } from "../api/client";
 import { usersApi } from "../api/users";
 import { socket } from "../ws/socket";
 import { ensurePushSubscription } from "../notifications/push";
 import { useE2EStore } from "./e2e";
 import { useStarsStore } from "./stars";
 import { useNotifyStore } from "../notifications/levels";
+import { useAdminStore } from "./admin";
 import { useVoiceStore } from "./voice";
 import { useDoorsStore } from "./doors";
 import { useWallpaperStore } from "./wallpaper";
@@ -19,6 +21,16 @@ interface AuthState {
   setUser: (user: User) => void;
   logout: () => void;
 }
+
+// Сервер перестал принимать сессию (заблокировали аккаунт, токен устарел) — выходим,
+// а не оставляем экран с неработающими запросами.
+http.interceptors.response.use(undefined, (err) => {
+  const sentToken = axios.isAxiosError(err) && !!err.config?.headers?.Authorization;
+  if (sentToken && axios.isAxiosError(err) && err.response?.status === 401 && useAuthStore.getState().token) {
+    useAuthStore.getState().logout();
+  }
+  return Promise.reject(err);
+});
 
 function afterAuth(token: string, userId: string) {
   socket.connect(token);
@@ -50,6 +62,7 @@ export const useAuthStore = create<AuthState>()(
         useDoorsStore.getState().reset();
         useStarsStore.getState().reset();
         useNotifyStore.getState().reset();
+        useAdminStore.getState().reset();
         useWallpaperStore.getState().reset();
         set({ token: null, user: null });
       },

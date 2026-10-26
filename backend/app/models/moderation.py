@@ -47,4 +47,9 @@ class UserReport(Base):
     comment: Mapped[str | None] = mapped_column(Text, nullable=True)
     # [{"sender": "them" | "me", "at": iso, "text": "…"}] — расшифрованные клиентом.
     evidence: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    # Разобрана в «Чёрной дыре»: когда и кем.
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    resolved_by: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, index=True)

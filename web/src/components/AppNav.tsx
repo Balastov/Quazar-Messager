@@ -7,6 +7,8 @@ import CustomStatusBadge from "./status/CustomStatusBadge";
 import { useChatStore } from "../store/chat";
 import { useStarsStore } from "../store/stars";
 import { useUiStore, type AppTab } from "../store/ui";
+import { useAdminStore } from "../store/admin";
+import { Orbit } from "lucide-react";
 import UserAvatar from "./UserAvatar";
 import {
   IconCalls,
@@ -25,6 +27,9 @@ const ITEMS: { id: AppTab; label: string; Icon: typeof IconChat }[] = [
   { id: "calls", label: "Звонки", Icon: IconCalls },
   { id: "settings", label: "Настройки", Icon: IconSettings },
 ];
+
+/** Только владельцам ресурса — последним пунктом. */
+const BLACK_HOLE = { id: "blackhole" as AppTab, label: "Чёрная дыра", Icon: Orbit as unknown as typeof IconChat };
 
 export default function AppNav() {
   const tab = useUiStore((st) => st.tab);
@@ -71,8 +76,10 @@ export default function AppNav() {
     };
   }, [statusOpen]);
 
+  const isSuper = useAdminStore((st) => st.isSuper);
+  const items = isSuper ? [...ITEMS, BLACK_HOLE] : ITEMS;
   const renderItems = (variant: "side" | "bottom") =>
-    ITEMS.map(({ id, label, Icon }) => {
+    items.map(({ id, label, Icon }) => {
       const active = tab === id;
       const cls =
         variant === "side"

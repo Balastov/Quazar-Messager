@@ -52,6 +52,8 @@ services:
       LIVEKIT_PUBLIC_URL: wss://${DOMAIN:-quazar-msg.ru}/livekit
       LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-}
       LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-}
+      # Ники владельцев ресурса через запятую (роль выдаётся при старте).
+      SUPERUSER_BOOTSTRAP: ${SUPERUSER_BOOTSTRAP:-}
     volumes:
       - media_data:/app/media
     depends_on:

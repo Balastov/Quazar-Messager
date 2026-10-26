@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import { useBlocksStore } from "../store/blocks";
 import { useChatStore } from "../store/chat";
 import { useCallStore } from "../store/call";
@@ -23,6 +23,10 @@ import type { DoorLink } from "../notifications/notify";
 import { takePendingInvite } from "../api/stars";
 import { useStarsStore } from "../store/stars";
 import { useNotifyStore } from "../notifications/levels";
+import { useAdminStore } from "../store/admin";
+
+// Раздел владельцев ресурса — отдельным файлом, грузится только им.
+const BlackHoleView = lazy(() => import("../components/blackhole/BlackHoleView"));
 import { useStickersStore } from "../store/stickers";
 import { useContactsStore } from "../store/contacts";
 import { activityTracker } from "../presence/activity";
@@ -41,7 +45,10 @@ type CallEventDetail = {
 };
 
 export default function MessengerPage() {
-  const tab = useUiStore((st) => st.tab);
+  const isSuper = useAdminStore((st) => st.isSuper);
+  const storedTab = useUiStore((st) => st.tab);
+  // Раздел «Чёрная дыра» запомнился, а роли уже нет — открываем чаты.
+  const tab = storedTab === "blackhole" && isSuper === false ? "chats" : storedTab;
   const mobileChatOpen = useUiStore((st) => st.mobileChatOpen);
   const setMobileChatOpen = useUiStore((st) => st.setMobileChatOpen);
   const peerPanelOpen = useUiStore((st) => st.peerPanelOpen);
@@ -61,6 +68,7 @@ export default function MessengerPage() {
     void useBlocksStore.getState().load().catch(() => {});
     // Мои уровни уведомлений (чаты, Звёзды, Спутники) — общие для всех устройств.
     void useNotifyStore.getState().load().catch(() => {});
+    void useAdminStore.getState().check();
 
     // «В сети» / «отошёл»: следим, работают ли с этим устройством.
     activityTracker?.start();
@@ -246,6 +254,14 @@ export default function MessengerPage() {
         {tab === "settings" && (
           <div className={s.fullPane}>
             <SettingsView />
+          </div>
+        )}
+
+        {tab === "blackhole" && isSuper && (
+          <div className={s.fullPane}>
+            <Suspense fallback={null}>
+              <BlackHoleView />
+            </Suspense>
           </div>
         )}
       </div>

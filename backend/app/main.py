@@ -34,6 +34,7 @@ from app.api.star_work import me_router as star_work_me_router
 from app.api.star_work import router as star_work_router
 from app.api.star_files import router as star_files_router
 from app.api.notify import router as notify_router
+from app.api.admin import router as admin_router
 from app.api.pins import router as pins_router
 from app.api.search import router as search_router
 from app.api.link_preview import router as link_preview_router
@@ -266,8 +267,21 @@ async def lifespan(app: FastAPI):
             "ALTER TABLE star_messages ADD COLUMN IF NOT EXISTS webhook_id VARCHAR(36) REFERENCES star_webhooks(id) ON DELETE SET NULL",
             "ALTER TABLE star_messages ADD COLUMN IF NOT EXISTS bot_name VARCHAR(48)",
             "ALTER TABLE star_messages ADD COLUMN IF NOT EXISTS bot_kind VARCHAR(16)",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_superuser BOOLEAN NOT NULL DEFAULT false",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS blocked_at TIMESTAMP WITH TIME ZONE",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS blocked_reason VARCHAR(200)",
+            "ALTER TABLE user_reports ADD COLUMN IF NOT EXISTS resolved_at TIMESTAMP WITH TIME ZONE",
+            "ALTER TABLE user_reports ADD COLUMN IF NOT EXISTS resolved_by VARCHAR(36) "
+            "REFERENCES users(id) ON DELETE SET NULL",
         ):
             await conn.execute(text(ddl))
+        # Владельцы ресурса из окружения сервера.
+        names = [n.strip().lower() for n in settings.SUPERUSER_BOOTSTRAP.split(",") if n.strip()]
+        if names:
+            await conn.execute(
+                text("UPDATE users SET is_superuser = true WHERE lower(username) = ANY(:names)"),
+                {"names": names},
+            )
     # Кто сейчас на Планетах — восстанавливаем из LiveKit после перезапуска (в фоне).
     app.state.voice_resync = asyncio.create_task(voice.resync())
     # Неотправленные картинки и файлы удалённых чатов — раз в час.
@@ -297,6 +311,7 @@ app.include_router(auth_router)
 app.include_router(moderation_router)
 app.include_router(star_work_me_router)
 app.include_router(notify_router)
+app.include_router(admin_router)
 app.include_router(users_router)
 app.include_router(chats_router)
 app.include_router(messages_router)

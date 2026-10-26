@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { DEFAULT_GLASS_TRANSPARENCY } from "../styles/glass";
 
-export type AppTab = "contacts" | "chats" | "stars" | "calls" | "settings";
+export type AppTab = "contacts" | "chats" | "stars" | "calls" | "settings" | "blackhole";
 
 interface UiState {
   tab: AppTab;

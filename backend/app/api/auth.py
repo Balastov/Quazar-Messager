@@ -69,5 +69,7 @@ async def login(body: UserLogin, db: Annotated[AsyncSession, Depends(get_db)]):
 
     if not user or not verify_password(body.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid credentials")
+    if user.blocked_at:
+        raise HTTPException(status_code=403, detail="Аккаунт заблокирован администрацией")
 
     return TokenResponse(access_token=create_access_token(user.id))

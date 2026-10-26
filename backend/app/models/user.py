@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import JSON, Boolean, DateTime, String, Text
+from sqlalchemy import Boolean, DateTime, JSON, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -41,6 +41,12 @@ class User(Base):
     work_schedule: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     # Свой статус: {"icon": имя значка, "text": до 80 символов, "until": ISO | None}.
     custom_status: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    # Владелец ресурса: «Чёрная дыра», власть в любой Звезде, без лимитов. Никому, кроме таких же,
+    # не показывается: в ответах API о других людях этого поля нет.
+    is_superuser: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    # Заблокирован на всём ресурсе: не войти, сессии закрыты.
+    blocked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    blocked_reason: Mapped[str | None] = mapped_column(String(200), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)

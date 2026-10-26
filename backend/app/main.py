@@ -29,6 +29,8 @@ from app.api.doors import router as doors_router
 from app.api.office import router as office_router
 from app.api.star_community import router as star_community_router
 from app.api.star_play import router as star_play_router
+from app.api.star_work import me_router as star_work_me_router
+from app.api.star_work import router as star_work_router
 from app.api.stars import invites_router as star_invites_router
 from app.api.stars import router as stars_router
 from app.api.voice import router as voice_router
@@ -202,6 +204,18 @@ async def lifespan(app: FastAPI):
             "REFERENCES users(id) ON DELETE SET NULL",
             "ALTER TABLE star_messages ADD COLUMN IF NOT EXISTS kind VARCHAR(16) NOT NULL DEFAULT 'text'",
             "ALTER TABLE star_messages ADD COLUMN IF NOT EXISTS ref_id VARCHAR(36)",
+            # Рабочие Звёзды: ветки, объявления, рабочее время, табличка на двери.
+            "ALTER TABLE star_messages ADD COLUMN IF NOT EXISTS thread_id VARCHAR(36) "
+            "REFERENCES star_messages(id) ON DELETE CASCADE",
+            "CREATE INDEX IF NOT EXISTS ix_star_messages_thread_id ON star_messages (thread_id)",
+            "ALTER TABLE star_messages ADD COLUMN IF NOT EXISTS ack_required BOOLEAN NOT NULL DEFAULT false",
+            "ALTER TABLE star_channels ADD COLUMN IF NOT EXISTS announcement BOOLEAN NOT NULL DEFAULT false",
+            "ALTER TABLE star_channels ADD COLUMN IF NOT EXISTS door_sign_kind VARCHAR(16)",
+            "ALTER TABLE star_channels ADD COLUMN IF NOT EXISTS door_sign_text VARCHAR(80)",
+            "ALTER TABLE star_channels ADD COLUMN IF NOT EXISTS door_sign_until TIMESTAMP WITH TIME ZONE",
+            "ALTER TABLE stars ADD COLUMN IF NOT EXISTS work_hours_enabled BOOLEAN NOT NULL DEFAULT false",
+            "ALTER TABLE stars ADD COLUMN IF NOT EXISTS work_hours JSON",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS work_schedule JSON",
         ):
             await conn.execute(text(ddl))
     # Кто сейчас на Планетах — восстанавливаем из LiveKit после перезапуска (в фоне).
@@ -231,6 +245,7 @@ app.add_middleware(SecurityHeadersMiddleware)
 
 app.include_router(auth_router)
 app.include_router(moderation_router)
+app.include_router(star_work_me_router)
 app.include_router(users_router)
 app.include_router(chats_router)
 app.include_router(messages_router)
@@ -242,6 +257,7 @@ app.include_router(push_router)
 app.include_router(stars_router)
 app.include_router(star_community_router)
 app.include_router(star_play_router)
+app.include_router(star_work_router)
 app.include_router(star_invites_router)
 app.include_router(voice_router)
 app.include_router(office_router)

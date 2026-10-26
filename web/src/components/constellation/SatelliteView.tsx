@@ -16,6 +16,8 @@ import StarPicker from "./StarPicker";
 import { memberColor } from "./MyTags";
 import { formatWhen } from "../../chat/when";
 import g from "./Gaming.module.css";
+import w from "./Work.module.css";
+import AcksDialog from "./AcksDialog";
 import UserAvatar from "../UserAvatar";
 import { IconBack, IconGear, IconSatellite, IconSend } from "../icons";
 import { apiError, can, formatTime, outranks } from "./rules";
@@ -61,6 +63,8 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
   const loadOlder = useStarsStore((st) => st.loadOlder);
   const assets = useStarsStore((st) => st.assets[detail.id] ?? NO_ASSETS);
   const loadAssets = useStarsStore((st) => st.loadAssets);
+  const openThread = useStarsStore((st) => st.openThread);
+  const ack = useStarsStore((st) => st.ack);
   const typingIds = useTyping(satelliteTypingKey(channel.id));
   const [dialog, setDialog] = useState<"poll" | "lfg" | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -73,6 +77,10 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
   const timedOutUntil =
     me?.timeout_until && Date.parse(me.timeout_until) > Date.now() ? me.timeout_until : null;
   const slowMode = channel.slow_mode_sec ?? 0;
+  const isAdmin = detail.my_role === "owner" || detail.my_role === "admin";
+  const announcement = !!channel.announcement;
+  const [askAck, setAskAck] = useState(false);
+  const [acksOf, setAcksOf] = useState<StarMessage | null>(null);
 
   useEffect(() => {
     void loadAssets(detail.id).catch(() => {});
@@ -107,6 +115,7 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
     setEditing(null);
     setText("");
     setPickerOpen(false);
+    setAskAck(false);
   }, [channel.id]);
 
   // Сообщение, на которое отвечаем или которое правим, удалили — убираем и полосу над вводом.
@@ -173,15 +182,18 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
     }
 
     const reply = replyTo;
+    const withAck = announcement && askAck;
     setText("");
     setReplyTo(null);
+    setAskAck(false);
     stickToBottom.current = true;
     resetTypingThrottle(satelliteTypingKey(channel.id));
     try {
-      await sendMessage(value, reply?.id);
+      await sendMessage(value, reply?.id, withAck);
     } catch (err) {
       setText(value);
       setReplyTo(reply);
+      setAskAck(withAck);
       setError(apiError(err, "Не удалось отправить сообщение"));
     }
   };
@@ -210,7 +222,11 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
   };
 
   const menuActions = (msg: StarMessage): MenuAction[] => {
-    const actions: MenuAction[] = [{ label: "Ответить", onClick: () => startReply(msg) }];
+    const actions: MenuAction[] = [];
+    if (!announcement || isAdmin) actions.push({ label: "Ответить", onClick: () => startReply(msg) });
+    if (msg.kind !== "system") {
+      actions.push({ label: "💬 Ответить в ветке", onClick: () => showThread(msg) });
+    }
     if (msg.sender?.id === myId && editable(msg)) actions.push({ label: "Изменить", onClick: () => startEdit(msg) });
     actions.push({
       label: "Копировать текст",
@@ -232,6 +248,16 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
 
   const typingText = typingLabel(typingIds.map(nameOf));
 
+  const showThread = (msg: StarMessage) => {
+    setError(null);
+    void openThread(msg).catch((err) => setError(apiError(err, "Не удалось открыть ветку")));
+  };
+
+  const onAck = (msg: StarMessage) => {
+    setError(null);
+    void ack(msg).catch((err) => setError(apiError(err, "Не удалось отметить")));
+  };
+
   /** Стикер или эмодзи — отправить сразу (в ответ, если выбран ответ). */
   const sendQuick = async (value: string) => {
     setPickerOpen(false);
@@ -251,6 +277,13 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
     if (timedOutUntil) {
       return <div className={g.notice}>⏳ Вы в тайм-ауте до {formatWhen(timedOutUntil)} — писать пока нельзя</div>;
     }
+    if (announcement && !isAdmin) {
+      return (
+        <div className={g.notice}>
+          📢 Канал объявлений: пишут владелец и админы. Обсудить — «💬 Ответить в ветке» у объявления.
+        </div>
+      );
+    }
     return null;
   })();
 
@@ -265,7 +298,9 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
         <IconSatellite />
         <div className={s.channelTitle}>
           <span className={s.channelTitleName}>{channel.name}</span>
-          <span className={s.channelTitleSub}>Спутник · {detail.name} · без сквозного шифрования</span>
+          <span className={s.channelTitleSub}>
+            {announcement ? "📢 Объявления" : "Спутник"} · {detail.name} · без сквозного шифрования
+          </span>
         </div>
         {can(detail, "manage_channels") && (
           <button
@@ -315,6 +350,9 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
               stickToBottom.current = false;
               revealMessage(listRef.current, id);
             }}
+            onOpenThread={() => showThread(msg)}
+            onAck={() => onAck(msg)}
+            onShowAcks={msg.sender?.id === myId || isAdmin ? () => setAcksOf(msg) : undefined}
           />
         ))}
       </div>
@@ -339,6 +377,12 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
       {composer ?? (
       <div className={g.composerWrap}>
       {slowMode > 0 && <div className={g.slowHint}>🐢 Медленный режим: одно сообщение в {slowMode} с</div>}
+      {announcement && !editing && (
+        <label className={w.askAck}>
+          <input type="checkbox" checked={askAck} onChange={(e) => setAskAck(e.target.checked)} />
+          Попросить подтвердить «Ознакомлен(а)»
+        </label>
+      )}
       {pickerOpen && (
         <StarPicker
           assets={assets}
@@ -414,6 +458,7 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
       )}
       {dialog === "poll" && <PollDialog starId={detail.id} channelId={channel.id} onClose={() => setDialog(null)} />}
       {dialog === "lfg" && <LfgDialog starId={detail.id} channelId={channel.id} onClose={() => setDialog(null)} />}
+      {acksOf && <AcksDialog message={acksOf} onClose={() => setAcksOf(null)} />}
 
       {menu && (
         <MessageMenu
@@ -431,16 +476,16 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
 }
 
 /** Строка для цитаты: стикер — «Стикер», остальное как есть. */
-function previewText(text: string): string {
+export function previewText(text: string): string {
   return parseSticker(text) ? "Стикер" : text;
 }
 
 /** Исправлять можно только обычный текст (не опрос, сбор, приветствие или стикер). */
-function editable(msg: StarMessage): boolean {
+export function editable(msg: StarMessage): boolean {
   return (msg.kind ?? "text") === "text" && !parseSticker(msg.text);
 }
 
-function SatelliteMessage({
+export function SatelliteMessage({
   msg,
   detail,
   emoji,
@@ -450,6 +495,9 @@ function SatelliteMessage({
   onOpenMenu,
   onReact,
   onQuoteClick,
+  onOpenThread,
+  onAck,
+  onShowAcks,
 }: {
   msg: StarMessage;
   detail: StarDetail;
@@ -460,6 +508,11 @@ function SatelliteMessage({
   onOpenMenu: (x: number, y: number) => void;
   onReact: (emoji: string) => void;
   onQuoteClick: (messageId: string) => void;
+  /** Нет — сообщение уже в ветке (сводку и кнопку не показываем). */
+  onOpenThread?: () => void;
+  onAck?: () => void;
+  /** Кто ознакомился — автору и админам. */
+  onShowAcks?: () => void;
 }) {
   const trigger = useMessageMenuTrigger(onOpenMenu);
   const stickersByKey = useStickersStore((st) => st.byKey);
@@ -521,6 +574,40 @@ function SatelliteMessage({
             <ReactionChips groups={groupReactions(msg.reactions, myId)} nameOf={nameOf} onToggle={onReact} />
           </div>
         )}
+        {msg.ack_required && (
+          <div className={w.ackRow}>
+            {msg.sender?.id !== myId && (
+              <button
+                type="button"
+                className={msg.acked ? `${w.ackBtn} ${w.ackDone}` : w.ackBtn}
+                disabled={msg.acked || !onAck}
+                onClick={onAck}
+              >
+                {msg.acked ? "✓ Вы ознакомились" : "Ознакомлен(а)"}
+              </button>
+            )}
+            {onShowAcks ? (
+              <button type="button" className={w.ackCount} onClick={onShowAcks} title="Кто ознакомился">
+                👁 {msg.ack_count ?? 0}
+              </button>
+            ) : (
+              <span className={w.ackCount}>👁 {msg.ack_count ?? 0}</span>
+            )}
+          </div>
+        )}
+        {onOpenThread && (msg.thread_count ?? 0) > 0 && (
+          <button type="button" className={w.threadSummary} onClick={onOpenThread}>
+            <span className={w.threadFaces}>
+              {(msg.thread_participants ?? []).map((id) => (
+                <span key={id} className={w.threadFace} title={nameOf(id)}>
+                  {nameOf(id).slice(0, 1).toUpperCase()}
+                </span>
+              ))}
+            </span>
+            <span className={w.threadCount}>💬 {repliesLabel(msg.thread_count ?? 0)}</span>
+            {msg.thread_last_at && <span className={w.threadLast}>последний {formatWhen(msg.thread_last_at)}</span>}
+          </button>
+        )}
       </div>
       <button
         type="button"
@@ -537,4 +624,12 @@ function SatelliteMessage({
       </button>
     </div>
   );
+}
+
+export function repliesLabel(n: number): string {
+  const tail = n % 100;
+  const last = n % 10;
+  const word =
+    tail >= 11 && tail <= 14 ? "ответов" : last === 1 ? "ответ" : last >= 2 && last <= 4 ? "ответа" : "ответов";
+  return `${n} ${word}`;
 }

@@ -1,4 +1,5 @@
 import { http } from "./client";
+import type { WorkSchedule } from "./stars";
 import type { User } from "./types";
 
 export interface ManualStatusBody {
@@ -41,6 +42,10 @@ export const usersApi = {
   blocks: () => http.get<User[]>("/users/me/blocks").then((r) => r.data),
   block: (userId: string) => http.put(`/users/${userId}/block`),
   unblock: (userId: string) => http.delete(`/users/${userId}/block`),
+  /** Свой рабочий график для всех Звёзд; null — как в Звезде. */
+  workSchedule: () =>
+    http.get<{ schedule: WorkSchedule | null }>("/users/me/work-schedule").then((r) => r.data.schedule),
+  setWorkSchedule: (schedule: WorkSchedule | null) => http.put("/users/me/work-schedule", { schedule }),
   report: (userId: string, body: ReportBody) =>
     http.post<{ id: string }>(`/users/${userId}/report`, body).then((r) => r.data),
 };

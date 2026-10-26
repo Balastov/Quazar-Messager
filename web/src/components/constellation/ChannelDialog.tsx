@@ -69,6 +69,7 @@ export default function ChannelDialog({
   const [cabinetOwnerId, setCabinetOwnerId] = useState<string>(channel?.cabinet_owner_id ?? "");
   const [listenOnly, setListenOnly] = useState<boolean>(channel?.listen_only ?? false);
   const [slowMode, setSlowMode] = useState<number>(channel?.slow_mode_sec ?? 0);
+  const [announcement, setAnnouncement] = useState<boolean>(channel?.announcement ?? false);
   const sortedMembers = [...members].sort((a, b) => a.user.username.localeCompare(b.user.username, "ru"));
   const floorEditable = !channel || canEditMap;
   const [busy, setBusy] = useState(false);
@@ -116,8 +117,12 @@ export default function ChannelDialog({
       : {};
     void run(() =>
       channel
-        ? updateChannel(channel.id, { name: trimmed, ...planetFields, ...(isPlanet ? {} : { slow_mode_sec: slowMode }) })
-        : createChannel({ kind, name: trimmed, ...planetFields })
+        ? updateChannel(channel.id, {
+            name: trimmed,
+            ...planetFields,
+            ...(isPlanet ? {} : { slow_mode_sec: slowMode, announcement }),
+          })
+        : createChannel({ kind, name: trimmed, ...planetFields, ...(isPlanet ? {} : { announcement }) })
     );
   };
 
@@ -253,6 +258,24 @@ export default function ChannelDialog({
               <span className={s.checkHint}>
                 Микрофоны {nouns.inside} не включаются вообще — браузер их даже не запрашивает.
                 Показывать экран можно. Подходит для кинозала, трансляций и тихой работы рядом.
+              </span>
+            </span>
+          </label>
+        )}
+
+        {!isPlanet && (
+          <label className={s.checkRow}>
+            <input
+              type="checkbox"
+              checked={announcement}
+              onChange={(e) => setAnnouncement(e.target.checked)}
+              disabled={busy}
+            />
+            <span>
+              📢 Канал объявлений
+              <span className={s.checkHint}>
+                Пишут только владелец и админы, остальные обсуждают в ветках под объявлениями. Можно
+                попросить отметить «Ознакомлен(а)» и посмотреть, кто ещё не прочитал.
               </span>
             </span>
           </label>

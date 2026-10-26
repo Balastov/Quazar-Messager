@@ -1,7 +1,7 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.core.reactions import REACTIONS
 from app.core.stars import MAX_MESSAGE_LENGTH, PLANET_MAX_CAPACITY, ROOM_KINDS, SLOW_MODE_SECONDS
@@ -67,6 +67,8 @@ class CreateChannel(_Named):
     cabinet_owner_id: str | None = None
     # «Только слушать»: без микрофонов.
     listen_only: bool = False
+    # Спутник-объявления: пишут только владелец и админы.
+    announcement: bool = False
     # Этаж для комнаты в Звезде «Работа»; по умолчанию — первый.
     floor_id: str | None = None
 
@@ -80,6 +82,7 @@ class UpdateChannel(_Named):
     listen_only: bool | None = None
     # Медленный режим Спутника: 0, 10, 30, 60 или 300 секунд.
     slow_mode_sec: int | None = None
+    announcement: bool | None = None
     # Перенести комнату на другой этаж (нужно право «Редактировать карту офиса»).
     floor_id: str | None = None
 
@@ -131,6 +134,10 @@ class _StarText(BaseModel):
 class SendStarMessage(_StarText):
     # Ответ на сообщение этого же Спутника.
     reply_to_id: str | None = None
+    # Ответ в ветке этого сообщения (корня).
+    thread_id: str | None = None
+    # Объявление с «Ознакомлен(а)» (только в Спутнике-объявлениях, только владелец и админы).
+    ack_required: bool = False
 
 
 class EditStarMessage(_StarText):
@@ -162,6 +169,8 @@ class StarMemberOut(BaseModel):
     tag_ids: list[str] = []
     # В тайм-ауте до этого момента (None — нет).
     timeout_until: datetime | None = None
+    # Свой рабочий график (только если в Звезде включено рабочее время).
+    work_schedule: dict | None = None
 
 
 class StarTagOut(BaseModel):
@@ -188,6 +197,11 @@ class StarChannelOut(BaseModel):
     slow_mode_sec: int = 0
     temporary: bool = False
     created_by: str | None = None
+    announcement: bool = False
+    # Табличка на двери кабинета: dnd | welcome | away | custom. Истёкшая — не показывается.
+    door_sign_kind: str | None = None
+    door_sign_text: str | None = None
+    door_sign_until: datetime | None = None
     floor_id: str | None = None
     map_x: int | None
     map_y: int | None
@@ -195,6 +209,12 @@ class StarChannelOut(BaseModel):
     map_h: int | None
 
     model_config = {"from_attributes": True}
+
+    @model_validator(mode="after")
+    def _expired_sign(self):
+        if self.door_sign_until and self.door_sign_until <= datetime.now(timezone.utc):
+            self.door_sign_kind = self.door_sign_text = self.door_sign_until = None
+        return self
 
 
 class StarFloorOut(BaseModel):
@@ -248,6 +268,9 @@ class StarDetailOut(StarSummaryOut):
     # Только владельцу и админам — остальным пустой список.
     banned_words: list[str] = []
     tags: list[StarTagOut] = []
+    # Рабочее время: включено ли и общий график Звезды.
+    work_hours_enabled: bool = False
+    work_hours: dict | None = None
     # Этажи карты офиса (только у Звёзд «Работа»).
     floors: list[StarFloorOut] = []
 
@@ -307,6 +330,15 @@ class StarMessageOut(BaseModel):
     kind: str = "text"
     poll: PollOut | None = None
     lfg: LfgOut | None = None
+    # Ответ в ветке — id корня; у корня — сводка ветки.
+    thread_id: str | None = None
+    thread_count: int = 0
+    thread_last_at: datetime | None = None
+    thread_participants: list[str] = []
+    # Объявление с подтверждением.
+    ack_required: bool = False
+    ack_count: int = 0
+    acked: bool = False
     created_at: datetime
     edited_at: datetime | None = None
     reply_to: StarReplyOut | None = None

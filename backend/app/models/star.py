@@ -45,6 +45,10 @@ class Star(Base):
     banned_words: Mapped[list] = mapped_column(JSON, nullable=False, default=list, server_default="[]")
     # Звуковая панель на Планетах.
     soundboard: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
+    # Рабочее время: включают владелец и админы; work_hours — общий график по умолчанию
+    # {"days": [1..7, пн=1], "start": "09:00", "end": "18:00", "tz": "Europe/Moscow"}.
+    work_hours_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    work_hours: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
 
@@ -110,6 +114,12 @@ class StarChannel(Base):
     )
     # Медленный режим Спутника: не чаще одного сообщения в столько секунд (модераторам — без ограничений).
     slow_mode_sec: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    # Канал объявлений: пишут только владелец и админы, можно просить «Ознакомлен(а)».
+    announcement: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    # Табличка на двери кабинета: dnd | welcome | away | custom, текст и до какого времени.
+    door_sign_kind: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    door_sign_text: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    door_sign_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # Временная Планета: создал любой участник, удаляется сама, когда опустеет.
     temporary: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     created_by: Mapped[str | None] = mapped_column(
@@ -143,6 +153,12 @@ class StarMessage(Base):
     # text | system (приветствие) | poll | lfg — у poll и lfg ref_id указывает на опрос или сбор.
     kind: Mapped[str] = mapped_column(String(16), nullable=False, default="text", server_default="text")
     ref_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    # Ответ в ветке: корневое сообщение. В ленте Спутника такие не показываются.
+    thread_id: Mapped[str | None] = mapped_column(
+        ForeignKey("star_messages.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    # Объявление, по которому просят подтвердить «Ознакомлен(а)».
+    ack_required: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     # Ответ на сообщение того же Спутника; удалили исходное — ответ остаётся без цитаты.
     reply_to_id: Mapped[str | None] = mapped_column(
         ForeignKey("star_messages.id", ondelete="SET NULL"), nullable=True
@@ -338,4 +354,43 @@ class StarAsset(Base):
     created_by: Mapped[str | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class StarMessageAck(Base):
+    """«Ознакомлен(а)» под объявлением."""
+
+    __tablename__ = "star_message_acks"
+
+    message_id: Mapped[str] = mapped_column(
+        ForeignKey("star_messages.id", ondelete="CASCADE"), primary_key=True
+    )
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class StarBooking(Base):
+    """Бронь комнаты (Планеты рабочей Звезды) на время: напоминание и статус «на встрече»."""
+
+    __tablename__ = "star_bookings"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    star_id: Mapped[str] = mapped_column(
+        ForeignKey("stars.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    channel_id: Mapped[str] = mapped_column(
+        ForeignKey("star_channels.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    title: Mapped[str] = mapped_column(String(100), nullable=False)
+    starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    ends_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_by: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    attendees: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    # Уже напомнили (за 10 минут) и уже поставили «на встрече» в начале.
+    reminded: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    started: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)

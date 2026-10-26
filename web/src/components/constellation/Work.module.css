@@ -1,0 +1,290 @@
+/* Рабочие Звёзды: ветки, объявления, рабочее время, брони, таблички на дверях. */
+
+/* --- Ветки --- */
+
+.threadSummary {
+  margin-top: 6px;
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px 4px 4px;
+  border: 1px solid var(--qz-border);
+  border-radius: var(--qz-radius-pill);
+  background: var(--qz-bg-soft);
+  color: var(--qz-text);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.threadSummary:hover {
+  border-color: var(--qz-border-strong);
+}
+
+.threadFaces {
+  display: inline-flex;
+}
+
+.threadFace {
+  width: 20px;
+  height: 20px;
+  margin-left: -4px;
+  border-radius: 50%;
+  border: 1px solid var(--qz-border);
+  background: var(--qz-accent-soft);
+  font-size: 10px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.threadFace:first-child {
+  margin-left: 0;
+}
+
+.threadCount {
+  font-weight: 600;
+  color: var(--qz-accent);
+}
+
+.threadLast {
+  color: var(--qz-text-muted);
+  font-size: 12px;
+}
+
+.threadPanel {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--qz-glass-border);
+  background: var(--qz-glass-bg);
+  backdrop-filter: var(--qz-glass-filter);
+  -webkit-backdrop-filter: var(--qz-glass-filter);
+}
+
+.threadColumn {
+  display: none;
+}
+
+@media (min-width: 768px) {
+  .threadColumn {
+    display: flex;
+    width: 360px;
+    flex-shrink: 0;
+  }
+}
+
+.threadRoot {
+  border-bottom: 1px solid var(--qz-border);
+  padding-bottom: 6px;
+  margin-bottom: 4px;
+}
+
+.threadDivider {
+  padding: 2px 16px 6px;
+  font-size: 12px;
+  color: var(--qz-text-muted);
+}
+
+/* --- Объявления --- */
+
+.askAck {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 16px 6px;
+  font-size: 13px;
+  color: var(--qz-text-muted);
+  cursor: pointer;
+}
+
+.ackRow {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ackBtn {
+  padding: 6px 14px;
+  border: none;
+  border-radius: var(--qz-radius-pill);
+  background: var(--qz-outgoing);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.ackDone {
+  background: rgba(110, 231, 160, 0.14);
+  color: #6ee7a0;
+  cursor: default;
+}
+
+.ackCount {
+  padding: 4px 8px;
+  border: none;
+  border-radius: var(--qz-radius-pill);
+  background: transparent;
+  color: var(--qz-text-muted);
+  font-size: 13px;
+}
+
+button.ackCount {
+  cursor: pointer;
+}
+
+button.ackCount:hover {
+  background: var(--qz-bg-soft);
+  color: var(--qz-text);
+}
+
+.peopleList {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.person {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 0;
+  font-size: 14px;
+}
+
+.sectionTitle {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--qz-text-dim);
+}
+
+/* --- Рабочее время --- */
+
+.days {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.day {
+  min-width: 40px;
+  padding: 7px 0;
+  border: 1px solid var(--qz-border);
+  border-radius: var(--qz-radius-sm);
+  background: var(--qz-bg-soft);
+  color: var(--qz-text-muted);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.dayOn {
+  border-color: var(--qz-accent);
+  background: var(--qz-accent-soft);
+  color: var(--qz-text);
+}
+
+.times {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.offHours {
+  font-size: 11px;
+  color: #fbbf24;
+}
+
+.workClock {
+  font-size: 11px;
+  color: var(--qz-text-muted);
+}
+
+/* --- Брони и таблички --- */
+
+.bookings {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  max-width: 420px;
+}
+
+.booking {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border: 1px solid var(--qz-border);
+  border-radius: var(--qz-radius-sm);
+  background: var(--qz-bg-soft);
+  font-size: 13px;
+  text-align: left;
+}
+
+.bookingNow {
+  border-color: rgba(251, 191, 36, 0.55);
+}
+
+.bookingWhen {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.bookingTitle {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.busyBadge {
+  font-size: 11px;
+  color: #fbbf24;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.doorSign {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: var(--qz-radius-pill);
+  border: 1px solid var(--qz-border);
+  background: var(--qz-bg-soft);
+  font-size: 13px;
+}
+
+.signDnd {
+  border-color: rgba(248, 113, 113, 0.5);
+  color: #fecaca;
+}
+
+.signWelcome {
+  border-color: rgba(110, 231, 160, 0.5);
+  color: #bbf7d0;
+}
+
+.signAway {
+  border-color: rgba(251, 191, 36, 0.5);
+  color: #fde68a;
+}
+
+.signPresets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}

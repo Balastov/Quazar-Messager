@@ -131,6 +131,12 @@ async def sweep_temporary_planets(db: AsyncSession, now: datetime | None = None)
     return await sweep(db, now)
 
 
+async def booking_tick(db: AsyncSession, now: datetime | None = None) -> int:
+    from app.api.star_work import booking_tick as tick
+
+    return await tick(db, now)
+
+
 async def run_forever(session_factory: async_sessionmaker) -> None:
     while True:
         for job in (
@@ -139,6 +145,7 @@ async def run_forever(session_factory: async_sessionmaker) -> None:
             expire_messages,
             start_due_lfg,
             sweep_temporary_planets,
+            booking_tick,
         ):
             try:
                 async with session_factory() as db:

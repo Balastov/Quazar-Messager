@@ -14,6 +14,8 @@ import StarSettings, { type SettingsTab } from "./StarSettings";
 import StarAvatar from "./StarAvatar";
 import s from "./Constellation.module.css";
 import MembersPanel from "./MembersPanel";
+import ThreadPanel from "./ThreadPanel";
+import w from "./Work.module.css";
 import { useUiStore } from "../../store/ui";
 
 type ChannelDialogState = { kind: ChannelKind; channel?: StarChannel; floorId?: string } | null;
@@ -28,6 +30,7 @@ export default function ConstellationView() {
   const notice = useStarsStore((st) => st.notice);
   const joinDialog = useStarsStore((st) => st.joinDialog);
   const mobileChannelOpen = useStarsStore((st) => st.mobileChannelOpen);
+  const threadOpen = useStarsStore((st) => st.thread !== null && st.thread.starId === st.activeStarId);
   const load = useStarsStore((st) => st.load);
   const selectStar = useStarsStore((st) => st.selectStar);
   const selectChannel = useStarsStore((st) => st.selectChannel);
@@ -209,7 +212,12 @@ export default function ConstellationView() {
             onToggleMembers={() => (isMobile() ? setMobileMembers(true) : setMembersOpen(!membersOpen))}
           />
           <section className={s.content}>{renderContent()}</section>
-          {membersOpen && (
+          {threadOpen && (
+            <div className={w.threadColumn}>
+              <ThreadPanel detail={detail} />
+            </div>
+          )}
+          {membersOpen && !threadOpen && (
             <div className={s.membersColumn}>
               <MembersPanel detail={detail} onClose={() => setMembersOpen(false)} />
             </div>
@@ -220,6 +228,11 @@ export default function ConstellationView() {
             </section>
           )}
           {/* После экрана канала — чтобы оказаться поверх него. */}
+          {threadOpen && (
+            <section className={s.mobileContent}>
+              <ThreadPanel detail={detail} fullscreen />
+            </section>
+          )}
           {mobileMembers && (
             <section className={s.mobileContent}>
               <MembersPanel detail={detail} onClose={() => setMobileMembers(false)} fullscreen />

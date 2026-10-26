@@ -9,6 +9,7 @@ import { apiError, can, GAMING_LIMITS, initials, KIND_LABEL, ROLE_LABEL } from "
 import { starsApi } from "../../api/stars";
 import { VoiceBar } from "./VoiceBar";
 import { placeNouns, roomWords } from "./words";
+import { currentBooking, doorSign, hhmm, useBookings } from "./work";
 import s from "./Constellation.module.css";
 
 interface Props {
@@ -55,6 +56,7 @@ export default function ChannelSidebar({
   const speaking = new Set(speakingKey ? speakingKey.split(",") : []);
   const channels = sortChannels(detail.channels);
   const manage = can(detail, "manage_channels");
+  const { bookings, now } = useBookings(detail);
 
   const section = (kind: ChannelKind, title: string) => {
     const list = channels.filter((c) => c.kind === kind);
@@ -89,6 +91,8 @@ export default function ChannelSidebar({
         {list.map((c) => {
           const count = unread[c.id]?.count ?? 0;
           const inside = kind === "planet" ? (detail.voice?.[c.id] ?? []) : [];
+          const busy = kind === "planet" ? currentBooking(bookings, c.id, now) : null;
+          const sign = kind === "planet" ? doorSign(c, now) : null;
           return (
             <div key={c.id}>
               <button
@@ -104,7 +108,13 @@ export default function ChannelSidebar({
                 }
                 title={
                   kind === "planet"
-                    ? `Двойной клик — ${roomWords(detail.kind, c.name).enter}`
+                    ? [
+                        busy ? `Занято до ${hhmm(busy.ends_at)}: «${busy.title}»` : "",
+                        sign ? `Табличка: ${sign.icon} ${sign.text}` : "",
+                        `Двойной клик — ${roomWords(detail.kind, c.name).enter}`,
+                      ]
+                        .filter(Boolean)
+                        .join("\n")
                     : undefined
                 }
               >
@@ -117,6 +127,9 @@ export default function ChannelSidebar({
                   {c.listen_only ? " 🎧" : ""}
                   {c.temporary ? " ⏳" : ""}
                   {c.slow_mode_sec ? " 🐢" : ""}
+                  {c.announcement ? " 📢" : ""}
+                  {sign ? ` ${sign.icon}` : ""}
+                  {busy ? " 📅" : ""}
                 </span>
                 {kind === "planet" && (
                   <span className={s.channelHint}>

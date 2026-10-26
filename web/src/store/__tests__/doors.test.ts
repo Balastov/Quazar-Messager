@@ -29,8 +29,15 @@ vi.mock("../../api/stars", () => ({
 }));
 
 const selectStar = vi.fn(async () => {});
+const starDetails: Record<string, unknown> = {};
 vi.mock("../stars", () => ({
-  useStarsStore: { getState: () => ({ selectStar, stars: [{ id: "s1", kind: "work" }, { id: "g1", kind: "gaming" }] }) },
+  useStarsStore: {
+    getState: () => ({
+      selectStar,
+      details: starDetails,
+      stars: [{ id: "s1", kind: "work" }, { id: "g1", kind: "gaming" }],
+    }),
+  },
 }));
 const playStarSound = vi.fn(async () => {});
 vi.mock("../../sounds/starSounds", () => ({ playStarSound: (...a: unknown[]) => playStarSound(...(a as [])) }));
@@ -118,6 +125,25 @@ describe("door sounds", () => {
     emit(knock);
     expect(playStarSound).toHaveBeenCalledTimes(1);
     expect(playStarSound).toHaveBeenCalledWith("knock");
+  });
+
+  it("stays quiet outside my working hours", () => {
+    playStarSound.mockClear();
+    // Рабочий день — только понедельник 00:00–00:01; на часах вторник.
+    const never = { days: [1], start: "00:00", end: "00:01", tz: "Pacific/Kiritimati" };
+    starDetails.s1 = { work_hours_enabled: true, work_hours: never, members: [{ user: { id: "me" }, work_schedule: null }] };
+    vi.useFakeTimers({ now: new Date("2026-10-27T12:00:00Z") });
+    try {
+      emit({
+        type: "planet_knock", star_id: "s1", user_name: "Анна", room_name: "Кабинет", star_name: "Офис",
+        knock: { id: "quiet", channel_id: "room", user_id: "u2", status: "pending" },
+      });
+      expect(useDoorsStore.getState().knocks.quiet).toBeDefined();
+      expect(playStarSound).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+      delete starDetails.s1;
+    }
   });
 });
 

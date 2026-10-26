@@ -29,6 +29,34 @@ export interface StarMember {
   tag_ids?: string[];
   /** В тайм-ауте до этого момента. */
   timeout_until?: string | null;
+  /** Свой рабочий график (приходит, только если в Звезде включено рабочее время). */
+  work_schedule?: WorkSchedule | null;
+}
+
+/** Рабочий график: дни 1..7 (пн = 1), время «ЧЧ:ММ», часовой пояс IANA. end < start — смена через полночь. */
+export interface WorkSchedule {
+  days: number[];
+  start: string;
+  end: string;
+  tz: string;
+}
+
+export type DoorSignKind = "dnd" | "welcome" | "away" | "custom";
+
+/** Бронь переговорной. */
+export interface StarBooking {
+  id: string;
+  channel_id: string;
+  title: string;
+  starts_at: string;
+  ends_at: string;
+  created_by: string | null;
+  attendees: string[];
+}
+
+export interface StarAcks {
+  acked: StarUser[];
+  pending: StarUser[];
 }
 
 /** Своя роль с цветом: подпись и цвет имени, права не даёт. */
@@ -121,6 +149,12 @@ export interface StarChannel {
   /** Временная Планета: исчезнет, когда опустеет. */
   temporary?: boolean;
   created_by?: string | null;
+  /** Спутник-объявления: пишут владелец и админы, остальные — в ветках. */
+  announcement?: boolean;
+  /** Табличка на двери личного кабинета (истёкшая не приходит). */
+  door_sign_kind?: DoorSignKind | null;
+  door_sign_text?: string | null;
+  door_sign_until?: string | null;
   /** Этаж карты офиса (Звёзды «Работа»). */
   floor_id: string | null;
   map_x: number | null;
@@ -216,6 +250,9 @@ export interface StarDetail extends StarSummary {
   /** Только владельцу и админам. */
   banned_words?: string[];
   tags?: StarTag[];
+  /** Рабочее время: включено ли (настраивают владелец и админы) и общий график Звезды. */
+  work_hours_enabled?: boolean;
+  work_hours?: WorkSchedule | null;
 }
 
 export interface PlanetJoin {
@@ -249,6 +286,16 @@ export interface StarMessage {
   kind?: "text" | "system" | "poll" | "lfg";
   poll?: StarPoll | null;
   lfg?: StarLfg | null;
+  /** Ответ в ветке — id корня. У корня — сводка ветки. */
+  thread_id?: string | null;
+  thread_count?: number;
+  thread_last_at?: string | null;
+  /** До трёх последних отвечавших, свежие первыми. */
+  thread_participants?: string[];
+  /** Объявление с «Ознакомлен(а)». */
+  ack_required?: boolean;
+  ack_count?: number;
+  acked?: boolean;
 }
 
 export interface StarInvite {
@@ -380,6 +427,28 @@ export type StarEvent =
       star_name: string;
     }
   | { type: "star_assets"; star_id: string }
+  | {
+      type: "star_thread";
+      star_id: string;
+      channel_id: string;
+      root_id: string;
+      count: number;
+      last_at: string | null;
+      participants: string[];
+    }
+  | { type: "star_ack"; star_id: string; channel_id: string; message_id: string; ack_count: number }
+  | { type: "star_work_hours"; star_id: string; enabled: boolean; schedule: WorkSchedule | null }
+  | { type: "star_bookings"; star_id: string; channel_id: string }
+  /** Через 10 минут встреча, на которую меня позвали. */
+  | {
+      type: "star_booking_soon";
+      star_id: string;
+      channel_id: string;
+      booking_id: string;
+      title: string;
+      room: string | null;
+      starts_at: string;
+    }
   /** Кто-то на моей Планете нажал звук панели. */
   | { type: "star_sound"; star_id: string; channel_id: string; url: string; name: string; by: string };
 
@@ -442,6 +511,7 @@ export const starsApi = {
       access?: RoomAccess;
       cabinet_owner_id?: string;
       listen_only?: boolean;
+      announcement?: boolean;
       floor_id?: string;
     }
   ) => http.post<StarChannel>(`${base(starId)}/channels`, body).then((r) => r.data),
@@ -456,6 +526,7 @@ export const starsApi = {
       cabinet_owner_id?: string;
       listen_only?: boolean;
       slow_mode_sec?: number;
+      announcement?: boolean;
       floor_id?: string;
     }
   ) => http.patch<StarChannel>(`${base(starId)}/channels/${channelId}`, body).then((r) => r.data),
@@ -468,13 +539,49 @@ export const starsApi = {
         params: beforeId ? { before_id: beforeId } : {},
       })
       .then((r) => r.data),
-  send: (starId: string, channelId: string, text: string, replyToId?: string) =>
+  send: (
+    starId: string,
+    channelId: string,
+    text: string,
+    replyToId?: string,
+    extra: { thread_id?: string; ack_required?: boolean } = {}
+  ) =>
     http
       .post<StarMessage>(`${base(starId)}/channels/${channelId}/messages`, {
         text,
         reply_to_id: replyToId,
+        ...extra,
       })
       .then((r) => r.data),
+  thread: (starId: string, channelId: string, rootId: string) =>
+    http
+      .get<StarMessage[]>(`${base(starId)}/channels/${channelId}/threads/${rootId}`)
+      .then((r) => r.data),
+  ack: (starId: string, messageId: string) =>
+    http.post<{ ack_count: number }>(`${base(starId)}/messages/${messageId}/ack`).then((r) => r.data),
+  acks: (starId: string, messageId: string) =>
+    http.get<StarAcks>(`${base(starId)}/messages/${messageId}/acks`).then((r) => r.data),
+  setWorkHours: (starId: string, enabled: boolean, schedule?: WorkSchedule) =>
+    http.put(`${base(starId)}/work-hours`, { enabled, schedule }),
+  bookings: (starId: string, from?: string, to?: string) =>
+    http
+      .get<StarBooking[]>(`${base(starId)}/bookings`, { params: { from, to } })
+      .then((r) => r.data),
+  book: (
+    starId: string,
+    channelId: string,
+    body: { title: string; starts_at: string; ends_at: string; attendees: string[] }
+  ) =>
+    http
+      .post<StarBooking>(`${base(starId)}/channels/${channelId}/bookings`, body)
+      .then((r) => r.data),
+  cancelBooking: (starId: string, bookingId: string) =>
+    http.delete(`${base(starId)}/bookings/${bookingId}`),
+  doorSign: (
+    starId: string,
+    channelId: string,
+    body: { kind: DoorSignKind | null; text?: string | null; until?: string | null }
+  ) => http.put(`${base(starId)}/channels/${channelId}/door-sign`, body),
   editMessage: (starId: string, channelId: string, messageId: string, text: string) =>
     http
       .patch<StarMessage>(`${base(starId)}/channels/${channelId}/messages/${messageId}`, { text })

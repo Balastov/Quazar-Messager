@@ -37,6 +37,7 @@ from app.models.star import (
     StarMember,
     StarMemberTag,
     StarMessage,
+    StarMessageAck,
     StarMessageReaction,
     StarTag,
 )
@@ -171,6 +172,10 @@ def _active_timeout(member: StarMember) -> datetime | None:
     return member.timeout_until if member.timeout_until and member.timeout_until > _now() else None
 
 
+async def _work_hours_on(db: AsyncSession, star_id: str) -> bool:
+    return bool((await db.execute(select(Star.work_hours_enabled).where(Star.id == star_id))).scalar_one_or_none())
+
+
 async def _members_out(db: AsyncSession, star_id: str) -> list[StarMemberOut]:
     rows = (
         await db.execute(
@@ -180,6 +185,7 @@ async def _members_out(db: AsyncSession, star_id: str) -> list[StarMemberOut]:
         )
     ).all()
     tags = await _member_tag_ids(db, star_id)
+    schedules = await _work_hours_on(db, star_id)
     members = [
         StarMemberOut(
             user=_user_out(user),
@@ -187,6 +193,7 @@ async def _members_out(db: AsyncSession, star_id: str) -> list[StarMemberOut]:
             joined_at=m.joined_at,
             tag_ids=tags.get(user.id, []),
             timeout_until=_active_timeout(m),
+            work_schedule=user.work_schedule if schedules else None,
         )
         for m, user in rows
     ]
@@ -203,6 +210,7 @@ async def _member_out(db: AsyncSession, member: StarMember) -> StarMemberOut:
         joined_at=member.joined_at,
         tag_ids=tags.get(member.user_id, []),
         timeout_until=_active_timeout(member),
+        work_schedule=user.work_schedule if await _work_hours_on(db, member.star_id) else None,
     )
 
 
@@ -276,6 +284,8 @@ async def _detail(db: AsyncSession, star: Star, me: StarMember) -> StarDetailOut
         soundboard=star.soundboard,
         banned_words=list(star.banned_words or []) if me.role in ("owner", "admin") else [],
         tags=[StarTagOut.model_validate(t) for t in tags],
+        work_hours_enabled=star.work_hours_enabled,
+        work_hours=star.work_hours,
     )
 
 
@@ -847,6 +857,8 @@ async def create_channel(star_id: str, body: CreateChannel, current_user: Curren
         name=body.name,
         position=(max_position + 1) if max_position is not None else 0,
     )
+    if body.kind == "satellite":
+        channel.announcement = body.announcement
     if body.kind == "planet":
         channel.room_kind = body.room_kind if star.kind == "work" else None
         channel.capacity = body.capacity or rules.default_capacity(channel.room_kind)
@@ -897,6 +909,8 @@ async def update_channel(
         channel.listen_only = body.listen_only
     if channel.kind == "satellite" and body.slow_mode_sec is not None:
         channel.slow_mode_sec = body.slow_mode_sec
+    if channel.kind == "satellite" and body.announcement is not None:
+        channel.announcement = body.announcement
 
     moved = False
     if (
@@ -1022,6 +1036,30 @@ async def _messages_out(
 
     polls = await polls_out(db, [m.ref_id for m, _ in rows if m.kind == "poll" and m.ref_id], viewer_id)
     lfgs = await lfgs_out(db, [m.ref_id for m, _ in rows if m.kind == "lfg" and m.ref_id])
+    threads = await thread_summaries(db, [m.id for m, _ in rows if not m.thread_id])
+    ack_ids = [m.id for m, _ in rows if m.ack_required]
+    ack_counts: dict[str, int] = {}
+    my_acks: set[str] = set()
+    if ack_ids:
+        ack_counts = dict(
+            (
+                await db.execute(
+                    select(StarMessageAck.message_id, func.count())
+                    .where(StarMessageAck.message_id.in_(ack_ids))
+                    .group_by(StarMessageAck.message_id)
+                )
+            ).all()
+        )
+        if viewer_id:
+            my_acks = set(
+                (
+                    await db.execute(
+                        select(StarMessageAck.message_id).where(
+                            StarMessageAck.message_id.in_(ack_ids), StarMessageAck.user_id == viewer_id
+                        )
+                    )
+                ).scalars().all()
+            )
 
     return [
         StarMessageOut(
@@ -1033,6 +1071,13 @@ async def _messages_out(
             kind=m.kind,
             poll=polls.get(m.ref_id) if m.kind == "poll" else None,
             lfg=lfgs.get(m.ref_id) if m.kind == "lfg" else None,
+            thread_id=m.thread_id,
+            thread_count=threads.get(m.id, (0, None, []))[0],
+            thread_last_at=threads.get(m.id, (0, None, []))[1],
+            thread_participants=threads.get(m.id, (0, None, []))[2],
+            ack_required=m.ack_required,
+            ack_count=ack_counts.get(m.id, 0),
+            acked=m.id in my_acks,
             created_at=m.created_at,
             edited_at=m.edited_at,
             reply_to=replies.get(m.reply_to_id) if m.reply_to_id else None,
@@ -1068,7 +1113,8 @@ async def list_messages(
     query = (
         select(StarMessage, User)
         .outerjoin(User, User.id == StarMessage.sender_id)
-        .where(StarMessage.channel_id == channel_id)
+        # Ответы в ветках в ленте не показываются — только сводка под корнем.
+        .where(StarMessage.channel_id == channel_id, StarMessage.thread_id.is_(None))
     )
     if before_id:
         cursor = (
@@ -1091,6 +1137,16 @@ async def send_message(
     star, me = await _load_membership(db, star_id, current_user.id)
     channel = await _satellite(db, star_id, channel_id)
     assert_can_post(star, me)
+    is_admin = me.role in ("owner", "admin")
+    # В объявлениях пишут владелец и админы; обсуждать в ветках может любой.
+    if channel.announcement and not body.thread_id and not is_admin:
+        raise _forbid("Здесь пишут только владелец и админы — обсудить можно в ветке")
+    if body.ack_required and not (channel.announcement and is_admin and not body.thread_id):
+        raise HTTPException(status_code=422, detail="Подтверждение — только для объявлений")
+    if body.thread_id:
+        root = await _star_message(db, star_id, channel_id, body.thread_id)
+        if root.thread_id or root.kind == "system":
+            raise HTTPException(status_code=422, detail="Ветку можно начать только от обычного сообщения")
     await assert_slow_mode(db, channel, me)
     assert_clean_text(star, me, body.text)
     if body.reply_to_id:
@@ -1104,12 +1160,52 @@ async def send_message(
         sender_id=current_user.id,
         text=body.text,
         reply_to_id=body.reply_to_id,
+        thread_id=body.thread_id,
+        ack_required=body.ack_required,
     )
     db.add(message)
     await db.commit()
     out = (await _messages_out(db, [(message, current_user)]))[0]
     await _broadcast(db, star_id, {"type": "star_message", "message": out.model_dump(mode="json")})
+    if message.thread_id:
+        await thread_event(db, star_id, channel_id, message.thread_id)
     return out
+
+
+async def thread_summaries(db: AsyncSession, root_ids: list[str]) -> dict[str, tuple[int, datetime | None, list[str]]]:
+    """root_id → (сколько ответов, когда последний, до трёх последних участников)."""
+    if not root_ids:
+        return {}
+    rows = (
+        await db.execute(
+            select(StarMessage.thread_id, StarMessage.sender_id, StarMessage.created_at)
+            .where(StarMessage.thread_id.in_(root_ids))
+            .order_by(StarMessage.created_at.desc())
+        )
+    ).all()
+    out: dict[str, tuple[int, datetime | None, list[str]]] = {}
+    for root_id, sender_id, at in rows:
+        count, last, people = out.get(root_id, (0, None, []))
+        if sender_id and sender_id not in people and len(people) < 3:
+            people = [*people, sender_id]
+        out[root_id] = (count + 1, last or at, people)
+    return out
+
+
+async def thread_event(db: AsyncSession, star_id: str, channel_id: str, root_id: str) -> None:
+    count, last, people = (await thread_summaries(db, [root_id])).get(root_id, (0, None, []))
+    await _broadcast(
+        db,
+        star_id,
+        {
+            "type": "star_thread",
+            "channel_id": channel_id,
+            "root_id": root_id,
+            "count": count,
+            "last_at": last.isoformat() if last else None,
+            "participants": people,
+        },
+    )
 
 
 @router.patch("/{star_id}/channels/{channel_id}/messages/{message_id}", response_model=StarMessageOut)
@@ -1237,6 +1333,7 @@ async def delete_message(
             db, star_id, current_user.id, "message_delete", message.sender_id, text=message.text[:200]
         )
 
+    root_id = message.thread_id
     await db.delete(message)
     await db.commit()
     await _broadcast(
@@ -1244,3 +1341,5 @@ async def delete_message(
         star_id,
         {"type": "star_message_deleted", "channel_id": channel_id, "message_id": message_id},
     )
+    if root_id:
+        await thread_event(db, star_id, channel_id, root_id)

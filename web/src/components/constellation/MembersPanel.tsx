@@ -14,6 +14,8 @@ import MyTags, { TagChip, memberColor } from "./MyTags";
 import Dialog from "./Dialog";
 import { formatWhen } from "../../chat/when";
 import g from "./Gaming.module.css";
+import w from "./Work.module.css";
+import { browserTimeZone, effectiveSchedule, memberWorkState } from "../../chat/workhours";
 
 const TIMEOUTS: { minutes: number; label: string }[] = [
   { minutes: 5, label: "5 минут" },
@@ -158,6 +160,18 @@ export default function MembersPanel({ detail, onClose, fullscreen = false }: Pr
                     {member.timeout_until && Date.parse(member.timeout_until) > Date.now() && (
                       <span className={s.memberStatus}>⏳ тайм-аут до {formatWhen(member.timeout_until)}</span>
                     )}
+                    {(() => {
+                      const work = memberWorkState(detail, member);
+                      if (!work) return null;
+                      const tz = effectiveSchedule(detail.work_hours, member.work_schedule).tz;
+                      if (work.working && tz === browserTimeZone()) return null;
+                      return (
+                        <span className={work.working ? w.workClock : w.offHours} title={tz}>
+                          🕒 {work.time}
+                          {work.working ? " · местное время" : " · не в рабочее время"}
+                        </span>
+                      );
+                    })()}
                     {room !== undefined && (
                       <span className={s.memberWhere}>
                         {nouns.inside} «{room}»

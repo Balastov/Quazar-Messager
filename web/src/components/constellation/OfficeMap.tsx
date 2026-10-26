@@ -18,6 +18,8 @@ import {
 } from "./office";
 import { apiError, can, doorKind, initials, roomDoor } from "./rules";
 import s from "./Constellation.module.css";
+import w from "./Work.module.css";
+import { currentBooking, doorSign, hhmm, useBookings } from "./work";
 
 interface Props {
   detail: StarDetail;
@@ -48,6 +50,7 @@ export default function OfficeMap({ detail, onBack, onOpenPlanet, onAddRoom }: P
   const saveLayout = useStarsStore((st) => st.saveLayout);
   const refreshStar = useStarsStore((st) => st.refreshStar);
   const myKnock = useDoorsStore((st) => st.myKnock);
+  const { bookings, now } = useBookings(detail);
 
   const floors = detail.floors;
   const [floorId, setFloorId] = useState<string | null>(floors[0]?.id ?? null);
@@ -314,6 +317,15 @@ export default function OfficeMap({ detail, onBack, onOpenPlanet, onAddRoom }: P
             const full = inside.length >= capacity && !mine;
             const locked = mustKnock(c) && !mine;
             const knocking = myKnock?.channelId === c.id;
+            const booked = currentBooking(bookings, c.id, now);
+            const sign = doorSign(c, now);
+            const extra = [
+              booked ? `занято до ${hhmm(booked.ends_at)}: «${booked.title}»` : "",
+              sign ? `${sign.icon} ${sign.text}` : "",
+            ]
+              .filter(Boolean)
+              .map((x) => ` · ${x}`)
+              .join("");
             const classes = [
               s.room,
               inside.length ? s.roomOccupied : "",
@@ -331,7 +343,7 @@ export default function OfficeMap({ detail, onBack, onOpenPlanet, onAddRoom }: P
                 className={classes.filter(Boolean).join(" ")}
                 style={{ left: r.x * cell, top: r.y * cell, width: r.w * cell, height: r.h * cell }}
                 title={
-                  editing
+                  (editing
                     ? c.name
                     : mine
                       ? `${c.name} — вы здесь`
@@ -341,7 +353,7 @@ export default function OfficeMap({ detail, onBack, onOpenPlanet, onAddRoom }: P
                           ? `${c.name} — вы постучались, ждём ответа`
                           : locked
                             ? `${c.name} — ${doorKind(c) === "personal" ? "личный кабинет" : "по приглашениям"}, нажмите, чтобы постучаться`
-                            : `Войти в ${c.name}`
+                            : `Войти в ${c.name}`) + (editing ? "" : extra)
                 }
                 onPointerDown={(e) => onPointerDown(e, c, "move")}
                 onClick={() => onRoomClick(c)}
@@ -352,6 +364,7 @@ export default function OfficeMap({ detail, onBack, onOpenPlanet, onAddRoom }: P
                 <div className={s.roomHead}>
                   <span aria-hidden>{ROOM_ICON[c.room_kind ?? "custom"]}</span>
                   <span className={s.roomName}>{c.name}</span>
+                  {sign && !editing && <span aria-label={sign.text}>{sign.icon}</span>}
                   {isClosed(c) && (
                     <span
                       className={s.lock}
@@ -364,6 +377,11 @@ export default function OfficeMap({ detail, onBack, onOpenPlanet, onAddRoom }: P
                     {inside.length}/{capacity}
                   </span>
                 </div>
+                {booked && !editing && (
+                  <div className={w.busyBadge}>
+                    📅 до {hhmm(booked.ends_at)} · {booked.title}
+                  </div>
+                )}
                 {inside.length > 0 && r.h >= 2 && (
                   <div className={s.roomPeople}>
                     {inside.slice(0, 6).map((p) => (

@@ -13,6 +13,7 @@ import {
 } from "../api/stars";
 import { roomDoor } from "../components/constellation/rules";
 import { roomWords } from "../components/constellation/words";
+import { amResting, confirmKnock } from "../components/constellation/work";
 import { playStarSound } from "../sounds/starSounds";
 import { notifyDoor, type DoorLink } from "../notifications/notify";
 import { socket } from "../ws/socket";
@@ -128,6 +129,8 @@ export const useDoorsStore = create<DoorsState>((set, get) => {
         set((s) => ({
           invites: [...s.invites.filter((i) => i.channelId !== invite.channelId), invite],
         }));
+        // Нерабочее время — приглашение видно в приложении, но без звука и уведомления.
+        if (amResting(invite.starId)) break;
         void playStarSound("invite");
         void notifyDoor(
           { starId: invite.starId, channelId: invite.channelId, door: "invite" },
@@ -148,7 +151,7 @@ export const useDoorsStore = create<DoorsState>((set, get) => {
         if (event.knock.user_id === myId) break;
         const isNew = !get().knocks[event.knock.id];
         set((s) => ({ knocks: { ...s.knocks, [event.knock.id]: { ...event, receivedAt: Date.now() } } }));
-        if (isNew && event.knock.status === "pending") {
+        if (isNew && event.knock.status === "pending" && !amResting(event.star_id)) {
           void playStarSound("knock");
           void notifyDoor(
             { starId: event.star_id, channelId: event.knock.channel_id, door: "knock", knockId: event.knock.id },
@@ -280,6 +283,7 @@ export const useDoorsStore = create<DoorsState>((set, get) => {
       if (!roomDoor(detail, channel, myId).entersFreely && !inside.some((p) => p.user_id === myId)) {
         // Закрытая дверь — вход означает «постучаться».
         if (get().myKnock?.channelId === channel.id) return;
+        if (!confirmKnock(channel)) return;
         await get().knock(detail.id, channel.id, channel.name);
         return;
       }

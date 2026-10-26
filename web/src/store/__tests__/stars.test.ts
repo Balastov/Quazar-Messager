@@ -88,6 +88,10 @@ vi.mock("../../api/stars", async (importOriginal) => {
         return details[id];
       },
       messages: async (starId: string, channelId: string) => [message(starId, channelId, "m0")],
+      thread: async (starId: string, channelId: string, rootId: string) => [
+        message(starId, channelId, rootId),
+        { ...message(starId, channelId, "r0"), thread_id: rootId },
+      ],
       create: async (name: string) => {
         details.created = detail("created", name);
         return details.created;
@@ -268,5 +272,62 @@ describe("stars store", () => {
     const st = useStarsStore.getState();
     expect(st.activeStarId).toBe("created");
     expect(st.stars.map((s) => s.id)).toContain("created");
+  });
+});
+
+describe("threads", () => {
+  it("keeps replies out of the feed and unread, and updates the root summary", async () => {
+    await useStarsStore.getState().load();
+    useUiStore.setState({ tab: "chats" });
+    const reply = (id: string) => ({ ...message("a", "a-general", id), thread_id: "m0" });
+
+    emit({ type: "star_message", star_id: "a", message: reply("r1") });
+    let st = useStarsStore.getState();
+    expect(st.messages["a-general"].map((m) => m.id)).toEqual(["m0"]);
+    expect(st.unread["a-general"]).toBeUndefined();
+
+    emit({ type: "star_thread", star_id: "a", channel_id: "a-general", root_id: "m0", count: 2, last_at: "2026-10-16T11:00:00Z", participants: ["other"] });
+    expect(useStarsStore.getState().messages["a-general"][0].thread_count).toBe(2);
+
+    await useStarsStore.getState().openThread(useStarsStore.getState().messages["a-general"][0]);
+    emit({ type: "star_message", star_id: "a", message: reply("r2") });
+    st = useStarsStore.getState();
+    expect(st.thread?.messages.map((m) => m.id)).toEqual(["m0", "r0", "r2"]);
+    expect(st.messages["a-general"].map((m) => m.id)).toEqual(["m0"]);
+
+    // Ответ правят и удаляют прямо в открытой ветке.
+    emit({ type: "star_message_edited", star_id: "a", channel_id: "a-general", message_id: "r2", text: "исправлено", edited_at: "2026-10-16T12:00:00Z" });
+    expect(useStarsStore.getState().thread?.messages[2].text).toBe("исправлено");
+    emit({ type: "star_message_deleted", star_id: "a", channel_id: "a-general", message_id: "r0" });
+    expect(useStarsStore.getState().thread?.messages.map((m) => m.id)).toEqual(["m0", "r2"]);
+
+    // Корень удалили — ветка закрывается.
+    emit({ type: "star_message_deleted", star_id: "a", channel_id: "a-general", message_id: "m0" });
+    expect(useStarsStore.getState().thread).toBeNull();
+  });
+
+  it("keeps replies that arrive while the thread is loading", async () => {
+    await useStarsStore.getState().load();
+    const opening = useStarsStore.getState().openThread(useStarsStore.getState().messages["a-general"][0]);
+    emit({ type: "star_message", star_id: "a", message: { ...message("a", "a-general", "early"), thread_id: "m0" } });
+    await opening;
+    expect(useStarsStore.getState().thread?.messages.map((m) => m.id)).toEqual(["m0", "r0", "early"]);
+  });
+
+  it("closes the thread when switching to another channel", async () => {
+    await useStarsStore.getState().load();
+    await useStarsStore.getState().openThread(useStarsStore.getState().messages["a-general"][0]);
+    expect(useStarsStore.getState().thread?.rootId).toBe("m0");
+    await useStarsStore.getState().selectChannel("a-news");
+    expect(useStarsStore.getState().thread).toBeNull();
+  });
+
+  it("applies acknowledgement counts and work hours", async () => {
+    await useStarsStore.getState().load();
+    emit({ type: "star_ack", star_id: "a", channel_id: "a-general", message_id: "m0", ack_count: 3 });
+    expect(useStarsStore.getState().messages["a-general"][0].ack_count).toBe(3);
+    const schedule = { days: [1, 2, 3], start: "08:00", end: "17:00", tz: "UTC" };
+    emit({ type: "star_work_hours", star_id: "a", enabled: true, schedule });
+    expect(useStarsStore.getState().details.a).toMatchObject({ work_hours_enabled: true, work_hours: schedule });
   });
 });

@@ -16,8 +16,13 @@ import {
   type StarMessage,
   type StarRole,
   type StarAsset,
+  type StarBooking,
   type StarSummary,
+  type DoorSignKind,
+  type WorkSchedule,
 } from "../api/stars";
+import { usersApi } from "../api/users";
+import { notifyInfo } from "../notifications/notify";
 import { socket } from "../ws/socket";
 import { applyReaction } from "../chat/reactions";
 import { useAuthStore } from "./auth";
@@ -69,6 +74,15 @@ interface Unread {
   count: number;
 }
 
+/** Открытая ветка: корень и ответы по порядку (messages[0] — корень). */
+export interface OpenThread {
+  starId: string;
+  channelId: string;
+  rootId: string;
+  messages: StarMessage[];
+  loading: boolean;
+}
+
 interface StarsState {
   loaded: boolean;
   stars: StarSummary[];
@@ -88,6 +102,11 @@ interface StarsState {
   notice: string | null;
   /** Окно «Вступить по приглашению»: null — закрыто. */
   joinDialog: { code: string } | null;
+  thread: OpenThread | null;
+  /** Брони переговорных на ближайшую неделю (грузятся, когда нужны). */
+  bookings: Record<string, StarBooking[]>;
+  /** Мой личный рабочий график (null — как в Звезде; undefined — ещё не загружен). */
+  mySchedule: WorkSchedule | null | undefined;
 
   load: () => Promise<void>;
   /** Сверить список Звёзд с сервером (после обрыва связи, возвращения в приложение). */
@@ -97,7 +116,25 @@ interface StarsState {
   refreshStar: (starId: string) => Promise<void>;
   selectChannel: (channelId: string) => Promise<void>;
   loadOlder: (channelId: string) => Promise<void>;
-  sendMessage: (text: string, replyToId?: string) => Promise<void>;
+  sendMessage: (text: string, replyToId?: string, ackRequired?: boolean) => Promise<void>;
+  openThread: (root: StarMessage) => Promise<void>;
+  closeThread: () => void;
+  sendThreadReply: (text: string) => Promise<void>;
+  /** «Ознакомлен(а)» под объявлением. */
+  ack: (message: StarMessage) => Promise<void>;
+  setWorkHours: (enabled: boolean, schedule?: WorkSchedule) => Promise<void>;
+  loadMySchedule: () => Promise<void>;
+  setMySchedule: (schedule: WorkSchedule | null) => Promise<void>;
+  loadBookings: (starId: string) => Promise<void>;
+  book: (
+    channelId: string,
+    body: { title: string; starts_at: string; ends_at: string; attendees: string[] }
+  ) => Promise<void>;
+  cancelBooking: (booking: StarBooking) => Promise<void>;
+  setDoorSign: (
+    channelId: string,
+    body: { kind: DoorSignKind | null; text?: string | null; until?: string | null }
+  ) => Promise<void>;
   editMessage: (message: StarMessage, text: string) => Promise<void>;
   deleteMessage: (message: StarMessage) => Promise<void>;
   /** Поставить, сменить (emoji) или снять (null) свою реакцию. */
@@ -116,6 +153,7 @@ interface StarsState {
     access?: RoomAccess;
     cabinet_owner_id?: string;
     listen_only?: boolean;
+    announcement?: boolean;
     floor_id?: string;
   }) => Promise<void>;
   updateChannel: (
@@ -128,6 +166,7 @@ interface StarsState {
       cabinet_owner_id?: string;
       listen_only?: boolean;
       slow_mode_sec?: number;
+      announcement?: boolean;
       floor_id?: string;
     }
   ) => Promise<void>;
@@ -170,6 +209,9 @@ const initialState = {
   mobileChannelOpen: false,
   notice: null,
   joinDialog: null,
+  thread: null as OpenThread | null,
+  bookings: {} as Record<string, StarBooking[]>,
+  mySchedule: undefined as WorkSchedule | null | undefined,
 };
 
 export const useStarsStore = create<StarsState>((set, get) => {
@@ -223,7 +265,8 @@ export const useStarsStore = create<StarsState>((set, get) => {
       );
       const stars = s.stars.filter((st) => st.id !== starId);
       const activeStarId = s.activeStarId === starId ? (stars[0]?.id ?? null) : s.activeStarId;
-      return { details, unread, stars, activeStarId, mobileChannelOpen: false };
+      const thread = s.thread?.starId === starId ? null : s.thread;
+      return { details, unread, stars, activeStarId, mobileChannelOpen: false, thread };
     });
     const nextActive = get().activeStarId;
     if (nextActive && !get().details[nextActive]) void get().refreshStar(nextActive);
@@ -326,6 +369,15 @@ export const useStarsStore = create<StarsState>((set, get) => {
         break;
       case "star_message": {
         const { message } = event;
+        // Ответ в ветке — только в открытую ветку; сводку под корнем обновит star_thread.
+        if (message.thread_id) {
+          set((s) => {
+            const thread = s.thread;
+            if (!thread || thread.rootId !== message.thread_id || thread.messages.some((m) => m.id === message.id)) return {};
+            return { thread: { ...thread, messages: [...thread.messages, message] } };
+          });
+          break;
+        }
         set((s) => {
           const list = s.messages[message.channel_id];
           if (!list || list.some((m) => m.id === message.id)) return {};
@@ -376,6 +428,7 @@ export const useStarsStore = create<StarsState>((set, get) => {
         });
         break;
       case "star_message_deleted":
+        if (get().thread?.rootId === event.message_id) set({ thread: null });
         // Ответы на удалённое остаются, но без цитаты — как после перезагрузки.
         patchMessages(event.channel_id, (list) =>
           list
@@ -424,6 +477,43 @@ export const useStarsStore = create<StarsState>((set, get) => {
       case "star_assets":
         if (get().assets[starId]) void get().loadAssets(starId);
         break;
+      case "star_thread":
+        patchMessages(event.channel_id, (list) =>
+          list.map((m) =>
+            m.id === event.root_id
+              ? {
+                  ...m,
+                  thread_count: event.count,
+                  thread_last_at: event.last_at,
+                  thread_participants: event.participants,
+                }
+              : m
+          )
+        );
+        break;
+      case "star_ack":
+        patchMessages(event.channel_id, (list) =>
+          list.map((m) => (m.id === event.message_id ? { ...m, ack_count: event.ack_count } : m))
+        );
+        break;
+      case "star_work_hours":
+        patchDetail(starId, (d) => ({
+          ...d,
+          work_hours_enabled: event.enabled,
+          work_hours: event.schedule,
+        }));
+        break;
+      case "star_bookings":
+        if (get().bookings[starId]) void get().loadBookings(starId);
+        break;
+      case "star_booking_soon": {
+        const at = new Date(event.starts_at).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+        // Бронь могли сделать на «уже сейчас» или за пару минут до начала.
+        const minutes = Math.round((Date.parse(event.starts_at) - Date.now()) / 60_000);
+        const when = minutes > 0 ? `Через ${minutes} мин` : "Уже идёт";
+        notifyInfo({ title: `📅 ${when}: «${event.title}»`, body: `${event.room ?? "Переговорная"} · в ${at}` });
+        break;
+      }
       case "star_message_reaction":
         patchMessages(event.channel_id, (list) =>
           list.map((m) =>
@@ -443,16 +533,20 @@ export const useStarsStore = create<StarsState>((set, get) => {
     }
   }
 
-  /** Изменить загруженные сообщения Спутника (не открывали — нечего менять). */
+  /** Изменить загруженные сообщения Спутника (не открывали — нечего менять) и открытую ветку в нём. */
   function patchMessages(channelId: string, fn: (list: StarMessage[]) => StarMessage[]) {
     set((s) => {
       const list = s.messages[channelId];
-      return list ? { messages: { ...s.messages, [channelId]: fn(list) } } : {};
+      const patch: Partial<StarsState> = {};
+      if (list) patch.messages = { ...s.messages, [channelId]: fn(list) };
+      if (s.thread?.channelId === channelId) patch.thread = { ...s.thread, messages: fn(s.thread.messages) };
+      return patch;
     });
   }
 
   socket.on((event) => {
     if (event.type.startsWith("star_")) handleEvent(event as StarEvent);
+    else if (event.type === "my_work_schedule") set({ mySchedule: event.schedule });
   });
 
   // Связь вернулась (проснулся телефон, перезапустился сервер) — сверяем список: пока её не
@@ -562,7 +656,9 @@ export const useStarsStore = create<StarsState>((set, get) => {
       set((s) => {
         const unread = { ...s.unread };
         delete unread[channelId];
-        return { activeChannelByStar: { ...s.activeChannelByStar, [starId]: channelId }, unread };
+        // Ветка — часть своего Спутника: ушли в другой канал — закрываем.
+        const thread = s.thread?.channelId === channelId ? s.thread : null;
+        return { activeChannelByStar: { ...s.activeChannelByStar, [starId]: channelId }, unread, thread };
       });
 
       const channel = get().details[starId]?.channels.find((c) => c.id === channelId);
@@ -591,12 +687,114 @@ export const useStarsStore = create<StarsState>((set, get) => {
       }));
     },
 
-    sendMessage: async (text, replyToId) => {
+    sendMessage: async (text, replyToId, ackRequired) => {
       const starId = get().activeStarId;
       const channelId = activeChannelId();
       if (!starId || !channelId) return;
-      const message = await starsApi.send(starId, channelId, text, replyToId);
+      const message = await starsApi.send(
+        starId,
+        channelId,
+        text,
+        replyToId,
+        ackRequired ? { ack_required: true } : {}
+      );
       handleEvent({ type: "star_message", star_id: starId, message });
+    },
+
+    openThread: async (root) => {
+      const target = root.thread_id ?? root.id;
+      if (get().thread?.rootId === target) return;
+      set({
+        thread: {
+          starId: root.star_id,
+          channelId: root.channel_id,
+          rootId: target,
+          messages: target === root.id ? [root] : [],
+          loading: true,
+        },
+      });
+      try {
+        const loaded = await starsApi.thread(root.star_id, root.channel_id, target);
+        set((s) => {
+          if (s.thread?.rootId !== target) return {};
+          // Пока грузили, могли прийти новые ответы — их не теряем.
+          const known = new Set(loaded.map((m) => m.id));
+          const fresh = s.thread.messages.filter((m) => !known.has(m.id) && m.id !== target);
+          return { thread: { ...s.thread, messages: [...loaded, ...fresh], loading: false } };
+        });
+      } catch (err) {
+        set((s) => (s.thread?.rootId === target ? { thread: null } : {}));
+        throw err;
+      }
+    },
+
+    closeThread: () => set({ thread: null }),
+
+    sendThreadReply: async (text) => {
+      const thread = get().thread;
+      if (!thread) return;
+      const message = await starsApi.send(thread.starId, thread.channelId, text, undefined, {
+        thread_id: thread.rootId,
+      });
+      handleEvent({ type: "star_message", star_id: thread.starId, message });
+    },
+
+    ack: async (message) => {
+      // Число — с сервера: событие star_ack могло прийти раньше ответа, прибавлять нельзя.
+      const { ack_count } = await starsApi.ack(message.star_id, message.id);
+      patchMessages(message.channel_id, (list) =>
+        list.map((m) => (m.id === message.id ? { ...m, acked: true, ack_count } : m))
+      );
+    },
+
+    setWorkHours: async (enabled, schedule) => {
+      const starId = get().activeStarId;
+      if (!starId) return;
+      await starsApi.setWorkHours(starId, enabled, schedule);
+      patchDetail(starId, (d) => ({
+        ...d,
+        work_hours_enabled: enabled,
+        work_hours: schedule ?? d.work_hours ?? null,
+      }));
+    },
+
+    loadMySchedule: async () => {
+      set({ mySchedule: await usersApi.workSchedule() });
+    },
+
+    setMySchedule: async (schedule) => {
+      await usersApi.setWorkSchedule(schedule);
+      set({ mySchedule: schedule });
+    },
+
+    loadBookings: async (starId) => {
+      const list = await starsApi.bookings(starId);
+      set((s) => ({ bookings: { ...s.bookings, [starId]: list } }));
+    },
+
+    book: async (channelId, body) => {
+      const starId = get().activeStarId;
+      if (!starId) return;
+      await starsApi.book(starId, channelId, body);
+      await get().loadBookings(starId);
+    },
+
+    cancelBooking: async (booking) => {
+      const starId = get().activeStarId;
+      if (!starId) return;
+      await starsApi.cancelBooking(starId, booking.id);
+      set((s) => ({
+        bookings: {
+          ...s.bookings,
+          [starId]: (s.bookings[starId] ?? []).filter((b) => b.id !== booking.id),
+        },
+      }));
+    },
+
+    setDoorSign: async (channelId, body) => {
+      const starId = get().activeStarId;
+      if (!starId) return;
+      await starsApi.doorSign(starId, channelId, body);
     },
 
     editMessage: async (message, text) => {

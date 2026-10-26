@@ -23,6 +23,7 @@ import ContactsImport from "./ContactsImport";
 import { playStarSound, type StarSoundEvent } from "../sounds/starSounds";
 import { activityTracker, IDLE_MINUTES_OPTIONS, systemIdleSupported } from "../presence/activity";
 import StatusPicker from "./StatusPicker";
+import { MyWorkSchedule } from "./constellation/WorkSettings";
 import { useWallpaperStore } from "../store/wallpaper";
 import { prepareBackground } from "../utils/wallpaper";
 
@@ -446,6 +447,15 @@ export default function SettingsView() {
               </p>
             </>
           )}
+        </section>
+
+        <section className={s.card}>
+          <h3 className={s.sectionTitle}>Рабочее время</h3>
+          <p className={s.hint}>
+            Для рабочих Звёзд, где владелец включил рабочее время. Коллеги увидят, что у вас
+            нерабочее время, а стуки и приглашения вне ваших часов придут без звука и уведомлений.
+          </p>
+          <MyWorkSchedule />
         </section>
 
         <section className={s.card}>

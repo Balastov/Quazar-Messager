@@ -25,7 +25,7 @@ from app.core import stars as rules
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.core.push import send_push_to_user
-from app.core import presence
+from app.core import presence, work_hours
 from app.core.stars import Perm
 from app.models.star import Star, StarChannel, StarMember
 from app.models.user import User
@@ -142,12 +142,16 @@ async def _answerers(db: AsyncSession, star: Star, channel: StarChannel) -> list
     return [m.user_id for m in members if can_answer(star, m, channel)]
 
 
-async def _notify(user_ids: list[str], event: dict, push: dict | None = None) -> None:
-    """WebSocket — всем; push — тем, у кого сейчас нет открытого приложения."""
+async def _notify(
+    user_ids: list[str], event: dict, push: dict | None = None, *, resting: set[str] = frozenset()
+) -> None:
+    """WebSocket — всем; push — тем, у кого сейчас нет открытого приложения и не нерабочее время (resting)."""
     targets = list(dict.fromkeys(user_ids))
     await manager.broadcast_to_users(targets, event)
     if push:
         for uid in targets:
+            if uid in resting:
+                continue
             # «Не беспокоить» — без push (в открытом приложении стук всё равно виден).
             if not manager.user_connections.get(uid) and not await presence.do_not_disturb(uid):
                 await send_push_to_user(uid, {"type": "star_door", **push})
@@ -259,6 +263,7 @@ async def invite_to_planet(star_id: str, channel_id: str, body: InviteBody, curr
             "star_id": star_id,
             "channel_id": channel_id,
         },
+        resting=await work_hours.resting(db, star, [body.user_id]),
     )
 
 
@@ -281,8 +286,9 @@ async def knock_on_planet(star_id: str, channel_id: str, current_user: CurrentUs
 
     knock, created = doors.knock(star_id, channel_id, current_user.id)
     if created:
+        audience = await _knock_audience(db, star, channel)
         await _notify(
-            await _knock_audience(db, star, channel),
+            audience,
             await _knock_event(db, knock, star, channel),
             push={
                 "door": "knock",
@@ -292,6 +298,7 @@ async def knock_on_planet(star_id: str, channel_id: str, current_user: CurrentUs
                 "channel_id": channel_id,
                 "knock_id": knock.id,
             },
+            resting=await work_hours.resting(db, star, audience),
         )
     return KnockOut(**knock.out())
 

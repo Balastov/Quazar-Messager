@@ -18,7 +18,7 @@ export const chatsApi = {
 
   removeBackground: (chatId: string) => http.delete(`/chats/${chatId}/background`),
 
-  /** «Избранное»: создаётся при первом открытии. */
+  /** «Записная книжка»: создаётся при первом открытии. */
   openSaved: () => http.post<Chat>("/chats/saved").then((r) => r.data),
 
   /** Исчезающие сообщения: 3600 / 86400 / 604800 секунд или null — выключить. */

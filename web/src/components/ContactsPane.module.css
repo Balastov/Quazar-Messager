@@ -224,7 +224,7 @@
 }
 
 .timeUnread {
-  color: #c084fc;
+  color: var(--qz-online);
   font-weight: 600;
 }
 
@@ -233,14 +233,14 @@
   height: 22px;
   padding: 0 7px;
   border-radius: 999px;
-  background: linear-gradient(135deg, #c084fc, #7c3aed);
-  color: #fff;
+  background: var(--qz-online);
+  color: #06281c;
   font-size: 11px;
   font-weight: 700;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 0 12px rgba(168, 85, 247, 0.45);
+  box-shadow: 0 0 12px rgba(52, 211, 153, 0.45);
 }
 
 .starBtn {

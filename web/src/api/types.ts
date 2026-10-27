@@ -174,7 +174,7 @@ export interface ChatMember {
 
 export interface Chat {
   id: string;
-  /** saved — «Избранное», чат с самим собой. */
+  /** saved — «Записная книжка», чат с самим собой. */
   type: "direct" | "group" | "saved";
   name: string | null;
   created_at: string;
@@ -185,6 +185,10 @@ export interface Chat {
   /** Исчезающие сообщения: сколько секунд живёт новое (null — не исчезают). */
   ttl_seconds?: number | null;
   members: ChatMember[];
+  /** Только в списке чатов: последнее сообщение (в сторе уже расшифровано). */
+  last_message?: Message | null;
+  /** Только в списке чатов: сколько сообщений собеседников я ещё не прочитал. */
+  unread_count?: number;
 }
 
 /** Цитата в ответе. В сторе payload уже расшифрован. */

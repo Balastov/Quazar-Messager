@@ -1,8 +1,9 @@
 import asyncio
 import json
+from datetime import datetime
 
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
-from sqlalchemy import select
+from sqlalchemy import or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -140,6 +141,8 @@ async def _handle_status(data: dict, user_id: str):
             unique_ids.append(mid)
 
     updates: list[tuple[str, str, str]] = []  # message_id, status, sender_id
+    # Прочитал до: chat_id -> самое свежее из прочитанных сейчас сообщений.
+    read_up_to: dict[str, datetime] = {}
 
     async with AsyncSessionLocal() as db:
         result = await db.execute(select(Message).where(Message.id.in_(unique_ids)))
@@ -158,6 +161,11 @@ async def _handle_status(data: dict, user_id: str):
             if not member_cache[chat_id]:
                 continue
 
+            if new_status == "read" and (
+                chat_id not in read_up_to or message.created_at > read_up_to[chat_id]
+            ):
+                read_up_to[chat_id] = message.created_at
+
             current = str(message.status)
             if _STATUS_RANK.get(new_status, -1) <= _STATUS_RANK.get(current, -1):
                 continue
@@ -166,7 +174,19 @@ async def _handle_status(data: dict, user_id: str):
             if message.sender_id:
                 updates.append((message.id, new_status, message.sender_id))
 
-        if updates:
+        # В группах статус сообщения общий: свои непрочитанные считаются по этой отметке.
+        for chat_id, ts in read_up_to.items():
+            await db.execute(
+                update(ChatMember)
+                .where(
+                    ChatMember.chat_id == chat_id,
+                    ChatMember.user_id == user_id,
+                    or_(ChatMember.last_read_at.is_(None), ChatMember.last_read_at < ts),
+                )
+                .values(last_read_at=ts)
+            )
+
+        if updates or read_up_to:
             await db.commit()
 
     for message_id, status, sender_id in updates:

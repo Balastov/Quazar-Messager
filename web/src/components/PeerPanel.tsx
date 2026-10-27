@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useAuthStore } from "../store/auth";
-import { useChatStore } from "../store/chat";
+import { SAVED_CHAT_TITLE, useChatStore } from "../store/chat";
 import { useCallStore } from "../store/call";
 import { CHAT_DEFAULT, chatLevel, levelSummary, settingKey, useNotifyStore } from "../notifications/levels";
 import NotifyDialog from "./NotifyDialog";
@@ -46,7 +46,7 @@ export default function PeerPanel() {
     chat.type === "group" || chat.type === "saved"
       ? {
           id: null as string | null,
-          username: chat.type === "saved" ? "Избранное" : (chat.name ?? "Группа"),
+          username: chat.type === "saved" ? SAVED_CHAT_TITLE : (chat.name ?? "Группа"),
           nick: null as string | null,
           avatar_url: null as string | null,
         }

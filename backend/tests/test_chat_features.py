@@ -152,6 +152,49 @@ class ChatFeaturesTest(unittest.IsolatedAsyncioTestCase):
     def events_of(self, kind: str) -> list[tuple[str, dict]]:
         return [(uid, e) for uid, e in self.events if e["type"] == kind]
 
+    # --- Список чатов: последнее сообщение и непрочитанные ---
+
+    async def chat_row(self, user: str, chat):
+        chats = await self.call(chats_api.list_chats, user=user)
+        return next(c for c in chats if c.id == chat.id)
+
+    async def read(self, user: str, *messages):
+        from app.ws import router as ws_router
+
+        with mock.patch.object(ws_router, "AsyncSessionLocal", self.Session):
+            await ws_router._handle_status(
+                {"status": "read", "message_ids": [m.id for m in messages]}, self.uid(user)
+            )
+
+    async def test_chat_list_shows_last_message_and_unread(self):
+        first = await self.send("ENC2:one")
+        second = await self.send("ENC2:two")
+        row = await self.chat_row("bob", self.chat)
+        self.assertEqual(row.last_message.id, second.id)
+        self.assertEqual(row.last_message.payload, "ENC2:two")
+        self.assertEqual(row.unread_count, 2)
+        # Свои сообщения непрочитанными не считаются.
+        self.assertEqual((await self.chat_row("alice", self.chat)).unread_count, 0)
+
+        await self.read("bob", first, second)
+        self.assertEqual((await self.chat_row("bob", self.chat)).unread_count, 0)
+
+        # Удалённое «у меня» в превью не попадает.
+        async with self.Session() as db:
+            await api.hide_message(self.chat.id, second.id, current_user=self.users["bob"], db=db)
+        self.assertEqual((await self.chat_row("bob", self.chat)).last_message.id, first.id)
+        self.assertIsNone((await self.chat_row("eve", self.group)).last_message)
+
+    async def test_group_unread_is_per_member(self):
+        await self.send("всем привет", chat=self.group)
+        later = await self.send("ещё раз", chat=self.group)
+        self.assertEqual((await self.chat_row("bob", self.group)).unread_count, 2)
+
+        await self.read("bob", later)
+        self.assertEqual((await self.chat_row("bob", self.group)).unread_count, 0)
+        # Боб прочитал — у Евы её сообщения всё ещё непрочитанные.
+        self.assertEqual((await self.chat_row("eve", self.group)).unread_count, 2)
+
     # --- «Избранное» ---
 
     async def test_saved_chat_is_one_per_person_and_only_encrypted(self):

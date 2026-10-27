@@ -24,7 +24,7 @@ export interface ChatMember {
 
 export interface Chat {
   id: string;
-  /** saved — «Избранное», чат с самим собой. */
+  /** saved — «Записная книжка», чат с самим собой. */
   type: 'direct' | 'group' | 'saved';
   name: string | null;
   created_at: string;

@@ -123,11 +123,11 @@ interface ChatState {
   hideMessage: (chatId: string, messageId: string) => Promise<void>;
   /** Поставить, сменить (emoji) или снять (null) свою реакцию. */
   react: (chatId: string, messageId: string, emoji: string | null) => Promise<void>;
-  /** Переслать в другой чат (в том числе в «Избранное»); фото и голосовые загружаются заново. */
+  /** Переслать в другой чат (в том числе в «Записную книжку»); фото и голосовые загружаются заново. */
   forwardMessage: (message: Message, targetChatId: string) => Promise<void>;
-  /** «Избранное»: найти или создать, не открывая. */
+  /** «Записная книжка»: найти или создать, не открывая. */
   ensureSavedChat: () => Promise<Chat>;
-  /** Открыть «Избранное» (создаётся при первом открытии). */
+  /** Открыть «Записная книжка» (создаётся при первом открытии). */
   openSavedChat: () => Promise<void>;
   /** Исчезающие сообщения: секунды или null — выключить. */
   setChatTtl: (chatId: string, ttlSeconds: number | null) => Promise<void>;
@@ -254,7 +254,7 @@ async function sealForChat(chat: Chat, myId: string, plaintext: string): Promise
     );
   }
 
-  // «Избранное» — только себе.
+  // «Записная книжка» — только себе.
   if (chat.type === "saved") return encryptMessage(plaintext, myPublicKey, myPublicKey);
 
   const otherUserId = getOtherUserId(chat, myId);
@@ -377,6 +377,8 @@ async function checkDirectE2E(
 /** Сообщения с сервера (например, для галереи) — расшифровать, как в ленте. */
 /** Столько сообщений отдаёт сервер за раз; меньше — история кончилась. */
 const HISTORY_PAGE = 50;
+/** Чат с самим собой (тип saved). */
+export const SAVED_CHAT_TITLE = "Записная книжка";
 /** Глубже 2000 сообщений за переходом к старому сообщению не ходим. */
 const MAX_HISTORY_PAGES = 40;
 
@@ -385,10 +387,10 @@ export async function openMessages(raw: Message[]): Promise<Message[]> {
   return Promise.all(raw.map((m) => openMessage(m, keys)));
 }
 
-/** Название чата для подписей: имя собеседника, название группы или «Избранное». */
+/** Название чата для подписей: имя собеседника, название группы или «Записная книжка». */
 export function chatTitle(chat: Chat | undefined, myId = useAuthStore.getState().user?.id): string {
   if (!chat) return "чат";
-  if (chat.type === "saved") return "Избранное";
+  if (chat.type === "saved") return SAVED_CHAT_TITLE;
   if (chat.type === "group") return chat.name ?? "Группа";
   return displayName(chat.members.find((m) => m.user.id !== myId)?.user) ?? "Собеседник";
 }
@@ -678,7 +680,8 @@ export const useChatStore = create<ChatState>((set, get) => {
       const activeChatId = get().activeChatId;
       set({ messages: {} });
       if (activeChatId) void get().selectChat(activeChatId);
-      void refreshBackgrounds(get().chats);
+      // Превью в списке чатов тоже расшифровываем заново.
+      void get().loadChats().catch(() => {});
     }
   });
 
@@ -761,8 +764,27 @@ export const useChatStore = create<ChatState>((set, get) => {
     },
 
     loadChats: async () => {
-      const chats = await chatsApi.list();
+      const raw = await chatsApi.list();
+      // Последние сообщения для превью — расшифровываем, как в ленте.
+      const lasts = raw.flatMap((c) => (c.last_message ? [c.last_message] : []));
+      const opened = new Map(
+        (await openMessages(lasts).catch(() =>
+          lasts.map((m) => ({ ...m, payload: "Сообщение недоступно" }))
+        )).map((m) => [m.id, m])
+      );
+      const chats = raw.map((c) =>
+        c.last_message ? { ...c, last_message: opened.get(c.last_message.id) ?? null } : c
+      );
       set({ chats: sortByActivity(chats) });
+      // Непрочитанные — как на сервере; чат, который сейчас перед глазами, — прочитан.
+      const activeChatId = get().activeChatId;
+      useUnreadStore.getState().replace(
+        Object.fromEntries(
+          chats
+            .filter((c) => (c.unread_count ?? 0) > 0 && !chatOnScreen(activeChatId, c.id))
+            .map((c) => [c.id, c.unread_count ?? 0])
+        )
+      );
       await refreshBackgrounds(chats);
     },
 
@@ -784,7 +806,7 @@ export const useChatStore = create<ChatState>((set, get) => {
         peerFingerprint = status.trust?.fingerprint ?? null;
         peerUserId = getOtherUserId(chat, myId);
       } else if (chat?.type === "saved") {
-        // «Избранное» шифруется своим ключом — нужен только он.
+        // «Записная книжка» шифруется своим ключом — нужен только он.
         const keys = await loadAccountKeys().catch(() => null);
         e2eReady = !!keys;
         e2eError = keys ? null : NO_DEVICE_KEY_ERROR;

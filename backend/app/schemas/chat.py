@@ -3,6 +3,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
+from app.schemas.message import MessageOut
 from app.schemas.user import UserOut
 
 
@@ -57,5 +58,9 @@ class ChatOut(BaseModel):
     # Исчезающие сообщения: сколько секунд живёт новое (None — не исчезают).
     ttl_seconds: int | None = None
     members: list[ChatMemberOut]
+    # Только в списке чатов: последнее сообщение (как в ленте — зашифрованное) и сколько
+    # сообщений собеседников я ещё не прочитал.
+    last_message: MessageOut | None = None
+    unread_count: int = 0
 
     model_config = {"from_attributes": True}

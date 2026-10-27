@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { isUnreadable, useChatStore } from "../store/chat";
+import { isUnreadable, SAVED_CHAT_TITLE, useChatStore } from "../store/chat";
 import { useAuthStore } from "../store/auth";
 import { useUiStore } from "../store/ui";
 import { useCallStore } from "../store/call";
@@ -265,7 +265,7 @@ export default function MessageView({ showBack = false }: Props) {
   const peer = (() => {
     if (!chat) return { id: null as string | null, username: "", avatar_url: null as string | null };
     if (chat.type === "group" || chat.type === "saved") {
-      return { id: null, username: chat.type === "saved" ? "Избранное" : (chat.name ?? "Группа"), avatar_url: null };
+      return { id: null, username: chat.type === "saved" ? SAVED_CHAT_TITLE : (chat.name ?? "Группа"), avatar_url: null };
     }
     const other = chat.members.find((m) => m.user.id !== currentUser?.id)?.user;
     return {

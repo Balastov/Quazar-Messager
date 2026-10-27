@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import type { Message } from "../../api/types";
-import { chatTitle, useChatStore } from "../../store/chat";
+import { chatTitle, SAVED_CHAT_TITLE, useChatStore } from "../../store/chat";
 import { useAuthStore } from "../../store/auth";
 import { notifyInfo } from "../../notifications/notify";
 import { E2EError } from "../../crypto/errors";
@@ -11,7 +11,7 @@ import ChatDialog from "./ChatDialog";
 import c from "../constellation/Constellation.module.css";
 import s from "./Chat.module.css";
 
-/** Переслать сообщение: «Избранное» первым, дальше чаты по свежести. */
+/** Переслать сообщение: «Записная книжка» первой, дальше чаты по свежести. */
 export default function ForwardDialog({ message, onClose }: { message: Message; onClose: () => void }) {
   const chats = useChatStore((st) => st.chats);
   const forwardMessage = useChatStore((st) => st.forwardMessage);
@@ -33,7 +33,7 @@ export default function ForwardDialog({ message, onClose }: { message: Message; 
     setBusy(chatId ?? "saved");
     setError(null);
     try {
-      // «Избранного» ещё нет — создаём, не уходя из текущего чата.
+      // «Записной книжки» ещё нет — создаём, не уходя из текущего чата.
       const target = chatId ?? (await ensureSavedChat()).id;
       await forwardMessage(message, target);
       const ch = useChatStore.getState().chats.find((x) => x.id === target);
@@ -45,7 +45,7 @@ export default function ForwardDialog({ message, onClose }: { message: Message; 
     }
   };
 
-  const showSaved = !query.trim() || "избранное".includes(query.trim().toLowerCase());
+  const showSaved = !query.trim() || SAVED_CHAT_TITLE.toLowerCase().includes(query.trim().toLowerCase());
 
   return (
     <ChatDialog title="Переслать" onClose={onClose}>
@@ -60,7 +60,7 @@ export default function ForwardDialog({ message, onClose }: { message: Message; 
         {showSaved && (
           <button type="button" className={s.chatRow} disabled={!!busy} onClick={() => void send(saved?.id ?? null)}>
             <SavedAvatar size="sm" />
-            Избранное
+            {SAVED_CHAT_TITLE}
           </button>
         )}
         {list.map((ch) => {

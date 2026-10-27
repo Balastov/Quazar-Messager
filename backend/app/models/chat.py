@@ -42,6 +42,11 @@ class ChatMember(Base):
     joined_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
+    # Прочитал всё, что пришло до этого момента. Нужен группам: статус сообщения там общий
+    # на всех, а непрочитанные у каждого свои. В личных чатах хватает статуса сообщения.
+    last_read_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, default=lambda: datetime.now(timezone.utc)
+    )
 
     chat: Mapped["Chat"] = relationship("Chat", back_populates="members")
     user: Mapped["User"] = relationship("User", back_populates="memberships")  # noqa: F821

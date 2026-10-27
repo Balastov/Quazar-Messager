@@ -166,3 +166,27 @@
     display: none;
   }
 }
+
+/* Всего непрочитанных — над иконкой «Чат», фирменным зелёным. */
+.iconWrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.unreadBadge {
+  position: absolute;
+  top: -7px;
+  left: calc(100% - 8px);
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--qz-online);
+  color: #06281c;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  box-shadow: 0 0 10px rgba(52, 211, 153, 0.45);
+}

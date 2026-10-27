@@ -5,6 +5,8 @@ interface UnreadState {
   counts: Record<string, number>;
   bump: (chatId: string) => void;
   clear: (chatId: string) => void;
+  /** Счётчики с сервера: там видно и то, что пришло, пока вкладка была закрыта. */
+  replace: (counts: Record<string, number>) => void;
   getCount: (chatId: string) => number;
 }
 
@@ -25,6 +27,8 @@ export const useUnreadStore = create<UnreadState>()(
           delete next[chatId];
           return { counts: next };
         }),
+
+      replace: (counts) => set({ counts }),
 
       getCount: (chatId) => get().counts[chatId] ?? 0,
     }),

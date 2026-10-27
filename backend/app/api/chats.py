@@ -5,6 +5,7 @@ from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.api.messages import messages_out, visible_to
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.models.attachment import Attachment
@@ -52,6 +53,72 @@ async def _attach_last_activity(chats: list[Chat], db: AsyncSession) -> None:
         chat.last_activity_at = max(ts for ts in candidates if ts is not None)
 
 
+async def _attach_previews(chats: list[Chat], user_id: str, db: AsyncSession) -> None:
+    """Для списка чатов: последнее видимое мне сообщение и сколько я ещё не прочитал."""
+    chat_ids = [c.id for c in chats]
+    if not chat_ids:
+        return
+    ranked = (
+        select(
+            Message.id,
+            func.row_number()
+            .over(partition_by=Message.chat_id, order_by=Message.created_at.desc())
+            .label("rn"),
+        )
+        .where(Message.chat_id.in_(chat_ids), visible_to(user_id))
+        .subquery()
+    )
+    last = list(
+        (
+            await db.execute(
+                select(Message).join(ranked, ranked.c.id == Message.id).where(ranked.c.rn == 1)
+            )
+        ).scalars()
+    )
+    last_by_chat = {m.chat_id: out for m, out in zip(last, await messages_out(db, last))}
+
+    # Личные чаты: у сообщения один получатель — его статус и есть «прочитано».
+    direct_ids = [c.id for c in chats if c.type != "group"]
+    unread = dict(
+        (
+            await db.execute(
+                select(Message.chat_id, func.count())
+                .where(
+                    Message.chat_id.in_(direct_ids),
+                    Message.sender_id != user_id,
+                    Message.status != "read",
+                    visible_to(user_id),
+                )
+                .group_by(Message.chat_id)
+            )
+        ).all()
+    ) if direct_ids else {}
+    # Группы: статус общий на всех, поэтому считаем от моей отметки «прочитано до».
+    group_ids = [c.id for c in chats if c.type == "group"]
+    if group_ids:
+        unread.update(
+            (
+                await db.execute(
+                    select(Message.chat_id, func.count())
+                    .join(
+                        ChatMember,
+                        and_(ChatMember.chat_id == Message.chat_id, ChatMember.user_id == user_id),
+                    )
+                    .where(
+                        Message.chat_id.in_(group_ids),
+                        Message.sender_id != user_id,
+                        Message.created_at > func.coalesce(ChatMember.last_read_at, ChatMember.joined_at),
+                        visible_to(user_id),
+                    )
+                    .group_by(Message.chat_id)
+                )
+            ).all()
+        )
+    for chat in chats:
+        chat.last_message = last_by_chat.get(chat.id)
+        chat.unread_count = unread.get(chat.id, 0)
+
+
 async def _load_chat(chat_id: str, db: AsyncSession) -> Chat:
     result = await db.execute(
         select(Chat)
@@ -78,6 +145,7 @@ async def list_chats(
     )
     chats = list(result.scalars().unique().all())
     await _attach_last_activity(chats, db)
+    await _attach_previews(chats, current_user.id, db)
     # Свежие сверху.
     chats.sort(key=lambda c: c.last_activity_at, reverse=True)
     return chats

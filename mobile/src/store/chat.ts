@@ -133,7 +133,7 @@ async function openMessage(m: Message, myPrivKeys: string[]): Promise<Message> {
 
 /** Текст для отправки в чат: в личном — зашифрованный E2E для собеседника и для себя (ENC2). */
 async function sealForChat(chat: Chat, myId: string, plaintext: string): Promise<string> {
-  // Личные чаты и «Избранное» — только E2E: без ключей не отправляем, а не шлём открытым текстом.
+  // Личные чаты и «Записная книжка» — только E2E: без ключей не отправляем, а не шлём открытым текстом.
   if (chat.type === 'group') {
     return plaintext;
   }
@@ -143,7 +143,7 @@ async function sealForChat(chat: Chat, myId: string, plaintext: string): Promise
       'Ключи шифрования на этом устройстве не восстановлены. Восстановите их из резервной копии.',
     );
   }
-  // «Избранное» — только себе.
+  // «Записная книжка» — только себе.
   if (chat.type === 'saved') {
     return encryptMessage(plaintext, myKeys.publicKey, myKeys.publicKey);
   }

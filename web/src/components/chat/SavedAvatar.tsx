@@ -2,7 +2,7 @@ import s from "./Chat.module.css";
 
 const SIZES = { sm: 36, md: 44, lg: 84 } as const;
 
-/** Аватар «Избранного» — закладка вместо инициалов. */
+/** Аватар «Записной книжки» — закладка вместо инициалов. */
 export default function SavedAvatar({ size = "md" }: { size?: keyof typeof SIZES }) {
   const px = SIZES[size];
   return (

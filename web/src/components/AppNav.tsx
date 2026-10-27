@@ -8,6 +8,8 @@ import { useChatStore } from "../store/chat";
 import { useStarsStore } from "../store/stars";
 import { useUiStore, type AppTab } from "../store/ui";
 import { useAdminStore } from "../store/admin";
+import { useUnreadStore } from "../store/unread";
+import { chatLevel, useNotifyStore } from "../notifications/levels";
 import { Orbit } from "lucide-react";
 import UserAvatar from "./UserAvatar";
 import {
@@ -78,6 +80,13 @@ export default function AppNav() {
 
   const isSuper = useAdminStore((st) => st.isSuper);
   const items = isSuper ? [...ITEMS, BLACK_HOLE] : ITEMS;
+  // Всего непрочитанных — на значке «Чат». Чаты с выключенными уведомлениями не считаем.
+  const unreadCounts = useUnreadStore((st) => st.counts);
+  const notifySettings = useNotifyStore((st) => st.settings);
+  const totalUnread = Object.entries(unreadCounts).reduce(
+    (sum, [chatId, n]) => (chatLevel(notifySettings, chatId) === "none" ? sum : sum + n),
+    0
+  );
   const renderItems = (variant: "side" | "bottom") =>
     items.map(({ id, label, Icon }) => {
       const active = tab === id;
@@ -90,8 +99,21 @@ export default function AppNav() {
             ? s.bottomItemActive
             : s.bottomItem;
       return (
-        <button key={id} type="button" className={cls} onClick={() => setTab(id)}>
-          <Icon size={variant === "side" ? 22 : 20} />
+        <button
+          key={id}
+          type="button"
+          className={cls}
+          onClick={() => setTab(id)}
+          aria-label={id === "chats" && totalUnread ? `${label}, непрочитанных: ${totalUnread}` : undefined}
+        >
+          <span className={s.iconWrap}>
+            <Icon size={variant === "side" ? 22 : 20} />
+            {id === "chats" && totalUnread > 0 && (
+              <span className={s.unreadBadge} aria-hidden>
+                {totalUnread > 99 ? "99+" : totalUnread}
+              </span>
+            )}
+          </span>
           <span>{label}</span>
         </button>
       );

@@ -226,6 +226,13 @@ async def lifespan(app: FastAPI):
         await conn.execute(text("ALTER TYPE chat_type ADD VALUE IF NOT EXISTS 'saved'"))
         # Исчезающие сообщения (таблицы отложенных, напоминаний, блокировок — create_all выше).
         await conn.execute(text("ALTER TABLE chats ADD COLUMN IF NOT EXISTS ttl_seconds INTEGER"))
+        # Непрочитанные в группах. Уже состоящим считаем, что всё прочитано на момент миграции.
+        await conn.execute(
+            text(
+                "ALTER TABLE chat_members ADD COLUMN IF NOT EXISTS "
+                "last_read_at TIMESTAMP WITH TIME ZONE DEFAULT now()"
+            )
+        )
         await conn.execute(
             text("ALTER TABLE messages ADD COLUMN IF NOT EXISTS expires_at TIMESTAMP WITH TIME ZONE")
         )

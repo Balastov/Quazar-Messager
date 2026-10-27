@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { usersApi } from "../api/users";
 import type { User } from "../api/types";
 import { useAuthStore } from "../store/auth";
-import { useChatStore } from "../store/chat";
+import { SAVED_CHAT_TITLE, useChatStore } from "../store/chat";
 import { useUiStore } from "../store/ui";
 import { useUnreadStore } from "../store/unread";
 import { chatLevel, useNotifyStore } from "../notifications/levels";
@@ -92,7 +92,7 @@ export default function ContactsPane() {
     if (chat.type === "group" || chat.type === "saved") {
       return {
         id: null as string | null,
-        username: chat.type === "saved" ? "Избранное" : (chat.name ?? "Группа"),
+        username: chat.type === "saved" ? SAVED_CHAT_TITLE : (chat.name ?? "Группа"),
         avatar_url: null as string | null,
         phone: null as string | null,
       };
@@ -107,26 +107,31 @@ export default function ContactsPane() {
     };
   };
 
-  const lastPreview = (chatId: string) => {
-    const list = messages[chatId];
-    if (!list?.length) return "Нет сообщений";
-    const last = list[list.length - 1];
+  // Последнее сообщение: из открытой ленты, а если чат ещё не открывали — из списка чатов.
+  const lastMessage = (chat: Chat) => {
+    const list = messages[chat.id];
+    return (list?.length ? list[list.length - 1] : chat.last_message) ?? null;
+  };
+
+  const lastPreview = (chat: Chat) => {
+    const last = lastMessage(chat);
+    if (!last) return "Нет сообщений";
     if (last.payload.startsWith("Сообщение недоступно")) return "🔒 зашифровано";
     return messagePreview(last.payload);
   };
 
-  const lastTime = (chatId: string, fallback: string) => {
-    const list = messages[chatId];
-    const ts = list?.length ? list[list.length - 1].created_at : fallback;
+  const lastTime = (chat: Chat) => {
+    const ts = lastMessage(chat)?.created_at ?? chat.created_at;
     return new Date(ts).toLocaleTimeString("ru", { hour: "2-digit", minute: "2-digit" });
   };
 
   const savedChat = chats.find((c) => c.type === "saved");
   const showSaved =
-    filter === "all" && (!search.trim() || "избранное".includes(search.trim().toLowerCase()));
+    filter === "all" &&
+    (!search.trim() || SAVED_CHAT_TITLE.toLowerCase().includes(search.trim().toLowerCase()));
 
   const filtered = useMemo(() => {
-    // «Избранное» — отдельной строкой сверху.
+    // «Записная книжка» — отдельной строкой сверху.
     let list = chats.filter((c) => c.type !== "saved");
     if (filter === "favorites") {
       list = list.filter((c) => favoriteChatIds.includes(c.id));
@@ -336,11 +341,11 @@ export default function ContactsPane() {
             <SavedAvatar />
             <div className={s.meta}>
               <div className={s.nameRow}>
-                <span className={s.name}>Избранное</span>
+                <span className={s.name}>{SAVED_CHAT_TITLE}</span>
               </div>
               <span className={s.preview}>
-                {savedChat && messages[savedChat.id]?.length
-                  ? lastPreview(savedChat.id)
+                {savedChat && lastMessage(savedChat)
+                  ? lastPreview(savedChat)
                   : "Заметки и пересланное"}
               </span>
             </div>
@@ -378,12 +383,12 @@ export default function ContactsPane() {
                   )}
                 </div>
                 <PreviewLine chat={chat} className={hasUnread ? s.previewUnread : s.preview}>
-                  {lastPreview(chat.id)}
+                  {lastPreview(chat)}
                 </PreviewLine>
               </div>
               <div className={s.aside}>
                 <span className={hasUnread ? s.timeUnread : s.time}>
-                  {lastTime(chat.id, chat.created_at)}
+                  {lastTime(chat)}
                 </span>
                 {hasUnread ? (
                   <span className={s.badge} style={quiet ? { opacity: 0.45 } : undefined}>

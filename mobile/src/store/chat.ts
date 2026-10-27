@@ -54,6 +54,8 @@ interface ChatState {
   typing: Record<string, string[]>;
   loadChats: () => Promise<void>;
   selectChat: (chatId: string) => Promise<void>;
+  /** Ушли с экрана чата: новые сообщения в нём больше не считаются прочитанными. */
+  leaveChat: (chatId: string) => void;
   /** Бросает Error с текстом для пользователя, если отправить нельзя. */
   sendMessage: (
     chatId: string,
@@ -486,8 +488,15 @@ export const useChatStore = create<ChatState>((set, get) => {
       set({loadingMessages: false});
 
       ackChatMessages(get, set, chatId, 'delivered');
-      if (AppState.currentState === 'active') {
+      // Пока грузилась история, могли уйти с экрана чата — тогда не «прочитано».
+      if (AppState.currentState === 'active' && get().activeChatId === chatId) {
         ackChatMessages(get, set, chatId, 'read');
+      }
+    },
+
+    leaveChat: chatId => {
+      if (get().activeChatId === chatId) {
+        set({activeChatId: null});
       }
     },
 

@@ -48,6 +48,7 @@ import {
 import { useAuthStore } from "./auth";
 import { useE2EStore } from "./e2e";
 import { useUnreadStore } from "./unread";
+import { useUiStore } from "./ui";
 import { messagePreview } from "./stickers";
 import { applyReaction } from "../chat/reactions";
 import type { Chat, Message, MessageReaction } from "../api/types";
@@ -55,6 +56,21 @@ import { displayName } from "../utils/profile";
 
 function isTabVisible(): boolean {
   return typeof document === "undefined" || document.visibilityState === "visible";
+}
+
+const MOBILE = "(max-width: 767px)";
+
+/**
+ * Чат сейчас перед глазами: он открыт в разделе чатов (на телефоне — не список, а сам чат),
+ * вкладка видна и окно в фокусе. Только тогда новые сообщения в нём «прочитаны».
+ */
+function chatOnScreen(activeChatId: string | null, chatId: string): boolean {
+  if (activeChatId !== chatId) return false;
+  if (typeof document === "undefined") return true;
+  if (!isTabVisible() || !document.hasFocus()) return false;
+  const { tab, mobileChatOpen } = useUiStore.getState();
+  if (tab !== "chats" && tab !== "contacts") return false;
+  return mobileChatOpen || !window.matchMedia?.(MOBILE).matches;
 }
 
 function ackChatMessages(
@@ -485,14 +501,12 @@ export const useChatStore = create<ChatState>((set, get) => {
         }
 
         if (myId && event.sender_id !== myId) {
-          const isActiveChat = get().activeChatId === event.chat_id;
-          const tabHidden = !isTabVisible();
-          if (!isActiveChat || tabHidden) {
+          const onScreen = chatOnScreen(get().activeChatId, event.chat_id);
+          if (!onScreen) {
             useUnreadStore.getState().bump(event.chat_id);
           }
 
-          const ackStatus =
-            isActiveChat && !tabHidden ? ("read" as const) : ("delivered" as const);
+          const ackStatus = onScreen ? ("read" as const) : ("delivered" as const);
           sendMessageStatus([msg.id], ackStatus);
           set((s) => ({
             messages: applyLocalStatus(s.messages, [msg.id], ackStatus),
@@ -514,7 +528,7 @@ export const useChatStore = create<ChatState>((set, get) => {
             title: sender,
             body: messagePreview(decryptedPayload),
             chatId: event.chat_id,
-            isActiveChat,
+            isActiveChat: onScreen,
           });
         }
       }
@@ -668,15 +682,21 @@ export const useChatStore = create<ChatState>((set, get) => {
     }
   });
 
+  // Чат снова перед глазами (вернулись во вкладку или окно, в раздел чатов, из списка в чат) —
+  // теперь его сообщения прочитаны.
+  const ackIfOnScreen = () => {
+    const chatId = get().activeChatId;
+    if (!chatId || !chatOnScreen(chatId, chatId)) return;
+    ackChatMessages(get, set, chatId, "read");
+    useUnreadStore.getState().clear(chatId);
+  };
   if (typeof document !== "undefined") {
-    document.addEventListener("visibilitychange", () => {
-      if (!isTabVisible()) return;
-      const chatId = get().activeChatId;
-      if (!chatId) return;
-      ackChatMessages(get, set, chatId, "read");
-      useUnreadStore.getState().clear(chatId);
-    });
+    document.addEventListener("visibilitychange", ackIfOnScreen);
+    window.addEventListener("focus", ackIfOnScreen);
   }
+  useUiStore.subscribe((st, prev) => {
+    if (st.tab !== prev.tab || st.mobileChatOpen !== prev.mobileChatOpen) ackIfOnScreen();
+  });
 
   return {
     chats: [],
@@ -798,7 +818,7 @@ export const useChatStore = create<ChatState>((set, get) => {
 
       // History catch-up: mark received messages delivered, and read if visible.
       ackChatMessages(get, set, chatId, "delivered");
-      if (isTabVisible()) {
+      if (chatOnScreen(get().activeChatId, chatId)) {
         ackChatMessages(get, set, chatId, "read");
       }
     },

@@ -1,4 +1,4 @@
-import React, {useEffect, useRef, useState} from 'react';
+import React, {useCallback, useEffect, useRef, useState} from 'react';
 import {
   Alert,
   FlatList,
@@ -14,6 +14,7 @@ import {
   View,
   ActivityIndicator,
 } from 'react-native';
+import {useFocusEffect} from '@react-navigation/native';
 import type {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {launchImageLibrary} from 'react-native-image-picker';
 import {isUnreadable, useChatStore} from '../store/chat';
@@ -105,6 +106,7 @@ export default function ChatScreen({route, navigation}: Props) {
     messages,
     loadingMessages,
     selectChat,
+    leaveChat,
     sendMessage,
     sendImage,
     editMessage,
@@ -202,9 +204,14 @@ export default function ChatScreen({route, navigation}: Props) {
     }
   }, [msgs, replyTo, editing]);
 
-  useEffect(() => {
-    selectChat(chatId);
-  }, [chatId, selectChat]);
+  // Чат «открыт», только пока его экран на виду: ушли назад или на другой экран —
+  // новые сообщения приходят как доставленные, а не прочитанные.
+  useFocusEffect(
+    useCallback(() => {
+      selectChat(chatId);
+      return () => leaveChat(chatId);
+    }, [chatId, selectChat, leaveChat]),
+  );
 
   // Общий фон чата (ставят с любого устройства собеседников) — зашифрован, как фото.
   useEffect(() => {

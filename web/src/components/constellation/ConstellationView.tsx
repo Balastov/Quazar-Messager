@@ -9,7 +9,8 @@ import ChannelSidebar from "./ChannelSidebar";
 import CreateStarDialog from "./CreateStarDialog";
 import JoinStarDialog from "./JoinStarDialog";
 import OfficeMap from "./OfficeMap";
-import PlanetView from "./PlanetView";
+import { useVoiceStore } from "../../store/voice";
+import PlanetView, { RoomControls } from "./PlanetView";
 import SatelliteView from "./SatelliteView";
 import StarSettings, { type SettingsTab } from "./StarSettings";
 import StarAvatar from "./StarAvatar";
@@ -86,6 +87,14 @@ export default function ConstellationView() {
   /** У рабочих Звёзд по умолчанию открыта карта офиса. */
   const view = detail ? (viewByStar[detail.id] ?? (detail.kind === "work" ? "map" : "channel")) : "channel";
   const mapOpen = !!detail && detail.kind === "work" && view === "map";
+  // Комната этой Звезды, где вы сейчас: её панель остаётся под картой офиса.
+  const voiceStarId = useVoiceStore((st) => st.starId);
+  const voiceChannelId = useVoiceStore((st) => st.channelId);
+  const voiceStatus = useVoiceStore((st) => st.status);
+  const myRoom =
+    detail && voiceStarId === detail.id && voiceStatus !== "idle"
+      ? (detail.channels.find((c) => c.id === voiceChannelId) ?? null)
+      : null;
   const filesOpen = !!detail && view === "files";
   const setMapOpen = (open: boolean) => {
     if (detail) setView(detail.id, open ? "map" : "channel");
@@ -103,12 +112,15 @@ export default function ConstellationView() {
     }
     if (detail && mapOpen) {
       return (
-        <OfficeMap
-          detail={detail}
-          onBack={onBack}
-          onOpenPlanet={openChannel}
-          onAddRoom={(floorId) => setChannelDialog({ kind: "planet", floorId })}
-        />
+        <>
+          <OfficeMap
+            detail={detail}
+            onBack={onBack}
+            onOpenPlanet={openChannel}
+            onAddRoom={(floorId) => setChannelDialog({ kind: "planet", floorId })}
+          />
+          {myRoom && <RoomControls detail={detail} channel={myRoom} />}
+        </>
       );
     }
     if (!detail || !channel) {

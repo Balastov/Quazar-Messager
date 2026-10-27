@@ -33,11 +33,6 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
   const voice = useVoiceStore();
   const callPhase = useCallStore((st) => st.phase);
   const [modError, setModError] = useState<string | null>(null);
-  const [inviteOpen, setInviteOpen] = useState(false);
-  const [devicesOpen, setDevicesOpen] = useState(false);
-  const [soundsOpen, setSoundsOpen] = useState(false);
-  const [screenMenu, setScreenMenu] = useState<{ x: number; y: number } | null>(null);
-  const closeScreenMenu = useCallback(() => setScreenMenu(null), []);
   const myKnock = useDoorsStore((st) => st.myKnock);
   const allKnocks = useDoorsStore((st) => st.knocks);
   const doors = useDoorsStore.getState();
@@ -59,7 +54,6 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
   const mustKnock = !door.entersFreely && !iAmInside;
   const myKnockHere = myKnock?.channelId === channel.id ? myKnock : null;
   const knocksHere = Object.values(allKnocks).filter((k) => k.knock.channel_id === channel.id);
-  const canInvite = !closed || door.canAnswer;
   const iAmHost = door.kind === "invite" && door.hostId === myId;
 
   const member = (userId: string) => detail.members.find((m) => m.user.id === userId);
@@ -402,6 +396,36 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
         {modError && <div className={s.error}>{modError}</div>}
       </div>
 
+      <RoomControls detail={detail} channel={channel} />
+    </>
+  );
+}
+
+/**
+ * Панель Комнаты/Планеты внизу: микрофон, шумоподавление, звук, экран, устройства, «Позвать»
+ * и «Выйти». Та же панель стоит под картой офиса, пока вы в Комнате этой Звезды.
+ */
+export function RoomControls({ detail, channel }: { detail: StarDetail; channel: StarChannel }) {
+  const myId = useAuthStore((st) => st.user?.id);
+  const voice = useVoiceStore();
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const [devicesOpen, setDevicesOpen] = useState(false);
+  const [soundsOpen, setSoundsOpen] = useState(false);
+  const [screenMenu, setScreenMenu] = useState<{ x: number; y: number } | null>(null);
+  const closeScreenMenu = useCallback(() => setScreenMenu(null), []);
+
+  const presence = detail.voice?.[channel.id] ?? [];
+  const door = roomDoor(detail, channel, myId);
+  const canInvite = door.kind === "open" || door.canAnswer;
+  const words = roomWords(detail.kind, channel.name);
+  const nouns = placeNouns(detail.kind);
+  const sharerId = presence.find((p) => p.screen_sharing)?.user_id ?? null;
+  const sharerName = sharerId
+    ? (displayName(detail.members.find((m) => m.user.id === sharerId)?.user) ?? "Участник")
+    : "";
+
+  return (
+    <>
       <div className={s.voiceControls}>
         {voice.listenOnly ? (
           <span className={s.listenOnlyBadge} title={`Микрофон ${nouns.inside} не используется`}>

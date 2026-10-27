@@ -318,13 +318,14 @@
   letter-spacing: -1px;
 }
 
+/* Одна серая — отправлено, две серые — доставлено, две фирменные зелёные — прочитано. */
 .statusDelivered {
-  color: #93c5fd;
+  color: rgba(255, 255, 255, 0.55);
   letter-spacing: -1px;
 }
 
 .statusRead {
-  color: #67e8f9;
+  color: var(--qz-online);
   letter-spacing: -1px;
 }
 

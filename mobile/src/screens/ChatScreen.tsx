@@ -498,15 +498,9 @@ export default function ChatScreen({route, navigation}: Props) {
     return '✓';
   };
 
-  const statusColor = (status: string) => {
-    if (status === 'read') {
-      return '#67e8f9';
-    }
-    if (status === 'delivered') {
-      return '#93c5fd';
-    }
-    return 'rgba(255,255,255,0.55)';
-  };
+  // Одна серая — отправлено, две серые — доставлено, две фирменные зелёные — прочитано.
+  const statusColor = (status: string) =>
+    status === 'read' ? '#34d399' : 'rgba(255,255,255,0.55)';
 
   const renderItem = ({item}: {item: Message}) => {
     const isOwn = item.sender_id === currentUser?.id;

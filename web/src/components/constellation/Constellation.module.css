@@ -1839,6 +1839,7 @@
 }
 
 .memberRow {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -1862,20 +1863,18 @@
   gap: 1px;
 }
 
+/* Имя, статус и комната переносятся на новые строки, а не обрезаются. */
 .memberName {
-  display: flex;
-  align-items: center;
-  gap: 6px;
   min-width: 0;
   font-size: 14px;
   font-weight: 600;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
 }
 
 .memberRole {
-  flex-shrink: 0;
+  display: inline-block;
+  vertical-align: 1px;
+  white-space: nowrap;
   padding: 1px 6px;
   border-radius: 999px;
   border: 1px solid var(--qz-border);
@@ -1888,13 +1887,20 @@
 .memberWhere {
   font-size: 12px;
   color: var(--qz-text-muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
 }
 
 .memberWhere {
   color: #c4b5fd;
+}
+
+.memberCustomStatus {
+  align-items: flex-start;
+}
+
+.memberCustomStatus span {
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .memberWrite {
@@ -1909,14 +1915,34 @@
   background: transparent;
   color: var(--qz-text-muted);
   cursor: pointer;
-  opacity: 0;
-  transition: opacity 0.15s, background 0.15s, color 0.15s;
+  transition: background 0.15s, color 0.15s;
 }
 
-.memberRow:hover .memberWrite,
-.memberWrite:focus-visible,
-.membersFull .memberWrite {
-  opacity: 1;
+.memberActions {
+  flex-shrink: 0;
+  display: flex;
+}
+
+/* В колонке на ПК — поверх правого края строки, только при наведении. */
+@media (hover: hover) {
+  .membersPanel .memberActions {
+    position: absolute;
+    top: 50%;
+    right: 6px;
+    transform: translateY(-50%);
+    border-radius: 999px;
+    background: rgba(var(--qz-glass-tint), 0.94);
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.15s;
+  }
+
+  .membersPanel .memberRow:hover .memberActions,
+  .membersPanel .memberActions:focus-within {
+    opacity: 1;
+    pointer-events: auto;
+  }
 }
 
 .memberWrite:hover {

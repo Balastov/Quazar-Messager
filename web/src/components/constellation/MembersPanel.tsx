@@ -133,7 +133,12 @@ export default function MembersPanel({ detail, onClose, fullscreen = false }: Pr
                     <span className={s.memberName} style={{ color: memberColor(detail, member.user.id) }}>
                       {displayName(member.user)}
                       {isMe ? " (вы)" : ""}
-                      {member.role !== "member" && <span className={s.memberRole}>{ROLE_LABEL[member.role]}</span>}
+                      {member.role !== "member" && (
+                        <>
+                          {" "}
+                          <span className={s.memberRole}>{ROLE_LABEL[member.role]}</span>
+                        </>
+                      )}
                     </span>
                     {text && (
                       <span
@@ -159,7 +164,7 @@ export default function MembersPanel({ detail, onClose, fullscreen = false }: Pr
                           ))}
                       </span>
                     )}
-                    <CustomStatusBadge userId={member.user.id} />
+                    <CustomStatusBadge userId={member.user.id} className={s.memberCustomStatus} />
                     {member.timeout_until && Date.parse(member.timeout_until) > Date.now() && (
                       <span className={s.memberStatus}>⏳ тайм-аут до {formatWhen(member.timeout_until)}</span>
                     )}
@@ -181,30 +186,33 @@ export default function MembersPanel({ detail, onClose, fullscreen = false }: Pr
                       </span>
                     )}
                   </div>
-                  {!isMe && memberActions(member).length > 0 && (
-                    <button
-                      type="button"
-                      className={s.memberWrite}
-                      aria-label={`Действия: ${displayName(member.user)}`}
-                      title="Модерация и роли"
-                      onClick={(e) => {
-                        const r = e.currentTarget.getBoundingClientRect();
-                        setMenu({ member, x: r.right - 220, y: r.bottom + 4 });
-                      }}
-                    >
-                      ⋯
-                    </button>
-                  )}
+                  {/* На ПК кнопки всплывают поверх строки и не отнимают ширину у имени и статуса. */}
                   {!isMe && (
-                    <button
-                      type="button"
-                      className={s.memberWrite}
-                      onClick={() => void write(member.user.id)}
-                      aria-label={`Написать ${displayName(member.user)}`}
-                      title="Написать"
-                    >
-                      <IconChat size={17} />
-                    </button>
+                    <div className={s.memberActions}>
+                      {memberActions(member).length > 0 && (
+                        <button
+                          type="button"
+                          className={s.memberWrite}
+                          aria-label={`Действия: ${displayName(member.user)}`}
+                          title="Модерация и роли"
+                          onClick={(e) => {
+                            const r = e.currentTarget.getBoundingClientRect();
+                            setMenu({ member, x: r.right - 220, y: r.bottom + 4 });
+                          }}
+                        >
+                          ⋯
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        className={s.memberWrite}
+                        onClick={() => void write(member.user.id)}
+                        aria-label={`Написать ${displayName(member.user)}`}
+                        title="Написать"
+                      >
+                        <IconChat size={17} />
+                      </button>
+                    </div>
                   )}
                 </div>
               );

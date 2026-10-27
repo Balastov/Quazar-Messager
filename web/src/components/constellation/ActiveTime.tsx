@@ -32,7 +32,7 @@ export function ActiveTime({ since, className }: { since: string | null; classNa
   const startedAt = new Date(start).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
   return (
     <span className={`${s.activeTime} ${className ?? ""}`} title={`Идёт с ${startedAt}`}>
-      ⏱ {formatActive(now - start)}
+      {formatActive(now - start)}
     </span>
   );
 }

@@ -478,9 +478,11 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
                     : `Показать экран всем ${nouns.inside}`
               }
               disabled={!!sharerId || voice.screenStarting || voice.status !== "connected"}
-              onClick={() => {
-                const r = document.activeElement?.getBoundingClientRect();
-                setScreenMenu({ x: r?.left ?? 200, y: (r?.top ?? 400) - 110 });
+              onClick={(e) => {
+                // От самой кнопки: Safari на Mac не ставит фокус на кнопку при клике, и
+                // document.activeElement там — body (меню уезжало за верх экрана).
+                const r = e.currentTarget.getBoundingClientRect();
+                setScreenMenu({ x: r.left, y: r.top - 110 });
               }}
             />
           ))}
@@ -651,7 +653,7 @@ function ControlButton({
 }: {
   icon: React.ReactNode;
   label: string;
-  onClick: () => void;
+  onClick: (e: React.MouseEvent<HTMLButtonElement>) => void;
   tone?: "default" | "on" | "off";
   pressed?: boolean;
   disabled?: boolean;

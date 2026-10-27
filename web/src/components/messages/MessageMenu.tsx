@@ -36,10 +36,11 @@ export default function MessageMenu({ at, reaction, actions, onClose }: Props) {
     const width = el.offsetWidth;
     const height = el.offsetHeight;
     const left = Math.max(EDGE, Math.min(at.x, window.innerWidth - width - EDGE));
-    const top =
-      at.y + height + EDGE > window.innerHeight
-        ? Math.max(EDGE, at.y - height)
-        : at.y;
+    // И не выше верхнего края — даже если точку передали неудачно.
+    const top = Math.max(
+      EDGE,
+      at.y + height + EDGE > window.innerHeight ? at.y - height : at.y
+    );
     setPos({ left, top });
   }, [at.x, at.y]);
 

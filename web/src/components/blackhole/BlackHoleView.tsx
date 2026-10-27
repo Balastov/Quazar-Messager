@@ -5,9 +5,10 @@ import { useUiStore } from "../../store/ui";
 import { useAuthStore } from "../../store/auth";
 import { formatWhen } from "../../chat/when";
 import { apiError } from "../constellation/rules";
+import Tickets from "./Tickets";
 import s from "./BlackHole.module.css";
 
-type Section = "users" | "stars" | "reports";
+type Section = "users" | "stars" | "reports" | "tickets";
 
 const REASON: Record<string, string> = { spam: "Спам", abuse: "Оскорбления", fraud: "Мошенничество", other: "Другое" };
 
@@ -40,6 +41,7 @@ export default function BlackHoleView() {
           <Stat label="Чатов" value={stats.chats} />
           <Stat label="Сообщений сегодня" value={stats.messages_today} />
           <Stat label="Жалоб ждёт" value={stats.open_reports} warn={stats.open_reports > 0} />
+          <Stat label="Обращений в очереди" value={stats.queued_tickets} warn={stats.queued_tickets > 0} />
         </div>
       )}
       <nav className={s.tabs}>
@@ -48,6 +50,7 @@ export default function BlackHoleView() {
             ["users", "Пользователи"],
             ["stars", "Звёзды"],
             ["reports", `Жалобы${stats?.open_reports ? ` · ${stats.open_reports}` : ""}`],
+            ["tickets", `Обращения${stats?.queued_tickets ? ` · ${stats.queued_tickets}` : ""}`],
           ] as const
         ).map(([id, label]) => (
           <button key={id} type="button" className={section === id ? `${s.tab} ${s.tabOn}` : s.tab} onClick={() => setSection(id)}>
@@ -59,6 +62,7 @@ export default function BlackHoleView() {
         {section === "users" && <Users onChange={reloadStats} />}
         {section === "stars" && <Stars />}
         {section === "reports" && <Reports onChange={reloadStats} />}
+        {section === "tickets" && <Tickets onChange={reloadStats} />}
       </div>
     </div>
   );

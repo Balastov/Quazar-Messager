@@ -187,7 +187,11 @@ export default function ChatsScreen({navigation}: Props) {
                 <PresenceDot userId={item.members.find(m => m.user.id !== currentUser?.id)?.user.id} />
               )}
             </View>
-            <Text style={s.chatName}>{chatName(item)}</Text>
+            <Text style={s.chatName}>
+              {chatName(item)}
+              {/* Официальный аккаунт Квазара — фирменная зелёная галочка. */}
+              {item.type === 'support' && <Text style={s.official}> ✔</Text>}
+            </Text>
           </Pressable>
         )}
         contentContainerStyle={{paddingTop: 4}}
@@ -265,6 +269,7 @@ const s = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#1a1d27',
   },
+  official: {color: '#34d399', fontWeight: '700'},
   chatName: {color: '#e0e0e0', fontSize: 15, fontWeight: '500'},
   contactSub: {color: '#9b93b8', fontSize: 12, marginTop: 2},
   sectionTitle: {

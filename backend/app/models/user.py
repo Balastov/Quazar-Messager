@@ -44,6 +44,9 @@ class User(Base):
     # Владелец ресурса: «Чёрная дыра», власть в любой Звезде, без лимитов. Никому, кроме таких же,
     # не показывается: в ответах API о других людях этого поля нет.
     is_superuser: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    # Официальный аккаунт Квазара (Quazar_Admin_bot): зелёный значок, в поиске его нет,
+    # написать ему можно только через «Обратную связь».
+    is_official: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     # Заблокирован на всём ресурсе: не войти, сессии закрыты.
     blocked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     blocked_reason: Mapped[str | None] = mapped_column(String(200), nullable=True)

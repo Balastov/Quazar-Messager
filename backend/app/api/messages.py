@@ -8,6 +8,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import attachments as attachment_files
+from app.core import support
 from app.core.blocks import block_state, direct_peer
 from app.core.database import get_db
 from app.core.deps import get_current_user
@@ -137,6 +138,7 @@ async def deliver(
     *,
     reply_to: Message | None = None,
     attachment_id: str | None = None,
+    card: bool = False,
 ) -> Message:
     """Создать сообщение и разослать его. Общая для отправки и отложенных сообщений.
 
@@ -144,9 +146,15 @@ async def deliver(
     - Я заблокировал собеседника — 403. Он заблокировал меня — сообщение сохраняется, но у него
       скрыто и ему не приходит: у меня остаётся одна галочка, как в WhatsApp.
     - В чате с исчезающими сообщениями проставляется expires_at.
+    - Чат поддержки: только открытый текст (его читает команда), карточку обращения (card)
+      создаёт сам сервер. Боту сообщение доставлено сразу.
     """
     if chat.type == "saved" and not payload.startswith(E2E_PREFIXES):
-        raise HTTPException(status_code=422, detail="В «Избранном» сообщения только зашифрованные")
+        raise HTTPException(status_code=422, detail="В «Записной книжке» сообщения только зашифрованные")
+    from_person = True
+    if chat.type == "support":
+        _check_support_payload(payload, card=card)
+        from_person = not (await db.get(User, sender_id)).is_official
 
     hidden_for: str | None = None
     peer = await direct_peer(db, chat.id, sender_id)
@@ -165,6 +173,7 @@ async def deliver(
         payload=payload,
         reply_to_id=reply_to.id if reply_to else None,
         expires_at=_now() + timedelta(seconds=chat.ttl_seconds) if chat.ttl_seconds else None,
+        status="delivered" if chat.type == "support" and from_person else "sent",
     )
     db.add(message)
     await db.flush()
@@ -189,7 +198,16 @@ async def deliver(
 
     recipients = [uid for uid in await _get_chat_member_ids(chat.id, db) if uid != hidden_for]
     await manager.broadcast_to_users(user_ids=recipients, event=new_message_event(message, reply_to))
+    if chat.type == "support" and from_person and not card:
+        await support.on_user_message(db, chat, message, reply_to)
     return message
+
+
+def _check_support_payload(payload: str, *, card: bool = False) -> None:
+    if payload.startswith(E2E_PREFIXES):
+        raise HTTPException(status_code=422, detail="В чате поддержки сообщения не шифруются")
+    if payload.startswith(support.TICKET_PREFIX) and not card:
+        raise HTTPException(status_code=422, detail="Обращение создаётся через «Обратную связь»")
 
 
 async def purge(db: AsyncSession, chat_id: str, message_ids: list[str]) -> None:
@@ -309,6 +327,11 @@ async def edit_message(
     message = await _chat_message(chat_id, message_id, db)
     if message.sender_id != current_user.id:
         raise HTTPException(status_code=403, detail="Исправить можно только своё сообщение")
+    if message.payload.startswith(support.TICKET_PREFIX):
+        raise HTTPException(status_code=422, detail="Обращение исправить нельзя — допишите его ответом")
+    chat = await db.get(Chat, chat_id)
+    if chat.type == "support":
+        _check_support_payload(body.payload)
     has_attachment = (
         await db.execute(select(Attachment.id).where(Attachment.message_id == message.id).limit(1))
     ).first()

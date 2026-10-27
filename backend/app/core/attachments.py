@@ -33,6 +33,8 @@ MAX_ATTACHMENT_BYTES = MAX_FILE_BYTES + ENCRYPTION_OVERHEAD
 
 # Загруженное, но так и не отправленное в сообщении — удаляем через сутки.
 UNSENT_TTL = timedelta(hours=24)
+# Картинки обращений в поддержку — 30 дней, даже если общий срок хранения отключён.
+SUPPORT_TTL = timedelta(days=30)
 # Файл без строки в БД моложе этого возраста может быть ещё в процессе загрузки.
 ORPHAN_FILE_GRACE_SEC = 60 * 60
 SWEEP_INTERVAL_SEC = 60 * 60
@@ -105,6 +107,11 @@ async def sweep(session: AsyncSession) -> int:
         expired = or_(
             expired, Attachment.created_at < now_dt - timedelta(days=settings.ATTACHMENT_TTL_DAYS)
         )
+    support_chats = select(Chat.id).where(Chat.type == "support")
+    expired = or_(
+        expired,
+        Attachment.chat_id.in_(support_chats) & (Attachment.created_at < now_dt - SUPPORT_TTL),
+    )
     # Текущий фон чата живёт, пока его не сменят; прежний уходит по обычным правилам.
     in_use = select(Chat.background_attachment_id).where(Chat.background_attachment_id.is_not(None))
     expired = expired & Attachment.id.not_in(in_use)

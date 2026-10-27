@@ -31,6 +31,11 @@ import { encodeSticker, parseSticker } from "../stickers/format";
 import ChatImage from "./ChatImage";
 import ChatBackgroundDialog from "./ChatBackgroundDialog";
 import { AttachmentError, parseImage } from "../attachments/image";
+import { parseTicket } from "../support/ticket";
+import TicketCard from "./support/TicketCard";
+import SupportAvatar from "./support/SupportAvatar";
+import OfficialBadge from "./support/OfficialBadge";
+import f from "./support/Support.module.css";
 import { MIN_VOICE_SEC, parseVoice } from "../attachments/voice";
 import { parseFile } from "../attachments/file";
 import ChatFile from "./chat/ChatFile";
@@ -84,7 +89,12 @@ interface Props {
 /** Обычный текст (не картинка, не стикер, расшифровался) — его можно исправить и скопировать. */
 function isPlainText(payload: string): boolean {
   return (
-    !parseImage(payload) && !parseSticker(payload) && !parseVoice(payload) && !parseFile(payload) && !isUnreadable(payload)
+    !parseImage(payload) &&
+    !parseSticker(payload) &&
+    !parseVoice(payload) &&
+    !parseFile(payload) &&
+    !parseTicket(payload) &&
+    !isUnreadable(payload)
   );
 }
 
@@ -163,6 +173,8 @@ export default function MessageView({ showBack = false }: Props) {
   const msgs = activeChatId ? (messages[activeChatId] ?? []) : [];
   const isDirect = chat?.type === "direct";
   const isSaved = chat?.type === "saved";
+  // Чат с Quazar_Admin_bot: обращения и ответы команды, без E2E.
+  const isSupport = chat?.type === "support";
   const inputDisabled = (isDirect || isSaved) && e2eReady === false;
   const lastId = msgs.length ? msgs[msgs.length - 1].id : null;
 
@@ -593,6 +605,7 @@ export default function MessageView({ showBack = false }: Props) {
 
   const subtitle = (() => {
     if (isSaved) return "Видите только вы · E2E";
+    if (isSupport) return "Официальный аккаунт Квазара · без E2E";
     if (!isDirect) {
       return onlineInGroup > 0 ? `Группа · ${onlineInGroup} в сети · без E2E` : "Группа · без E2E";
     }
@@ -645,12 +658,15 @@ export default function MessageView({ showBack = false }: Props) {
         )}
         {isSaved ? (
           <SavedAvatar size="sm" />
+        ) : isSupport ? (
+          <SupportAvatar size="sm" />
         ) : (
           <UserAvatar username={peer.username || "?"} avatarUrl={peer.avatar_url} size="sm" userId={peer.id} />
         )}
         <div className={s.headerInfo}>
           <span className={s.name}>
             {peer.username} {isDirect && <CustomStatusBadge userId={presencePeerId} />}
+            {isSupport && <OfficialBadge />}
           </span>
           <span className={s.sub}>
             {typingText ? (
@@ -686,7 +702,7 @@ export default function MessageView({ showBack = false }: Props) {
           >
             <IconSearch size={18} />
           </button>
-          {!isSaved && (
+          {!isSaved && !isSupport && (
             <>
               <button
                 type="button"
@@ -744,6 +760,15 @@ export default function MessageView({ showBack = false }: Props) {
         </div>
       )}
 
+      {isSupport && (
+        <div className={f.banner}>
+          <span>Обращения и ответы команды Квазара. Переписку читает команда — сквозного шифрования здесь нет.</span>
+          <button type="button" className={f.bannerAction} onClick={() => useUiStore.getState().setFeedbackOpen(true)}>
+            Новое обращение
+          </button>
+        </div>
+      )}
+
       {isDirect && e2eReady === false && e2eTrust !== "changed" && e2eError && (
         <div className={s.bannerWarning}>{e2eError}</div>
       )}
@@ -766,7 +791,7 @@ export default function MessageView({ showBack = false }: Props) {
             key={msg.id}
             msg={msg}
             isOwn={msg.sender_id === currentUser?.id}
-            showAuthor={!isDirect}
+            showAuthor={!isDirect && !isSupport}
             myId={currentUser?.id}
             nameOf={nameOf}
             stickersLoaded={stickersLoaded}
@@ -887,7 +912,11 @@ export default function MessageView({ showBack = false }: Props) {
             ref={inputRef}
             className={s.textInput}
             placeholder={
-              inputDisabled ? "Ожидание ключей шифрования..." : "Написать сообщение..."
+              inputDisabled
+                ? "Ожидание ключей шифрования..."
+                : isSupport
+                  ? "Дописать к обращению или задать вопрос..."
+                  : "Написать сообщение..."
             }
             value={text}
             onChange={(e) => handleTextChange(e.target.value)}
@@ -1070,6 +1099,7 @@ function ChatMessage({
 }: ChatMessageProps) {
   const trigger = useMessageMenuTrigger(onOpenMenu);
   const unavailable = msg.payload.startsWith("Сообщение недоступно");
+  const ticket = unavailable ? null : parseTicket(msg.payload);
   const image = unavailable ? null : parseImage(msg.payload);
   const voice = unavailable ? null : parseVoice(msg.payload);
   const file = unavailable || image || voice ? null : parseFile(msg.payload);
@@ -1099,7 +1129,9 @@ function ChatMessage({
           onClick={() => onQuoteClick(msg.reply_to!.id)}
         />
       )}
-      {image ? (
+      {ticket ? (
+        <TicketCard chatId={msg.chat_id} ticket={ticket} />
+      ) : image ? (
         <ChatImage chatId={msg.chat_id} image={image} />
       ) : voice ? (
         <VoiceMessage chatId={msg.chat_id} voice={voice} tone={isOwn ? "own" : "other"} />

@@ -1,4 +1,6 @@
 import { http } from "./client";
+import type { Ticket } from "./support";
+import type { TicketKind, TicketStatus } from "../support/ticket";
 
 /** «Чёрная дыра» — только для владельцев ресурса. Остальным все адреса отвечают 404. */
 export interface AdminStats {
@@ -9,6 +11,8 @@ export interface AdminStats {
   chats: number;
   messages_today: number;
   open_reports: number;
+  /** Обращения в поддержку, которые ещё никто не взял. */
+  queued_tickets: number;
 }
 
 export interface AdminUser {
@@ -47,6 +51,27 @@ export interface AdminReport {
   resolved_at: string | null;
 }
 
+export interface AdminTicket extends Ticket {
+  author: AdminUser | null;
+  /** Сообщения автора, которых команда ещё не видела. */
+  unread: number;
+}
+
+export interface AdminTicketMessage {
+  id: string;
+  /** user — автор обращения, bot — ответ команды или служебное сообщение бота. */
+  sender: "user" | "bot";
+  admin: AdminUser | null;
+  payload: string;
+  created_at: string;
+}
+
+export interface AdminTicketDetail extends AdminTicket {
+  messages: AdminTicketMessage[];
+}
+
+export type TicketFilter = "open" | "all" | TicketStatus;
+
 export const adminApi = {
   /** Сводка; 404 — не владелец ресурса. */
   me: () => http.get<AdminStats>("/admin/me").then((r) => r.data),
@@ -61,4 +86,17 @@ export const adminApi = {
   reports: (status: "open" | "all") =>
     http.get<AdminReport[]>("/admin/reports", { params: { status } }).then((r) => r.data),
   resolve: (reportId: string) => http.post(`/admin/reports/${reportId}/resolve`),
+  tickets: (status: TicketFilter, kind?: TicketKind) =>
+    http.get<AdminTicket[]>("/admin/tickets", { params: { status, kind } }).then((r) => r.data),
+  /** Открыть обращение: сообщения автора становятся прочитанными. */
+  ticket: (ticketId: string) => http.get<AdminTicketDetail>(`/admin/tickets/${ticketId}`).then((r) => r.data),
+  replyTicket: (ticketId: string, text: string) =>
+    http.post<AdminTicketDetail>(`/admin/tickets/${ticketId}/reply`, { text }).then((r) => r.data),
+  setTicketStatus: (ticketId: string, status: TicketStatus) =>
+    http.put<AdminTicketDetail>(`/admin/tickets/${ticketId}/status`, { status }).then((r) => r.data),
+  /** Зашифрованная картинка обращения (ключ — в самом обращении). */
+  ticketAttachment: (ticketId: string, attachmentId: string) =>
+    http
+      .get<ArrayBuffer>(`/admin/tickets/${ticketId}/attachments/${attachmentId}`, { responseType: "arraybuffer" })
+      .then((r) => new Uint8Array(r.data)),
 };

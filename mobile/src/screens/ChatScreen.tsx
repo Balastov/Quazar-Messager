@@ -31,6 +31,7 @@ import StickerPanel from '../components/StickerPanel';
 import {usePresenceText} from '../store/presence';
 import ChatImage from '../components/ChatImage';
 import {MAX_IMAGE_BYTES, parseImage} from '../attachments/image';
+import {parseTicket, ticketPreview, ticketText} from '../support/ticket';
 import {loadImageUri} from '../attachments/cache';
 import {parseVoice, voicePreview} from '../attachments/voice';
 import {filePreview, formatSize, parseFile} from '../attachments/file';
@@ -45,6 +46,10 @@ const NO_TYPING: string[] = [];
 function previewOf(payload: string, stickerEmoji: (pack: string, id: string) => string | undefined) {
   if (parseImage(payload)) {
     return '📷 Фото';
+  }
+  const ticket = parseTicket(payload);
+  if (ticket) {
+    return ticketPreview(ticket);
   }
   const voice = parseVoice(payload);
   if (voice) {
@@ -470,6 +475,7 @@ export default function ChatScreen({route, navigation}: Props) {
       !parseVoice(msg.payload) &&
       !parseFile(msg.payload) &&
       !parseSticker(msg.payload) &&
+      !parseTicket(msg.payload) &&
       !isUnreadable(msg.payload);
     const actions: MessageAction[] = [{label: 'Ответить', onPress: () => startReply(msg)}];
     if (own && plain && !msg.forwarded_from) {
@@ -558,6 +564,8 @@ export default function ChatScreen({route, navigation}: Props) {
           )
         ) : ref ? (
           <Text style={s.textMuted}>Стикер недоступен</Text>
+        ) : parseTicket(item.payload) ? (
+          <MessageText text={ticketText(parseTicket(item.payload)!)} isOwn={isOwn} />
         ) : (
           <MessageText text={item.payload} isOwn={isOwn} />
         )}

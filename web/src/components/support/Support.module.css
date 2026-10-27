@@ -1,0 +1,269 @@
+/* --- Значок официального аккаунта --- */
+
+.official {
+  display: inline-flex;
+  flex-shrink: 0;
+  vertical-align: -3px;
+  filter: drop-shadow(0 0 6px rgba(52, 211, 153, 0.35));
+}
+
+.avatar {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  overflow: hidden;
+  background: #0f1117;
+  box-shadow: inset 0 0 0 1px rgba(52, 211, 153, 0.35);
+}
+
+.avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* --- Карточка обращения в чате --- */
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: min(240px, 60vw);
+}
+
+.cardHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.cardKind {
+  font-size: 13px;
+  font-weight: 700;
+  color: #fff;
+}
+
+.cardText {
+  font-size: 14px;
+  line-height: 1.4;
+  color: #fff;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.link {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.cardImages {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.status {
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.statusQueued {
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+}
+
+.statusWork {
+  background: rgba(251, 191, 36, 0.22);
+  color: #fde68a;
+}
+
+.statusDone {
+  background: var(--qz-online);
+  color: #06281c;
+}
+
+/* --- Форма «Обратная связь» --- */
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border-radius: 14px;
+  outline: 2px dashed transparent;
+  outline-offset: 6px;
+  transition: outline-color 0.15s;
+}
+
+.formDrag {
+  outline-color: var(--qz-accent);
+}
+
+.intro {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--qz-text-muted);
+}
+
+.intro b {
+  color: var(--qz-text);
+  font-weight: 600;
+}
+
+.kinds {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+
+.kind {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 10px 6px;
+  border-radius: var(--qz-radius-sm);
+  border: 1px solid var(--qz-border);
+  background: var(--qz-bg-soft);
+  color: var(--qz-text);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.kind:hover {
+  border-color: var(--qz-border-strong);
+}
+
+.kindOn {
+  border-color: var(--qz-accent);
+  background: var(--qz-accent-soft);
+  font-weight: 600;
+}
+
+.kindIcon {
+  font-size: 20px;
+  line-height: 1;
+}
+
+.textarea {
+  min-height: 120px;
+  resize: vertical;
+  font-family: inherit;
+  font-size: 15px;
+  line-height: 1.4;
+}
+
+.images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.thumb {
+  position: relative;
+  width: 64px;
+  height: 64px;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid var(--qz-border);
+}
+
+.thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.thumbRemove {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.65);
+  color: #fff;
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.addImage {
+  height: 64px;
+  padding: 0 14px;
+  border-radius: 10px;
+  border: 1px dashed var(--qz-border-strong);
+  background: transparent;
+  color: var(--qz-text-muted);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.addImage:hover {
+  color: var(--qz-text);
+  border-color: var(--qz-accent);
+}
+
+.note {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--qz-text-muted);
+}
+
+/* --- Вход в «Обратную связь» на ПК: тихая кнопка над аватаркой --- */
+
+.navButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border: none;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--qz-text-dim);
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+}
+
+.navButton:hover {
+  color: var(--qz-text);
+  background: var(--qz-bg-soft);
+}
+
+/* --- Пометка в чате поддержки --- */
+
+.banner {
+  padding: 8px 14px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--qz-text-muted);
+  background: rgba(52, 211, 153, 0.08);
+  border-bottom: 1px solid rgba(52, 211, 153, 0.18);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.bannerAction {
+  border: none;
+  border-radius: 999px;
+  padding: 4px 12px;
+  background: var(--qz-online);
+  color: #06281c;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}

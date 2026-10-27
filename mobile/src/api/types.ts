@@ -25,7 +25,8 @@ export interface ChatMember {
 export interface Chat {
   id: string;
   /** saved — «Записная книжка», чат с самим собой. */
-  type: 'direct' | 'group' | 'saved';
+  // support — чат с Quazar_Admin_bot (обратная связь), без E2E.
+  type: 'direct' | 'group' | 'saved' | 'support';
   name: string | null;
   created_at: string;
   /** Последнее сообщение / звонок / создание чата. */

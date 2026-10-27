@@ -344,7 +344,7 @@ async def search_users(
 
     result = await db.execute(
         select(User)
-        .where(or_(*conditions), User.id != current_user.id)
+        .where(or_(*conditions), User.id != current_user.id, User.is_official.is_(False))
         .order_by(User.username.asc())
         .limit(20)
     )

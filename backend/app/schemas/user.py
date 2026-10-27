@@ -106,6 +106,8 @@ class UserOut(BaseModel):
     display_name: str
     avatar_url: str | None
     created_at: datetime
+    # Официальный аккаунт Квазара — зелёный значок рядом с именем.
+    is_official: bool = False
 
     model_config = {"from_attributes": True}
 

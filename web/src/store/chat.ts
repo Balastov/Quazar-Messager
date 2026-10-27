@@ -1,5 +1,7 @@
 import { create } from "zustand";
 import { chatsApi } from "../api/chats";
+import { supportApi, type Ticket } from "../api/support";
+import type { TicketKind } from "../support/ticket";
 import { messagesApi, remindersApi, scheduledApi } from "../api/messages";
 import { attachmentsApi } from "../api/attachments";
 import {
@@ -129,6 +131,10 @@ interface ChatState {
   ensureSavedChat: () => Promise<Chat>;
   /** Открыть «Записная книжка» (создаётся при первом открытии). */
   openSavedChat: () => Promise<void>;
+  /** Обратная связь: чат с Quazar_Admin_bot — найти или создать, не открывая. */
+  ensureSupportChat: () => Promise<Chat>;
+  /** Отправить обращение: картинки загружаются во вложения чата поддержки. */
+  createTicket: (kind: TicketKind, text: string, files: File[]) => Promise<Ticket>;
   /** Исчезающие сообщения: секунды или null — выключить. */
   setChatTtl: (chatId: string, ttlSeconds: number | null) => Promise<void>;
   /** Мои отложенные сообщения по чатам (текст уже расшифрован). */
@@ -239,7 +245,8 @@ async function loadAccountKeys() {
 
 /** Текст для отправки в чат: в личном — зашифрованный E2E для собеседника и для себя (ENC2). */
 async function sealForChat(chat: Chat, myId: string, plaintext: string): Promise<string> {
-  if (chat.type === "group") return plaintext;
+  // Группы и чат поддержки — без E2E (поддержку читает команда Квазара).
+  if (chat.type === "group" || chat.type === "support") return plaintext;
 
   let myPublicKey: string;
   try {
@@ -1010,6 +1017,23 @@ export const useChatStore = create<ChatState>((set, get) => {
     openSavedChat: async () => {
       const chat = await get().ensureSavedChat();
       await get().selectChat(chat.id);
+    },
+
+    ensureSupportChat: async () => {
+      const known = get().chats.find((c) => c.type === "support");
+      if (known) return known;
+      const chat = await supportApi.openChat();
+      set((s) => ({
+        chats: s.chats.find((c) => c.id === chat.id) ? s.chats : [chat, ...s.chats],
+      }));
+      return chat;
+    },
+
+    createTicket: async (kind, text, files) => {
+      const chat = await get().ensureSupportChat();
+      const images: ImageRef[] = [];
+      for (const file of files) images.push(await uploadChatImage(chat.id, file));
+      return supportApi.createTicket({ kind, text, images });
     },
 
     setChatTtl: async (chatId, ttlSeconds) => {

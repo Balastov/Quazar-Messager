@@ -11,9 +11,10 @@ class Chat(Base):
     __tablename__ = "chats"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    # saved — «Избранное»: чат с самим собой (один участник), всегда E2E.
+    # saved — «Записная книжка»: чат с самим собой (один участник), всегда E2E.
+    # support — чат человека с Quazar_Admin_bot (обратная связь), без E2E: его читает команда.
     type: Mapped[str] = mapped_column(
-        Enum("direct", "group", "saved", name="chat_type"), nullable=False
+        Enum("direct", "group", "saved", "support", name="chat_type"), nullable=False
     )
     name: Mapped[str | None] = mapped_column(String(128), nullable=True)  # только для групп
     # Общий фон чата: «IMG1:{…}» со ссылкой на вложение и ключом к нему, в личных чатах —

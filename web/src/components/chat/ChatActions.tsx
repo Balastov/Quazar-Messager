@@ -2,6 +2,7 @@ import { useCallback, useState } from "react";
 import type { Chat } from "../../api/types";
 import { ttlLabel } from "../../chat/ttl";
 import { useAuthStore } from "../../store/auth";
+import { useUiStore } from "../../store/ui";
 import { useBlocksStore } from "../../store/blocks";
 import { useChatStore } from "../../store/chat";
 import { notifyInfo } from "../../notifications/notify";
@@ -59,10 +60,15 @@ export default function ChatActions({ chat, className, title = "Ещё", childre
     actions.push({ label: `🔔 Уведомления: ${summary.toLowerCase()}`, onClick: () => setDialog("notify") });
   }
   if (chat.type === "direct") actions.push({ label: "Проверка шифрования", onClick: () => setShowE2ePanel(true) });
-  actions.push({
-    label: chat.ttl_seconds ? `Исчезающие: ${ttlLabel(chat.ttl_seconds)}` : "Исчезающие сообщения",
-    onClick: () => setDialog("ttl"),
-  });
+  // Переписка с поддержкой не исчезает: по ней команда разбирает обращения.
+  if (chat.type !== "support") {
+    actions.push({
+      label: chat.ttl_seconds ? `Исчезающие: ${ttlLabel(chat.ttl_seconds)}` : "Исчезающие сообщения",
+      onClick: () => setDialog("ttl"),
+    });
+  } else {
+    actions.push({ label: "Новое обращение", onClick: () => useUiStore.getState().setFeedbackOpen(true) });
+  }
   if (peer) {
     actions.push({ label: blocked ? "Разблокировать" : "Заблокировать", danger: !blocked, onClick: () => void toggleBlock() });
     actions.push({ label: "Пожаловаться", danger: true, onClick: () => setDialog("report") });

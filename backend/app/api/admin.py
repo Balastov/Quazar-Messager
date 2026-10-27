@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core import presence, voice
+from app.core import presence, support, voice
 from app.core.database import get_db
 from app.core.deps import get_superuser
 from app.models.chat import Chat
@@ -66,6 +66,8 @@ class StatsOut(BaseModel):
     chats: int
     messages_today: int
     open_reports: int
+    # Обращения в поддержку, которые ещё никто не взял.
+    queued_tickets: int = 0
 
 
 @router.get("/me", response_model=StatsOut)
@@ -73,7 +75,7 @@ async def admin_me(me: Super, db: Db):
     """Есть ли доступ (иначе 404) и общая сводка по ресурсу."""
     day_ago = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
     count = lambda q: db.execute(q)  # noqa: E731
-    users = (await count(select(func.count()).select_from(User))).scalar_one()
+    users = (await count(select(func.count()).select_from(User).where(User.is_official.is_(False)))).scalar_one()
     blocked = (await count(select(func.count()).select_from(User).where(User.blocked_at.is_not(None)))).scalar_one()
     stars = (await count(select(func.count()).select_from(Star))).scalar_one()
     chats = (await count(select(func.count()).select_from(Chat))).scalar_one()
@@ -92,6 +94,7 @@ async def admin_me(me: Super, db: Db):
         chats=chats,
         messages_today=messages + star_messages,
         open_reports=reports,
+        queued_tickets=await support.queued_count(db),
     )
 
 
@@ -107,7 +110,8 @@ async def list_users(
     before: datetime | None = None,
     limit: int = Query(50, ge=1, le=100),
 ):
-    query = select(User)
+    # Quazar_Admin_bot — не человек: ни блокировать, ни давать роль.
+    query = select(User).where(User.is_official.is_(False))
     if q.strip():
         pattern = _like(q.strip())
         query = query.where(

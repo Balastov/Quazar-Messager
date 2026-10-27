@@ -10,10 +10,15 @@ export function seedImageUrl(id: string, bytes: Uint8Array, mime: string): void 
   urls.set(id, Promise.resolve(URL.createObjectURL(imageBlob(bytes, mime))));
 }
 
-export function loadImageUrl(chatId: string, ref: ImageRef): Promise<string> {
+/** download — свой способ скачать шифротекст (картинки обращений в «Чёрной дыре»). */
+export function loadImageUrl(
+  chatId: string,
+  ref: ImageRef,
+  download: () => Promise<Uint8Array> = () => attachmentsApi.download(chatId, ref.id)
+): Promise<string> {
   let url = urls.get(ref.id);
   if (!url) {
-    url = attachmentsApi.download(chatId, ref.id).then((blob) => {
+    url = download().then((blob) => {
       const bytes = decryptFile(blob, ref.key);
       // Тип берём из самих байтов, а не из сообщения: blob: URL не станет HTML/SVG.
       const mime = bytes && detectImageMime(bytes);

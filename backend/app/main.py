@@ -12,7 +12,7 @@ from sqlalchemy import text
 from app.core.avatars import avatars_dir
 from app.core.backgrounds import backgrounds_dir
 from app.core.star_assets import stars_media_dir
-from app.core import attachments, scheduler, voice
+from app.core import attachments, scheduler, support, voice
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal, Base, engine
 from app.core.legacy_usernames import migrate_legacy_usernames
@@ -48,6 +48,8 @@ from app.api.stickers import FILES_PATH as STICKER_FILES_PATH
 from app.api.stickers import StickerFiles
 from app.api.stickers import router as stickers_router
 from app.api.contacts import router as contacts_router
+from app.api.support import admin_router as support_admin_router
+from app.api.support import router as support_router
 from app.core.stickers import STICKERS_DIR
 from app.ws.router import router as ws_router
 
@@ -280,6 +282,7 @@ async def lifespan(app: FastAPI):
             "ALTER TABLE user_reports ADD COLUMN IF NOT EXISTS resolved_at TIMESTAMP WITH TIME ZONE",
             "ALTER TABLE user_reports ADD COLUMN IF NOT EXISTS resolved_by VARCHAR(36) "
             "REFERENCES users(id) ON DELETE SET NULL",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_official BOOLEAN NOT NULL DEFAULT false",
         ):
             await conn.execute(text(ddl))
         # Владельцы ресурса из окружения сервера.
@@ -289,6 +292,11 @@ async def lifespan(app: FastAPI):
                 text("UPDATE users SET is_superuser = true WHERE lower(username) = ANY(:names)"),
                 {"names": names},
             )
+    # Обратная связь: чат с Quazar_Admin_bot — новый тип чата (отдельная транзакция, как у saved).
+    async with engine.begin() as conn:
+        await conn.execute(text("ALTER TYPE chat_type ADD VALUE IF NOT EXISTS 'support'"))
+    async with AsyncSessionLocal() as db:
+        await support.bot_user(db)
     # Кто сейчас на Планетах — восстанавливаем из LiveKit после перезапуска (в фоне).
     app.state.voice_resync = asyncio.create_task(voice.resync())
     # Неотправленные картинки и файлы удалённых чатов — раз в час.
@@ -318,7 +326,9 @@ app.include_router(auth_router)
 app.include_router(moderation_router)
 app.include_router(star_work_me_router)
 app.include_router(notify_router)
+app.include_router(support_admin_router)
 app.include_router(admin_router)
+app.include_router(support_router)
 app.include_router(users_router)
 app.include_router(chats_router)
 app.include_router(messages_router)

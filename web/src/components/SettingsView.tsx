@@ -190,6 +190,18 @@ export default function SettingsView() {
         </section>
 
         <section className={s.card}>
+          <h3 className={s.sectionTitle}>Обратная связь</h3>
+          <p className={s.hint}>
+            Предложение, вопрос или ошибка — напишите команде Квазара. Ответим в чате с Quazar_Admin_bot.
+          </p>
+          <div className={s.rowBtns}>
+            <button type="button" className={s.secondary} onClick={() => useUiStore.getState().setFeedbackOpen(true)}>
+              Написать команде
+            </button>
+          </div>
+        </section>
+
+        <section className={s.card}>
           <h3 className={s.sectionTitle}>Оформление</h3>
           <div className={s.sliderHead}>
             <label htmlFor="glass-transparency" className={s.toggleLabel}>

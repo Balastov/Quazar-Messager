@@ -257,3 +257,138 @@
     padding: calc(16px + var(--qz-safe-top)) 16px calc(90px + var(--qz-safe-bottom));
   }
 }
+
+/* --- Обращения --- */
+
+.ticket {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+  border: 1px solid var(--qz-border);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ticket:hover {
+  border-color: var(--qz-border-strong);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.ticketOpen {
+  border-color: var(--qz-border-strong);
+}
+
+.ticketHead {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ticketKind {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.ticketNew {
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--qz-online);
+  color: #06281c;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.ticketClose {
+  margin-left: auto;
+}
+
+.ticketText {
+  font-size: 14px;
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+
+.thread {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.25);
+}
+
+.msgUser,
+.msgBot {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: min(560px, 100%);
+  padding: 8px 12px;
+  border-radius: 14px;
+}
+
+.msgUser {
+  align-self: flex-start;
+  background: var(--qz-outgoing);
+}
+
+.msgBot {
+  align-self: flex-end;
+  background: rgba(52, 211, 153, 0.14);
+  border: 1px solid rgba(52, 211, 153, 0.3);
+}
+
+.msgWho {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.msgText {
+  font-size: 14px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.replyBox {
+  min-height: 70px;
+  resize: vertical;
+  font-family: inherit;
+}
+
+.btnPrimary {
+  border-color: transparent;
+  background: linear-gradient(135deg, #c084fc, #7c3aed);
+  color: #fff;
+  font-weight: 600;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.btnOn:disabled {
+  opacity: 1;
+  border-color: var(--qz-online);
+  background: rgba(52, 211, 153, 0.16);
+  color: var(--qz-online);
+  font-weight: 700;
+}
+
+.statusSwitch {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-left: auto;
+}

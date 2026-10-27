@@ -11,19 +11,24 @@ const MAX_H = 360;
 interface Props {
   chatId: string;
   image: ImageRef;
+  /** Свой способ скачать (картинки обращений в «Чёрной дыре»). */
+  download?: () => Promise<Uint8Array>;
+  /** Свои пределы размера превью. */
+  maxW?: number;
+  maxH?: number;
 }
 
 /** Картинка из сообщения: скачивает шифротекст, расшифровывает, по клику — на весь экран. */
-export default function ChatImage({ chatId, image }: Props) {
+export default function ChatImage({ chatId, image, download, maxW = MAX_W, maxH = MAX_H }: Props) {
   const [url, setUrl] = useState<string | null>(null);
   const [failed, setFailed] = useState<"expired" | "error" | null>(null);
   const [open, setOpen] = useState(false);
-  const box = fitSize(image.w, image.h, MAX_W, MAX_H);
+  const box = fitSize(image.w, image.h, maxW, maxH);
 
   useEffect(() => {
     let alive = true;
     setFailed(null);
-    loadImageUrl(chatId, image)
+    loadImageUrl(chatId, image, download)
       .then((u) => alive && setUrl(u))
       .catch((err) => {
         // 404 — сервер удалил картинку по сроку хранения (30 дней).

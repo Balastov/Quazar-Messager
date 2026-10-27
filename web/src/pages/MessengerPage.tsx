@@ -35,6 +35,7 @@ import E2EKeyGate from "../components/E2EKeyGate";
 import ContactsPrompt from "../components/ContactsPrompt";
 import s from "./MessengerPage.module.css";
 import PhoneVisibilityGate from "../components/profile/PhoneVisibilityGate";
+import FeedbackDialog from "../components/support/FeedbackDialog";
 
 type CallEventDetail = {
   callId?: string | null;
@@ -52,6 +53,7 @@ export default function MessengerPage() {
   const mobileChatOpen = useUiStore((st) => st.mobileChatOpen);
   const setMobileChatOpen = useUiStore((st) => st.setMobileChatOpen);
   const peerPanelOpen = useUiStore((st) => st.peerPanelOpen);
+  const feedbackOpen = useUiStore((st) => st.feedbackOpen);
   const activeChatId = useChatStore((st) => st.activeChatId);
   const selectChat = useChatStore((st) => st.selectChat);
 
@@ -281,6 +283,7 @@ export default function MessengerPage() {
       <DoorToasts />
       <CallOverlay />
       <WallpaperHost />
+      {feedbackOpen && <FeedbackDialog onClose={() => useUiStore.getState().setFeedbackOpen(false)} />}
     </div>
   );
 }

@@ -7,6 +7,7 @@ from app.models.message import (
     ScheduledMessage,
 )
 from app.models.moderation import UserBlock, UserReport
+from app.models.support import SupportMessage, SupportTicket
 from app.models.attachment import Attachment
 from app.models.user import User
 from app.models.call import Call
@@ -49,6 +50,8 @@ __all__ = [
     "MessageReminder",
     "UserBlock",
     "UserReport",
+    "SupportTicket",
+    "SupportMessage",
     "Attachment",
     "Call",
     "PushSubscription",

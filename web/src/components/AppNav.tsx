@@ -10,7 +10,7 @@ import { useUiStore, type AppTab } from "../store/ui";
 import { useAdminStore } from "../store/admin";
 import { useUnreadStore } from "../store/unread";
 import { chatLevel, useNotifyStore } from "../notifications/levels";
-import { Orbit } from "lucide-react";
+import { MessageSquareHeart, Orbit } from "lucide-react";
 import UserAvatar from "./UserAvatar";
 import {
   IconCalls,
@@ -20,6 +20,7 @@ import {
   IconSettings,
 } from "./icons";
 import s from "./AppNav.module.css";
+import f from "./support/Support.module.css";
 import { displayName } from "../utils/profile";
 
 const ITEMS: { id: AppTab; label: string; Icon: typeof IconChat }[] = [
@@ -124,6 +125,15 @@ export default function AppNav() {
       <aside className={s.side}>
         <img className={s.logo} src="/logo-mark.png" alt="Quazar" />
         <nav className={s.navItems}>{renderItems("side")}</nav>
+        <button
+          type="button"
+          className={f.navButton}
+          onClick={() => useUiStore.getState().setFeedbackOpen(true)}
+          title="Обратная связь: предложение, вопрос или ошибка"
+          aria-label="Обратная связь"
+        >
+          <MessageSquareHeart size={20} />
+        </button>
         {user && (
           <div className={s.profile} ref={profileRef}>
             <button

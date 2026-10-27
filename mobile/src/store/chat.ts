@@ -134,7 +134,8 @@ async function openMessage(m: Message, myPrivKeys: string[]): Promise<Message> {
 /** Текст для отправки в чат: в личном — зашифрованный E2E для собеседника и для себя (ENC2). */
 async function sealForChat(chat: Chat, myId: string, plaintext: string): Promise<string> {
   // Личные чаты и «Записная книжка» — только E2E: без ключей не отправляем, а не шлём открытым текстом.
-  if (chat.type === 'group') {
+  // Группы и чат поддержки (его читает команда Квазара) — открытым текстом.
+  if (chat.type === 'group' || chat.type === 'support') {
     return plaintext;
   }
   const myKeys = useE2EStore.getState().status === 'ready' ? await loadKeys() : null;

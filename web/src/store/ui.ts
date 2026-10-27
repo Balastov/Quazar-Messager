@@ -23,6 +23,9 @@ interface UiState {
   starMembersOpen: boolean;
   /** Свёрнутые этажи в списке комнат Рабочих Звёзд. */
   collapsedFloorIds: string[];
+  /** Окно «Обратная связь» (не персистим). */
+  feedbackOpen: boolean;
+  setFeedbackOpen: (open: boolean) => void;
   setTab: (tab: AppTab) => void;
   setMobileChatOpen: (open: boolean) => void;
   setPeerPanelOpen: (open: boolean) => void;
@@ -49,7 +52,9 @@ export const useUiStore = create<UiState>()(
       idleMinutes: 5,
       starMembersOpen: false,
       collapsedFloorIds: [],
+      feedbackOpen: false,
 
+      setFeedbackOpen: (feedbackOpen) => set({ feedbackOpen }),
       setTab: (tab) => set({ tab, mobileChatOpen: false }),
       setMobileChatOpen: (mobileChatOpen) => set({ mobileChatOpen }),
       setPeerPanelOpen: (peerPanelOpen) => set({ peerPanelOpen }),

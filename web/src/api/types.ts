@@ -46,7 +46,10 @@ export type WsEvent =
       reply_to?: MessageReply | null;
       expires_at?: string | null;
     }
-  | { type: "message_edited"; chat_id: string; message_id: string; payload: string; edited_at: string }
+  /** edited_at null — не правка текста, а новый статус обращения на его карточке. */
+  | { type: "message_edited"; chat_id: string; message_id: string; payload: string; edited_at: string | null }
+  /** Только владельцам ресурса: новое обращение, сообщение в нём или смена статуса. */
+  | { type: "support_ticket"; ticket_id: string; status: string }
   /** Удалили у всех — или я сам «удалил у меня» на другом устройстве. */
   | { type: "message_deleted"; chat_id: string; message_id: string }
   /** payload null — реакцию сняли. В личных чатах payload зашифрован. */
@@ -164,6 +167,8 @@ export interface User {
   phone_discoverable?: boolean | null;
   avatar_url: string | null;
   created_at: string;
+  /** Официальный аккаунт Квазара (Quazar_Admin_bot) — зелёный значок у имени. */
+  is_official?: boolean;
 }
 
 export interface ChatMember {
@@ -174,8 +179,8 @@ export interface ChatMember {
 
 export interface Chat {
   id: string;
-  /** saved — «Записная книжка», чат с самим собой. */
-  type: "direct" | "group" | "saved";
+  /** saved — «Записная книжка», чат с самим собой; support — с Quazar_Admin_bot, без E2E. */
+  type: "direct" | "group" | "saved" | "support";
   name: string | null;
   created_at: string;
   /** Последнее сообщение / звонок / создание чата. */

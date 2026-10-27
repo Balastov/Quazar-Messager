@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { stickersApi, type StickerInfo, type StickerPack } from "../api/stickers";
 import { parseSticker, stickerPreview } from "../stickers/format";
 import { IMAGE_PREVIEW, parseImage } from "../attachments/image";
+import { parseTicket, ticketPreview } from "../support/ticket";
 import { parseVoice, voicePreview } from "../attachments/voice";
 import { filePreview, parseFile } from "../attachments/file";
 
@@ -42,6 +43,8 @@ export function findSticker(pack: string, id: string): StickerInfo | undefined {
 /** Текст сообщения для превью: стикер → «Стикер 😂», голосовое → «🎤 Голосовое 0:12». */
 export function messagePreview(payload: string): string {
   if (parseImage(payload)) return IMAGE_PREVIEW;
+  const ticket = parseTicket(payload);
+  if (ticket) return ticketPreview(ticket);
   const voice = parseVoice(payload);
   if (voice) return voicePreview(voice);
   const file = parseFile(payload);

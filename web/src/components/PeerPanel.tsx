@@ -12,6 +12,8 @@ import { IconChat, IconMore, IconPhone, IconVideo } from "./icons";
 import ChatActions from "./chat/ChatActions";
 import ChatGallery, { type GalleryTab } from "./chat/ChatGallery";
 import SavedAvatar from "./chat/SavedAvatar";
+import SupportAvatar from "./support/SupportAvatar";
+import OfficialBadge from "./support/OfficialBadge";
 import { useIsBlocked } from "../store/blocks";
 import s from "./PeerPanel.module.css";
 import { displayName } from "../utils/profile";
@@ -67,10 +69,14 @@ export default function PeerPanel() {
       <div className={s.profile}>
         {chat.type === "saved" ? (
           <SavedAvatar size="lg" />
+        ) : chat.type === "support" ? (
+          <SupportAvatar size="lg" />
         ) : (
           <UserAvatar username={peer.username} avatarUrl={peer.avatar_url} size="lg" userId={peer.id} />
         )}
-        <div className={s.name}>{peer.username}</div>
+        <div className={s.name}>
+          {peer.username} {chat.type === "support" && <OfficialBadge size={18} />}
+        </div>
         {peer.nick && <div className={s.nick}>@{peer.nick}</div>}
         <div
           className={`${s.status} ${
@@ -83,7 +89,9 @@ export default function PeerPanel() {
             ? "Группа"
             : chat.type === "saved"
               ? "Заметки и пересланное — видите только вы"
-              : blocked
+              : chat.type === "support"
+                ? "Официальный аккаунт Квазара"
+                : blocked
                 ? "Заблокирован(а)"
                 : (peerStatusText ?? "В Quazar")}
         </div>
@@ -95,7 +103,7 @@ export default function PeerPanel() {
           <IconChat size={18} />
           Чат
         </button>
-        {chat.type !== "saved" && (
+        {chat.type !== "saved" && chat.type !== "support" && (
           <>
             <button
               type="button"
@@ -132,7 +140,11 @@ export default function PeerPanel() {
       {chat.type !== "saved" && (
         <section className={s.section}>
           <div className={s.sectionTitle}>О себе</div>
-          <p className={s.about}>Пользователь Quazar Messager</p>
+          <p className={s.about}>
+            {chat.type === "support"
+              ? "Команда Квазара: предложения, вопросы и ошибки. Обращение — через «Обратную связь», ответ придёт сюда."
+              : "Пользователь Quazar Messager"}
+          </p>
         </section>
       )}
 

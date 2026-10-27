@@ -177,8 +177,11 @@ async def create_direct_chat(
 
     # Проверяем, что собеседник существует
     result = await db.execute(select(User).where(User.id == body.user_id))
-    if not result.scalar_one_or_none():
+    peer = result.scalar_one_or_none()
+    if not peer:
         raise HTTPException(status_code=404, detail="User not found")
+    if peer.is_official:
+        raise HTTPException(status_code=422, detail="Команде Квазара пишут через «Обратную связь»")
 
     chat = Chat(type="direct")
     db.add(chat)
@@ -327,6 +330,8 @@ async def set_chat_ttl(
     """Исчезающие сообщения. В личном чате включает любой из двоих, в группе — владелец и админы.
     Действует на сообщения, отправленные после включения."""
     chat = await _member_chat(chat_id, current_user, db)
+    if chat.type == "support":
+        raise HTTPException(status_code=422, detail="Переписка с поддержкой не исчезает")
     if chat.type == "group":
         role = (
             await db.execute(

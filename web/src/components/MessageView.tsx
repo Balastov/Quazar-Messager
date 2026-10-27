@@ -244,6 +244,14 @@ export default function MessageView({ showBack = false }: Props) {
   const mention = useMentionSuggest({ text, setText, inputRef, names: groupNames, allowAll: isGroup });
   const composerPreview = useComposerPreview(text, !editing);
 
+  // Открыли чат — сразу печатаем, без клика по полю. Поле ждало ключей — фокус, когда дождалось.
+  // На сенсорных экранах не трогаем: клавиатура закрыла бы переписку.
+  useEffect(() => {
+    if (!activeChatId || inputDisabled) return;
+    if (!window.matchMedia?.("(hover: hover) and (pointer: fine)").matches) return;
+    inputRef.current?.focus();
+  }, [activeChatId, inputDisabled]);
+
   if (!activeChatId) {
     return (
       <div className={s.empty}>

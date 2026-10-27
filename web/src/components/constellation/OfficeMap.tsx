@@ -16,6 +16,7 @@ import {
   sameRect,
   type Rect,
 } from "./office";
+import { ActiveTime, activeSince } from "./ActiveTime";
 import { apiError, can, doorKind, initials, roomDoor } from "./rules";
 import s from "./Constellation.module.css";
 import w from "./Work.module.css";
@@ -382,6 +383,7 @@ export default function OfficeMap({ detail, onBack, onOpenPlanet, onAddRoom }: P
                     {inside.length}/{capacity}
                   </span>
                 </div>
+                {!editing && <ActiveTime since={activeSince(detail, c.id)} className={s.roomActive} />}
                 {booked && !editing && (
                   <div className={w.busyBadge}>
                     📅 до {hhmm(booked.ends_at)} · {booked.title}

@@ -44,6 +44,9 @@ class FakeRoomService:
         self.calls: list[tuple] = []
         # (room, identity) -> опубликованные треки, как их отдаёт ListParticipants.
         self.tracks: dict[tuple[str, str], list[dict]] = {}
+        # Метаданные комнат и время входа участников (секунды), как их отдаёт LiveKit.
+        self.metadata: dict[str, str] = {}
+        self.joined: dict[tuple[str, str], int] = {}
 
     async def create_room(self, name, *, max_participants, empty_timeout=120):
         self.calls.append(("create_room", name, max_participants))
@@ -51,7 +54,7 @@ class FakeRoomService:
 
     async def list_participants(self, room):
         return [
-            {"identity": i, "tracks": self.tracks.get((room, i), [])}
+            {"identity": i, "tracks": self.tracks.get((room, i), []), "joined_at": str(self.joined.get((room, i), 0))}
             for i in self.rooms.get(room, set())
         ]
 
@@ -73,5 +76,9 @@ class FakeRoomService:
         self.calls.append(("delete_room", room))
         self.rooms.pop(room, None)
 
+    async def update_room_metadata(self, room, metadata):
+        self.calls.append(("update_room_metadata", room, metadata))
+        self.metadata[room] = metadata
+
     async def list_rooms(self):
-        return [{"name": name} for name in self.rooms]
+        return [{"name": name, "metadata": self.metadata.get(name, "")} for name in self.rooms]

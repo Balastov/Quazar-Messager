@@ -299,6 +299,8 @@ export interface StarDetail extends StarSummary {
   members: StarMember[];
   /** Кто сейчас на какой Планете: channel_id → участники. */
   voice: Record<string, VoicePresence[]>;
+  /** С какого момента на Планете кто-то есть без перерыва: channel_id → время (ISO). */
+  voice_since?: Record<string, string>;
   /** Этажи карты офиса (только у Звёзд «Работа»). */
   floors: StarFloor[];
   rules_text?: string | null;
@@ -451,6 +453,8 @@ export type StarEvent =
       star_id: string;
       channel_id: string;
       participants: VoicePresence[];
+      /** Начало активности; null — внутри никого. */
+      active_since?: string | null;
     }
   | {
       type: "star_message_deleted";

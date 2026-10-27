@@ -178,6 +178,9 @@ class RoomService:
             room=room,
         )
 
+    async def update_room_metadata(self, room: str, metadata: str) -> None:
+        await self._call("UpdateRoomMetadata", {"room": room, "metadata": metadata}, room=room)
+
     async def delete_room(self, room: str) -> None:
         await self._call("DeleteRoom", {"room": room}, room=room)
 

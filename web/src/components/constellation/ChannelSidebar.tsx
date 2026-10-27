@@ -5,6 +5,7 @@ import { sortChannels, useStarsStore } from "../../store/stars";
 import { IconContacts, IconGear, IconPlanet, IconSatellite } from "../icons";
 import { usePresenceStore } from "../../store/presence";
 import { useVoiceStore } from "../../store/voice";
+import { ActiveTime, activeSince } from "./ActiveTime";
 import { apiError, can, GAMING_LIMITS, initials, KIND_LABEL, ROLE_LABEL } from "./rules";
 import { starsApi } from "../../api/stars";
 import { VoiceBar } from "./VoiceBar";
@@ -124,7 +125,13 @@ export default function ChannelSidebar({
           </span>
           {kind === "planet" && (
             <span className={s.channelHint}>
-              {inside.length ? `${inside.length}/${c.capacity}` : `до ${c.capacity}`}
+              {inside.length ? (
+                <>
+                  <ActiveTime since={activeSince(detail, c.id)} /> {inside.length}/{c.capacity}
+                </>
+              ) : (
+                `до ${c.capacity}`
+              )}
             </span>
           )}
           {mentionCount > 0 ? (

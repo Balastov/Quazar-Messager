@@ -472,9 +472,12 @@ export const useStarsStore = create<StarsState>((set, get) => {
       case "star_voice":
         patchDetail(starId, (d) => {
           const voice = { ...(d.voice ?? {}) };
+          const voice_since = { ...(d.voice_since ?? {}) };
           if (event.participants.length) voice[event.channel_id] = event.participants;
           else delete voice[event.channel_id];
-          return { ...d, voice };
+          if (event.participants.length && event.active_since) voice_since[event.channel_id] = event.active_since;
+          else delete voice_since[event.channel_id];
+          return { ...d, voice, voice_since };
         });
         break;
       case "star_pins":
@@ -638,9 +641,17 @@ export const useStarsStore = create<StarsState>((set, get) => {
   });
 
   // Связь вернулась (проснулся телефон, перезапустился сервер) — сверяем список: пока её не
-  // было, могли принять в Звезду или выгнать.
+  // было, могли принять в Звезду или выгнать. Открытую Звезду перечитываем: события о том,
+  // кто вошёл в Комнаты и вышел из них, без связи потерялись.
   socket.onStatus((open) => {
-    if (open && get().loaded) void get().syncList();
+    if (!open || !get().loaded) return;
+    const { activeStarId, details } = get();
+    const reload = activeStarId && details[activeStarId] ? activeStarId : null;
+    void get()
+      .syncList()
+      .then(() => {
+        if (reload && get().details[reload]) void get().refreshStar(reload);
+      });
   });
 
   if (typeof document !== "undefined") {

@@ -301,6 +301,7 @@ async def _detail(db: AsyncSession, star: Star, me: StarMember) -> StarDetailOut
         channels=[StarChannelOut.model_validate(c) for c in channels],
         members=members,
         voice=voice.star_presence(star.id),
+        voice_since=voice.star_active_since(star.id),
         floors=[StarFloorOut.model_validate(f) for f in floors],
         rules_text=star.rules_text,
         rules_accepted=_rules_ok(star, me),

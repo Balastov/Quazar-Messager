@@ -286,6 +286,8 @@ class StarDetailOut(StarSummaryOut):
     members: list[StarMemberOut]
     # Кто сейчас на какой Планете: channel_id -> участники.
     voice: dict[str, list[VoiceParticipantOut]] = {}
+    # С какого момента на Планете кто-то есть без перерыва: channel_id -> время.
+    voice_since: dict[str, datetime] = {}
     rules_text: str | None = None
     # Я уже согласился с правилами (или правил нет, или я модератор и выше).
     rules_accepted: bool = True

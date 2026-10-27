@@ -1371,6 +1371,17 @@
   color: var(--qz-text-muted);
 }
 
+/* Время активности Комнаты/Планеты: цифры одной ширины, чтобы строка не дёргалась каждую секунду. */
+.activeTime {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.roomActive {
+  font-size: 11px;
+  color: var(--qz-text-muted);
+}
+
 .roomPeople {
   display: flex;
   flex-wrap: wrap;

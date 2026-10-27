@@ -6,6 +6,7 @@ import { useDoorsStore } from "../../store/doors";
 import { canShareScreen, useVoiceStore, type VoicePeer } from "../../store/voice";
 import UserAvatar from "../UserAvatar";
 import { IconBack, IconGear, IconPlanet, IconStarMic, IconStarMicOff, IconNoiseFilter, IconScreenShare, IconScreenStop, IconStarHeadphones, IconStarInvite, IconStarVolume } from "../icons";
+import { ActiveTime, activeSince } from "./ActiveTime";
 import Dialog from "./Dialog";
 import AudioDevices from "../AudioDevices";
 import ScreenStage from "./ScreenStage";
@@ -110,6 +111,12 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
           {listenOnly ? "🎧 только слушать · " : ""}
           {room ? `${room} · ` : ""}
           {presence.length} из {capacity}
+          {activeSince(detail, channel.id) && (
+            <>
+              {" · "}
+              <ActiveTime since={activeSince(detail, channel.id)} />
+            </>
+          )}
         </span>
       </div>
       {can(detail, "manage_channels") && (
@@ -136,9 +143,19 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
           </div>
           <div className={s.planetName}>{channel.name}</div>
           <div>
-            {presence.length
-              ? `Сейчас здесь ${presence.length} из ${capacity}`
-              : `Пока никого · до ${capacity} человек`}
+            {presence.length ? (
+              <>
+                Сейчас здесь {presence.length} из {capacity}
+                {activeSince(detail, channel.id) && (
+                  <>
+                    {" · идёт "}
+                    <ActiveTime since={activeSince(detail, channel.id)} />
+                  </>
+                )}
+              </>
+            ) : (
+              `Пока никого · до ${capacity} человек`
+            )}
           </div>
           {presence.length > 0 && (
             <div className={s.list} style={{ width: "100%" }}>

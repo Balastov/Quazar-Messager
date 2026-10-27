@@ -8,6 +8,9 @@
 только микрофон; право на экран бэкенд выдаёт через UpdateParticipant тому, кто занял слот,
 и отзывает, когда показ закончен (сам, модератором или ушёл с Планеты).
 
+Время активности: Планета «идёт» с входа первого человека в пустую комнату до выхода последнего.
+Начало пишем и в метаданные комнаты LiveKit — после перезапуска бэкенда счётчик не сбрасывается.
+
 Главный в комнате: первый вошедший в пустую Планету. Ушёл — главным становится тот, кто
 внутри дольше всех; главный может передать звание другому присутствующему. Права главного
 действуют в комнатах «По приглашениям» (впускать, звать) — см. app/api/doors.py.
@@ -15,6 +18,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -94,6 +98,8 @@ class Planet:
     listen_only: bool = False
     participants: dict[str, VoiceParticipant] = field(default_factory=dict)
     host_id: str | None = None
+    # Когда в пустую Планету вошёл первый человек.
+    active_since: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 # channel_id -> Planet
@@ -125,6 +131,20 @@ def star_presence(star_id: str) -> dict[str, list[dict]]:
     }
 
 
+def active_since(channel_id: str) -> datetime | None:
+    planet = _planets.get(channel_id)
+    return planet.active_since if planet else None
+
+
+def star_active_since(star_id: str) -> dict[str, str]:
+    """channel_id -> когда на Планете появился первый из тех, кто там сейчас (без перерыва)."""
+    return {
+        channel_id: planet.active_since.isoformat()
+        for channel_id, planet in _planets.items()
+        if planet.star_id == star_id and planet.participants
+    }
+
+
 def channels_with_user(star_id: str, user_id: str) -> list[str]:
     return [
         channel_id
@@ -148,6 +168,7 @@ async def broadcast(star_id: str, channel_id: str) -> None:
             "star_id": star_id,
             "channel_id": channel_id,
             "participants": presence(channel_id),
+            "active_since": since.isoformat() if (since := active_since(channel_id)) else None,
         },
     )
 
@@ -332,6 +353,7 @@ async def handle_webhook(event: dict) -> None:
         if not info:
             return
         star_id, listen_only = info
+        started = planet is None
         _add(star_id, channel_id, identity, listen_only, (event.get("participant") or {}).get("name"))
         doors.consume_pass(identity, channel_id)
         if listen_only:
@@ -341,11 +363,44 @@ async def handle_webhook(event: dict) -> None:
             except livekit.LiveKitError as exc:
                 logger.warning("listen-only %s on %s failed: %s", identity, channel_id, exc)
         await broadcast(star_id, channel_id)
+        if started:
+            await _remember_start(channel_id)
     elif kind in ("participant_left", "participant_connection_aborted"):
         planet = _planets.get(channel_id)
         if planet and _remove(channel_id, identity):
             await broadcast(planet.star_id, channel_id)
             await _after_leave(planet.star_id, channel_id, identity)
+
+
+async def _remember_start(channel_id: str) -> None:
+    planet = _planets.get(channel_id)
+    if not planet:
+        return
+    try:
+        await livekit.room_service.update_room_metadata(
+            room_name(channel_id), json.dumps({"active_since": planet.active_since.isoformat()})
+        )
+    except livekit.LiveKitError as exc:
+        logger.warning("remember start of %s failed: %s", channel_id, exc)
+
+
+def _from_epoch(value) -> datetime | None:
+    try:
+        seconds = int(value)
+    except (TypeError, ValueError):
+        return None
+    return datetime.fromtimestamp(seconds, timezone.utc) if seconds > 0 else None
+
+
+def _restored_start(room: dict, planet: Planet) -> datetime:
+    """Начало активности из метаданных комнаты; нет их — когда вошёл самый ранний из присутствующих."""
+    try:
+        since = datetime.fromisoformat(json.loads(room.get("metadata") or "{}")["active_since"])
+        if since.tzinfo is not None:
+            return since
+    except (ValueError, KeyError, TypeError):
+        pass
+    return min((p.joined_at for p in planet.participants.values()), default=planet.active_since)
 
 
 async def remove_from_planet(star_id: str, channel_id: str, user_id: str) -> None:
@@ -397,6 +452,9 @@ async def resync() -> None:
                 if not identity:
                     continue
                 _add(star_id, channel_id, identity, listen_only, p.get("name"))
+                joined = _from_epoch(livekit.field(p, "joined_at"))
+                if joined:
+                    _planets[channel_id].participants[identity].joined_at = joined
                 screen = next(
                     (
                         t
@@ -409,6 +467,8 @@ async def resync() -> None:
                     restored = _planets[channel_id].participants[identity]
                     restored.screen_sharing = True
                     restored.screen_track_sid = screen.get("sid")
+            if channel_id in _planets:
+                _planets[channel_id].active_since = _restored_start(room, _planets[channel_id])
         logger.info("voice presence restored: %d planets", len(_planets))
     except Exception as exc:  # noqa: BLE001
         logger.warning("voice resync failed: %s", exc)

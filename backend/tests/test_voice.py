@@ -376,6 +376,63 @@ class VoiceApiTest(StarsTestBase):
         await voice.resync()
         self.assertEqual(self.present(), {self.users["alice"].id})
 
+    # --- Время активности Планеты ----------------------------------------------
+
+    async def leave(self, user: str) -> None:
+        await voice.handle_webhook(
+            {
+                "event": "participant_left",
+                "room": {"name": voice.room_name(self.planet.id)},
+                "participant": {"identity": self.users[user].id},
+            }
+        )
+
+    async def test_active_since_runs_from_first_in_to_last_out(self):
+        self.events.clear()
+        await self.enter("alice")
+        since = voice.active_since(self.planet.id)
+        self.assertIsNotNone(since)
+        last = [e for _, e in self.events if e["type"] == "star_voice"][-1]
+        self.assertEqual(last["active_since"], since.isoformat())
+        room = voice.room_name(self.planet.id)
+        self.assertEqual(json.loads(self.lk.metadata[room]), {"active_since": since.isoformat()})
+
+        # Второй вошёл, первый ушёл — счётчик тот же.
+        await self.enter("bob")
+        await self.leave("alice")
+        self.assertEqual(voice.active_since(self.planet.id), since)
+        detail = await self.call(api.get_star, self.star.id, user="bob")
+        self.assertEqual(detail.voice_since, {self.planet.id: since})
+        self.assertEqual(len([c for c in self.lk.calls if c[0] == "update_room_metadata"]), 1)
+
+        # Последний ушёл — счётчик остановлен; следующий вход начинает заново.
+        self.events.clear()
+        await self.leave("bob")
+        self.assertIsNone(voice.active_since(self.planet.id))
+        self.assertIsNone([e for _, e in self.events if e["type"] == "star_voice"][-1]["active_since"])
+        detail = await self.call(api.get_star, self.star.id, user="bob")
+        self.assertEqual(detail.voice_since, {})
+        await self.enter("alice")
+        self.assertGreater(voice.active_since(self.planet.id), since)
+
+    async def test_resync_keeps_active_since(self):
+        await self.enter("alice")
+        since = voice.active_since(self.planet.id)
+        voice.reset()
+        await voice.resync()
+        self.assertEqual(voice.active_since(self.planet.id), since)
+
+    async def test_resync_without_metadata_uses_earliest_join(self):
+        await self.enter("alice")
+        await self.enter("bob")
+        room = voice.room_name(self.planet.id)
+        self.lk.metadata.pop(room)
+        self.lk.joined[(room, self.users["alice"].id)] = 1_700_000_100
+        self.lk.joined[(room, self.users["bob"].id)] = 1_700_000_000
+        voice.reset()
+        await voice.resync()
+        self.assertEqual(voice.active_since(self.planet.id).timestamp(), 1_700_000_000)
+
 
 if __name__ == "__main__":
     unittest.main()

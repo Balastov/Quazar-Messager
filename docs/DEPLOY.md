@@ -1,4 +1,4 @@
-# Деплой Quazar Messager на quazar-msg.ru
+# Деплой Quazar на quazar-msg.ru
 
 Пошаговая инструкция для новичка. Делай шаги **по порядку**. После каждого шага
 можно писать ассистенту результат (скопируй вывод терминала).
@@ -118,10 +118,12 @@ sudo ufw status
 
 ## Шаг 5. Скачать проект
 
+Замени `<URL_РЕПОЗИТОРИЯ>` на URL клонирования из меню **Code** своего репозитория на GitHub.
+
 ```bash
 sudo apt-get install -y git
 cd /opt
-sudo git clone https://github.com/Balastov/Quazar-Messager.git quazar
+sudo git clone "<URL_РЕПОЗИТОРИЯ>" quazar
 sudo chown -R $USER:$USER /opt/quazar
 cd /opt/quazar
 ```
@@ -351,7 +353,7 @@ ssh -i ~/.ssh/quazar_deploy user1@176.108.246.144 "cd /opt/quazar && docker comp
 ```bash
 cd /opt/quazar
 git remote -v
-# origin → https://github.com/Balastov/Quazar-Messager.git
+# origin должен указывать на URL вашего репозитория GitHub
 ```
 
 ### 4. Проверка

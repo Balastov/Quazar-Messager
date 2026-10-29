@@ -1,4 +1,4 @@
-# E2E Threat Model — Quazar Messager
+# E2E Threat Model — Quazar
 
 ## Goal
 

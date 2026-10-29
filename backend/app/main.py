@@ -310,7 +310,7 @@ async def lifespan(app: FastAPI):
     app.state.scheduler.cancel()
 
 
-app = FastAPI(title="Quazar Messager API", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="Quazar API", version="0.1.0", lifespan=lifespan)
 
 _cors_origins = settings.cors_origins_list
 app.add_middleware(

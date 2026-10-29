@@ -143,7 +143,7 @@ export default function PeerPanel() {
           <p className={s.about}>
             {chat.type === "support"
               ? "Команда Квазара: предложения, вопросы и ошибки. Обращение — через «Обратную связь», ответ придёт сюда."
-              : "Пользователь Quazar Messager"}
+              : "Пользователь Quazar"}
           </p>
         </section>
       )}

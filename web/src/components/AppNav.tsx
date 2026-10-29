@@ -123,7 +123,7 @@ export default function AppNav() {
   return (
     <>
       <aside className={s.side}>
-        <img className={s.logo} src="/logo-mark.png" alt="Quazar" />
+        <img className={s.logo} src="/logo-mark.png?v=neon-q-2" alt="Quazar" />
         <nav className={s.navItems}>{renderItems("side")}</nav>
         <button
           type="button"

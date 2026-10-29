@@ -56,7 +56,7 @@ export default function ChatList() {
   return (
     <div className={s.root}>
       <div className={s.header}>
-        <img className={s.brandMark} src="/logo-mark.png" alt="Quazar" />
+        <img className={s.brandMark} src="/logo-mark.png?v=neon-q-2" alt="Quazar" />
         <span className={s.title}>Quazar</span>
       </div>
 

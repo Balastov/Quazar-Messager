@@ -149,7 +149,7 @@ export default function GuestPage() {
   return (
     <div className={s.page}>
       <div className={s.card}>
-        <img className={s.logo} src="/logo-mark.png" alt="Quazar" />
+        <img className={s.logo} src="/logo-mark.png?v=neon-q-2" alt="Quazar" />
         {!info && !error && <p className={s.hint}>Открываем приглашение…</p>}
         {info && (
           <>

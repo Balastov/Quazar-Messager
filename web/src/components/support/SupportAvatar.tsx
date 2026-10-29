@@ -7,7 +7,7 @@ export default function SupportAvatar({ size = "md" }: { size?: keyof typeof SIZ
   const px = SIZES[size];
   return (
     <span className={s.avatar} style={{ width: px, height: px }} aria-hidden>
-      <img src="/logo-mark.png" alt="" width={px} height={px} />
+      <img src="/logo-mark.png?v=neon-q-2" alt="" width={px} height={px} />
     </span>
   );
 }

@@ -90,7 +90,7 @@ export default function AuthPage() {
     return (
       <div className={s.root}>
         <div className={s.card}>
-          <img className={s.logoMark} src="/logo-mark.png" alt="" />
+          <img className={s.logoMark} src="/logo-mark.png?v=neon-q-2" alt="" />
           <h1 className={s.brandName}>Quazar</h1>
           <p className={s.tagline}>Общение. Звонки. Люди. В одном пространстве.</p>
           <div className={s.actions}>

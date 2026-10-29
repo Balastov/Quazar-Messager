@@ -17,8 +17,7 @@
   width: 42px;
   height: 42px;
   margin-bottom: 18px;
-  border-radius: 12px;
-  object-fit: cover;
+  object-fit: contain;
   filter: drop-shadow(0 0 12px rgba(168, 85, 247, 0.5));
 }
 

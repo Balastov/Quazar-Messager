@@ -39,8 +39,8 @@ self.addEventListener("push", (event) => {
     const options = {
       body: name,
       tag: `quazar-call-${data.call_id || "unknown"}`,
-      icon: "/icons/icon-192.png",
-      badge: "/icons/icon-48.png",
+      icon: "/icons/icon-192.png?v=neon-q-2",
+      badge: "/icons/icon-48.png?v=neon-q-2",
       requireInteraction: true,
       renotify: true,
       data: {
@@ -75,8 +75,8 @@ self.addEventListener("push", (event) => {
     const options = {
       body: data.body || "",
       tag: `quazar-door-${data.knock_id || data.channel_id || "x"}`,
-      icon: "/icons/icon-192.png",
-      badge: "/icons/icon-48.png",
+      icon: "/icons/icon-192.png?v=neon-q-2",
+      badge: "/icons/icon-48.png?v=neon-q-2",
       requireInteraction: door === "invite" || door === "knock",
       renotify: true,
       data: {
@@ -98,8 +98,8 @@ self.addEventListener("push", (event) => {
     const options = {
       body: data.body || "",
       tag: data.tag || `quazar-star-${data.channel_id || "x"}`,
-      icon: "/icons/icon-192.png",
-      badge: "/icons/icon-48.png",
+      icon: "/icons/icon-192.png?v=neon-q-2",
+      badge: "/icons/icon-48.png?v=neon-q-2",
       renotify: true,
       data: { kind: "star", starId: data.star_id || null, channelId: data.channel_id || null },
     };
@@ -111,8 +111,8 @@ self.addEventListener("push", (event) => {
   const options = {
     body: data.body || "Новое уведомление",
     tag: data.tag || "quazar-push",
-    icon: "/icons/icon-192.png",
-    badge: "/icons/icon-48.png",
+    icon: "/icons/icon-192.png?v=neon-q-2",
+    badge: "/icons/icon-48.png?v=neon-q-2",
     data: { kind: "message", chatId: data.chatId || data.chat_id || null },
   };
   event.waitUntil(self.registration.showNotification(title, options));

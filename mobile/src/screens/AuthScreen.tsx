@@ -1,6 +1,7 @@
 import React, {useState} from 'react';
 import {
   ActivityIndicator,
+  Image,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -175,6 +176,12 @@ export default function AuthScreen() {
       style={s.root}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <View style={s.card}>
+        <Image
+          source={require('../assets/logo-mark.png')}
+          style={s.logoMark}
+          resizeMode="contain"
+          accessible={false}
+        />
         <Text style={s.logo}>Quazar</Text>
 
         <View style={s.tabs}>
@@ -262,6 +269,7 @@ export default function AuthScreen() {
 const s = StyleSheet.create({
   root: {flex: 1, backgroundColor: '#0f1117', alignItems: 'center', justifyContent: 'center'},
   card: {width: '88%', maxWidth: 360},
+  logoMark: {width: 88, height: 88, alignSelf: 'center', marginBottom: 8},
   logo: {
     fontSize: 32,
     fontWeight: '700',

@@ -50,8 +50,8 @@ async function showSystemNotification(opts: {
   } = {
     body: opts.body,
     tag: opts.tag,
-    icon: "/icons/icon-192.png",
-    badge: "/icons/icon-48.png",
+    icon: "/icons/icon-192.png?v=neon-q-2",
+    badge: "/icons/icon-48.png?v=neon-q-2",
     silent: opts.silent ?? true,
     requireInteraction: opts.requireInteraction ?? false,
     renotify: opts.kind === "call",
@@ -259,8 +259,8 @@ export async function notifyDoor(
   const options: NotificationOptions & { actions?: { action: string; title: string }[] } = {
     body: opts.body,
     tag: `quazar-door-${link.knockId ?? link.channelId}`,
-    icon: "/icons/icon-192.png",
-    badge: "/icons/icon-48.png",
+    icon: "/icons/icon-192.png?v=neon-q-2",
+    badge: "/icons/icon-48.png?v=neon-q-2",
     requireInteraction: link.door === "invite" || link.door === "knock",
     data: { kind: "door", ...link },
   };

@@ -13,12 +13,26 @@
   border-right: 1px solid var(--qz-glass-border);
 }
 
+.brand {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
 .logo {
   width: 42px;
   height: 42px;
-  margin-bottom: 18px;
   object-fit: contain;
   filter: drop-shadow(0 0 12px rgba(168, 85, 247, 0.5));
+}
+
+.version {
+  color: var(--qz-online);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 14px;
+  font-variant-numeric: tabular-nums;
 }
 
 .navItems {

@@ -22,6 +22,7 @@ import {
 import s from "./AppNav.module.css";
 import f from "./support/Support.module.css";
 import { displayName } from "../utils/profile";
+import { version } from "../../package.json";
 
 const ITEMS: { id: AppTab; label: string; Icon: typeof IconChat }[] = [
   { id: "contacts", label: "Контакты", Icon: IconContacts },
@@ -123,7 +124,10 @@ export default function AppNav() {
   return (
     <>
       <aside className={s.side}>
-        <img className={s.logo} src="/logo-mark.png?v=neon-q-2" alt="Quazar" />
+        <div className={s.brand}>
+          <img className={s.logo} src="/logo-mark.png?v=neon-q-2" alt="Quazar" />
+          <span className={s.version} aria-label={`Версия приложения ${version}`}>{version}</span>
+        </div>
         <nav className={s.navItems}>{renderItems("side")}</nav>
         <button
           type="button"

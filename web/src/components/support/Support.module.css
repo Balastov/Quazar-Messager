@@ -233,14 +233,14 @@
   border: none;
   border-radius: 12px;
   background: transparent;
-  color: var(--qz-text-dim);
+  color: var(--qz-online);
   cursor: pointer;
   transition: color 0.15s, background 0.15s;
 }
 
 .navButton:hover {
-  color: var(--qz-text);
-  background: var(--qz-bg-soft);
+  color: var(--qz-online);
+  background: rgba(52, 211, 153, 0.12);
 }
 
 /* --- Пометка в чате поддержки --- */

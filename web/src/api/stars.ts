@@ -76,6 +76,24 @@ export interface StarBookmark {
   created_at: string;
 }
 
+/** Заметки Спутника — вики-страница в markdown; version 0 — ещё не писали. */
+export interface StarNote {
+  channel_id: string;
+  text: string;
+  version: number;
+  updated_by: StarUser | null;
+  updated_at: string | null;
+  can_edit: boolean;
+}
+
+export interface StarNoteRevision {
+  version: number;
+  author: StarUser | null;
+  created_at: string;
+  length: number;
+  text?: string;
+}
+
 export interface BookmarkBody {
   title: string;
   url?: string | null;
@@ -517,6 +535,7 @@ export type StarEvent =
   /** Закреплённые в Спутнике изменились (свежие первыми). */
   | { type: "star_pins"; star_id: string; channel_id: string; message_ids: string[] }
   | { type: "star_bookmarks"; star_id: string; channel_id: string; bookmarks: StarBookmark[] }
+  | { type: "star_notes"; star_id: string; channel_id: string; version: number; updated_by: string; updated_at: string }
   /** emoji null — реакцию сняли. */
   | {
       type: "star_message_reaction";
@@ -708,6 +727,18 @@ export const starsApi = {
       .then((r) => new Uint8Array(r.data)),
   pins: (starId: string, channelId: string) =>
     http.get<StarMessage[]>(`${base(starId)}/channels/${channelId}/pins`).then((r) => r.data),
+  notes: (starId: string, channelId: string) =>
+    http.get<StarNote>(`${base(starId)}/channels/${channelId}/notes`).then((r) => r.data),
+  saveNotes: (starId: string, channelId: string, text: string, baseVersion: number) =>
+    http
+      .put<StarNote>(`${base(starId)}/channels/${channelId}/notes`, { text, base_version: baseVersion })
+      .then((r) => r.data),
+  noteRevisions: (starId: string, channelId: string) =>
+    http.get<StarNoteRevision[]>(`${base(starId)}/channels/${channelId}/notes/revisions`).then((r) => r.data),
+  noteRevision: (starId: string, channelId: string, version: number) =>
+    http
+      .get<StarNoteRevision>(`${base(starId)}/channels/${channelId}/notes/revisions/${version}`)
+      .then((r) => r.data),
   bookmarks: (starId: string, channelId: string) =>
     http.get<StarBookmark[]>(`${base(starId)}/channels/${channelId}/bookmarks`).then((r) => r.data),
   addBookmark: (starId: string, channelId: string, body: BookmarkBody) =>

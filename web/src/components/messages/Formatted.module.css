@@ -227,3 +227,37 @@ ul.list li.nested {
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
   font-size: 12px;
 }
+
+/* Заголовки и черта — только в заметках Спутника. */
+.h1,
+.h2,
+.h3 {
+  margin: 10px 0 0;
+  line-height: 1.25;
+  font-weight: 700;
+}
+
+.h1 {
+  font-size: 1.6em;
+}
+
+.h2 {
+  font-size: 1.3em;
+}
+
+.h3 {
+  font-size: 1.1em;
+}
+
+.root > .h1:first-child,
+.root > .h2:first-child,
+.root > .h3:first-child {
+  margin-top: 0;
+}
+
+.rule {
+  width: 100%;
+  margin: 6px 0;
+  border: none;
+  border-top: 1px solid var(--qz-border-strong);
+}

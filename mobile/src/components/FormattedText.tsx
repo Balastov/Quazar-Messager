@@ -136,6 +136,16 @@ function Blocks({blocks, isOwn, style}: {blocks: Block[]; isOwn: boolean; style:
             </View>
           );
         }
+        if (b.t === 'heading') {
+          return (
+            <Text key={i} style={[style, s.heading, {fontSize: [22, 18, 16][b.level - 1]}]}>
+              <Inlines parts={b.children} isOwn={isOwn} />
+            </Text>
+          );
+        }
+        if (b.t === 'rule') {
+          return <View key={i} style={s.rule} />;
+        }
         return <List key={i} ordered={b.ordered} items={b.items} isOwn={isOwn} style={style} />;
       })}
     </>
@@ -188,4 +198,6 @@ const s = StyleSheet.create({
   marker: {width: 16, color: '#d8c8ff'},
   markerNumber: {width: 24},
   listText: {flex: 1},
+  heading: {fontWeight: '700', lineHeight: 26},
+  rule: {height: StyleSheet.hairlineWidth, backgroundColor: 'rgba(216,200,255,0.45)'},
 });

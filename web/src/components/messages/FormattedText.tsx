@@ -98,6 +98,15 @@ function Blocks({ blocks, leaf, k }: { blocks: Block[]; leaf: RenderLeaf; k: str
               <Blocks blocks={b.children} leaf={leaf} k={key} />
             </blockquote>
           );
+        if (b.t === "heading") {
+          const Tag = (["h3", "h4", "h5"] as const)[b.level - 1];
+          return (
+            <Tag key={key} className={f[`h${b.level}`]}>
+              <InlineParts parts={b.children} leaf={leaf} k={key} />
+            </Tag>
+          );
+        }
+        if (b.t === "rule") return <hr key={key} className={f.rule} />;
         return <List key={key} ordered={b.ordered} items={b.items} leaf={leaf} k={key} />;
       })}
     </>
@@ -108,8 +117,20 @@ function Blocks({ blocks, leaf, k }: { blocks: Block[]; leaf: RenderLeaf; k: str
  * Текст сообщения с разметкой: **жирный**, _курсив_, ~~зачёркнутый~~, `код`, блоки кода с
  * подсветкой, цитаты и списки. Без разметки — просто leaf(text), как раньше.
  */
-export default function FormattedText({ text, leaf = plainLeaf }: { text: string; leaf?: RenderLeaf }) {
-  const blocks = useMemo(() => (hasMarkup(text) ? parseBlocks(text) : null), [text]);
+export default function FormattedText({
+  text,
+  leaf = plainLeaf,
+  headings = false,
+}: {
+  text: string;
+  leaf?: RenderLeaf;
+  /** Заголовки «#» и черта «---» — для заметок Спутника. */
+  headings?: boolean;
+}) {
+  const blocks = useMemo(
+    () => (headings || hasMarkup(text) ? parseBlocks(text, { headings }) : null),
+    [text, headings]
+  );
   if (!blocks) return <div className={f.p}>{leaf(text, "t")}</div>;
   return (
     <div className={f.root}>

@@ -20,7 +20,19 @@ export type Block =
   | { t: "para"; children: Inline[] }
   | { t: "code"; lang: string; text: string }
   | { t: "quote"; children: Block[] }
-  | { t: "list"; ordered: boolean; items: ListItem[] };
+  | { t: "list"; ordered: boolean; items: ListItem[] }
+  // Только в заметках Спутника (parseBlocks(text, { headings: true })): «# Заголовок» и «---».
+  | { t: "heading"; level: 1 | 2 | 3; children: Inline[] }
+  | { t: "rule" };
+
+export interface BlockOptions {
+  /** «# », «## », «### » — заголовки, «---» — черта. В сообщениях выключено: «# 1» в чате — не заголовок. */
+  headings?: boolean;
+}
+
+// Закрывающие «#» — только через пробел: «# Язык C#» остаётся как есть.
+const HEADING_RE = /^(#{1,3}) +(.+?)(?: +#+)? *$/;
+const RULE_RE = /^ *(?:-{3,}|\*{3,}|_{3,}) *$/;
 
 export interface ListItem {
   /** Номер пункта нумерованного списка — как написал автор. */
@@ -215,7 +227,7 @@ function paragraph(lines: string[]): Block | null {
   return { t: "para", children };
 }
 
-export function parseBlocks(text: string): Block[] {
+export function parseBlocks(text: string, options: BlockOptions = {}): Block[] {
   const lines = text.replace(/\r\n?/g, "\n").split("\n");
   const blocks: Block[] = [];
   let para: string[] = [];
@@ -264,8 +276,24 @@ export function parseBlocks(text: string): Block[] {
       const inner: string[] = [];
       while (i < lines.length && quoteLine(lines[i]) !== null) inner.push(quoteLine(lines[i++])!);
       endPara();
-      blocks.push({ t: "quote", children: parseBlocks(inner.join("\n")) });
+      blocks.push({ t: "quote", children: parseBlocks(inner.join("\n"), options) });
       continue;
+    }
+
+    if (options.headings) {
+      const h = HEADING_RE.exec(line);
+      if (h) {
+        endPara();
+        blocks.push({ t: "heading", level: h[1].length as 1 | 2 | 3, children: parseInline(h[2]) });
+        i++;
+        continue;
+      }
+      if (RULE_RE.test(line)) {
+        endPara();
+        blocks.push({ t: "rule" });
+        i++;
+        continue;
+      }
     }
 
     const item = listLine(line);
@@ -304,7 +332,8 @@ function blocksPlain(blocks: Block[]): string[] {
     if (b.t === "para") out.push(inlinePlain(b.children));
     else if (b.t === "code") out.push(b.text);
     else if (b.t === "quote") out.push(...blocksPlain(b.children));
-    else for (const item of b.items) out.push(inlinePlain(item.children));
+    else if (b.t === "heading") out.push(inlinePlain(b.children));
+    else if (b.t === "list") for (const item of b.items) out.push(inlinePlain(item.children));
   }
   return out;
 }

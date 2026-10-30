@@ -130,6 +130,8 @@ interface StarsState {
   pins: Record<string, StarMessage[]>;
   /** Закладки Спутника по порядку полосы; нет записи — не загружали. */
   bookmarks: Record<string, StarBookmark[]>;
+  /** Последняя известная версия заметок Спутника (из событий) — открытая вкладка перечитает. */
+  notesVersion: Record<string, number>;
   /** Прокрутить Спутник к сообщению (из поиска или закрепа). */
   revealRequest: { channelId: string; messageId: string } | null;
 
@@ -258,6 +260,7 @@ const initialState = {
   viewByStar: {} as Record<string, StarView>,
   pins: {} as Record<string, StarMessage[]>,
   bookmarks: {} as Record<string, StarBookmark[]>,
+  notesVersion: {} as Record<string, number>,
   revealRequest: null as { channelId: string; messageId: string } | null,
 };
 
@@ -516,6 +519,9 @@ export const useStarsStore = create<StarsState>((set, get) => {
         break;
       case "star_bookmarks":
         set((s) => ({ bookmarks: { ...s.bookmarks, [event.channel_id]: event.bookmarks } }));
+        break;
+      case "star_notes":
+        set((s) => ({ notesVersion: { ...s.notesVersion, [event.channel_id]: event.version } }));
         break;
       case "star_message_deleted":
         if (get().thread?.rootId === event.message_id) set({ thread: null });

@@ -64,6 +64,7 @@ import ScheduleButton from "../chat/ScheduleButton";
 import WhenDialog from "../chat/WhenDialog";
 import StarScheduledBar from "./StarScheduledBar";
 import StarFilesView from "./StarFilesView";
+import NotesView from "./NotesView";
 import { BookmarkDialog, BookmarksBar, ChannelTabs, PinnedList, canAddBookmark, type ChannelTab } from "./ChannelTabs";
 import { stripMarkup } from "../../chat/markdown";
 
@@ -497,7 +498,9 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
         />
       )}
 
-      {tab === "pins" ? (
+      {tab === "notes" ? (
+        <NotesView detail={detail} channel={channel} emoji={emoji} mention={mentionKind} />
+      ) : tab === "pins" ? (
         <PinnedList
           pins={pins}
           emoji={emoji}

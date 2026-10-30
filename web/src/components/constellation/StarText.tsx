@@ -12,6 +12,7 @@ export default function StarText({
   emoji,
   linkClassName,
   mention,
+  headings,
 }: {
   text: string;
   /** имя → адрес картинки */
@@ -19,8 +20,16 @@ export default function StarText({
   linkClassName?: string;
   /** Подсветка @имён участников. */
   mention?: MentionKind;
+  /** Заголовки и черта — в заметках Спутника. */
+  headings?: boolean;
 }) {
-  return <FormattedText text={text} leaf={(chunk, key) => <StarLeaf key={key} text={chunk} emoji={emoji} linkClassName={linkClassName} mention={mention} />} />;
+  return (
+    <FormattedText
+      text={text}
+      headings={headings}
+      leaf={(chunk, key) => <StarLeaf key={key} text={chunk} emoji={emoji} linkClassName={linkClassName} mention={mention} />}
+    />
+  );
 }
 
 /** Кусок обычного текста (не код): ссылки, @имена и эмодзи Звезды. */

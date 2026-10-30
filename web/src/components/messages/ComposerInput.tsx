@@ -8,6 +8,8 @@ interface Props extends TextareaProps {
   onValueChange: (value: string) => void;
   /** Самая большая высота, дальше — прокрутка внутри поля. */
   maxHeight?: number;
+  /** false — Enter всегда переносит строку (заметки), отправки нет. */
+  submitOnEnter?: boolean;
 }
 
 export interface ComposerHandle {
@@ -24,7 +26,10 @@ const enterSends = () => !!window.matchMedia?.("(hover: hover) and (pointer: fin
  * ⇧X, ⇧9, ⇧8, ⇧7, ⌥⇧C — разметка. Правки идут через insertText, поэтому ⌘Z их отменяет.
  */
 const ComposerInput = forwardRef<HTMLTextAreaElement, Props & { handleRef?: React.Ref<ComposerHandle> }>(
-  function ComposerInput({ value, onValueChange, maxHeight = 200, onKeyDown, handleRef, style, ...rest }, ref) {
+  function ComposerInput(
+    { value, onValueChange, maxHeight = 200, submitOnEnter = true, onKeyDown, handleRef, style, ...rest },
+    ref
+  ) {
     const inner = useRef<HTMLTextAreaElement>(null);
     useImperativeHandle(ref, () => inner.current as HTMLTextAreaElement);
 
@@ -85,7 +90,8 @@ const ComposerInput = forwardRef<HTMLTextAreaElement, Props & { handleRef?: Reac
       }
       if (e.key !== "Enter" || e.nativeEvent.isComposing || e.keyCode === 229) return;
       const el = e.currentTarget;
-      const newline = e.shiftKey || e.altKey || !enterSends() || insideCodeFence(el.value, el.selectionStart);
+      const newline =
+        !submitOnEnter || e.shiftKey || e.altKey || !enterSends() || insideCodeFence(el.value, el.selectionStart);
       if (newline) {
         if (e.altKey || e.ctrlKey || e.metaKey) return;
         const edit = continueList(el.value, el.selectionStart, el.selectionEnd);

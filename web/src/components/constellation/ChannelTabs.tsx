@@ -19,14 +19,14 @@ import { apiError } from "./rules";
 import s from "./Constellation.module.css";
 import t from "./ChannelTabs.module.css";
 
-export type ChannelTab = "messages" | "pins" | "files";
+export type ChannelTab = "messages" | "notes" | "pins" | "files";
 
 /** Можно ли добавлять закладки: писать в Спутник может каждый, в объявления — модераторы и выше. */
 export function canAddBookmark(detail: StarDetail, channel: StarChannel): boolean {
   return !channel.announcement || isStaff(detail.my_role);
 }
 
-/** Вкладки Спутника под шапкой: «Сообщения», «Закреплённые», «Файлы» и «+ Закладка». */
+/** Вкладки Спутника под шапкой: «Сообщения», «Заметки», «Закреплённые», «Файлы» и «+ Закладка». */
 export function ChannelTabs({
   tab,
   onTab,
@@ -40,6 +40,7 @@ export function ChannelTabs({
 }) {
   const tabs: { id: ChannelTab; label: string }[] = [
     { id: "messages", label: "Сообщения" },
+    { id: "notes", label: "Заметки" },
     { id: "pins", label: pinCount ? `Закреплённые · ${pinCount}` : "Закреплённые" },
     { id: "files", label: "Файлы" },
   ];

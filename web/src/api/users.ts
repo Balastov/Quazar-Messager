@@ -1,6 +1,7 @@
 import { http } from "./client";
 import type { WorkSchedule } from "./stars";
 import type { User } from "./types";
+import { compareUsers } from "../utils/profile";
 
 export interface ManualStatusBody {
   kind: "meeting" | "dnd" | null;
@@ -22,7 +23,7 @@ export const usersApi = {
       .then((r) => r.data),
 
   search: (q: string) =>
-    http.get<User[]>("/users/search", { params: { q } }).then((r) => r.data),
+    http.get<User[]>("/users/search", { params: { q } }).then((r) => [...r.data].sort(compareUsers)),
 
   uploadAvatar: (file: File) => {
     const form = new FormData();
@@ -47,7 +48,7 @@ export const usersApi = {
   removeBackground: () =>
     http.delete<{ background_url: string | null }>("/users/me/background").then((r) => r.data),
 
-  blocks: () => http.get<User[]>("/users/me/blocks").then((r) => r.data),
+  blocks: () => http.get<User[]>("/users/me/blocks").then((r) => [...r.data].sort(compareUsers)),
   block: (userId: string) => http.put(`/users/${userId}/block`),
   unblock: (userId: string) => http.delete(`/users/${userId}/block`),
   /** Свой рабочий график для всех Звёзд; null — как в Звезде. */

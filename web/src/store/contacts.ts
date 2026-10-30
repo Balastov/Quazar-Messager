@@ -2,6 +2,7 @@ import { create } from "zustand";
 import axios from "axios";
 import { contactsApi, type ContactsOut, type PhonebookEntry, type QuazarContact } from "../api/contacts";
 import { socket } from "../ws/socket";
+import { compareNames, displayName } from "../utils/profile";
 
 /** Столько контактов сервер принимает за один раз. */
 const CHUNK = 5000;
@@ -31,7 +32,9 @@ let unsubscribe: (() => void) | null = null;
 
 function fromOut(out: ContactsOut) {
   return {
-    contacts: out.contacts,
+    contacts: [...out.contacts].sort((a, b) =>
+      compareNames(a.name.trim() || displayName(a.user), b.name.trim() || displayName(b.user))
+    ),
     names: Object.fromEntries(out.contacts.map((c) => [c.user.id, c.name])),
     syncedAt: out.synced_at,
     total: out.total,

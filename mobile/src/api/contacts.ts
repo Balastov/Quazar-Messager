@@ -1,5 +1,6 @@
 import {http} from './client';
 import type {User} from './types';
+import {compareNames, displayName} from '../utils/profile';
 
 export interface PhonebookEntry {
   name: string;
@@ -19,10 +20,16 @@ export interface ContactsOut {
   contacts: QuazarContact[];
 }
 
+function sortedContacts(out: ContactsOut): ContactsOut {
+  return {...out, contacts: [...out.contacts].sort((a, b) =>
+    compareNames(a.name.trim() || displayName(a.user), b.name.trim() || displayName(b.user)),
+  )};
+}
+
 export const contactsApi = {
-  mine: () => http.get<ContactsOut>('/contacts').then(r => r.data),
+  mine: () => http.get<ContactsOut>('/contacts').then(r => sortedContacts(r.data)),
   /** Книга целиком: сервер сохранит только найденных пользователей Quazar. */
   sync: (contacts: PhonebookEntry[]) =>
-    http.post<ContactsOut>('/contacts/sync', {contacts}).then(r => r.data),
+    http.post<ContactsOut>('/contacts/sync', {contacts}).then(r => sortedContacts(r.data)),
   forget: () => http.delete('/contacts'),
 };

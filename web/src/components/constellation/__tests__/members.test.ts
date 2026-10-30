@@ -19,7 +19,7 @@ const st = (patch: Partial<PresenceStatus>): PresenceStatus => ({
 });
 
 describe("groupMembers", () => {
-  it("groups by status, owners and admins first, me always online", () => {
+  it("groups by status and sorts names, me always online", () => {
     const groups = groupMembers(
       [m("яна"), m("борис", "admin"), m("алла"), m("влад", "owner"), m("я"), m("гоша")],
       {
@@ -48,5 +48,18 @@ describe("groupMembers", () => {
 
   it("skips empty groups", () => {
     expect(groupMembers([m("я")], {}, "я", now).map((g) => g.key)).toEqual(["online"]);
+  });
+
+  it("sorts each status group by displayed name and script regardless of role or join date", () => {
+    const members = [
+      { ...m("owner", "owner"), user: { ...m("owner").user, display_name: "Яков" } },
+      { ...m("zoya"), user: { ...m("zoya").user, display_name: "Анна" } },
+      m("alice", "admin"),
+      { ...m("first", "moderator"), user: { ...m("first").user, display_name: "123" } },
+    ];
+    const snapshot = members.slice();
+    const groups = groupMembers(members, {}, undefined, now);
+    expect(groups[0].rows.map((r) => r.member.user.id)).toEqual(["zoya", "owner", "alice", "first"]);
+    expect(members).toEqual(snapshot);
   });
 });

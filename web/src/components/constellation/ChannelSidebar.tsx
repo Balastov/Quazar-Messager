@@ -14,7 +14,7 @@ import { currentBooking, doorSign, hhmm, useBookings } from "./work";
 import NotifyDialog from "../NotifyDialog";
 import { channelLevel, starLevel, STAR_DEFAULT, useNotifyStore } from "../../notifications/levels";
 import s from "./Constellation.module.css";
-import { displayName } from "../../utils/profile";
+import { compareNames, displayName } from "../../utils/profile";
 import { useUiStore } from "../../store/ui";
 import { groupByFloor } from "./office";
 
@@ -81,7 +81,11 @@ export default function ChannelSidebar({
     const count = unread[c.id]?.count ?? 0;
     const mentionCount = unread[c.id]?.mentions ?? 0;
     const quiet = kind === "satellite" && channelLevel(notifySettings, detail.id, c.id) === "none";
-    const inside = kind === "planet" ? (detail.voice?.[c.id] ?? []) : [];
+    const personName = (userId: string, guestName?: string | null) =>
+      displayName(detail.members.find((m) => m.user.id === userId)?.user) ?? guestName ?? "Участник";
+    const inside = kind === "planet" ? [...(detail.voice?.[c.id] ?? [])].sort((a, b) =>
+      compareNames(personName(a.user_id, a.guest_name), personName(b.user_id, b.guest_name))
+    ) : [];
     const busy = kind === "planet" ? currentBooking(bookings, c.id, now) : null;
     const sign = kind === "planet" ? doorSign(c, now) : null;
     return (
@@ -149,8 +153,7 @@ export default function ChannelSidebar({
         {inside.length > 0 && (
           <div className={s.presence}>
             {inside.map((p) => {
-              const name =
-                displayName(detail.members.find((m) => m.user.id === p.user_id)?.user) ?? p.guest_name ?? "Участник";
+              const name = personName(p.user_id, p.guest_name);
               const talking = c.id === voiceChannelId && speaking.has(p.user_id);
               return (
                 <div key={p.user_id} className={s.presenceRow}>

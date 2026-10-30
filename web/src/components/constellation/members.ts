@@ -1,11 +1,10 @@
 /**
  * Участники Звезды по статусу: «В сети» (в т.ч. «на встрече», «не беспокоить»), «Отошли»,
- * «Не в сети». Внутри группы — сначала владелец, админы, модераторы, потом по имени.
+ * «Не в сети». Внутри группы — по отображаемому имени, иначе по никнейму.
  */
 import type { StarMember } from "../../api/stars";
-import { roleRank } from "../../store/stars";
 import { presenceText, type PresenceStatus } from "../../utils/presence";
-import { displayName } from "../../utils/profile";
+import { compareUsers } from "../../utils/profile";
 
 export type MemberGroupKey = "online" | "away" | "offline";
 
@@ -46,8 +45,7 @@ export function groupMembers(
     groups[key].push({ member, status, text: presenceText(status, now), isMe });
   }
   const order = (a: MemberRow, b: MemberRow) =>
-    roleRank(b.member.role) - roleRank(a.member.role) ||
-    displayName(a.member.user).localeCompare(displayName(b.member.user), "ru");
+    compareUsers(a.member.user, b.member.user);
   return (Object.keys(groups) as MemberGroupKey[])
     .filter((key) => groups[key].length > 0)
     .map((key) => ({ key, title: TITLES[key], rows: groups[key].sort(order) }));

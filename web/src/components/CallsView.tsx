@@ -5,7 +5,7 @@ import { useCallStore } from "../store/call";
 import UserAvatar from "./UserAvatar";
 import { IconPhone, IconVideo } from "./icons";
 import s from "./CallsView.module.css";
-import { displayName } from "../utils/profile";
+import { compareNames, displayName } from "../utils/profile";
 
 function formatWhen(iso: string) {
   try {
@@ -61,7 +61,8 @@ export default function CallsView() {
         avatar_url: other?.avatar_url ?? null,
       };
     })
-    .filter((p) => p.userId);
+    .filter((p) => p.userId)
+    .sort((a, b) => compareNames(a.username, b.username));
 
   const filteredHistory =
     tab === "missed"

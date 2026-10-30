@@ -6,6 +6,7 @@ import { useAuthStore } from "../../store/auth";
 import { formatWhen } from "../../chat/when";
 import { apiError } from "../constellation/rules";
 import Tickets from "./Tickets";
+import { compareUsers } from "../../utils/profile";
 import s from "./BlackHole.module.css";
 
 type Section = "users" | "stars" | "reports" | "tickets";
@@ -121,7 +122,10 @@ function Users({ onChange }: { onChange: () => void }) {
       </div>
       {error && <div className={s.error}>{error}</div>}
       <div className={s.list}>
-        {users?.map((u) => (
+        {users?.slice().sort((a, b) => compareUsers(
+          { username: a.username, display_name: fullName(a) },
+          { username: b.username, display_name: fullName(b) },
+        )).map((u) => (
           <div key={u.id} className={u.blocked_at ? `${s.row} ${s.rowBlocked}` : s.row}>
             <span className={u.online ? `${s.dot} ${s.dotOn}` : s.dot} title={u.online ? "в сети" : "не в сети"} />
             <div className={s.main}>

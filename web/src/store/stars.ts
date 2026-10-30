@@ -31,7 +31,7 @@ import { socket } from "../ws/socket";
 import { applyReaction } from "../chat/reactions";
 import { useAuthStore } from "./auth";
 import { useUiStore } from "./ui";
-import { displayName } from "../utils/profile";
+import { compareUsers, displayName } from "../utils/profile";
 
 const ROLE_RANK: Record<StarRole, number> = { member: 0, moderator: 1, admin: 2, owner: 3 };
 const PAGE_SIZE = 50;
@@ -53,9 +53,7 @@ export function sortChannels(channels: StarChannel[]): StarChannel[] {
 }
 
 function sortMembers(members: StarMember[]): StarMember[] {
-  return [...members].sort(
-    (a, b) => roleRank(b.role) - roleRank(a.role) || a.joined_at.localeCompare(b.joined_at)
-  );
+  return [...members].sort((a, b) => compareUsers(a.user, b.user));
 }
 
 function summaryOf(detail: StarDetail): StarSummary {
@@ -278,7 +276,7 @@ export const useStarsStore = create<StarsState>((set, get) => {
     if (!detail) return;
     const next = patch(detail);
     set((s) => ({
-      details: { ...s.details, [starId]: next },
+      details: { ...s.details, [starId]: { ...next, members: sortMembers(next.members) } },
       stars: s.stars.map((st) => (st.id === starId ? summaryOf(next) : st)),
     }));
   }
@@ -289,7 +287,7 @@ export const useStarsStore = create<StarsState>((set, get) => {
       stars: s.stars.some((st) => st.id === detail.id)
         ? s.stars.map((st) => (st.id === detail.id ? summaryOf(detail) : st))
         : [...s.stars, summaryOf(detail)],
-      details: { ...s.details, [detail.id]: detail },
+      details: { ...s.details, [detail.id]: { ...detail, members: sortMembers(detail.members) } },
     }));
   }
 

@@ -5,7 +5,7 @@ import Dialog from "./Dialog";
 import { apiError } from "./rules";
 import s from "./Constellation.module.css";
 import w from "./Work.module.css";
-import { displayName } from "../../utils/profile";
+import { compareUsers, displayName } from "../../utils/profile";
 
 /** Кто ознакомился с объявлением и кто ещё нет — автору и админам. */
 export default function AcksDialog({ message, onClose }: { message: StarMessage; onClose: () => void }) {
@@ -26,7 +26,7 @@ export default function AcksDialog({ message, onClose }: { message: StarMessage;
       </h4>
       {people.length ? (
         <div className={w.peopleList}>
-          {people.map((u) => (
+          {[...people].sort(compareUsers).map((u) => (
             <div key={u.id} className={w.person}>
               <UserAvatar username={displayName(u)} avatarUrl={u.avatar_url} size="sm" />
               {displayName(u)}

@@ -242,6 +242,26 @@ describe("star list stays in sync", () => {
 });
 
 describe("stars store", () => {
+  it("sorts members by name when loading and after membership updates", async () => {
+    const base = details.a.members[0];
+    details.a.members = [
+      { ...base, user: { ...base.user, id: "owner", username: "owner", display_name: "Яков" }, role: "owner" },
+      { ...base, user: { ...base.user, id: "alice", username: "alice", display_name: "" }, role: "admin" },
+      { ...base, user: { ...base.user, id: "anna", username: "zoya", display_name: "Анна" }, role: "member" },
+    ];
+    await useStarsStore.getState().load();
+    const ids = () => useStarsStore.getState().details.a.members.map((m) => m.user.id);
+    expect(ids()).toEqual(["anna", "owner", "alice"]);
+    emit({ type: "star_member_upsert", star_id: "a", member: {
+      ...base, user: { ...base.user, id: "boris", username: "boris", display_name: "Борис" }, role: "moderator",
+    } });
+    expect(ids()).toEqual(["anna", "boris", "owner", "alice"]);
+    emit({ type: "star_member_upsert", star_id: "a", member: {
+      ...base, user: { ...base.user, id: "anna", username: "zoya", display_name: "Zoë" }, role: "member",
+    } });
+    expect(ids()).toEqual(["boris", "owner", "alice", "anna"]);
+  });
+
   it("opens the first star on its first satellite with history", async () => {
     await useStarsStore.getState().load();
     const st = useStarsStore.getState();

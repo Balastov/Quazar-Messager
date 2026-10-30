@@ -20,7 +20,7 @@ import { confirmKnock } from "./work";
 import s from "./Constellation.module.css";
 import { usePresence, usePresenceText } from "../../store/presence";
 import { presenceTone } from "../../utils/presence";
-import { displayName } from "../../utils/profile";
+import { compareNames, compareUsers, displayName } from "../../utils/profile";
 
 interface Props {
   detail: StarDetail;
@@ -58,6 +58,11 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
   const iAmHost = door.kind === "invite" && door.hostId === myId;
 
   const member = (userId: string) => detail.members.find((m) => m.user.id === userId);
+  const userName = (userId: string, fallback?: string | null) =>
+    displayName(member(userId)?.user) ?? (fallback?.trim() || "Участник");
+  const sortedPresence = [...presence].sort((a, b) =>
+    compareNames(userName(a.user_id, a.guest_name), userName(b.user_id, b.guest_name))
+  );
   const cabinetOwnerName = personal
     ? (displayName(member(channel.cabinet_owner_id ?? "")?.user) ?? "без хозяина")
     : "";
@@ -159,7 +164,7 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
           </div>
           {presence.length > 0 && (
             <div className={s.list} style={{ width: "100%" }}>
-              {presence.map((p) => {
+              {sortedPresence.map((p) => {
                 const m = member(p.user_id);
                 return (
                   <div key={p.user_id} className={s.listItem}>
@@ -340,7 +345,9 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
           />
         )}
         <div className={s.voiceGrid}>
-          {voice.peers.map((peer) => {
+          {[...voice.peers].sort((a, b) =>
+            compareNames(userName(a.userId, a.name), userName(b.userId, b.name))
+          ).map((peer) => {
             const m = member(peer.userId);
             const state = peerState(peer);
             return (
@@ -593,7 +600,8 @@ function InviteDialog({
   const myId = useAuthStore((st) => st.user?.id);
   const [sent, setSent] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
-  const candidates = detail.members.filter((m) => m.user.id !== myId && !insideIds.has(m.user.id));
+  const candidates = detail.members.filter((m) => m.user.id !== myId && !insideIds.has(m.user.id))
+    .sort((a, b) => compareUsers(a.user, b.user));
 
   const invite = async (userId: string) => {
     setError(null);

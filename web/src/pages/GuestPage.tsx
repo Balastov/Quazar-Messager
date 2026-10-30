@@ -3,6 +3,7 @@ import { useParams } from "react-router-dom";
 import axios from "axios";
 import type { Participant, Room } from "livekit-client";
 import { http } from "../api/client";
+import { compareNames } from "../utils/profile";
 import s from "./GuestPage.module.css";
 
 interface GuestInfo {
@@ -44,7 +45,7 @@ function people(room: Room): Person[] {
     speaking: p.isSpeaking,
     micOn: p.isMicrophoneEnabled,
     me: p === room.localParticipant,
-  }));
+  })).sort((a, b) => compareNames(a.name, b.name));
 }
 
 /**

@@ -18,6 +18,7 @@ import {
   type StarRole,
   type StarAsset,
   type StarBooking,
+  type StarBookmark,
   type StarSummary,
   type DoorSignKind,
   type WorkSchedule,
@@ -127,6 +128,8 @@ interface StarsState {
   viewByStar: Record<string, StarView>;
   /** Закреплённые в Спутнике (свежие первыми); нет записи — не загружали. */
   pins: Record<string, StarMessage[]>;
+  /** Закладки Спутника по порядку полосы; нет записи — не загружали. */
+  bookmarks: Record<string, StarBookmark[]>;
   /** Прокрутить Спутник к сообщению (из поиска или закрепа). */
   revealRequest: { channelId: string; messageId: string } | null;
 
@@ -146,6 +149,7 @@ interface StarsState {
   ) => Promise<void>;
   cancelScheduled: (starId: string, channelId: string, id: string) => Promise<void>;
   loadPins: (starId: string, channelId: string) => Promise<void>;
+  loadBookmarks: (starId: string, channelId: string) => Promise<void>;
   pinMessage: (message: StarMessage, pinned: boolean) => Promise<void>;
   /** Открыть Спутник (или ветку) и прокрутить к сообщению; догружает историю. */
   jumpTo: (message: Pick<StarMessage, "id" | "star_id" | "channel_id" | "thread_id">) => Promise<void>;
@@ -253,6 +257,7 @@ const initialState = {
   mySchedule: undefined as WorkSchedule | null | undefined,
   viewByStar: {} as Record<string, StarView>,
   pins: {} as Record<string, StarMessage[]>,
+  bookmarks: {} as Record<string, StarBookmark[]>,
   revealRequest: null as { channelId: string; messageId: string } | null,
 };
 
@@ -508,6 +513,9 @@ export const useStarsStore = create<StarsState>((set, get) => {
         if (get().pins[event.channel_id] || activeChannelId() === event.channel_id) {
           void get().loadPins(starId, event.channel_id).catch(() => {});
         }
+        break;
+      case "star_bookmarks":
+        set((s) => ({ bookmarks: { ...s.bookmarks, [event.channel_id]: event.bookmarks } }));
         break;
       case "star_message_deleted":
         if (get().thread?.rootId === event.message_id) set({ thread: null });
@@ -870,6 +878,11 @@ export const useStarsStore = create<StarsState>((set, get) => {
     loadPins: async (starId, channelId) => {
       const list = await starsApi.pins(starId, channelId);
       set((s) => ({ pins: { ...s.pins, [channelId]: list } }));
+    },
+
+    loadBookmarks: async (starId, channelId) => {
+      const list = await starsApi.bookmarks(starId, channelId);
+      set((s) => ({ bookmarks: { ...s.bookmarks, [channelId]: list } }));
     },
 
     pinMessage: async (message, pinned) => {

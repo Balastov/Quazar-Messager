@@ -64,6 +64,25 @@ export interface StarFile {
   size: number;
 }
 
+/** Закладка Спутника: ссылка (url) или отправленный в Звезду файл (file). */
+export interface StarBookmark {
+  id: string;
+  channel_id: string;
+  title: string;
+  url: string | null;
+  file: StarFile | null;
+  emoji: string | null;
+  created_by: string | null;
+  created_at: string;
+}
+
+export interface BookmarkBody {
+  title: string;
+  url?: string | null;
+  file_id?: string | null;
+  emoji?: string | null;
+}
+
 /** Файл в разделе «Файлы» Звезды. */
 export interface StarFileItem extends StarFile {
   channel_id: string;
@@ -497,6 +516,7 @@ export type StarEvent =
     }
   /** Закреплённые в Спутнике изменились (свежие первыми). */
   | { type: "star_pins"; star_id: string; channel_id: string; message_ids: string[] }
+  | { type: "star_bookmarks"; star_id: string; channel_id: string; bookmarks: StarBookmark[] }
   /** emoji null — реакцию сняли. */
   | {
       type: "star_message_reaction";
@@ -688,6 +708,16 @@ export const starsApi = {
       .then((r) => new Uint8Array(r.data)),
   pins: (starId: string, channelId: string) =>
     http.get<StarMessage[]>(`${base(starId)}/channels/${channelId}/pins`).then((r) => r.data),
+  bookmarks: (starId: string, channelId: string) =>
+    http.get<StarBookmark[]>(`${base(starId)}/channels/${channelId}/bookmarks`).then((r) => r.data),
+  addBookmark: (starId: string, channelId: string, body: BookmarkBody) =>
+    http.post<StarBookmark>(`${base(starId)}/channels/${channelId}/bookmarks`, body).then((r) => r.data),
+  updateBookmark: (starId: string, channelId: string, id: string, body: BookmarkBody) =>
+    http.patch<StarBookmark>(`${base(starId)}/channels/${channelId}/bookmarks/${id}`, body).then((r) => r.data),
+  deleteBookmark: (starId: string, channelId: string, id: string) =>
+    http.delete(`${base(starId)}/channels/${channelId}/bookmarks/${id}`),
+  reorderBookmarks: (starId: string, channelId: string, ids: string[]) =>
+    http.put<StarBookmark[]>(`${base(starId)}/channels/${channelId}/bookmarks`, { ids }).then((r) => r.data),
   pin: (starId: string, channelId: string, messageId: string) =>
     http.put(`${base(starId)}/channels/${channelId}/pins/${messageId}`),
   unpin: (starId: string, channelId: string, messageId: string) =>

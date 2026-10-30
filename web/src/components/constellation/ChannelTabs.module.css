@@ -1,0 +1,238 @@
+/* Вкладки и закладки Спутника — тонкая полоса под шапкой, на том же стекле. */
+
+.tabs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--qz-border);
+  background: var(--qz-glass-bg);
+  backdrop-filter: var(--qz-glass-filter);
+  -webkit-backdrop-filter: var(--qz-glass-filter);
+  overflow-x: auto;
+  scrollbar-width: none;
+  flex-shrink: 0;
+}
+
+.tab {
+  position: relative;
+  flex-shrink: 0;
+  padding: 9px 10px;
+  border: none;
+  background: transparent;
+  color: var(--qz-text-muted);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.tab:hover {
+  color: var(--qz-text);
+}
+
+.tabActive {
+  color: var(--qz-text);
+}
+
+.tabActive::after {
+  content: "";
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: -1px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--qz-accent);
+}
+
+.addBookmark {
+  margin-left: auto;
+  flex-shrink: 0;
+  padding: 5px 10px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--qz-text-muted);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.addBookmark:hover {
+  color: #fff;
+  background: rgba(168, 85, 247, 0.2);
+}
+
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--qz-border);
+  background: var(--qz-glass-bg);
+  backdrop-filter: var(--qz-glass-filter);
+  -webkit-backdrop-filter: var(--qz-glass-filter);
+  overflow-x: auto;
+  scrollbar-width: thin;
+  flex-shrink: 0;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  max-width: 260px;
+  padding: 4px 10px;
+  border: 1px solid var(--qz-border);
+  border-radius: 999px;
+  background: var(--qz-glass-inner);
+  color: var(--qz-text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.chip:hover {
+  border-color: var(--qz-border-strong);
+  background: rgba(168, 85, 247, 0.16);
+}
+
+.chipTitle {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chipHost {
+  color: var(--qz-text-dim);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+/* Диалог закладки */
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.row {
+  display: flex;
+  gap: 8px;
+}
+
+.emoji {
+  width: 56px;
+  flex: 0 0 56px;
+  text-align: center;
+}
+
+.kinds {
+  display: flex;
+  gap: 6px;
+}
+
+.kind {
+  flex: 1;
+  padding: 8px;
+  border: 1px solid var(--qz-border);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--qz-text-muted);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.kindActive {
+  color: #fff;
+  border-color: var(--qz-border-strong);
+  background: rgba(168, 85, 247, 0.2);
+}
+
+.files {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.file {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--qz-text);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.file:hover {
+  background: var(--qz-bg-soft);
+}
+
+.fileActive {
+  border-color: var(--qz-border-strong);
+  background: rgba(168, 85, 247, 0.16);
+}
+
+.fileName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fileMeta {
+  grid-column: 2;
+  color: var(--qz-text-dim);
+  font-size: 11px;
+}
+
+/* Вкладка «Закреплённые» */
+.pinned {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
+}
+
+.pin {
+  padding: 10px 12px;
+  border: 1px solid var(--qz-border);
+  border-radius: 12px;
+  background: var(--qz-glass-inner);
+}
+
+.pinHead {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  font-size: 13px;
+}
+
+.pinHead span {
+  color: var(--qz-text-dim);
+  font-size: 11px;
+}
+
+.pinText {
+  margin: 4px 0 8px;
+  font-size: 14px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.pinActions {
+  display: flex;
+  gap: 6px;
+}

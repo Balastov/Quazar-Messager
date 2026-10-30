@@ -11,20 +11,29 @@ import { displayName } from "../../utils/profile";
 
 type Kind = "all" | "images" | "docs";
 
-/** «Файлы» Звезды: всё, что отправили в Спутники, с поиском по названию. */
+/**
+ * «Файлы» Звезды: всё, что отправили в Спутники, с поиском по названию.
+ * С channel — вкладка «Файлы» одного Спутника: без своей шапки и выбора Спутника.
+ */
 export default function StarFilesView({
   detail,
   onBack,
   onOpenChannel,
+  channel,
+  onOpenMessage,
 }: {
   detail: StarDetail;
   onBack?: () => void;
   onOpenChannel: (channel: StarChannel) => void;
+  channel?: StarChannel;
+  /** Во вкладке Спутника: «К сообщению» вместо «В Спутник». */
+  onOpenMessage?: (file: StarFileItem) => void;
 }) {
   const [query, setQuery] = useState("");
   const [debounced, setDebounced] = useState("");
   const [kind, setKind] = useState<Kind>("all");
-  const [channelId, setChannelId] = useState("");
+  const [pickedChannelId, setChannelId] = useState("");
+  const channelId = channel?.id ?? pickedChannelId;
   const [files, setFiles] = useState<StarFileItem[]>([]);
   const [usage, setUsage] = useState<{ used: number; quota: number } | null>(null);
   const [more, setMore] = useState(false);
@@ -68,6 +77,7 @@ export default function StarFilesView({
 
   return (
     <>
+      {!channel && (
       <div className={s.channelHeader}>
         {onBack && (
           <button type="button" className={s.iconBtn} onClick={onBack} aria-label="Назад">
@@ -82,6 +92,7 @@ export default function StarFilesView({
           <span className={s.channelTitleSub}>{detail.name} · всё, что отправили в Спутники</span>
         </div>
       </div>
+      )}
       <div className={w.filesToolbar}>
         <input
           className={s.input}
@@ -96,26 +107,28 @@ export default function StarFilesView({
           <option value="docs">Документы</option>
           <option value="images">Картинки</option>
         </select>
-        <select className={s.select} value={channelId} onChange={(e) => setChannelId(e.target.value)} aria-label="Спутник">
-          <option value="">Все Спутники</option>
-          {satellites.map((c) => (
-            <option key={c.id} value={c.id}>
-              #{c.name}
-            </option>
-          ))}
-        </select>
+        {!channel && (
+          <select className={s.select} value={channelId} onChange={(e) => setChannelId(e.target.value)} aria-label="Спутник">
+            <option value="">Все Спутники</option>
+            {satellites.map((c) => (
+              <option key={c.id} value={c.id}>
+                #{c.name}
+              </option>
+            ))}
+          </select>
+        )}
       </div>
       <div className={w.filesList}>
         {error && <div className={s.error}>{error}</div>}
         {!loading && !error && files.length === 0 && (
           <div className={s.empty}>
-            {debounced || channelId || kind !== "all"
+            {debounced || (channelId && !channel) || kind !== "all"
               ? "Ничего не нашлось"
               : "Файлов пока нет. Отправьте документ в любой Спутник — «+» → «Файл» или перетащите его в окно."}
           </div>
         )}
         {files.map((f) => {
-          const channel = detail.channels.find((c) => c.id === f.channel_id);
+          const fileChannel = detail.channels.find((c) => c.id === f.channel_id);
           return (
             <div key={f.id} className={w.fileRow}>
               <span className={w.fileIcon} aria-hidden>
@@ -130,8 +143,12 @@ export default function StarFilesView({
                   {channelName(f.channel_id)}
                 </span>
               </div>
-              {channel && (
-                <button type="button" className={`${s.secondary} ${s.small}`} onClick={() => onOpenChannel(channel)}>
+              {channel && onOpenMessage && f.message_id ? (
+                <button type="button" className={`${s.secondary} ${s.small}`} onClick={() => onOpenMessage(f)}>
+                  К сообщению
+                </button>
+              ) : fileChannel && !channel && (
+                <button type="button" className={`${s.secondary} ${s.small}`} onClick={() => onOpenChannel(fileChannel)}>
                   В Спутник
                 </button>
               )}

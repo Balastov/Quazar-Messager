@@ -506,3 +506,30 @@ class StarGuestLink(Base):
     revoked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     # Сколько раз по ней зашли.
     uses: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+
+class StarBookmark(Base):
+    """Закладка Спутника — полоса под шапкой: ссылка (url) или файл этой Звезды (file_id).
+
+    Удалили файл (вместе с сообщением) — закладка пропадает вместе с ним."""
+
+    __tablename__ = "star_bookmarks"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    star_id: Mapped[str] = mapped_column(
+        ForeignKey("stars.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    channel_id: Mapped[str] = mapped_column(
+        ForeignKey("star_channels.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    title: Mapped[str] = mapped_column(String(80), nullable=False)
+    url: Mapped[str | None] = mapped_column(String(2000), nullable=True)
+    file_id: Mapped[str | None] = mapped_column(
+        ForeignKey("star_files.id", ondelete="CASCADE"), nullable=True
+    )
+    emoji: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    position: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_by: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)

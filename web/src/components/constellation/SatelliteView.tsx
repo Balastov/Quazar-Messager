@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { StarAsset, StarChannel, StarDetail, StarMessage } from "../../api/stars";
+import type { StarAsset, StarBookmark, StarChannel, StarDetail, StarMessage } from "../../api/stars";
 import { stickerFileUrl } from "../../api/stickers";
 import { useAuthStore } from "../../store/auth";
 import { useStarsStore } from "../../store/stars";
@@ -63,6 +63,8 @@ import { notifyInfo } from "../../notifications/notify";
 import ScheduleButton from "../chat/ScheduleButton";
 import WhenDialog from "../chat/WhenDialog";
 import StarScheduledBar from "./StarScheduledBar";
+import StarFilesView from "./StarFilesView";
+import { BookmarkDialog, BookmarksBar, ChannelTabs, PinnedList, canAddBookmark, type ChannelTab } from "./ChannelTabs";
 import { stripMarkup } from "../../chat/markdown";
 
 const EMPTY: StarMessage[] = [];
@@ -97,6 +99,10 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
   const revealRequest = useStarsStore((st) => st.revealRequest);
   const clearReveal = useStarsStore((st) => st.clearReveal);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [tab, setTab] = useState<ChannelTab>("messages");
+  const bookmarks = useStarsStore((st) => st.bookmarks[channel.id]);
+  const loadBookmarks = useStarsStore((st) => st.loadBookmarks);
+  const [bookmarkDialog, setBookmarkDialog] = useState<{ bookmark?: StarBookmark } | null>(null);
   const notifySettings = useNotifyStore((st) => st.settings);
   const ack = useStarsStore((st) => st.ack);
   const typingIds = useTyping(satelliteTypingKey(channel.id));
@@ -176,11 +182,17 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
     setPickerOpen(false);
     setAskAck(false);
     setScheduledDraft(null);
+    setTab("messages");
+    setBookmarkDialog(null);
   }, [channel.id]);
 
   useEffect(() => {
     if (!pins) void loadPins(detail.id, channel.id).catch(() => {});
   }, [detail.id, channel.id, pins, loadPins]);
+
+  useEffect(() => {
+    if (!bookmarks) void loadBookmarks(detail.id, channel.id).catch(() => {});
+  }, [detail.id, channel.id, bookmarks, loadBookmarks]);
 
   // Из поиска или закрепа: прокрутить к сообщению, когда оно в ленте.
   useEffect(() => {
@@ -464,6 +476,49 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
       </div>
 
       {searchOpen && <StarSearchPanel detail={detail} channelId={channel.id} onClose={() => setSearchOpen(false)} />}
+      <ChannelTabs
+        tab={tab}
+        onTab={setTab}
+        pinCount={pins?.length ?? 0}
+        onAddBookmark={canAddBookmark(detail, channel) ? () => setBookmarkDialog({}) : undefined}
+      />
+      <BookmarksBar
+        detail={detail}
+        bookmarks={bookmarks ?? []}
+        myId={myId}
+        onEdit={(bookmark) => setBookmarkDialog({ bookmark })}
+      />
+      {bookmarkDialog && (
+        <BookmarkDialog
+          detail={detail}
+          channel={channel}
+          bookmark={bookmarkDialog.bookmark}
+          onClose={() => setBookmarkDialog(null)}
+        />
+      )}
+
+      {tab === "pins" ? (
+        <PinnedList
+          pins={pins}
+          emoji={emoji}
+          onOpen={(p) => {
+            setTab("messages");
+            void jumpTo({ id: p.id, star_id: detail.id, channel_id: channel.id, thread_id: null });
+          }}
+          onUnpin={canPin ? (p) => void pinMessage(p, false).catch(() => {}) : undefined}
+        />
+      ) : tab === "files" ? (
+        <StarFilesView
+          detail={detail}
+          channel={channel}
+          onOpenChannel={() => setTab("messages")}
+          onOpenMessage={(f) => {
+            setTab("messages");
+            void jumpTo({ id: f.message_id!, star_id: detail.id, channel_id: channel.id, thread_id: null });
+          }}
+        />
+      ) : (
+      <>
       {!!pins?.length && (
         <PinBar
           items={pins.map((p) => ({
@@ -646,6 +701,8 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
         </button>
       </form>
       </div>
+      )}
+      </>
       )}
 
       {scheduledDraft && (

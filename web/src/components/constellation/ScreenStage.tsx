@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import type { VoiceScreen } from "../../store/voice";
 import s from "./Constellation.module.css";
 
@@ -12,15 +13,17 @@ interface Props {
   isMine: boolean;
   /** Остановить: свой показ — всегда, чужой — модератор. */
   onStop?: () => void;
+  /** Та же панель разговора, что под сценой, — внутри полноэкранного просмотра. */
+  controls?: ReactNode;
 }
 
-type FullscreenVideo = HTMLVideoElement & { webkitEnterFullscreen?: () => void };
-
 /** Сцена Планеты: трансляция экрана на всю ширину, с полноэкранным режимом. */
-export default function ScreenStage({ sharerName, placeInside, screen, isMine, onStop }: Props) {
+export default function ScreenStage({ sharerName, placeInside, screen, isMine, onStop, controls }: Props) {
   const frameRef = useRef<HTMLDivElement>(null);
-  const videoRef = useRef<FullscreenVideo>(null);
-  const [fullscreen, setFullscreen] = useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [nativeFullscreen, setNativeFullscreen] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const fullscreen = nativeFullscreen || expanded;
   const track = !isMine ? (screen?.track ?? null) : null;
 
   useEffect(() => {
@@ -30,23 +33,37 @@ export default function ScreenStage({ sharerName, placeInside, screen, isMine, o
     return () => {
       track.detach(el);
     };
-  }, [track]);
+  }, [track, expanded]);
 
   useEffect(() => {
-    const onChange = () => setFullscreen(document.fullscreenElement === frameRef.current);
+    const onChange = () => setNativeFullscreen(!!frameRef.current && document.fullscreenElement === frameRef.current);
     document.addEventListener("fullscreenchange", onChange);
     return () => document.removeEventListener("fullscreenchange", onChange);
   }, []);
 
+  useEffect(() => {
+    if (!expanded) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !event.defaultPrevented) setExpanded(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [expanded]);
+
   const toggleFullscreen = () => {
-    if (document.fullscreenElement) {
-      void document.exitFullscreen();
+    if (expanded) {
+      setExpanded(false);
+      return;
+    }
+    if (document.fullscreenElement === frameRef.current) {
+      void document.exitFullscreen().catch(() => {});
       return;
     }
     const frame = frameRef.current;
-    if (frame?.requestFullscreen) void frame.requestFullscreen().catch(() => {});
-    // iPhone: полноэкранным может быть только само видео.
-    else videoRef.current?.webkitEnterFullscreen?.();
+    if (frame?.requestFullscreen) void frame.requestFullscreen().catch(() => setExpanded(true));
+    // Браузеры без полноэкранного контейнера: разворачиваем внутри страницы.
+    // Нативный режим одного видео скрывает все кнопки разговора.
+    else setExpanded(true);
   };
 
   if (isMine) {
@@ -69,9 +86,15 @@ export default function ScreenStage({ sharerName, placeInside, screen, isMine, o
     );
   }
 
-  return (
-    <div className={s.screenStage}>
-      <div ref={frameRef} className={`${s.screenFrame} ${fullscreen ? s.screenFrameFull : ""}`}>
+  const frame = (
+    <div
+      ref={frameRef}
+      className={`${s.screenFrame} ${fullscreen ? s.screenFrameFull : ""} ${expanded ? s.screenFrameOverlay : ""}`}
+      role={expanded ? "dialog" : undefined}
+      aria-modal={expanded ? true : undefined}
+      aria-label={expanded ? "Демонстрация экрана" : undefined}
+    >
+      <div className={s.screenMedia}>
         {track ? (
           <video ref={videoRef} className={s.screenVideo} autoPlay playsInline muted />
         ) : (
@@ -84,7 +107,7 @@ export default function ScreenStage({ sharerName, placeInside, screen, isMine, o
               Остановить показ
             </button>
           )}
-          {track && (
+          {(track || fullscreen) && (
             <button
               type="button"
               className={`${s.secondary} ${s.small}`}
@@ -97,6 +120,9 @@ export default function ScreenStage({ sharerName, placeInside, screen, isMine, o
           )}
         </div>
       </div>
+      {fullscreen && controls && <div className={s.screenControls}>{controls}</div>}
     </div>
   );
+
+  return <div className={s.screenStage}>{expanded ? createPortal(frame, document.body) : frame}</div>;
 }

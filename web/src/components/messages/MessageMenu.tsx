@@ -100,6 +100,6 @@ export default function MessageMenu({ at, reaction, actions, onClose }: Props) {
         </button>
       ))}
     </div>,
-    document.body
+    document.fullscreenElement ?? document.body
   );
 }

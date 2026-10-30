@@ -325,6 +325,7 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
             placeInside={nouns.inside}
             screen={voice.screens.find((sc) => sc.userId === sharerId) ?? null}
             isMine={sharerId === myId}
+            controls={<RoomControls detail={detail} channel={channel} />}
             onStop={
               sharerId === myId
                 ? () => void voice.stopScreenShare()
@@ -443,7 +444,7 @@ export function RoomControls({ detail, channel }: { detail: StarDetail; channel:
 
   return (
     <>
-      <div className={s.voiceControls}>
+      <div className={s.voiceControls} role="toolbar" aria-label="Управление разговором">
         {voice.listenOnly ? (
           <span className={s.listenOnlyBadge} title={`Микрофон ${nouns.inside} не используется`}>
             🎧 Только слушать

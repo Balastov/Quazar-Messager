@@ -65,6 +65,7 @@ import WhenDialog from "../chat/WhenDialog";
 import StarScheduledBar from "./StarScheduledBar";
 import StarFilesView from "./StarFilesView";
 import NotesView from "./NotesView";
+import EditHistory from "../messages/EditHistory";
 import { BookmarkDialog, BookmarksBar, ChannelTabs, PinnedList, canAddBookmark, type ChannelTab } from "./ChannelTabs";
 import { stripMarkup } from "../../chat/markdown";
 
@@ -861,6 +862,7 @@ export function SatelliteMessage({
 }) {
   const trigger = useMessageMenuTrigger(onOpenMenu);
   const stickersByKey = useStickersStore((st) => st.byKey);
+  const [showEdits, setShowEdits] = useState(false);
   if (msg.kind === "system") {
     return (
       <div data-mid={msg.id} className={g.system}>
@@ -931,7 +933,7 @@ export function SatelliteMessage({
             </span>
           )}
           <span className={s.messageTime}>
-            {formatTime(msg.created_at)} <EditedMark at={msg.edited_at} />
+            {formatTime(msg.created_at)} <EditedMark at={msg.edited_at} onOpen={() => setShowEdits(true)} />
           </span>
         </div>
         {msg.reply_to && (
@@ -998,6 +1000,18 @@ export function SatelliteMessage({
       >
         ⋯
       </button>
+      {showEdits && (
+        <EditHistory
+          current={{ text: msg.text, at: msg.edited_at ?? msg.created_at }}
+          load={async () =>
+            (await starsApi.messageRevisions(msg.star_id, msg.channel_id, msg.id)).map((r) => ({
+              text: r.text,
+              at: r.written_at,
+            }))
+          }
+          onClose={() => setShowEdits(false)}
+        />
+      )}
     </div>
   );
 }

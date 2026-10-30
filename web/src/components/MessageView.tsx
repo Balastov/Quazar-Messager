@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { isUnreadable, SAVED_CHAT_TITLE, useChatStore } from "../store/chat";
+import { isUnreadable, openRevisionPayloads, SAVED_CHAT_TITLE, useChatStore } from "../store/chat";
 import { useAuthStore } from "../store/auth";
 import { useUiStore } from "../store/ui";
 import { useCallStore } from "../store/call";
@@ -25,6 +25,8 @@ import { usePresence, usePresenceStore, usePresenceText } from "../store/presenc
 import { presenceTone } from "../utils/presence";
 import LinkifiedText from "./LinkifiedText";
 import FormattedText from "./messages/FormattedText";
+import EditHistory from "./messages/EditHistory";
+import { messagesApi } from "../api/messages";
 import ComposerInput, { type ComposerHandle } from "./messages/ComposerInput";
 import FormatBar, { useFormatBarOpen } from "./messages/FormatBar";
 import Sticker from "./Sticker";
@@ -163,6 +165,8 @@ export default function MessageView({ showBack = false }: Props) {
   const [recording, setRecording] = useState<{ elapsed: number; levels: number[] } | null>(null);
   const [sendingVoice, setSendingVoice] = useState(false);
   const [forwarding, setForwarding] = useState<Message | null>(null);
+  /** Чью историю правок показать. */
+  const [editsOf, setEditsOf] = useState<Message | null>(null);
   /** Окно «когда»: отложить отправку текста из поля или напомнить о сообщении. */
   const [whenFor, setWhenFor] = useState<{
     kind: "schedule"; chatId: string; text: string; draft: string; replyToId?: string;
@@ -824,6 +828,7 @@ export default function MessageView({ showBack = false }: Props) {
             onReact={inputDisabled ? undefined : (emoji) => void handleReact(msg, emoji)}
             onQuoteClick={(id) => revealMessage(listRef.current, id)}
             mention={mentionKind}
+            onShowEdits={() => setEditsOf(msg)}
           />
         ))}
         {uploading > 0 && (
@@ -1008,6 +1013,18 @@ export default function MessageView({ showBack = false }: Props) {
       </div>
       )}
 
+      {editsOf && activeChatId && (
+        <EditHistory
+          current={{ text: editsOf.payload, at: editsOf.edited_at ?? editsOf.created_at }}
+          load={async () => {
+            const revs = await messagesApi.revisions(activeChatId, editsOf.id);
+            const texts = await openRevisionPayloads(revs.map((r) => r.payload));
+            return revs.map((r, i) => ({ text: texts[i], at: r.written_at }));
+          }}
+          onClose={() => setEditsOf(null)}
+        />
+      )}
+
       {menu && (
         <MessageMenu
           at={menu}
@@ -1124,6 +1141,8 @@ interface ChatMessageProps {
   onQuoteClick: (messageId: string) => void;
   /** Подсветка @имён (в группах). */
   mention?: MentionKind;
+  /** Открыть историю правок (по «изменено»). */
+  onShowEdits: () => void;
 }
 
 function ChatMessage({
@@ -1140,6 +1159,7 @@ function ChatMessage({
   onReact,
   onQuoteClick,
   mention,
+  onShowEdits,
 }: ChatMessageProps) {
   const trigger = useMessageMenuTrigger(onOpenMenu);
   const unavailable = msg.payload.startsWith("Сообщение недоступно");
@@ -1218,7 +1238,7 @@ function ChatMessage({
             ⏱
           </span>
         )}
-        <EditedMark at={msg.edited_at} />
+        <EditedMark at={msg.edited_at} onOpen={onShowEdits} />
         {new Date(msg.created_at).toLocaleTimeString("ru", {
           hour: "2-digit",
           minute: "2-digit",

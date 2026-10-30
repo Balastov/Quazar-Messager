@@ -753,6 +753,10 @@ export const starsApi = {
     http
       .post<SharedStar>(`/star-share-invites/${encodeURIComponent(code)}/accept`, { star_id: starId })
       .then((r) => r.data),
+  messageRevisions: (starId: string, channelId: string, messageId: string) =>
+    http
+      .get<{ text: string; written_at: string }[]>(`${base(starId)}/channels/${channelId}/messages/${messageId}/revisions`)
+      .then((r) => r.data),
   notes: (starId: string, channelId: string) =>
     http.get<StarNote>(`${base(starId)}/channels/${channelId}/notes`).then((r) => r.data),
   saveNotes: (starId: string, channelId: string, text: string, baseVersion: number) =>

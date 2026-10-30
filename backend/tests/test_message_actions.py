@@ -11,14 +11,16 @@ from pathlib import Path
 from unittest import mock
 
 from fastapi import HTTPException
-from sqlalchemy import text
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.api import attachments as attachments_api
 from app.api import messages as api
+from app.core import revisions
 from app.core.config import settings
 from app.core.database import Base
 from app.models.chat import Chat, ChatMember
+from app.models.message import MessageRevision
 from app.models.user import User
 from app.schemas.message import EditMessage, SendMessage, SetReaction
 from app.ws import typing as typing_signals
@@ -168,6 +170,30 @@ class MessageActionsTest(unittest.IsolatedAsyncioTestCase):
         history = await self.history(user="bob")
         self.assertEqual(history[0].payload, "ENC2:исправлено")
         self.assertIsNotNone(history[0].edited_at)
+
+    async def test_edit_history_keeps_previous_payloads(self):
+        msg = await self.send("ENC2:v1")
+        await self.call(api.edit_message, self.chat.id, msg.id, EditMessage(payload="ENC2:v2"), user="alice")
+        # Тот же текст — новой версии нет.
+        await self.call(api.edit_message, self.chat.id, msg.id, EditMessage(payload="ENC2:v2"), user="alice")
+        await self.call(api.edit_message, self.chat.id, msg.id, EditMessage(payload="ENC2:v3"), user="alice")
+        revs = await self.call(api.list_revisions, self.chat.id, msg.id, user="bob")
+        self.assertEqual([r.payload for r in revs], ["ENC2:v1", "ENC2:v2"])
+        self.assertLess(revs[0].written_at, revs[1].written_at)
+        # Чужим и тем, кто «удалил у себя», история не отдаётся.
+        await self.expect_error(403, api.list_revisions, self.chat.id, msg.id, user="eve")
+        await self.call(api.hide_message, self.chat.id, msg.id, user="bob")
+        await self.expect_error(404, api.list_revisions, self.chat.id, msg.id, user="bob")
+        # Лимит версий.
+        with mock.patch.object(revisions, "REVISIONS_KEPT", 2):
+            await self.call(api.edit_message, self.chat.id, msg.id, EditMessage(payload="ENC2:v4"), user="alice")
+        revs = await self.call(api.list_revisions, self.chat.id, msg.id, user="alice")
+        self.assertEqual([r.payload for r in revs], ["ENC2:v2", "ENC2:v3"])
+        # Удалили сообщение — истории нет.
+        await self.call(api.delete_message, self.chat.id, msg.id, user="alice")
+        async with self.Session() as db:
+            left = (await db.execute(select(MessageRevision))).scalars().all()
+        self.assertEqual(left, [])
 
     async def test_image_cannot_be_edited(self):
         upload = await self.call(

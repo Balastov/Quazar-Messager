@@ -82,6 +82,12 @@ const LOCKED_NEEDS_RESTORE = '🔒 Восстановите ключи шифр�
 const LOCKED_FOREIGN_KEY = '🔒 Сообщение зашифровано ключом, которого нет на этом устройстве';
 
 /** Сообщение не расшифровалось на этом устройстве — его не исправить. */
+/** Прежние версии исправленного сообщения (история правок) — расшифровать, как само сообщение. */
+export async function openRevisionPayloads(payloads: string[]): Promise<string[]> {
+  const keys = await loadDecryptionKeys();
+  return Promise.all(payloads.map(async p => unwrapForward(await tryDecrypt(p, keys)).payload));
+}
+
 export function isUnreadable(payload: string): boolean {
   return payload === LOCKED_NEEDS_RESTORE || payload === LOCKED_FOREIGN_KEY;
 }

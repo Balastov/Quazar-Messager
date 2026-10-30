@@ -220,6 +220,22 @@
   font-style: italic;
 }
 
+.editedButton {
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-style: italic;
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.editedButton:hover {
+  color: #fff;
+}
+
 /* --- Полоса «Ответ / Редактирование» над полем ввода --- */
 
 .context {

@@ -16,7 +16,8 @@ import {
 import {useFocusEffect} from '@react-navigation/native';
 import type {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {launchImageLibrary} from 'react-native-image-picker';
-import {isUnreadable, useChatStore} from '../store/chat';
+import {isUnreadable, openRevisionPayloads, useChatStore} from '../store/chat';
+import {messagesApi} from '../api/messages';
 import {useAuthStore} from '../store/auth';
 import {useCallStore} from '../store/call';
 import type {RootStackParamList} from '../navigation';
@@ -65,6 +66,30 @@ function previewOf(payload: string, stickerEmoji: (pack: string, id: string) => 
     return emoji ? `Стикер ${emoji}` : 'Стикер';
   }
   return plainPreview(payload);
+}
+
+const whenText = (iso: string) =>
+  new Date(iso).toLocaleString('ru', {day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit'});
+
+/** История правок: прежние версии (расшифрованные) и текущая, от новой к старой. */
+async function showEdits(message: Message) {
+  try {
+    const revs = await messagesApi.revisions(message.chat_id, message.id);
+    const texts = await openRevisionPayloads(revs.map(r => r.payload));
+    const versions = [
+      {text: message.payload, at: message.edited_at ?? message.created_at, label: 'Сейчас'},
+      ...revs
+        .map((r, i) => ({text: texts[i], at: r.written_at, label: i === 0 ? 'Исходный текст' : `Правка ${i}`}))
+        .reverse(),
+    ];
+    const body =
+      versions.length > 1
+        ? versions.map(v => `${v.label} · ${whenText(v.at)}\n${v.text}`).join('\n\n')
+        : 'Прежние версии не сохранились — их хранят с этого обновления.';
+    Alert.alert('История правок', body);
+  } catch {
+    Alert.alert('История правок', 'Не удалось загрузить');
+  }
 }
 
 /** «Аня печатает…», «Аня и Боря печатают…», «Аня и ещё 2 печатают…». */
@@ -565,7 +590,15 @@ export default function ChatScreen({route, navigation}: Props) {
         )}
         <View style={[s.meta, image && s.imageMeta]}>
           {item.expires_at && <Text style={s.time}>⏱</Text>}
-          {item.edited_at && <Text style={s.time}>изм.</Text>}
+          {item.edited_at && (
+            <Text
+              style={[s.time, s.editedMark]}
+              onPress={() => void showEdits(item)}
+              accessibilityRole="button"
+              accessibilityLabel="История правок">
+              изм.
+            </Text>
+          )}
           <Text style={s.time}>
             {new Date(item.created_at).toLocaleTimeString('ru', {
               hour: '2-digit',
@@ -809,6 +842,7 @@ const s = StyleSheet.create({
   stickerIcon: {fontSize: 22},
   meta: {flexDirection: 'row', gap: 4, alignSelf: 'flex-end', marginTop: 2},
   time: {color: 'rgba(255,255,255,0.6)', fontSize: 11},
+  editedMark: {textDecorationLine: 'underline'},
   status: {fontSize: 11, letterSpacing: -1},
   inputRow: {
     flexDirection: 'row',

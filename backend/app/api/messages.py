@@ -3,19 +3,20 @@ from datetime import datetime, timedelta, timezone
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel
 from sqlalchemy import delete, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import attachments as attachment_files
-from app.core import support
+from app.core import revisions, support
 from app.core.blocks import block_state, direct_peer
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.core.reactions import REACTIONS
 from app.models.attachment import Attachment
 from app.models.chat import Chat, ChatMember
-from app.models.message import HiddenMessage, Message, MessageReaction
+from app.models.message import HiddenMessage, Message, MessageReaction, MessageRevision
 from app.models.user import User
 from app.schemas.message import (
     EditMessage,
@@ -338,6 +339,11 @@ async def edit_message(
     if has_attachment:
         raise HTTPException(status_code=422, detail="Картинку исправить нельзя")
 
+    if body.payload != message.payload:
+        # Прежняя версия — в историю правок (в личных чатах это шифротекст, читают его только участники).
+        await revisions.remember(
+            db, MessageRevision, message.id, message.edited_at or message.created_at, payload=message.payload
+        )
     message.payload = body.payload
     message.edited_at = datetime.now(timezone.utc)
     await db.commit()
@@ -353,6 +359,35 @@ async def edit_message(
         },
     )
     return (await messages_out(db, [message]))[0]
+
+
+class RevisionOut(BaseModel):
+    payload: str
+    written_at: datetime
+
+
+@router.get("/{message_id}/revisions", response_model=list[RevisionOut])
+async def list_revisions(
+    chat_id: str,
+    message_id: str,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Прежние версии исправленного сообщения, старые первыми. Текущая — в самом сообщении."""
+    await _assert_member(chat_id, current_user.id, db)
+    visible = (
+        await db.execute(
+            select(Message.id).where(
+                Message.id == message_id, Message.chat_id == chat_id, visible_to(current_user.id)
+            )
+        )
+    ).first()
+    if not visible:
+        raise HTTPException(status_code=404, detail="Сообщение не найдено")
+    rows = await db.execute(
+        select(MessageRevision).where(MessageRevision.message_id == message_id).order_by(MessageRevision.written_at)
+    )
+    return [RevisionOut(payload=r.payload, written_at=r.written_at) for r in rows.scalars()]
 
 
 @router.delete("/{message_id}", status_code=status.HTTP_204_NO_CONTENT)

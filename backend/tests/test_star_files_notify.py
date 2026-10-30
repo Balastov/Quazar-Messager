@@ -130,6 +130,14 @@ class StarFilesNotifyTest(StarsTestBase):
         )
         self.assertEqual(edited.mentions, [self.uid("admin")])
 
+    async def test_edit_history(self):
+        msg = await self.say("перв")
+        for text in ("первый", "первый вариант"):
+            await self.call(api.edit_message, self.star.id, self.sat.id, msg.id, EditStarMessage(text=text), user="alice")
+        revs = await self.call(api.list_revisions, self.star.id, self.sat.id, msg.id, user="bob")
+        self.assertEqual([r.text for r in revs], ["перв", "первый"])
+        await self.expect_error(404, api.list_revisions, self.star.id, self.sat.id, msg.id, user="carol")
+
     async def test_push_follows_levels_and_mentions(self):
         await self.say("просто так")
         self.assertEqual(self.pushed_to(), set())  # по умолчанию в Звёздах — только упоминания

@@ -23,6 +23,9 @@ export const messagesApi = {
       })
       .then((r) => r.data),
 
+  /** Прежние версии исправленного сообщения, старые первыми (payload — как при отправке). */
+  revisions: (chatId: string, messageId: string) =>
+    http.get<{ payload: string; written_at: string }[]>(`${base(chatId)}/${messageId}/revisions`).then((r) => r.data),
   edit: (chatId: string, messageId: string, payload: string) =>
     http.patch<Message>(`${base(chatId)}/${messageId}`, { payload }).then((r) => r.data),
 

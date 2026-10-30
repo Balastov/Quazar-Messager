@@ -9,6 +9,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from pydantic import BaseModel
 from sqlalchemy import delete, func, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,7 +24,7 @@ from app.core.backgrounds import (
     save_background,
 )
 from app.core import doors
-from app.core import markup, notify, presence, shares, star_assets, star_audit, star_files
+from app.core import markup, notify, presence, revisions, shares, star_assets, star_audit, star_files
 from app.core import floors as floors_svc
 from app.core import voice
 from app.core.database import get_db
@@ -41,6 +42,7 @@ from app.models.star import (
     StarMessage,
     StarMessageAck,
     StarMessageReaction,
+    StarMessageRevision,
     StarTag,
 )
 from app.models.user import User
@@ -1483,6 +1485,10 @@ async def edit_message(
         raise _forbid("Исправить можно только своё сообщение")
     assert_can_post(star, me)
     assert_clean_text(star, me, body.text)
+    if body.text != message.text:
+        await revisions.remember(
+            db, StarMessageRevision, message.id, message.edited_at or message.created_at, text=message.text
+        )
     message.text = body.text
     # Ссылки в новом тексте другие — старое превью убираем.
     message.link_preview = None
@@ -1505,6 +1511,27 @@ async def edit_message(
         },
     )
     return _as_star(await _messages_out(db, [(message, current_user)]), star_id)[0]
+
+
+class StarRevisionOut(BaseModel):
+    text: str
+    written_at: datetime
+
+
+@router.get(
+    "/{star_id}/channels/{channel_id}/messages/{message_id}/revisions", response_model=list[StarRevisionOut]
+)
+async def list_revisions(star_id: str, channel_id: str, message_id: str, current_user: CurrentUser, db: Db):
+    """Прежние версии исправленного сообщения, старые первыми. Текущая — в самом сообщении."""
+    await _load_membership(db, star_id, current_user.id)
+    await _satellite(db, star_id, channel_id)
+    await _star_message(db, star_id, channel_id, message_id)
+    rows = await db.execute(
+        select(StarMessageRevision)
+        .where(StarMessageRevision.message_id == message_id)
+        .order_by(StarMessageRevision.written_at)
+    )
+    return [StarRevisionOut(text=r.text, written_at=r.written_at) for r in rows.scalars()]
 
 
 @router.put(

@@ -389,6 +389,12 @@ export const SAVED_CHAT_TITLE = "Записная книжка";
 /** Глубже 2000 сообщений за переходом к старому сообщению не ходим. */
 const MAX_HISTORY_PAGES = 40;
 
+/** Прежние версии исправленного сообщения (история правок) — расшифровать, как само сообщение. */
+export async function openRevisionPayloads(payloads: string[]): Promise<string[]> {
+  const keys = await loadDecryptionKeys();
+  return Promise.all(payloads.map(async (p) => unwrapForward(await tryDecrypt(p, keys)).payload));
+}
+
 export async function openMessages(raw: Message[]): Promise<Message[]> {
   const keys = await loadDecryptionKeys();
   return Promise.all(raw.map((m) => openMessage(m, keys)));

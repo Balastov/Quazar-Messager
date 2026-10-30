@@ -1,0 +1,67 @@
+.list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.item {
+  padding: 10px 12px;
+  border: 1px solid var(--qz-border);
+  border-radius: 12px;
+  background: var(--qz-glass-inner);
+}
+
+.head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--qz-text-muted);
+}
+
+.head span {
+  font-weight: 400;
+}
+
+.text {
+  font-size: 14px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.add {
+  background: rgba(52, 211, 153, 0.2);
+  color: #bbf7d0;
+  border-radius: 3px;
+}
+
+.del {
+  background: rgba(248, 113, 113, 0.16);
+  color: #fecaca;
+  text-decoration: line-through;
+  border-radius: 3px;
+}
+
+.empty {
+  color: var(--qz-text-muted);
+  font-size: 13px;
+  margin-bottom: 8px;
+}
+
+.error {
+  color: var(--qz-danger);
+  font-size: 13px;
+}
+
+/* «было» и «стало» рядом — не слипаются. */
+.del + .add {
+  margin-left: 3px;
+}

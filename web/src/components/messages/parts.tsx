@@ -100,12 +100,30 @@ export function ComposerContext({
 }
 
 /** Подпись «изменено» рядом со временем. */
-export function EditedMark({ at }: { at: string | null | undefined }) {
+/** «изменено»; с onOpen — кнопка, открывающая историю правок. */
+export function EditedMark({ at, onOpen }: { at: string | null | undefined; onOpen?: () => void }) {
   if (!at) return null;
+  const when = new Date(at).toLocaleString("ru");
+  if (!onOpen) {
+    return (
+      <span className={s.edited} title={when}>
+        изменено
+      </span>
+    );
+  }
   return (
-    <span className={s.edited} title={new Date(at).toLocaleString("ru")}>
+    <button
+      type="button"
+      className={`${s.edited} ${s.editedButton}`}
+      title={`${when} — показать историю правок`}
+      onClick={(e) => {
+        e.stopPropagation();
+        onOpen();
+      }}
+      onContextMenu={(e) => e.stopPropagation()}
+    >
       изменено
-    </span>
+    </button>
   );
 }
 

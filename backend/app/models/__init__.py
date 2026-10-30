@@ -16,6 +16,7 @@ from app.models.contact import ContactSync, UserContact
 from app.models.notify import NotifySetting
 from app.models.pin import ChatPin, StarPin
 from app.models.star import (
+    ScheduledStarMessage,
     Star,
     StarBan,
     StarChannel,
@@ -62,6 +63,7 @@ __all__ = [
     "StarChannel",
     "StarFloor",
     "StarMessage",
+    "ScheduledStarMessage",
     "StarMessageReaction",
     "StarTag",
     "StarMemberTag",

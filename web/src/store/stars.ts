@@ -14,6 +14,7 @@ import {
   type StarLimits,
   type StarMember,
   type StarMessage,
+  type ScheduledStarMessage,
   type StarRole,
   type StarAsset,
   type StarBooking,
@@ -107,6 +108,7 @@ interface StarsState {
   /** Последний открытый канал в каждой Звезде. */
   activeChannelByStar: Record<string, string | null>;
   messages: Record<string, StarMessage[]>;
+  scheduled: Record<string, ScheduledStarMessage[]>;
   hasMore: Record<string, boolean>;
   /** Стикеры, эмодзи и звуки Звёзд (грузятся при открытии Звезды). */
   assets: Record<string, StarAsset[]>;
@@ -138,6 +140,12 @@ interface StarsState {
   selectChannel: (channelId: string) => Promise<void>;
   loadOlder: (channelId: string) => Promise<void>;
   sendMessage: (text: string, replyToId?: string, ackRequired?: boolean, linkPreview?: LinkPreview | null) => Promise<void>;
+  loadScheduled: (starId: string, channelId: string) => Promise<void>;
+  scheduleMessage: (
+    starId: string, channelId: string, text: string, at: Date,
+    extra?: { reply_to_id?: string; ack_required?: boolean; link_preview?: LinkPreview }
+  ) => Promise<void>;
+  cancelScheduled: (starId: string, channelId: string, id: string) => Promise<void>;
   loadPins: (starId: string, channelId: string) => Promise<void>;
   pinMessage: (message: StarMessage, pinned: boolean) => Promise<void>;
   /** Открыть Спутник (или ветку) и прокрутить к сообщению; догружает историю. */
@@ -233,6 +241,7 @@ const initialState = {
   activeStarId: null,
   activeChannelByStar: {} as Record<string, string | null>,
   messages: {} as Record<string, StarMessage[]>,
+  scheduled: {} as Record<string, ScheduledStarMessage[]>,
   hasMore: {} as Record<string, boolean>,
   assets: {} as Record<string, StarAsset[]>,
   loadingMessages: false,
@@ -250,6 +259,8 @@ const initialState = {
 
 export const useStarsStore = create<StarsState>((set, get) => {
   const myId = () => useAuthStore.getState().user?.id ?? null;
+  let scheduledRevision = 0;
+  const scheduledRequests = new Map<string, number>();
 
   /** В Звезде открыт канал, а не карта офиса и не «Файлы». */
   function channelOnScreen(starId: string): boolean {
@@ -292,6 +303,7 @@ export const useStarsStore = create<StarsState>((set, get) => {
   let syncing: Promise<void> | null = null;
 
   function forgetStar(starId: string) {
+    for (const channel of get().details[starId]?.channels ?? []) scheduledRequests.delete(channel.id);
     set((s) => {
       const details = { ...s.details };
       delete details[starId];
@@ -306,7 +318,10 @@ export const useStarsStore = create<StarsState>((set, get) => {
       const stars = s.stars.filter((st) => st.id !== starId);
       const activeStarId = s.activeStarId === starId ? (stars[0]?.id ?? null) : s.activeStarId;
       const thread = s.thread?.starId === starId ? null : s.thread;
-      return { details, unread, stars, activeStarId, mobileChannelOpen: false, thread };
+      const scheduled = Object.fromEntries(
+        Object.entries(s.scheduled).filter(([, items]) => !items.some((x) => x.star_id === starId))
+      );
+      return { details, unread, stars, activeStarId, mobileChannelOpen: false, thread, scheduled };
     });
     const nextActive = get().activeStarId;
     if (nextActive && !get().details[nextActive]) void get().refreshStar(nextActive);
@@ -315,6 +330,13 @@ export const useStarsStore = create<StarsState>((set, get) => {
   function handleEvent(event: StarEvent) {
     const { star_id: starId } = event;
     switch (event.type) {
+      case "star_scheduled_changed": {
+        if (get().scheduled[event.channel_id]) {
+          void get().loadScheduled(starId, event.channel_id).catch(() => {});
+        }
+        if (event.error) notifyInfo({ title: "Отложенное сообщение не отправлено", body: event.error });
+        break;
+      }
       case "star_removed": {
         const name = get().stars.find((s) => s.id === starId)?.name ?? "";
         const notice = REMOVED_NOTICE[event.reason]?.(name) ?? null;
@@ -379,6 +401,7 @@ export const useStarsStore = create<StarsState>((set, get) => {
         }));
         break;
       case "star_channel_deleted": {
+        scheduledRequests.delete(event.channel_id);
         patchDetail(starId, (d) => ({
           ...d,
           channels: d.channels.filter((c) => c.id !== event.channel_id),
@@ -386,13 +409,15 @@ export const useStarsStore = create<StarsState>((set, get) => {
         set((s) => {
           const messages = { ...s.messages };
           delete messages[event.channel_id];
+          const scheduled = { ...s.scheduled };
+          delete scheduled[event.channel_id];
           const unread = { ...s.unread };
           delete unread[event.channel_id];
           const activeChannelByStar = { ...s.activeChannelByStar };
           if (activeChannelByStar[starId] === event.channel_id) {
             activeChannelByStar[starId] = firstSatellite(s.details[starId]);
           }
-          return { messages, unread, activeChannelByStar };
+          return { messages, unread, activeChannelByStar, scheduled };
         });
         break;
       }
@@ -795,6 +820,39 @@ export const useStarsStore = create<StarsState>((set, get) => {
         ...(linkPreview ? { link_preview: linkPreview } : {}),
       });
       handleEvent({ type: "star_message", star_id: starId, message });
+    },
+
+    loadScheduled: async (starId, channelId) => {
+      const userId = myId();
+      const request = ++scheduledRevision;
+      scheduledRequests.set(channelId, request);
+      const items = await starsApi.scheduled(starId, channelId);
+      if (userId !== myId() || scheduledRequests.get(channelId) !== request) return;
+      set((s) => ({ scheduled: { ...s.scheduled, [channelId]: items } }));
+    },
+
+    scheduleMessage: async (starId, channelId, text, at, extra) => {
+      const userId = myId();
+      const item = await starsApi.schedule(starId, channelId, text, at, extra);
+      if (userId !== myId()) return;
+      scheduledRequests.set(channelId, ++scheduledRevision);
+      set((s) => ({
+        scheduled: {
+          ...s.scheduled,
+          [channelId]: [...(s.scheduled[channelId] ?? []).filter((x) => x.id !== item.id), item]
+            .sort((a, b) => Date.parse(a.send_at) - Date.parse(b.send_at)),
+        },
+      }));
+    },
+
+    cancelScheduled: async (starId, channelId, id) => {
+      const userId = myId();
+      await starsApi.cancelScheduled(starId, channelId, id);
+      if (userId !== myId()) return;
+      scheduledRequests.set(channelId, ++scheduledRevision);
+      set((s) => ({
+        scheduled: { ...s.scheduled, [channelId]: (s.scheduled[channelId] ?? []).filter((x) => x.id !== id) },
+      }));
     },
 
     sendFile: async (file, opts = {}) => {

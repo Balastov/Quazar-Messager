@@ -1187,27 +1187,7 @@ async def list_messages(
 async def send_message(
     star_id: str, channel_id: str, body: SendStarMessage, current_user: CurrentUser, db: Db
 ):
-    star, me = await _load_membership(db, star_id, current_user.id)
-    channel = await _satellite(db, star_id, channel_id)
-    assert_can_post(star, me)
-    is_admin = me.role in ("owner", "admin")
-    # В объявлениях пишут владелец и админы; обсуждать в ветках может любой.
-    if channel.announcement and not body.thread_id and not is_admin:
-        raise _forbid("Здесь пишут только владелец и админы — обсудить можно в ветке")
-    if body.ack_required and not (channel.announcement and is_admin and not body.thread_id):
-        raise HTTPException(status_code=422, detail="Подтверждение — только для объявлений")
-    if body.thread_id:
-        root = await _star_message(db, star_id, channel_id, body.thread_id)
-        if root.thread_id or root.kind == "system":
-            raise HTTPException(status_code=422, detail="Ветку можно начать только от обычного сообщения")
-    await assert_slow_mode(db, channel, me)
-    assert_clean_text(star, me, body.text)
-    reply_to = None
-    if body.reply_to_id:
-        try:
-            reply_to = await _star_message(db, star_id, channel_id, body.reply_to_id)
-        except HTTPException:
-            raise HTTPException(status_code=422, detail="Сообщение для ответа не найдено") from None
+    star, me, channel, reply_to = await prepare_message(db, star_id, channel_id, body, current_user)
     file = None
     if body.file_id:
         file = (
@@ -1249,6 +1229,41 @@ async def send_message(
         await thread_event(db, star_id, channel_id, message.thread_id)
     await _push_message(db, star, channel, message, current_user, reply_to, file)
     return out
+
+
+async def prepare_message(
+    db: AsyncSession,
+    star_id: str,
+    channel_id: str,
+    body: SendStarMessage,
+    current_user: User,
+    *,
+    check_slow_mode: bool = True,
+) -> tuple[Star, StarMember, StarChannel, StarMessage | None]:
+    """Общие проверки обычной и отложенной отправки; права проверяются и при доставке."""
+    star, me = await _load_membership(db, star_id, current_user.id)
+    channel = await _satellite(db, star_id, channel_id)
+    assert_can_post(star, me)
+    is_admin = me.role in ("owner", "admin")
+    # В объявлениях пишут владелец и админы; обсуждать в ветках может любой.
+    if channel.announcement and not body.thread_id and not is_admin:
+        raise _forbid("Здесь пишут только владелец и админы — обсудить можно в ветке")
+    if body.ack_required and not (channel.announcement and is_admin and not body.thread_id):
+        raise HTTPException(status_code=422, detail="Подтверждение — только для объявлений")
+    if body.thread_id:
+        root = await _star_message(db, star_id, channel_id, body.thread_id)
+        if root.thread_id or root.kind == "system":
+            raise HTTPException(status_code=422, detail="Ветку можно начать только от обычного сообщения")
+    if check_slow_mode:
+        await assert_slow_mode(db, channel, me)
+    assert_clean_text(star, me, body.text)
+    reply_to = None
+    if body.reply_to_id:
+        try:
+            reply_to = await _star_message(db, star_id, channel_id, body.reply_to_id)
+        except HTTPException:
+            raise HTTPException(status_code=422, detail="Сообщение для ответа не найдено") from None
+    return star, me, channel, reply_to
 
 
 async def _mentions(db: AsyncSession, star_id: str, me: StarMember, text: str) -> tuple[list[str], bool]:

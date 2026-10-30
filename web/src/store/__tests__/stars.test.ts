@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { StarDetail, StarEvent, StarMessage } from "../../api/stars";
+import type { ScheduledStarMessage, StarDetail, StarEvent, StarMessage } from "../../api/stars";
 
 const memoryStorage = new Map<string, string>();
 vi.stubGlobal("localStorage", {
@@ -88,6 +88,9 @@ vi.mock("../../api/stars", async (importOriginal) => {
         return details[id];
       },
       messages: async (starId: string, channelId: string) => [message(starId, channelId, "m0")],
+      scheduled: vi.fn(),
+      schedule: vi.fn(),
+      cancelScheduled: vi.fn(),
       thread: async (starId: string, channelId: string, rootId: string) => [
         message(starId, channelId, rootId),
         { ...message(starId, channelId, "r0"), thread_id: rootId },
@@ -103,12 +106,16 @@ vi.mock("../../api/stars", async (importOriginal) => {
 const { useStarsStore, unreadForStar } = await import("../stars");
 const { useAuthStore } = await import("../auth");
 const { useUiStore } = await import("../ui");
+const { starsApi } = await import("../../api/stars");
 
 function emit(event: StarEvent) {
   for (const h of handlers) h(event);
 }
 
 beforeEach(() => {
+  vi.mocked(starsApi.scheduled).mockReset().mockResolvedValue([]);
+  vi.mocked(starsApi.schedule).mockReset();
+  vi.mocked(starsApi.cancelScheduled).mockReset().mockResolvedValue({} as never);
   failGet = null;
   for (const k of Object.keys(details)) delete details[k];
   details.a = detail("a", "Альфа");
@@ -116,6 +123,73 @@ beforeEach(() => {
   useStarsStore.getState().reset();
   useAuthStore.setState({ user: { id: ME, username: "я" } as never });
   useUiStore.setState({ tab: "stars" });
+});
+
+describe("scheduled satellite messages", () => {
+  const at = new Date("2026-12-01T12:00:00Z");
+  const item: ScheduledStarMessage = {
+    id: "later-1", star_id: "a", channel_id: "a-general", text: "Позже",
+    send_at: at.toISOString(), created_at: "2026-10-30T10:00:00Z",
+    reply_to_id: "reply-1", ack_required: false, link_preview: null,
+  };
+
+  it("queues in the explicitly chosen channel even if a different Star is active", async () => {
+    await useStarsStore.getState().load();
+    await useStarsStore.getState().selectStar("b");
+    const before = useStarsStore.getState().messages["a-general"];
+    vi.mocked(starsApi.schedule).mockResolvedValue(item);
+    await useStarsStore.getState().scheduleMessage("a", "a-general", "Позже", at, { reply_to_id: "reply-1" });
+    expect(starsApi.schedule).toHaveBeenCalledWith("a", "a-general", "Позже", at, { reply_to_id: "reply-1" });
+    expect(useStarsStore.getState().scheduled["a-general"]).toEqual([item]);
+    expect(useStarsStore.getState().messages["a-general"]).toBe(before);
+  });
+
+  it("orders the queue by delivery time", async () => {
+    const later = { ...item, id: "later-2", send_at: "2026-12-02T12:00:00Z" };
+    vi.mocked(starsApi.schedule).mockResolvedValueOnce(later).mockResolvedValueOnce(item);
+    await useStarsStore.getState().scheduleMessage("a", "a-general", "Завтра", new Date(later.send_at));
+    await useStarsStore.getState().scheduleMessage("a", "a-general", "Позже", at);
+    expect(useStarsStore.getState().scheduled["a-general"].map((x) => x.id)).toEqual([item.id, later.id]);
+  });
+
+  it("keeps the queue on cancellation failure and removes the item after success", async () => {
+    useStarsStore.setState({ scheduled: { "a-general": [item] } });
+    vi.mocked(starsApi.cancelScheduled).mockRejectedValueOnce(new Error("offline"));
+    await expect(useStarsStore.getState().cancelScheduled("a", "a-general", item.id)).rejects.toThrow("offline");
+    expect(useStarsStore.getState().scheduled["a-general"]).toEqual([item]);
+    await useStarsStore.getState().cancelScheduled("a", "a-general", item.id);
+    expect(starsApi.cancelScheduled).toHaveBeenLastCalledWith("a", "a-general", item.id);
+    expect(useStarsStore.getState().scheduled["a-general"]).toEqual([]);
+  });
+
+  it("refreshes a loaded queue when another device changes it or delivery occurs", async () => {
+    useStarsStore.setState({ scheduled: { "a-general": [item] } });
+    emit({ type: "star_scheduled_changed", star_id: "a", channel_id: "a-general" });
+    await vi.waitFor(() => expect(useStarsStore.getState().scheduled["a-general"]).toEqual([]));
+    expect(starsApi.scheduled).toHaveBeenCalledWith("a", "a-general");
+  });
+
+  it("does not refill the queue from an old account after logout", async () => {
+    let finish!: (items: ScheduledStarMessage[]) => void;
+    vi.mocked(starsApi.scheduled).mockReturnValue(new Promise((resolve) => { finish = resolve; }));
+    const loading = useStarsStore.getState().loadScheduled("a", "a-general");
+    useAuthStore.setState({ user: null });
+    useStarsStore.getState().reset();
+    finish([item]);
+    await loading;
+    expect(useStarsStore.getState().scheduled).toEqual({});
+  });
+
+  it("does not let an earlier list response hide a newly queued message", async () => {
+    let finish!: (items: ScheduledStarMessage[]) => void;
+    vi.mocked(starsApi.scheduled).mockReturnValue(new Promise((resolve) => { finish = resolve; }));
+    const loading = useStarsStore.getState().loadScheduled("a", "a-general");
+    vi.mocked(starsApi.schedule).mockResolvedValue(item);
+    await useStarsStore.getState().scheduleMessage("a", "a-general", "Позже", at);
+    finish([]);
+    await loading;
+    expect(useStarsStore.getState().scheduled["a-general"]).toEqual([item]);
+  });
 });
 
 describe("star list stays in sync", () => {

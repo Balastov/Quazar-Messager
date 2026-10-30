@@ -57,6 +57,7 @@ import ForwardDialog from "./chat/ForwardDialog";
 import ScheduledBar from "./chat/ScheduledBar";
 import SavedAvatar from "./chat/SavedAvatar";
 import WhenDialog from "./chat/WhenDialog";
+import ScheduleButton from "./chat/ScheduleButton";
 import c from "./chat/Chat.module.css";
 import { formatWhen } from "../chat/when";
 import { timeLeft, ttlLabel } from "../chat/ttl";
@@ -159,7 +160,9 @@ export default function MessageView({ showBack = false }: Props) {
   const [sendingVoice, setSendingVoice] = useState(false);
   const [forwarding, setForwarding] = useState<Message | null>(null);
   /** Окно «когда»: отложить отправку текста из поля или напомнить о сообщении. */
-  const [whenFor, setWhenFor] = useState<{ kind: "schedule"; text: string } | { kind: "remind"; msg: Message } | null>(null);
+  const [whenFor, setWhenFor] = useState<{
+    kind: "schedule"; chatId: string; text: string; draft: string; replyToId?: string;
+  } | { kind: "remind"; msg: Message } | null>(null);
   const [sendMenu, setSendMenu] = useState<{ x: number; y: number } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -184,6 +187,8 @@ export default function MessageView({ showBack = false }: Props) {
     setMenu(null);
     setReplyTo(null);
     setEditing(null);
+    setWhenFor(null);
+    setSendMenu(null);
     // Ушли из чата посреди записи — запись пропадает, микрофон гаснет.
     return () => {
       recorderRef.current?.cancel();
@@ -223,6 +228,17 @@ export default function MessageView({ showBack = false }: Props) {
   const closeSendMenu = useCallback(() => setSendMenu(null), []);
   // Правая кнопка или долгое нажатие на «Отправить» — «Отправить позже».
   const sendTrigger = useMessageMenuTrigger((x, y) => setSendMenu({ x, y }));
+
+  const openSchedule = () => {
+    const value = text.trim();
+    if (!value || !activeChatId || inputDisabled || editing) return;
+    const preview = composerPreview.preview;
+    setWhenFor({
+      kind: "schedule", chatId: activeChatId,
+      text: preview ? encodeWithPreview(value, preview) : value,
+      draft: text, replyToId: replyTo?.id,
+    });
+  };
 
   // Открыли чат из напоминания — прокручиваем к сообщению, когда оно в ленте.
   useEffect(() => {
@@ -938,6 +954,7 @@ export default function MessageView({ showBack = false }: Props) {
             <IconSticker size={20} />
           </button>
         </div>
+        {!editing && !!text.trim() && <ScheduleButton disabled={inputDisabled} onClick={openSchedule} />}
         {text.trim() ? (
           <button
             className={s.sendBtn}
@@ -1002,8 +1019,7 @@ export default function MessageView({ showBack = false }: Props) {
             {
               label: "Отправить позже…",
               onClick: () => {
-                const value = text.trim();
-                if (value) setWhenFor({ kind: "schedule", text: value });
+                openSchedule();
               },
             },
           ]}
@@ -1022,9 +1038,12 @@ export default function MessageView({ showBack = false }: Props) {
           onPick={async (at) => {
             try {
               if (whenFor.kind === "schedule") {
-                await scheduleMessage(activeChatId, whenFor.text, at, replyTo?.id);
-                setText("");
-                setReplyTo(null);
+                await scheduleMessage(whenFor.chatId, whenFor.text, at, whenFor.replyToId);
+                if (useChatStore.getState().activeChatId === whenFor.chatId) {
+                  setText((current) => current === whenFor.draft ? "" : current);
+                  setReplyTo((current) => current?.id === whenFor.replyToId ? null : current);
+                  resetTypingThrottle(chatTypingKey(whenFor.chatId));
+                }
                 notifyInfo({ title: "Отложено", body: `Отправится ${formatWhen(at)}` });
               } else {
                 await setReminder(activeChatId, whenFor.msg.id, at);

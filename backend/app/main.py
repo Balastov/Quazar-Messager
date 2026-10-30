@@ -22,6 +22,7 @@ from app.api.users import router as users_router
 from app.api.chats import router as chats_router
 from app.api.messages import router as messages_router
 from app.api.later import reminders_router, scheduled_router
+from app.api.star_later import router as star_scheduled_router
 from app.api.moderation import router as moderation_router
 from app.api.attachments import router as attachments_router
 from app.api.calls import router as calls_router
@@ -333,6 +334,7 @@ app.include_router(users_router)
 app.include_router(chats_router)
 app.include_router(messages_router)
 app.include_router(scheduled_router)
+app.include_router(star_scheduled_router)
 app.include_router(reminders_router)
 app.include_router(attachments_router)
 app.include_router(calls_router)

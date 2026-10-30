@@ -117,6 +117,31 @@
 
 /* --- Отложенные над полем ввода --- */
 
+.scheduleButton {
+  flex-shrink: 0;
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 36px;
+  padding: 0;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--qz-online);
+  cursor: pointer;
+}
+
+.scheduleButton:hover {
+  background: rgba(52, 211, 153, 0.12);
+}
+
+.scheduleButton:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 .scheduledBar {
   position: relative;
   display: flex;
@@ -149,6 +174,12 @@
   padding: 0 8px 8px;
 }
 
+.scheduledError {
+  padding: 7px 14px;
+  font-size: 12px;
+  color: var(--qz-danger);
+}
+
 .scheduledItem {
   display: flex;
   align-items: center;
@@ -171,6 +202,17 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--qz-text);
+}
+
+@media (max-width: 480px) {
+  .scheduledItem {
+    flex-wrap: wrap;
+    gap: 4px 8px;
+  }
+
+  .scheduledWhen {
+    width: 100%;
+  }
 }
 
 .iconAction {

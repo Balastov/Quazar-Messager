@@ -56,6 +56,11 @@ import {
   useMessageMenuTrigger,
 } from "../messages/parts";
 import { displayName } from "../../utils/profile";
+import type { LinkPreview } from "../../chat/linkPreview";
+import { notifyInfo } from "../../notifications/notify";
+import ScheduleButton from "../chat/ScheduleButton";
+import WhenDialog from "../chat/WhenDialog";
+import StarScheduledBar from "./StarScheduledBar";
 
 const EMPTY: StarMessage[] = [];
 const NO_ASSETS: StarAsset[] = [];
@@ -73,6 +78,7 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
   const hasMore = useStarsStore((st) => st.hasMore[channel.id] ?? false);
   const loading = useStarsStore((st) => st.loadingMessages);
   const sendMessage = useStarsStore((st) => st.sendMessage);
+  const scheduleMessage = useStarsStore((st) => st.scheduleMessage);
   const editMessage = useStarsStore((st) => st.editMessage);
   const deleteMessage = useStarsStore((st) => st.deleteMessage);
   const react = useStarsStore((st) => st.react);
@@ -120,6 +126,10 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
   const [menu, setMenu] = useState<{ msg: StarMessage; x: number; y: number } | null>(null);
   const [replyTo, setReplyTo] = useState<StarMessage | null>(null);
   const [editing, setEditing] = useState<StarMessage | null>(null);
+  const [scheduledDraft, setScheduledDraft] = useState<{
+    starId: string; channelId: string; text: string; draft: string;
+    reply_to_id?: string; ack_required: boolean; link_preview?: LinkPreview;
+  } | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const stickToBottom = useRef(true);
@@ -169,6 +179,7 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
     setText("");
     setPickerOpen(false);
     setAskAck(false);
+    setScheduledDraft(null);
   }, [channel.id]);
 
   useEffect(() => {
@@ -263,6 +274,16 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
       setAskAck(withAck);
       setError(apiError(err, "Не удалось отправить сообщение"));
     }
+  };
+
+  const openSchedule = () => {
+    const value = text.trim();
+    if (!value || editing) return;
+    setScheduledDraft({
+      starId: detail.id, channelId: channel.id, text: value, draft: text,
+      reply_to_id: replyTo?.id, ack_required: announcement && askAck,
+      link_preview: composerPreview.preview ?? undefined,
+    });
   };
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -509,6 +530,7 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
         ))}
       </div>
 
+      <StarScheduledBar starId={detail.id} channelId={channel.id} />
       {error && (
         <div className={s.error} style={{ padding: "6px 16px" }}>
           {error}
@@ -603,6 +625,7 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
         >
           🙂
         </button>
+        {!editing && !!text.trim() && <ScheduleButton onClick={openSchedule} />}
         <button
           type="submit"
           className={s.primary}
@@ -616,6 +639,34 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
       </div>
       )}
 
+      {scheduledDraft && (
+        <WhenDialog
+          title="Отправить позже"
+          hint="Сообщение отправится в выбранное время, даже если вы будете не в сети."
+          onPick={async (at) => {
+            const draft = scheduledDraft;
+            try {
+              await scheduleMessage(draft.starId, draft.channelId, draft.text, at, {
+                reply_to_id: draft.reply_to_id,
+                ack_required: draft.ack_required,
+                link_preview: draft.link_preview,
+              });
+              const current = useStarsStore.getState();
+              if (current.activeStarId === draft.starId && current.activeChannelByStar[draft.starId] === draft.channelId) {
+                setText((value) => value === draft.draft ? "" : value);
+                setReplyTo((value) => value?.id === draft.reply_to_id ? null : value);
+                setAskAck(false);
+                composerPreview.reset();
+                resetTypingThrottle(satelliteTypingKey(draft.channelId));
+              }
+              notifyInfo({ title: "Отложено", body: `Отправится ${formatWhen(at)}` });
+            } catch (err) {
+              throw new Error(apiError(err, "Не удалось отложить сообщение"));
+            }
+          }}
+          onClose={() => setScheduledDraft(null)}
+        />
+      )}
       {plusMenu && (
         <MessageMenu
           at={plusMenu}

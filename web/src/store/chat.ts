@@ -406,6 +406,8 @@ export function chatTitle(chat: Chat | undefined, myId = useAuthStore.getState()
 const EXPIRY_TICK_MS = 5000;
 
 export const useChatStore = create<ChatState>((set, get) => {
+  let scheduledRevision = 0;
+  const scheduledRequests = new Map<string, number>();
   if (typeof window !== "undefined") {
     window.setInterval(() => {
       const now = Date.now();
@@ -1044,6 +1046,9 @@ export const useChatStore = create<ChatState>((set, get) => {
     },
 
     loadScheduled: async (chatId) => {
+      const userId = useAuthStore.getState().user?.id;
+      const request = ++scheduledRevision;
+      scheduledRequests.set(chatId, request);
       const items = await scheduledApi.list(chatId);
       const keys = await loadDecryptionKeys();
       const views = await Promise.all(
@@ -1054,21 +1059,37 @@ export const useChatStore = create<ChatState>((set, get) => {
           replyToId: item.reply_to_id,
         }))
       );
+      if (userId !== useAuthStore.getState().user?.id || scheduledRequests.get(chatId) !== request) return;
       set((s) => ({ scheduled: { ...s.scheduled, [chatId]: views } }));
     },
 
     scheduleMessage: async (chatId, plaintext, at, replyToId) => {
       const chat = get().chats.find((c) => c.id === chatId);
       const myId = useAuthStore.getState().user?.id;
-      if (!chat || !myId) return;
+      if (!chat || !myId) throw new Error("Чат недоступен — откройте его заново");
       // Шифруем сейчас: сервер хранит и в срок отправит уже готовый шифротекст.
       const payload = await sealForChat(chat, myId, plaintext);
-      await scheduledApi.create(chatId, payload, at, replyToId);
-      await get().loadScheduled(chatId);
+      const item = await scheduledApi.create(chatId, payload, at, replyToId);
+      if (myId !== useAuthStore.getState().user?.id) return;
+      scheduledRequests.set(chatId, ++scheduledRevision);
+      // Успешную запись в очередь не превращаем в ошибку из-за повторного GET:
+      // иначе повторное подтверждение создаст дубликат.
+      set((s) => ({
+        scheduled: {
+          ...s.scheduled,
+          [chatId]: [
+            ...(s.scheduled[chatId] ?? []).filter((x) => x.id !== item.id),
+            { id: item.id, text: messagePreview(unwrapForward(plaintext).payload), sendAt: item.send_at, replyToId: item.reply_to_id },
+          ].sort((a, b) => Date.parse(a.sendAt) - Date.parse(b.sendAt)),
+        },
+      }));
     },
 
     cancelScheduled: async (chatId, id) => {
+      const userId = useAuthStore.getState().user?.id;
       await scheduledApi.cancel(chatId, id);
+      if (userId !== useAuthStore.getState().user?.id) return;
+      scheduledRequests.set(chatId, ++scheduledRevision);
       set((s) => ({
         scheduled: { ...s.scheduled, [chatId]: (s.scheduled[chatId] ?? []).filter((x) => x.id !== id) },
       }));

@@ -4,6 +4,7 @@
 Нужна PostgreSQL (TEST_DATABASE_URL); таблицы — в схеме quazar_test. Без базы тесты пропускаются.
 """
 
+import asyncio
 import os
 import shutil
 import tempfile
@@ -372,6 +373,19 @@ class ChatFeaturesTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn((self.uid("alice"), {"type": "scheduled_changed", "chat_id": self.chat.id}), self.events)
         self.assertEqual(await self.call(later_api.list_scheduled, self.chat.id, user="alice"), [])
         self.assertEqual(len(await self.history(user="bob")), 2)
+
+    async def test_parallel_schedulers_deliver_each_direct_message_once(self):
+        for payload in ("ENC2:one", "ENC2:two", "ENC2:three"):
+            await self.call(
+                later_api.schedule_message, self.chat.id,
+                later_api.ScheduleBody(payload=payload, send_at=in_(timedelta(hours=1))), user="alice",
+            )
+        counts = await asyncio.gather(
+            self.run_job(scheduler.send_due_scheduled, in_(timedelta(hours=2))),
+            self.run_job(scheduler.send_due_scheduled, in_(timedelta(hours=2))),
+        )
+        self.assertEqual(sum(counts), 3)
+        self.assertCountEqual([m.payload for m in await self.history()], ["ENC2:one", "ENC2:two", "ENC2:three"])
 
     async def test_scheduled_message_can_be_cancelled_and_is_dropped_after_block(self):
         body = later_api.ScheduleBody(payload="ENC2:x", send_at=in_(timedelta(hours=1)))

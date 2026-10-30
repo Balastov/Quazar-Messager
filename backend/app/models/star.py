@@ -180,6 +180,31 @@ class StarMessage(Base):
     )
 
 
+class ScheduledStarMessage(Base):
+    """Личная очередь отправителя: в назначенное время превращается в сообщение Спутника."""
+
+    __tablename__ = "scheduled_star_messages"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    star_id: Mapped[str] = mapped_column(
+        ForeignKey("stars.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    channel_id: Mapped[str] = mapped_column(
+        ForeignKey("star_channels.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    sender_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    reply_to_id: Mapped[str | None] = mapped_column(
+        ForeignKey("star_messages.id", ondelete="SET NULL"), nullable=True
+    )
+    ack_required: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    link_preview: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    send_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
 class StarMessageReaction(Base):
     """Реакция на сообщение Спутника — одна на человека."""
 

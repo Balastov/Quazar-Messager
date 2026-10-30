@@ -20,8 +20,13 @@ export default function WhenDialog({ title, hint, onPick, onClose }: Props) {
   const [error, setError] = useState<string | null>(null);
 
   const pick = async (at: Date) => {
-    if (at.getTime() < Date.now() + 60_000) {
+    if (busy) return;
+    if (!Number.isFinite(at.getTime()) || at.getTime() < Date.now() + 60_000) {
       setError("Выберите время хотя бы через минуту");
+      return;
+    }
+    if (at.getTime() > Date.now() + 365 * 86400_000) {
+      setError("Выберите время не дальше чем через год");
       return;
     }
     setBusy(true);
@@ -47,12 +52,13 @@ export default function WhenDialog({ title, hint, onPick, onClose }: Props) {
         ))}
       </div>
       <label className={c.label}>
-        Своё время
+        Своё время (часовой пояс устройства)
         <div className={s.custom}>
           <input
             type="datetime-local"
             className={c.input}
             value={custom}
+            disabled={busy}
             min={toLocalInput(new Date())}
             onChange={(e) => setCustom(e.target.value)}
           />

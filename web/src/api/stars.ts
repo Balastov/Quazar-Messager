@@ -323,6 +323,18 @@ export interface PlanetJoin {
   room: string;
 }
 
+export interface ScheduledStarMessage {
+  id: string;
+  star_id: string;
+  channel_id: string;
+  text: string;
+  reply_to_id: string | null;
+  ack_required: boolean;
+  link_preview: LinkPreview | null;
+  send_at: string;
+  created_at: string;
+}
+
 export interface StarMessageReply {
   id: string;
   sender: StarUser | null;
@@ -423,6 +435,7 @@ export type StarEvent =
   | { type: "star_channel_deleted"; star_id: string; channel_id: string }
   | { type: "star_channels_order"; star_id: string; channel_ids: string[] }
   | { type: "star_message"; star_id: string; message: StarMessage }
+  | { type: "star_scheduled_changed"; star_id: string; channel_id: string; error?: string }
   | { type: "star_floors"; star_id: string; floors: StarFloor[] }
   | {
       type: "planet_invite";
@@ -631,6 +644,19 @@ export const starsApi = {
         ...extra,
       })
       .then((r) => r.data),
+  scheduled: (starId: string, channelId: string) =>
+    http.get<ScheduledStarMessage[]>(`${base(starId)}/channels/${channelId}/scheduled`).then((r) => r.data),
+  schedule: (
+    starId: string,
+    channelId: string,
+    text: string,
+    at: Date,
+    extra: { reply_to_id?: string; ack_required?: boolean; link_preview?: LinkPreview } = {}
+  ) => http.post<ScheduledStarMessage>(`${base(starId)}/channels/${channelId}/scheduled`, {
+    text, send_at: at.toISOString(), ...extra,
+  }).then((r) => r.data),
+  cancelScheduled: (starId: string, channelId: string, id: string) =>
+    http.delete(`${base(starId)}/channels/${channelId}/scheduled/${id}`),
   /** Сам файл — телом запроса; потом он уходит в сообщении (send … { file_id }). */
   uploadFile: (starId: string, channelId: string, file: File, onProgress?: (share: number) => void) =>
     http

@@ -6,14 +6,16 @@
 
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.models.chat import Chat
 from app.models.message import Message, MessageReminder, ScheduledMessage
+from app.models.star import ScheduledStarMessage
+from app.models.user import User
 
 log = logging.getLogger(__name__)
 
@@ -30,17 +32,22 @@ async def send_due_scheduled(db: AsyncSession, now: datetime | None = None) -> i
     from app.api.later import scheduled_changed
     from app.api.messages import deliver
 
-    rows = (
-        await db.execute(
-            select(ScheduledMessage)
-            .where(ScheduledMessage.send_at <= (now or _now()))
-            .order_by(ScheduledMessage.send_at)
-            .limit(BATCH)
-            .with_for_update(skip_locked=True)
-        )
-    ).scalars().all()
+    cutoff = now or _now()
     sent = 0
-    for item in rows:
+    for _ in range(BATCH):
+        # deliver коммитит: блокируем по одной строке, чтобы следующий процесс не
+        # забрал остаток заранее выбранной пачки после первого коммита.
+        item = (
+            await db.execute(
+                select(ScheduledMessage)
+                .where(ScheduledMessage.send_at <= cutoff)
+                .order_by(ScheduledMessage.send_at, ScheduledMessage.id)
+                .limit(1)
+                .with_for_update(skip_locked=True)
+            )
+        ).scalar_one_or_none()
+        if item is None:
+            break
         chat = (await db.execute(select(Chat).where(Chat.id == item.chat_id))).scalar_one_or_none()
         reply_to = None
         if item.reply_to_id:
@@ -51,6 +58,7 @@ async def send_due_scheduled(db: AsyncSession, now: datetime | None = None) -> i
         await db.delete(item)
         await db.flush()
         if not chat:
+            await db.commit()
             continue
         try:
             # deliver коммитит — заодно фиксирует удаление из очереди.
@@ -61,6 +69,61 @@ async def send_due_scheduled(db: AsyncSession, now: datetime | None = None) -> i
             log.info("scheduled message dropped: %s", exc.detail)
             await db.commit()
         await scheduled_changed(sender_id, chat_id)
+    return sent
+
+
+async def send_due_star_scheduled(db: AsyncSession, now: datetime | None = None) -> int:
+    from app.api.star_later import scheduled_changed
+    from app.api.stars import send_message
+    from app.schemas.star import SendStarMessage
+
+    cutoff = now or _now()
+    sent = 0
+    for _ in range(BATCH):
+        item = (
+            await db.execute(
+                select(ScheduledStarMessage)
+                .where(ScheduledStarMessage.send_at <= cutoff)
+                .order_by(ScheduledStarMessage.send_at, ScheduledStarMessage.id)
+                .limit(1)
+                .with_for_update(skip_locked=True)
+            )
+        ).scalar_one_or_none()
+        if item is None:
+            break
+        item_id, sender_id, star_id, channel_id = item.id, item.sender_id, item.star_id, item.channel_id
+        body = SendStarMessage(
+            text=item.text,
+            reply_to_id=item.reply_to_id,
+            ack_required=item.ack_required,
+            link_preview=item.link_preview,
+        )
+        sender = await db.get(User, sender_id)
+        # Удаление очереди и создание сообщения фиксируются одним коммитом в send_message.
+        await db.delete(item)
+        await db.flush()
+        error = None
+        try:
+            if sender is None:
+                await db.commit()
+                continue
+            await send_message(star_id, channel_id, body, sender, db)
+            sent += 1
+        except HTTPException as exc:
+            if exc.status_code == 429:
+                # Медленный режим: сохраняем сообщение до следующей попытки.
+                await db.rollback()
+                await db.execute(
+                    update(ScheduledStarMessage)
+                    .where(ScheduledStarMessage.id == item_id)
+                    .values(send_at=max(cutoff, _now()) + timedelta(seconds=TICK_SEC))
+                )
+            else:
+                # Вышел из Звезды, заблокирован, изменились права или фильтр слов.
+                error = str(exc.detail)
+                log.info("scheduled satellite message dropped: %s", error)
+            await db.commit()
+        await scheduled_changed(sender_id, star_id, channel_id, error)
     return sent
 
 
@@ -141,6 +204,7 @@ async def run_forever(session_factory: async_sessionmaker) -> None:
     while True:
         for job in (
             send_due_scheduled,
+            send_due_star_scheduled,
             fire_due_reminders,
             expire_messages,
             start_due_lfg,

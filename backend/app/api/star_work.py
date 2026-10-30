@@ -12,6 +12,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.stars import (
+    _as_star,
     _broadcast,
     _channel,
     _channel_event,
@@ -79,7 +80,7 @@ async def thread_messages(
         )
     ).all()
     sender = (await db.execute(select(User).where(User.id == root.sender_id))).scalar_one_or_none()
-    return await _messages_out(db, [(root, sender), *[(m, u) for m, u in reversed(rows)]], current_user.id)
+    return _as_star(await _messages_out(db, [(root, sender), *[(m, u) for m, u in reversed(rows)]], current_user.id), star_id)
 
 
 # --- Объявления: «Ознакомлен(а)» -------------------------------------------------

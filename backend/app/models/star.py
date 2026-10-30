@@ -576,3 +576,39 @@ class StarChannelNoteRevision(Base):
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class StarChannelShare(Base):
+    """Общий Спутник: канал Звезды-хозяина (channel.star_id) подключён к другой Звезде (star_id).
+
+    Участники гостевой Звезды читают и пишут в него, как в свой; настройки канала, закрепы
+    и модерация чужих сообщений — у Звезды-хозяина."""
+
+    __tablename__ = "star_channel_shares"
+
+    channel_id: Mapped[str] = mapped_column(
+        ForeignKey("star_channels.id", ondelete="CASCADE"), primary_key=True
+    )
+    star_id: Mapped[str] = mapped_column(
+        ForeignKey("stars.id", ondelete="CASCADE"), primary_key=True, index=True
+    )
+    created_by: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class StarShareInvite(Base):
+    """Одноразовый код, по которому админ другой Звезды подключает общий Спутник."""
+
+    __tablename__ = "star_share_invites"
+
+    code: Mapped[str] = mapped_column(String(24), primary_key=True)
+    channel_id: Mapped[str] = mapped_column(
+        ForeignKey("star_channels.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    created_by: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

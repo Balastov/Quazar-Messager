@@ -31,6 +31,13 @@ export function auditText(e: AuditEntry): string {
       return `${who} изменил(а) канал ${channel}`;
     case "channel_delete":
       return `${who} удалил(а) канал ${channel}`;
+    case "channel_share": {
+      const where = typeof d.channel === "string" ? `«${d.channel}»` : "";
+      const star = typeof d.star === "string" ? `«${d.star}»` : "другой Звезде";
+      return d.op === "remove"
+        ? `Общий Спутник ${where} отключён от ${star} (${who})`
+        : `${who} подключил(а) Спутник ${where} к Звезде ${star}`;
+    }
     case "permissions":
       return `${who} изменил(а) права ролей`;
     case "settings":

@@ -98,26 +98,41 @@ async def star_push_targets(
     db: AsyncSession, star: Star, channel: StarChannel, message: StarMessage, also_mentioned: Iterable[str] = ()
 ) -> list[str]:
     """Кому слать push о сообщении Спутника: уровень позволяет, нет открытого приложения,
-    не «не беспокоить» и не нерабочее время."""
+    не «не беспокоить» и не нерабочее время.
+
+    В общем Спутнике — участникам всех подключённых Звёзд: уровень, «тишина» и рабочее время —
+    по Звезде, через которую человек в нём состоит (Звезда-хозяин первой)."""
+    from app.core import shares
+
     now = datetime.now(timezone.utc)
-    member_ids = [
-        uid
-        for uid in (await db.execute(select(StarMember.user_id).where(StarMember.star_id == star.id))).scalars()
-        if uid != message.sender_id
-    ]
+    star_ids = await shares.audience_star_ids(db, channel.id, channel.star_id)
+    stars = {s.id: s for s in (await db.execute(select(Star).where(Star.id.in_(star_ids)))).scalars()}
+    stars.setdefault(star.id, star)
+    star_of: dict[str, str] = {}
+    for uid, sid in (
+        await db.execute(select(StarMember.user_id, StarMember.star_id).where(StarMember.star_id.in_(star_ids)))
+    ).all():
+        if uid == message.sender_id:
+            continue
+        # Состоит в нескольких — считаем по Звезде, что раньше в списке (хозяин первым).
+        if uid not in star_of or star_ids.index(sid) < star_ids.index(star_of[uid]):
+            star_of[uid] = sid
+    member_ids = list(star_of)
     if not member_ids:
         return []
     rows = (
         await db.execute(
             select(NotifySetting).where(
                 NotifySetting.user_id.in_(member_ids),
-                ((NotifySetting.scope == "star") & (NotifySetting.target_id == star.id))
+                ((NotifySetting.scope == "star") & (NotifySetting.target_id.in_(star_ids)))
                 | ((NotifySetting.scope == "channel") & (NotifySetting.target_id == channel.id)),
             )
         )
     ).scalars().all()
     by_user: dict[str, dict[str, NotifySetting]] = {}
     for s in rows:
+        if s.scope == "star" and s.target_id != star_of.get(s.user_id):
+            continue
         by_user.setdefault(s.user_id, {})[s.scope] = s
     mentioned = set(message.mentions or []) | set(also_mentioned)
     wanted = []
@@ -136,7 +151,11 @@ async def star_push_targets(
         await db.execute(select(User.id, User.manual_status, User.manual_status_until).where(User.id.in_(wanted)))
     ).all()
     dnd = {uid for uid, kind, until in statuses if kind == "dnd" and (until is None or until > now)}
-    resting = await work_hours.resting(db, star, wanted, now)
+    resting: set[str] = set()
+    for sid in star_ids:
+        group = [uid for uid in wanted if star_of[uid] == sid]
+        if group and sid in stars:
+            resting |= await work_hours.resting(db, stars[sid], group, now)
     return [uid for uid in wanted if uid not in dnd and uid not in resting]
 
 

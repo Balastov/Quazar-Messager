@@ -10,6 +10,7 @@ import type {
 } from "../../api/stars";
 import { useStarsStore } from "../../store/stars";
 import Dialog from "./Dialog";
+import { ConnectShared, ShareSection } from "./ChannelShare";
 import { apiError, ROOM_LABEL, SELECTABLE_ROOM_KINDS } from "./rules";
 import s from "./Constellation.module.css";
 import { placeNouns } from "./words";
@@ -29,6 +30,8 @@ interface Props {
   canEditMap?: boolean;
   /** Участники Звезды — из них выбирают хозяина личного кабинета. */
   members?: StarMember[];
+  /** Звезда, в которой открыт диалог: общий доступ и подключение по коду. */
+  starId?: string;
   onClose: () => void;
 }
 
@@ -40,6 +43,7 @@ export default function ChannelDialog({
   defaultFloorId,
   canEditMap = false,
   members = [],
+  starId,
   onClose,
 }: Props) {
   const limits = useStarsStore((st) => st.limits);
@@ -295,6 +299,9 @@ export default function ChannelDialog({
             <span className={s.hint}>Один человек — не чаще одного сообщения за это время. Модераторов не касается.</span>
           </label>
         )}
+
+        {!isPlanet && channel && starId && <ShareSection starId={starId} channel={channel} />}
+        {!isPlanet && !channel && starId && <ConnectShared starId={starId} onDone={onClose} />}
 
         {error && <div className={s.error}>{error}</div>}
 

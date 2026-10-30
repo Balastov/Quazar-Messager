@@ -82,7 +82,8 @@ export default function ThreadPanel({ detail, fullscreen = false }: Props) {
   const roleOf = (userId: string) => detail.members.find((mb) => mb.user.id === userId)?.role;
   const canDelete = (msg: StarMessage) => {
     if (msg.sender?.id === myId) return true;
-    if (!can(detail, "delete_messages")) return false;
+    // В общем Спутнике другой Звезды чужие сообщения удаляют модераторы хозяина.
+    if (!can(detail, "delete_messages") || channel?.shared_from) return false;
     const senderRole = msg.sender ? roleOf(msg.sender.id) : undefined;
     return !senderRole || outranks(detail.my_role, senderRole);
   };

@@ -16,8 +16,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.stars import _broadcast, _forbid, _load_membership, _satellite, _user_out, assert_can_post
-from app.core import stars as rules
+from app.api.stars import _broadcast, _forbid, _load_membership, _satellite, _staff_here, _user_out, assert_can_post
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.models.star import StarChannelNote, StarChannelNoteRevision
@@ -61,8 +60,8 @@ class RevisionTextOut(RevisionOut):
     text: str
 
 
-def _can_edit(channel, role: str) -> bool:
-    return not channel.announcement or rules.is_staff(role)
+def _can_edit(channel, me) -> bool:
+    return not channel.announcement or _staff_here(me, channel)
 
 
 async def _users(db: AsyncSession, ids: set[str | None]) -> dict[str, StarUserOut]:
@@ -72,7 +71,7 @@ async def _users(db: AsyncSession, ids: set[str | None]) -> dict[str, StarUserOu
     return {u.id: _user_out(u) for u in (await db.execute(select(User).where(User.id.in_(ids)))).scalars()}
 
 
-async def _note_out(db: AsyncSession, channel, role: str) -> NoteOut:
+async def _note_out(db: AsyncSession, channel, me) -> NoteOut:
     note = await db.get(StarChannelNote, channel.id)
     users = await _users(db, {note.updated_by if note else None})
     return NoteOut(
@@ -81,7 +80,7 @@ async def _note_out(db: AsyncSession, channel, role: str) -> NoteOut:
         version=note.version if note else 0,
         updated_by=users.get(note.updated_by) if note and note.updated_by else None,
         updated_at=note.updated_at if note else None,
-        can_edit=_can_edit(channel, role),
+        can_edit=_can_edit(channel, me),
     )
 
 
@@ -89,7 +88,7 @@ async def _note_out(db: AsyncSession, channel, role: str) -> NoteOut:
 async def get_notes(star_id: str, channel_id: str, current_user: CurrentUser, db: Db):
     _, me = await _load_membership(db, star_id, current_user.id)
     channel = await _satellite(db, star_id, channel_id)
-    return await _note_out(db, channel, me.role)
+    return await _note_out(db, channel, me)
 
 
 @router.put("/{star_id}/channels/{channel_id}/notes", response_model=NoteOut)
@@ -97,7 +96,7 @@ async def save_notes(star_id: str, channel_id: str, body: SaveNote, current_user
     star, me = await _load_membership(db, star_id, current_user.id)
     channel = await _satellite(db, star_id, channel_id)
     assert_can_post(star, me)
-    if not _can_edit(channel, me.role):
+    if not _can_edit(channel, me):
         raise _forbid("Заметки канала объявлений правят модераторы и выше")
     note = (
         await db.execute(select(StarChannelNote).where(StarChannelNote.channel_id == channel_id).with_for_update())
@@ -105,7 +104,7 @@ async def save_notes(star_id: str, channel_id: str, body: SaveNote, current_user
     current = note.version if note else 0
     if body.base_version != current:
         # Кто-то сохранил раньше: отдаём актуальное, клиент покажет и предложит сверить.
-        latest = await _note_out(db, channel, me.role)
+        latest = await _note_out(db, channel, me)
         await db.rollback()
         return JSONResponse(
             status_code=status.HTTP_409_CONFLICT,
@@ -116,10 +115,10 @@ async def save_notes(star_id: str, channel_id: str, body: SaveNote, current_user
         )
     text = body.text.replace("\r\n", "\n")
     if note and note.text == text:
-        return await _note_out(db, channel, me.role)
+        return await _note_out(db, channel, me)
     now = datetime.now(timezone.utc)
     if not note:
-        note = StarChannelNote(channel_id=channel_id, star_id=star_id, version=0)
+        note = StarChannelNote(channel_id=channel_id, star_id=channel.star_id, version=0)
         db.add(note)
     note.text = text
     note.version = current + 1
@@ -127,7 +126,7 @@ async def save_notes(star_id: str, channel_id: str, body: SaveNote, current_user
     note.updated_at = now
     db.add(
         StarChannelNoteRevision(
-            channel_id=channel_id, star_id=star_id, version=note.version, text=text,
+            channel_id=channel_id, star_id=channel.star_id, version=note.version, text=text,
             author_id=current_user.id, created_at=now,
         )
     )
@@ -155,7 +154,7 @@ async def save_notes(star_id: str, channel_id: str, body: SaveNote, current_user
             "updated_at": now.isoformat(),
         },
     )
-    return await _note_out(db, channel, me.role)
+    return await _note_out(db, channel, me)
 
 
 @router.get("/{star_id}/channels/{channel_id}/notes/revisions", response_model=list[RevisionOut])

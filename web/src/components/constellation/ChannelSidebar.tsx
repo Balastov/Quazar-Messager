@@ -97,7 +97,7 @@ export default function ChannelSidebar({
           onDoubleClick={
             kind === "planet"
               ? () => void useDoorsStore.getState().enterRoom(detail, c)
-              : manage
+              : manage && !c.shared_from
                 ? () => onEditChannel(c)
                 : undefined
           }
@@ -110,7 +110,11 @@ export default function ChannelSidebar({
                 ]
                   .filter(Boolean)
                   .join("\n")
-              : undefined
+              : c.shared_from
+                ? `Общий Спутник Звезды «${c.shared_from.name}»`
+                : c.shared_with?.length
+                  ? `Общий с ${c.shared_with.map((x) => `«${x.name}»`).join(", ")}`
+                  : undefined
           }
         >
           {kind === "satellite" ? <IconSatellite /> : <IconPlanet />}
@@ -123,6 +127,7 @@ export default function ChannelSidebar({
             {c.temporary ? " ⏳" : ""}
             {c.slow_mode_sec ? " 🐢" : ""}
             {c.announcement ? " 📢" : ""}
+            {c.shared_from || c.shared_with?.length ? " 🔗" : ""}
             {quiet ? " 🔕" : ""}
             {sign ? ` ${sign.icon}` : ""}
             {busy ? " 📅" : ""}

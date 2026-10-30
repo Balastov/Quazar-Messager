@@ -15,8 +15,8 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.stars import _broadcast, _forbid, _load_membership, _satellite, assert_can_post
-from app.core import stars as rules
+from app.api.stars import _broadcast, _forbid, _load_membership, _satellite, _staff_here, assert_can_post
+from app.core import shares
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.models.star import StarBookmark, StarFile
@@ -118,32 +118,30 @@ async def _event(db: AsyncSession, star_id: str, channel_id: str) -> None:
     )
 
 
-async def _check_file(db: AsyncSession, star_id: str, file_id: str | None) -> None:
+async def _check_file(db: AsyncSession, channel, file_id: str | None) -> None:
+    """Файл Звезды-хозяина канала; в общем Спутнике — только из него самого (его видят все гости)."""
     if not file_id:
         return
-    file = (
-        await db.execute(
-            select(StarFile.id).where(
-                StarFile.id == file_id, StarFile.star_id == star_id, StarFile.message_id.is_not(None)
-            )
-        )
-    ).first()
-    if not file:
-        raise HTTPException(status_code=422, detail="Файл не найден в этой Звезде")
+    query = select(StarFile.id).where(StarFile.id == file_id, StarFile.message_id.is_not(None))
+    if await shares.guest_star_ids(db, channel.id):
+        query = query.where(StarFile.channel_id == channel.id)
+    else:
+        query = query.where(StarFile.star_id == channel.star_id)
+    if not (await db.execute(query)).first():
+        raise HTTPException(status_code=422, detail="Файл не найден — в общем Спутнике годятся только файлы из него")
 
 
 async def _editable(db: AsyncSession, star_id: str, channel_id: str, bookmark_id: str, user: User) -> StarBookmark:
     _, me = await _load_membership(db, star_id, user.id)
+    channel = await _satellite(db, star_id, channel_id)
     bookmark = (
         await db.execute(
-            select(StarBookmark).where(
-                StarBookmark.id == bookmark_id, StarBookmark.channel_id == channel_id, StarBookmark.star_id == star_id
-            )
+            select(StarBookmark).where(StarBookmark.id == bookmark_id, StarBookmark.channel_id == channel_id)
         )
     ).scalar_one_or_none()
     if not bookmark:
         raise HTTPException(status_code=404, detail="Закладка не найдена")
-    if bookmark.created_by != user.id and not rules.is_staff(me.role):
+    if bookmark.created_by != user.id and not _staff_here(me, channel):
         raise _forbid("Менять закладку может её автор или модераторы")
     return bookmark
 
@@ -162,9 +160,9 @@ async def add_bookmark(star_id: str, channel_id: str, body: BookmarkBody, curren
     star, me = await _load_membership(db, star_id, current_user.id)
     channel = await _satellite(db, star_id, channel_id)
     assert_can_post(star, me)
-    if channel.announcement and not rules.is_staff(me.role):
+    if channel.announcement and not _staff_here(me, channel):
         raise _forbid("В канале объявлений закладки добавляют модераторы и выше")
-    await _check_file(db, star_id, body.file_id)
+    await _check_file(db, channel, body.file_id)
     count, top = (
         await db.execute(
             select(func.count(), func.max(StarBookmark.position)).where(StarBookmark.channel_id == channel_id)
@@ -173,7 +171,7 @@ async def add_bookmark(star_id: str, channel_id: str, body: BookmarkBody, curren
     if count >= BOOKMARK_LIMIT:
         raise HTTPException(status_code=409, detail=f"Не больше {BOOKMARK_LIMIT} закладок в Спутнике")
     bookmark = StarBookmark(
-        star_id=star_id,
+        star_id=channel.star_id,
         channel_id=channel_id,
         position=(top or 0) + 1,
         created_by=current_user.id,
@@ -190,7 +188,7 @@ async def update_bookmark(
     star_id: str, channel_id: str, bookmark_id: str, body: BookmarkBody, current_user: CurrentUser, db: Db
 ):
     bookmark = await _editable(db, star_id, channel_id, bookmark_id, current_user)
-    await _check_file(db, star_id, body.file_id)
+    await _check_file(db, await _satellite(db, star_id, channel_id), body.file_id)
     for key, value in body.model_dump().items():
         setattr(bookmark, key, value)
     await db.commit()
@@ -214,8 +212,8 @@ class OrderBody(BaseModel):
 async def reorder_bookmarks(star_id: str, channel_id: str, body: OrderBody, current_user: CurrentUser, db: Db):
     """Новый порядок полосы (перетаскивание) — модераторы и выше."""
     _, me = await _load_membership(db, star_id, current_user.id)
-    await _satellite(db, star_id, channel_id)
-    if not rules.is_staff(me.role):
+    channel = await _satellite(db, star_id, channel_id)
+    if not _staff_here(me, channel):
         raise _forbid("Порядок закладок меняют модераторы и выше")
     bookmarks = {
         b.id: b

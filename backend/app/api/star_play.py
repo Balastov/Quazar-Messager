@@ -26,6 +26,7 @@ from app.api.stars import (
 )
 from app.core import star_assets, voice
 from app.core import stars as rules
+from app.core import shares
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.core.push import send_push_to_user
@@ -60,6 +61,12 @@ async def _post_message(db: AsyncSession, star_id: str, channel_id: str, user: U
     await db.commit()
     out = (await _messages_out(db, [(message, user)]))[0]
     await _broadcast(db, star_id, {"type": "star_message", "message": out.model_dump(mode="json")})
+
+
+async def _not_shared(db: AsyncSession, channel) -> None:
+    """Опросы и сборы живут внутри одной Звезды — в общем Спутнике гости не смогли бы участвовать."""
+    if await shares.guest_star_ids(db, channel.id):
+        raise HTTPException(status_code=409, detail="В общем Спутнике опросы и сборы недоступны")
 
 
 async def _message_of(db: AsyncSession, kind: str, ref_id: str) -> StarMessage | None:
@@ -162,6 +169,7 @@ async def _poll(db: AsyncSession, star_id: str, poll_id: str) -> StarPoll:
 async def create_poll(star_id: str, channel_id: str, body: PollBody, current_user: CurrentUser, db: Db) -> dict:
     star, me = await _load_membership(db, star_id, current_user.id)
     channel = await _satellite(db, star_id, channel_id)
+    await _not_shared(db, channel)
     assert_can_post(star, me)
     await assert_slow_mode(db, channel, me)
     assert_clean_text(star, me, " ".join([body.question, *body.options]))
@@ -356,6 +364,7 @@ async def _lfg(db: AsyncSession, star_id: str, lfg_id: str) -> StarLfg:
 async def create_lfg(star_id: str, channel_id: str, body: LfgBody, current_user: CurrentUser, db: Db) -> dict:
     star, me = await _load_membership(db, star_id, current_user.id)
     channel = await _satellite(db, star_id, channel_id)
+    await _not_shared(db, channel)
     assert_can_post(star, me)
     await assert_slow_mode(db, channel, me)
     assert_clean_text(star, me, body.title)

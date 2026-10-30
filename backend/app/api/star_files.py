@@ -8,12 +8,13 @@ from urllib.parse import unquote
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import func, select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.stars import _load_membership, _satellite, _user_out, assert_can_post
 from app.core import star_files
 from app.core.config import settings
+from app.core import shares
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.models.star import StarFile
@@ -49,14 +50,16 @@ async def upload_file(
 ):
     """Тело — сам файл, Content-Type — его тип. Потом файл уходит в сообщении (file_id)."""
     star, me = await _load_membership(db, star_id, current_user.id)
-    await _satellite(db, star_id, channel_id)
+    channel = await _satellite(db, star_id, channel_id)
     assert_can_post(star, me)
+    # Файлы общего Спутника хранятся у Звезды-хозяина и занимают её место.
+    owner_star_id = channel.star_id
 
     declared = request.headers.get("content-length")
     declared_size = int(declared) if declared and declared.isdigit() else 0
     if declared_size > star_files.MAX_FILE_BYTES:
         raise HTTPException(status_code=413, detail=TOO_LARGE)
-    used = await _used(db, star_id)
+    used = await _used(db, owner_star_id)
     # Владельцу ресурса — без лимита места Звезды (лимит одного файла остаётся).
     unlimited = current_user.is_superuser or bool(
         (await db.execute(select(User.is_superuser).where(User.id == star.owner_id))).scalar_one_or_none()
@@ -84,7 +87,7 @@ async def upload_file(
 
     file = StarFile(
         id=file_id,
-        star_id=star_id,
+        star_id=owner_star_id,
         channel_id=channel_id,
         uploader_id=current_user.id,
         name=star_files.clean_name(unquote(name)),
@@ -118,7 +121,10 @@ async def list_files(
     query = (
         select(StarFile, User)
         .outerjoin(User, User.id == StarFile.uploader_id)
-        .where(StarFile.star_id == star_id, StarFile.message_id.is_not(None))
+        .where(
+            or_(StarFile.star_id == star_id, StarFile.channel_id.in_(await shares.shared_channel_ids(db, star_id))),
+            StarFile.message_id.is_not(None),
+        )
     )
     words = q.split()
     for word in words:
@@ -156,8 +162,11 @@ async def list_files(
 async def download_file(star_id: str, file_id: str, current_user: CurrentUser, db: Db):
     await _load_membership(db, star_id, current_user.id)
     file = (
-        await db.execute(select(StarFile).where(StarFile.id == file_id, StarFile.star_id == star_id))
+        await db.execute(select(StarFile).where(StarFile.id == file_id))
     ).scalar_one_or_none()
+    # Файл своей Звезды или общего Спутника, подключённого к ней.
+    if file and file.star_id != star_id and not await shares.is_shared_into(db, file.channel_id, star_id):
+        file = None
     # Не отправленный файл виден только тому, кто его загрузил.
     if not file or (file.message_id is None and file.uploader_id != current_user.id):
         raise HTTPException(status_code=404, detail="Файл не найден")

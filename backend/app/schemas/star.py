@@ -210,6 +210,14 @@ class StarTagOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class SharedStarOut(BaseModel):
+    """Другая Звезда общего Спутника — её название для подписи «Общий с …» / «Из …»."""
+
+    id: str
+    name: str
+    avatar_url: str | None = None
+
+
 class StarChannelOut(BaseModel):
     id: str
     star_id: str
@@ -234,6 +242,9 @@ class StarChannelOut(BaseModel):
     map_y: int | None
     map_w: int | None
     map_h: int | None
+    # Общий Спутник: у гостевой Звезды — чей он (хозяин), у хозяина — к каким Звёздам подключён.
+    shared_from: SharedStarOut | None = None
+    shared_with: list[SharedStarOut] = []
 
     model_config = {"from_attributes": True}
 

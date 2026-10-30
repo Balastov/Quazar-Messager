@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { StarAsset, StarBookmark, StarChannel, StarDetail, StarMessage } from "../../api/stars";
+import { starsApi, type StarAsset, type StarBookmark, type StarChannel, type StarDetail, type StarMessage } from "../../api/stars";
 import { stickerFileUrl } from "../../api/stickers";
 import { useAuthStore } from "../../store/auth";
 import { useStarsStore } from "../../store/stars";
@@ -118,7 +118,10 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
   const timedOutUntil =
     me?.timeout_until && Date.parse(me.timeout_until) > Date.now() ? me.timeout_until : null;
   const slowMode = channel.slow_mode_sec ?? 0;
-  const isAdmin = detail.my_role === "owner" || detail.my_role === "admin";
+  // Общий Спутник другой Звезды: модерация и настройки — у хозяина, здесь мы обычные участники.
+  const guestHere = !!channel.shared_from;
+  const shared = guestHere || !!channel.shared_with?.length;
+  const isAdmin = (detail.my_role === "owner" || detail.my_role === "admin") && !guestHere;
   const announcement = !!channel.announcement;
   const [askAck, setAskAck] = useState(false);
   const [notifyOpen, setNotifyOpen] = useState(false);
@@ -161,14 +164,14 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
   const level = channelLevel(notifySettings, detail.id, channel.id);
   const composerPreview = useComposerPreview(text, !editing);
   // Закрепляют те, кто может удалять чужие сообщения (модераторы и выше).
-  const canPin = can(detail, "delete_messages");
+  const canPin = can(detail, "delete_messages") && !guestHere;
   const pinnedIds = new Set((pins ?? []).map((p) => p.id));
   const nameOf = (userId: string) =>
     displayName(detail.members.find((mb) => mb.user.id === userId)?.user) ?? "Бывший участник";
 
   const canDelete = (msg: StarMessage) => {
     if (msg.sender?.id === myId) return true;
-    if (!can(detail, "delete_messages")) return false;
+    if (!can(detail, "delete_messages") || guestHere) return false;
     const senderRole = msg.sender ? roleOf(msg.sender.id) : undefined;
     return !senderRole || outranks(detail.my_role, senderRole);
   };
@@ -441,7 +444,13 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
         <div className={s.channelTitle}>
           <span className={s.channelTitleName}>{channel.name}</span>
           <span className={s.channelTitleSub}>
-            {announcement ? "📢 Объявления" : "Спутник"} · {detail.name} · без сквозного шифрования
+            {announcement ? "📢 Объявления" : "Спутник"} ·{" "}
+            {channel.shared_from
+              ? `🔗 общий, Звезды «${channel.shared_from.name}»`
+              : channel.shared_with?.length
+                ? `🔗 общий с ${channel.shared_with.map((x) => `«${x.name}»`).join(", ")}`
+                : detail.name}{" "}
+            · без сквозного шифрования
           </span>
         </div>
         <button
@@ -463,7 +472,7 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
         >
           {level === "none" ? "🔕" : "🔔"}
         </button>
-        {can(detail, "manage_channels") && (
+        {can(detail, "manage_channels") && !guestHere && (
           <button
             type="button"
             className={s.iconBtn}
@@ -472,6 +481,19 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
             title="Изменить Спутник"
           >
             <IconGear />
+          </button>
+        )}
+        {can(detail, "manage_channels") && guestHere && (
+          <button
+            type="button"
+            className={`${s.secondary} ${s.small}`}
+            title="Убрать общий Спутник из этой Звезды — у хозяина он останется"
+            onClick={() => {
+              if (!window.confirm(`Отключить общий Спутник «${channel.name}» от «${detail.name}»?`)) return;
+              void starsApi.removeShare(detail.id, channel.id, detail.id).catch((err) => setError(apiError(err, "Не удалось отключить")));
+            }}
+          >
+            Отключить
           </button>
         )}
       </div>
@@ -742,8 +764,13 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
           reaction={null}
           actions={[
             { label: "📎 Файл (до 50 МБ)", onClick: () => fileInputRef.current?.click() },
-            { label: "📊 Опрос", onClick: () => setDialog("poll") },
-            { label: "🎮 Сбор группы", onClick: () => setDialog("lfg") },
+            // Опросы и сборы живут внутри одной Звезды — в общем Спутнике их нет.
+            ...(shared
+              ? []
+              : [
+                  { label: "📊 Опрос", onClick: () => setDialog("poll") },
+                  { label: "🎮 Сбор группы", onClick: () => setDialog("lfg") },
+                ]),
           ]}
           onClose={() => setPlusMenu(null)}
         />
@@ -845,6 +872,13 @@ export function SatelliteMessage({
   const starSticker = sticker?.pack === "star" ? assets.find((a) => a.id === sticker.id) : undefined;
   const packSticker = sticker && sticker.pack !== "star" ? stickersByKey[`${sticker.pack}/${sticker.id}`] : undefined;
   const color = memberColor(detail, msg.sender?.id);
+  // В общем Спутнике — автор из другой Звезды (в нашем списке участников его нет).
+  const msgChannel = detail.channels.find((c) => c.id === msg.channel_id);
+  const external =
+    msg.kind !== "bot" &&
+    !!msg.sender &&
+    !!(msgChannel?.shared_from || msgChannel?.shared_with?.length) &&
+    !detail.members.some((mb) => mb.user.id === msg.sender!.id);
   const body =
     msg.kind === "file" && msg.file ? (
       <>
@@ -891,6 +925,11 @@ export function SatelliteMessage({
             {msg.kind === "bot" ? (msg.bot_name ?? "Интеграция") : (displayName(msg.sender) ?? "Бывший участник")}
           </span>
           {msg.kind === "bot" && <span className={w.botBadge}>бот</span>}
+          {external && (
+            <span className={w.botBadge} title="Участник другой Звезды общего Спутника">
+              внешний
+            </span>
+          )}
           <span className={s.messageTime}>
             {formatTime(msg.created_at)} <EditedMark at={msg.edited_at} />
           </span>

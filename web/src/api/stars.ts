@@ -236,9 +236,20 @@ export interface CommunitySettings {
   soundboard?: boolean;
 }
 
+/** Другая Звезда общего Спутника. */
+export interface SharedStar {
+  id: string;
+  name: string;
+  avatar_url: string | null;
+}
+
 export interface StarChannel {
   id: string;
   star_id: string;
+  /** Общий Спутник другой Звезды, подключённый к этой: чей он. */
+  shared_from?: SharedStar | null;
+  /** Свой Спутник, открытый другим Звёздам: каким. */
+  shared_with?: SharedStar[];
   kind: ChannelKind;
   name: string;
   position: number;
@@ -480,6 +491,7 @@ export type StarEvent =
   | { type: "star_permissions"; star_id: string; role_permissions: RolePermissions }
   | { type: "star_channel_upsert"; star_id: string; channel: StarChannel }
   | { type: "star_channel_deleted"; star_id: string; channel_id: string }
+  | { type: "star_channel_shared"; star_id: string; channel_id: string; shared_with: SharedStar[] }
   | { type: "star_channels_order"; star_id: string; channel_ids: string[] }
   | { type: "star_message"; star_id: string; message: StarMessage }
   | { type: "star_scheduled_changed"; star_id: string; channel_id: string; error?: string }
@@ -727,6 +739,20 @@ export const starsApi = {
       .then((r) => new Uint8Array(r.data)),
   pins: (starId: string, channelId: string) =>
     http.get<StarMessage[]>(`${base(starId)}/channels/${channelId}/pins`).then((r) => r.data),
+  createShareInvite: (starId: string, channelId: string) =>
+    http
+      .post<{ code: string; expires_at: string }>(`${base(starId)}/channels/${channelId}/share-invites`)
+      .then((r) => r.data),
+  removeShare: (starId: string, channelId: string, guestStarId: string) =>
+    http.delete(`${base(starId)}/channels/${channelId}/shares/${guestStarId}`),
+  previewShareInvite: (code: string) =>
+    http
+      .get<{ channel_name: string; star: SharedStar; expires_at: string }>(`/star-share-invites/${encodeURIComponent(code)}`)
+      .then((r) => r.data),
+  acceptShareInvite: (code: string, starId: string) =>
+    http
+      .post<SharedStar>(`/star-share-invites/${encodeURIComponent(code)}/accept`, { star_id: starId })
+      .then((r) => r.data),
   notes: (starId: string, channelId: string) =>
     http.get<StarNote>(`${base(starId)}/channels/${channelId}/notes`).then((r) => r.data),
   saveNotes: (starId: string, channelId: string, text: string, baseVersion: number) =>

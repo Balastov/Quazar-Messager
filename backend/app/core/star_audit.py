@@ -15,6 +15,7 @@ ACTIONS = (
     "channel_create",
     "channel_update",
     "channel_delete",
+    "channel_share",
     "permissions",
     "settings",
     "tag",

@@ -23,7 +23,7 @@ from app.core.backgrounds import (
     save_background,
 )
 from app.core import doors
-from app.core import markup, notify, presence, star_assets, star_audit, star_files
+from app.core import markup, notify, presence, shares, star_assets, star_audit, star_files
 from app.core import floors as floors_svc
 from app.core import voice
 from app.core.database import get_db
@@ -33,6 +33,7 @@ from app.models.star import (
     Star,
     StarBan,
     StarChannel,
+    StarChannelShare,
     StarFile,
     StarInvite,
     StarMember,
@@ -53,6 +54,7 @@ from app.schemas.star import (
     SendStarMessage,
     SetStarReaction,
     StarBanOut,
+    SharedStarOut,
     StarChannelOut,
     StarDetailOut,
     StarFileOut,
@@ -178,9 +180,48 @@ async def _lock_user(db: AsyncSession, user_id: str) -> User:
     return user
 
 
+def _event_channel_id(event: dict) -> str | None:
+    """Канал, к которому относится событие (для общих Спутников — кому ещё его слать)."""
+    if isinstance(event.get("channel_id"), str):
+        return event["channel_id"]
+    for key, field in (("message", "channel_id"), ("channel", "id")):
+        nested = event.get(key)
+        if isinstance(nested, dict) and isinstance(nested.get(field), str):
+            return nested[field]
+    return None
+
+
 async def _broadcast(db: AsyncSession, star_id: str, event: dict, *, also: tuple[str, ...] = ()) -> None:
-    user_ids = set(await _member_ids(db, star_id)) | set(also)
-    await manager.broadcast_to_users(list(user_ids), {"star_id": star_id, **event})
+    """Участникам Звезды. Событие общего Спутника — участникам всех подключённых Звёзд,
+    каждому со star_id его Звезды; кто состоит в нескольких — получает один раз."""
+    channel_id = _event_channel_id(event)
+    star_ids = await shares.audience_star_ids(db, channel_id, star_id) if channel_id else [star_id]
+    if len(star_ids) == 1:
+        user_ids = set(await _member_ids(db, star_id)) | set(also)
+        await manager.broadcast_to_users(list(user_ids), {"star_id": star_id, **event})
+        return
+    known = set(star_ids)
+    sent: set[str] = set()
+    for i, sid in enumerate(star_ids):
+        user_ids = set(await _member_ids(db, sid)) - sent
+        if i == 0:
+            user_ids |= set(also) - sent
+        if not user_ids:
+            continue
+        sent |= user_ids
+        await manager.broadcast_to_users(list(user_ids), shares.for_star({"star_id": star_id, **event}, known, sid))
+
+
+def _staff_here(me: StarMember, channel: StarChannel) -> bool:
+    """Модератор в этом канале: в общем Спутнике — только у Звезды-хозяина, гости там — участники."""
+    return rules.is_staff(me.role) and me.star_id == channel.star_id
+
+
+def _as_star(outs: list[StarMessageOut], star_id: str) -> list[StarMessageOut]:
+    """Сообщения общего Спутника гостевой Звезде — с её star_id (клиент ходит по своим адресам)."""
+    for out in outs:
+        out.star_id = star_id
+    return outs
 
 
 async def _member_tag_ids(db: AsyncSession, star_id: str, user_id: str | None = None) -> dict[str, list[str]]:
@@ -290,7 +331,7 @@ async def _detail(db: AsyncSession, star: Star, me: StarMember) -> StarDetailOut
     # Рабочим Звёздам — этаж и места для комнат (в т.ч. созданным до появления карты).
     floors = await floors_svc.ensure_floors(db, star)
     members = await _members_out(db, star.id)
-    channels = await _channels(db, star.id)
+    channels = await channels_out(db, star.id)
     tags = (
         await db.execute(select(StarTag).where(StarTag.star_id == star.id).order_by(StarTag.position, StarTag.created_at))
     ).scalars().all()
@@ -298,7 +339,7 @@ async def _detail(db: AsyncSession, star: Star, me: StarMember) -> StarDetailOut
         **_summary(star, me.role, len(members)).model_dump(),
         my_permissions=rules.effective_permissions(me.role, star.role_permissions),
         role_permissions=rules.normalize_role_permissions(star.role_permissions),
-        channels=[StarChannelOut.model_validate(c) for c in channels],
+        channels=channels,
         members=members,
         voice=voice.star_presence(star.id),
         voice_since=voice.star_active_since(star.id),
@@ -313,6 +354,44 @@ async def _detail(db: AsyncSession, star: Star, me: StarMember) -> StarDetailOut
         work_hours_enabled=star.work_hours_enabled,
         work_hours=star.work_hours,
     )
+
+
+async def channels_out(db: AsyncSession, star_id: str) -> list[StarChannelOut]:
+    """Каналы Звезды и подключённые к ней общие Спутники (после своих)."""
+    own = await _channels(db, star_id)
+    guests = await shares.shared_into(db, star_id)
+    links = (
+        await db.execute(
+            select(StarChannelShare.channel_id, Star)
+            .join(Star, Star.id == StarChannelShare.star_id)
+            .where(StarChannelShare.channel_id.in_([c.id for c in own if c.kind == "satellite"]))
+            .order_by(StarChannelShare.created_at)
+        )
+    ).all() if own else []
+    homes = {
+        s.id: s
+        for s in (await db.execute(select(Star).where(Star.id.in_({c.star_id for c in guests})))).scalars()
+    } if guests else {}
+    shared_with: dict[str, list[SharedStarOut]] = {}
+    for channel_id, other in links:
+        shared_with.setdefault(channel_id, []).append(_shared_star(other))
+    out = []
+    for c in own:
+        item = StarChannelOut.model_validate(c)
+        item.shared_with = shared_with.get(c.id, [])
+        out.append(item)
+    for c in guests:
+        item = StarChannelOut.model_validate(c)
+        item.star_id = star_id
+        item.position = 10_000 + item.position
+        home = homes.get(c.star_id)
+        item.shared_from = _shared_star(home) if home else None
+        out.append(item)
+    return out
+
+
+def _shared_star(star: Star) -> SharedStarOut:
+    return SharedStarOut(id=star.id, name=star.name, avatar_url=star.avatar_url)
 
 
 def _rules_ok(star: Star, me: StarMember) -> bool:
@@ -862,9 +941,10 @@ async def _cabinet_owner(
 
 
 def _channel_event(channel: StarChannel) -> dict:
+    # Без shared_*: клиент сохраняет их из списка каналов (у хозяина и гостей они разные).
     return {
         "type": "star_channel_upsert",
-        "channel": StarChannelOut.model_validate(channel).model_dump(mode="json"),
+        "channel": StarChannelOut.model_validate(channel).model_dump(mode="json", exclude={"shared_from", "shared_with"}),
     }
 
 
@@ -996,9 +1076,13 @@ async def delete_channel(star_id: str, channel_id: str, current_user: CurrentUse
     if floor:
         floor.version += 1  # план этажа изменился
     name = channel.name
+    guests = await shares.guest_star_ids(db, channel_id)
     await db.delete(channel)
     await db.commit()
     await _broadcast(db, star_id, {"type": "star_channel_deleted", "channel_id": channel_id})
+    # Общий Спутник пропадает и у гостевых Звёзд (подключения ушли каскадом).
+    for guest_id in guests:
+        await _broadcast(db, guest_id, {"type": "star_channel_deleted", "channel_id": channel_id})
     await star_audit.record(db, star_id, current_user.id, "channel_delete", channel_id, name=name)
     if floor:
         await _broadcast(db, star_id, floors_event(await floors_svc.list_floors(db, star_id)))
@@ -1010,12 +1094,15 @@ async def delete_channel(star_id: str, channel_id: str, current_user: CurrentUse
 async def reorder_channels(star_id: str, body: ReorderChannels, current_user: CurrentUser, db: Db):
     await _require_perm(db, star_id, current_user, Perm.MANAGE_CHANNELS)
     channels = {c.id: c for c in await _channels(db, star_id)}
-    if not set(body.channel_ids) <= channels.keys():
+    # Общие Спутники других Звёзд стоят после своих — их порядок здесь не меняем.
+    foreign = set(await shares.shared_channel_ids(db, star_id))
+    if not set(body.channel_ids) <= channels.keys() | foreign:
         raise HTTPException(status_code=400, detail="Неизвестный канал")
-    for position, channel_id in enumerate(body.channel_ids):
+    own_ids = [i for i in body.channel_ids if i in channels]
+    for position, channel_id in enumerate(own_ids):
         channels[channel_id].position = position
     await db.commit()
-    await _broadcast(db, star_id, {"type": "star_channels_order", "channel_ids": body.channel_ids})
+    await _broadcast(db, star_id, {"type": "star_channels_order", "channel_ids": own_ids})
 
 
 # --- Сообщения Спутников --------------------------------------------------
@@ -1023,7 +1110,7 @@ async def reorder_channels(star_id: str, body: ReorderChannels, current_user: Cu
 
 async def assert_slow_mode(db: AsyncSession, channel: StarChannel, me: StarMember) -> None:
     """Медленный режим: следующее сообщение — не раньше чем через slow_mode_sec после своего прошлого."""
-    if not channel.slow_mode_sec or rules.is_staff(me.role):
+    if not channel.slow_mode_sec or _staff_here(me, channel):
         return
     last = (
         await db.execute(
@@ -1041,7 +1128,10 @@ async def assert_slow_mode(db: AsyncSession, channel: StarChannel, me: StarMembe
 
 
 async def _satellite(db: AsyncSession, star_id: str, channel_id: str) -> StarChannel:
-    channel = await _channel(db, star_id, channel_id)
+    """Спутник этой Звезды или общий Спутник, подключённый к ней. Настройки канала — через _channel."""
+    channel = (await db.execute(select(StarChannel).where(StarChannel.id == channel_id))).scalar_one_or_none()
+    if not channel or (channel.star_id != star_id and not await shares.is_shared_into(db, channel_id, star_id)):
+        raise HTTPException(status_code=404, detail="Канал не найден")
     if channel.kind != "satellite":
         raise HTTPException(status_code=400, detail="Сообщения есть только в Спутниках")
     return channel
@@ -1146,7 +1236,7 @@ async def _star_message(db: AsyncSession, star_id: str, channel_id: str, message
             select(StarMessage).where(StarMessage.id == message_id, StarMessage.channel_id == channel_id)
         )
     ).scalar_one_or_none()
-    if not message or message.star_id != star_id:
+    if not message or (message.star_id != star_id and not await shares.is_shared_into(db, channel_id, star_id)):
         raise HTTPException(status_code=404, detail="Сообщение не найдено")
     return message
 
@@ -1176,7 +1266,7 @@ async def list_messages(
         if cursor:
             query = query.where(StarMessage.created_at < cursor)
     rows = (await db.execute(query.order_by(StarMessage.created_at.desc()).limit(limit))).all()
-    return await _messages_out(db, [(m, u) for m, u in reversed(rows)], current_user.id)
+    return _as_star(await _messages_out(db, [(m, u) for m, u in reversed(rows)], current_user.id), star_id)
 
 
 @router.post(
@@ -1204,9 +1294,10 @@ async def send_message(
         ).scalar_one_or_none()
         if not file:
             raise HTTPException(status_code=422, detail="Файл не найден — загрузите его снова")
-    mentions, everyone = await _mentions(db, star_id, me, body.text)
+    mentions, everyone = await _mentions(db, star_id, me, body.text, channel)
     message = StarMessage(
-        star_id=star_id,
+        # Сообщения общего Спутника хранятся у Звезды-хозяина.
+        star_id=channel.star_id,
         channel_id=channel_id,
         sender_id=current_user.id,
         text=body.text,
@@ -1228,6 +1319,7 @@ async def send_message(
     if message.thread_id:
         await thread_event(db, star_id, channel_id, message.thread_id)
     await _push_message(db, star, channel, message, current_user, reply_to, file)
+    out.star_id = star_id
     return out
 
 
@@ -1244,7 +1336,8 @@ async def prepare_message(
     star, me = await _load_membership(db, star_id, current_user.id)
     channel = await _satellite(db, star_id, channel_id)
     assert_can_post(star, me)
-    is_admin = me.role in ("owner", "admin")
+    # В общем Спутнике админы гостевой Звезды — обычные участники.
+    is_admin = me.role in ("owner", "admin") and me.star_id == channel.star_id
     # В объявлениях пишут владелец и админы; обсуждать в ветках может любой.
     if channel.announcement and not body.thread_id and not is_admin:
         raise _forbid("Здесь пишут только владелец и админы — обсудить можно в ветке")
@@ -1266,7 +1359,9 @@ async def prepare_message(
     return star, me, channel, reply_to
 
 
-async def _mentions(db: AsyncSession, star_id: str, me: StarMember, text: str) -> tuple[list[str], bool]:
+async def _mentions(
+    db: AsyncSession, star_id: str, me: StarMember, text: str, channel: StarChannel | None = None
+) -> tuple[list[str], bool]:
     """@имя участников этой Звезды и @группа (все, у кого роль с этим именем упоминания).
 
     @все и @here — только у модераторов и выше (у остальных это просто текст). @here упоминает
@@ -1274,12 +1369,14 @@ async def _mentions(db: AsyncSession, star_id: str, me: StarMember, text: str) -
     """
     if "@" not in text:
         return [], False
+    # В общем Спутнике — участники всех подключённых Звёзд.
+    star_ids = await shares.audience_star_ids(db, channel.id, star_id) if channel else [star_id]
     names = dict(
         (
             await db.execute(
                 select(func.lower(User.username), User.id)
                 .join(StarMember, StarMember.user_id == User.id)
-                .where(StarMember.star_id == star_id)
+                .where(StarMember.star_id.in_(star_ids))
             )
         ).all()
     )
@@ -1293,7 +1390,7 @@ async def _mentions(db: AsyncSession, star_id: str, me: StarMember, text: str) -
     ).all():
         groups.setdefault(handle, []).append(user_id)
     found = notify.find_mentions(text, names, groups)
-    staff = rules.is_staff(me.role)
+    staff = _staff_here(me, channel) if channel else rules.is_staff(me.role)
     if found.here and staff:
         found.ids.update(uid for uid in names.values() if presence.status_of(uid) == presence.ONLINE)
     found.ids.discard(me.user_id)
@@ -1390,7 +1487,8 @@ async def edit_message(
     # Ссылки в новом тексте другие — старое превью убираем.
     message.link_preview = None
     # Упоминания пересчитываем для подсветки; push о правке не шлём.
-    message.mentions, message.mention_all = await _mentions(db, star_id, me, body.text)
+    channel = await _satellite(db, star_id, channel_id)
+    message.mentions, message.mention_all = await _mentions(db, star_id, me, body.text, channel)
     message.edited_at = _now()
     await db.commit()
     await _broadcast(
@@ -1406,7 +1504,7 @@ async def edit_message(
             "mention_all": message.mention_all,
         },
     )
-    return (await _messages_out(db, [(message, current_user)]))[0]
+    return _as_star(await _messages_out(db, [(message, current_user)]), star_id)[0]
 
 
 @router.put(
@@ -1481,19 +1579,20 @@ async def delete_message(
 ):
     star, me = await _load_membership(db, star_id, current_user.id)
     message = await _star_message(db, star_id, channel_id, message_id)
-
+    # Чужие сообщения общего Спутника удаляют модераторы Звезды-хозяина, гости — только свои.
+    home = message.star_id == me.star_id
     sender_role = None
     if message.sender_id:
         sender = (
             await db.execute(
                 select(StarMember.role).where(
-                    StarMember.star_id == star_id, StarMember.user_id == message.sender_id
+                    StarMember.star_id == message.star_id, StarMember.user_id == message.sender_id
                 )
             )
         ).scalar_one_or_none()
         sender_role = sender
     if not rules.can_delete_message(
-        current_user.id, me.role, message.sender_id, sender_role, star.role_permissions
+        current_user.id, me.role if home else "member", message.sender_id, sender_role, star.role_permissions
     ):
         raise _forbid()
     if message.sender_id != current_user.id:

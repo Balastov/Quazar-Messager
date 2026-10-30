@@ -315,6 +315,7 @@ export default function ConstellationView() {
           defaultFloorId={channelDialog.floorId}
           canEditMap={detail.my_permissions.includes("edit_map")}
           members={detail.members}
+          starId={detail.id}
           onClose={() => setChannelDialog(null)}
         />
       )}

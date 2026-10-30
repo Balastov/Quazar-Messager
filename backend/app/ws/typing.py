@@ -13,6 +13,7 @@ from sqlalchemy import select
 from app.core.blocks import block_state, direct_peer
 from app.core.database import AsyncSessionLocal
 from app.models.chat import ChatMember
+from app.core import shares
 from app.models.star import StarChannel, StarMember
 from app.ws.hub import manager
 
@@ -77,22 +78,33 @@ async def _star_typing(star_id: str, channel_id: str, user_id: str) -> None:
     async with session_factory() as db:
         channel = (
             await db.execute(
-                select(StarChannel.id).where(
-                    StarChannel.id == channel_id,
-                    StarChannel.star_id == star_id,
-                    StarChannel.kind == "satellite",
-                )
+                select(StarChannel).where(StarChannel.id == channel_id, StarChannel.kind == "satellite")
             )
-        ).first()
-        if not channel:
+        ).scalar_one_or_none()
+        if not channel or (channel.star_id != star_id and not await shares.is_shared_into(db, channel_id, star_id)):
             return
-        member_ids = (
-            await db.execute(select(StarMember.user_id).where(StarMember.star_id == star_id))
-        ).scalars().all()
-    if user_id not in member_ids:
-        return
-    await manager.broadcast_to_users(
-        list(member_ids),
-        {"type": "star_typing", "star_id": star_id, "channel_id": channel_id, "user_id": user_id},
-        exclude_user=user_id,
-    )
+        if not (
+            await db.execute(
+                select(StarMember.user_id).where(StarMember.star_id == star_id, StarMember.user_id == user_id)
+            )
+        ).first():
+            return
+        # Общий Спутник — участникам всех подключённых Звёзд, каждому со star_id его Звезды.
+        audience: list[tuple[str, list[str]]] = []
+        seen: set[str] = set()
+        for sid in await shares.audience_star_ids(db, channel_id, star_id):
+            ids = [
+                uid
+                for uid in (
+                    await db.execute(select(StarMember.user_id).where(StarMember.star_id == sid))
+                ).scalars()
+                if uid not in seen
+            ]
+            seen.update(ids)
+            audience.append((sid, ids))
+    for sid, ids in audience:
+        await manager.broadcast_to_users(
+            ids,
+            {"type": "star_typing", "star_id": sid, "channel_id": channel_id, "user_id": user_id},
+            exclude_user=user_id,
+        )

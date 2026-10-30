@@ -39,6 +39,8 @@ from app.api.admin import router as admin_router
 from app.api.pins import router as pins_router
 from app.api.star_bookmarks import router as star_bookmarks_router
 from app.api.star_notes import router as star_notes_router
+from app.api.star_shares import invites_router as star_share_invites_router
+from app.api.star_shares import router as star_shares_router
 from app.api.search import router as search_router
 from app.api.link_preview import router as link_preview_router
 from app.api.webhooks import hooks_router, router as webhooks_router
@@ -350,6 +352,8 @@ app.include_router(star_files_router)
 app.include_router(pins_router)
 app.include_router(star_bookmarks_router)
 app.include_router(star_notes_router)
+app.include_router(star_shares_router)
+app.include_router(star_share_invites_router)
 app.include_router(search_router)
 app.include_router(link_preview_router)
 app.include_router(webhooks_router)

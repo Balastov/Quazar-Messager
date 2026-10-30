@@ -399,12 +399,22 @@ export const useStarsStore = create<StarsState>((set, get) => {
         void get().refreshStar(starId);
         break;
       case "star_channel_upsert":
+        patchDetail(starId, (d) => {
+          const old = d.channels.find((c) => c.id === event.channel.id);
+          // Подписи общего Спутника приходят в списке каналов, а не в каждой правке канала;
+          // у гостевой Звезды он стоит после своих — его позиция у хозяина здесь не важна.
+          const merged = old ? { ...old, ...event.channel } : event.channel;
+          if (old?.shared_from) merged.position = old.position;
+          return {
+            ...d,
+            channels: sortChannels([...d.channels.filter((c) => c.id !== event.channel.id), merged]),
+          };
+        });
+        break;
+      case "star_channel_shared":
         patchDetail(starId, (d) => ({
           ...d,
-          channels: sortChannels([
-            ...d.channels.filter((c) => c.id !== event.channel.id),
-            event.channel,
-          ]),
+          channels: d.channels.map((c) => (c.id === event.channel_id ? { ...c, shared_with: event.shared_with } : c)),
         }));
         break;
       case "star_channel_deleted": {

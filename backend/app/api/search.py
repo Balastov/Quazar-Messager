@@ -7,7 +7,8 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import exists, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.stars import _load_membership, _messages_out
+from app.api.stars import _as_star, _load_membership, _messages_out
+from app.core import shares
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.models.star import StarChannel, StarFile, StarMessage
@@ -42,7 +43,12 @@ async def search_messages(
         select(StarMessage, User)
         .outerjoin(User, User.id == StarMessage.sender_id)
         .join(StarChannel, StarChannel.id == StarMessage.channel_id)
-        .where(StarMessage.star_id == star_id, StarChannel.kind == "satellite", StarMessage.kind != "system")
+        .where(
+            # Свои Спутники и общие, подключённые к этой Звезде.
+            or_(StarMessage.star_id == star_id, StarMessage.channel_id.in_(await shares.shared_channel_ids(db, star_id))),
+            StarChannel.kind == "satellite",
+            StarMessage.kind != "system",
+        )
     )
     for word in q.split()[:8]:
         pattern = _like(word)
@@ -53,4 +59,4 @@ async def search_messages(
     if before:
         query = query.where(StarMessage.created_at < before)
     rows = await db.execute(query.order_by(StarMessage.created_at.desc()).limit(limit))
-    return await _messages_out(db, list(rows.tuples()), current_user.id)
+    return _as_star(await _messages_out(db, list(rows.tuples()), current_user.id), star_id)

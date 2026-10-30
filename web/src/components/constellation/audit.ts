@@ -31,6 +31,10 @@ export function auditText(e: AuditEntry): string {
       return `${who} изменил(а) канал ${channel}`;
     case "channel_delete":
       return `${who} удалил(а) канал ${channel}`;
+    case "workflow": {
+      const wf = typeof d.name === "string" ? `«${d.name}»` : "";
+      return d.op === "delete" ? `${who} удалил(а) сценарий ${wf}` : `${who} создал(а) сценарий ${wf}`;
+    }
     case "bot": {
       const bot = typeof d.name === "string" ? `«${d.name}»` : "";
       if (d.op === "delete") return `${who} удалил(а) бота ${bot}`;

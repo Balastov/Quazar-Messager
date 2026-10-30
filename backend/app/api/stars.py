@@ -24,7 +24,7 @@ from app.core.backgrounds import (
     save_background,
 )
 from app.core import doors
-from app.core import bots, markup, notify, presence, revisions, shares, star_assets, star_audit, star_files
+from app.core import bots, markup, notify, presence, revisions, shares, star_assets, star_audit, star_files, workflows
 from app.core import floors as floors_svc
 from app.core import voice
 from app.core.database import get_db
@@ -883,6 +883,7 @@ async def join_by_invite(code: str, current_user: CurrentUser, db: Db):
     out = await _member_out(db, me)
     await _broadcast(db, star.id, {"type": "star_member_upsert", "member": out.model_dump(mode="json")})
     await _greet(db, star, current_user)
+    await workflows.on_member_joined(db, star, current_user)
     return await _detail(db, star, me)
 
 

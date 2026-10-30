@@ -1,0 +1,82 @@
+/* Сценарии: готовые шаблоны, дни недели, поля формы. */
+
+.presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.preset {
+  padding: 10px 14px;
+  border: 1px solid var(--qz-border);
+  border-radius: 12px;
+  background: var(--qz-glass-inner);
+  color: var(--qz-text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.preset:hover {
+  border-color: var(--qz-border-strong);
+  background: rgba(168, 85, 247, 0.16);
+}
+
+.days {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.day {
+  min-width: 40px;
+  padding: 8px 6px;
+  border: 1px solid var(--qz-border);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--qz-text-muted);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.dayOn {
+  color: #fff;
+  border-color: var(--qz-border-strong);
+  background: rgba(168, 85, 247, 0.28);
+}
+
+.field {
+  display: grid;
+  grid-template-columns: 1fr auto auto auto;
+  gap: 6px 8px;
+  align-items: center;
+  padding: 8px;
+  border: 1px solid var(--qz-border);
+  border-radius: 10px;
+}
+
+.options {
+  grid-column: 1 / -1;
+}
+
+.fieldId {
+  grid-column: 1 / -1;
+  color: var(--qz-text-dim);
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 11px;
+}
+
+.template {
+  min-height: 110px;
+  resize: vertical;
+  font: inherit;
+  line-height: 1.45;
+}
+
+@media (max-width: 600px) {
+  .field {
+    grid-template-columns: 1fr auto;
+  }
+}

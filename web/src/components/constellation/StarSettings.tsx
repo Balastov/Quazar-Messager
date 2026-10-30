@@ -18,6 +18,7 @@ import { AssetsTab, AuditTab, CommunityTab, TagsTab } from "./GamingSettings";
 import { WorkHoursTab } from "./WorkSettings";
 import { IntegrationsTab } from "./Integrations";
 import { BotsTab } from "./Bots";
+import { WorkflowsTab } from "./Workflows";
 import StarAvatar from "./StarAvatar";
 import {
   apiError,
@@ -49,6 +50,7 @@ export type SettingsTab =
   | "work"
   | "integrations"
   | "bots"
+  | "workflows"
   | "star";
 
 interface Props {
@@ -85,6 +87,7 @@ export default function StarSettings({ detail, initialTab = "general", onClose }
         { id: "work", label: "Рабочее время", show: isAdmin && detail.kind === "work" },
         { id: "integrations", label: "Интеграции", show: can(detail, "manage_channels") },
         { id: "bots", label: "Боты", show: can(detail, "manage_channels") },
+        { id: "workflows", label: "Сценарии", show: can(detail, "manage_channels") },
       ],
     },
     {
@@ -143,6 +146,7 @@ export default function StarSettings({ detail, initialTab = "general", onClose }
       {tab === "work" && <WorkHoursTab detail={detail} />}
       {tab === "integrations" && <IntegrationsTab detail={detail} />}
       {tab === "bots" && <BotsTab detail={detail} />}
+      {tab === "workflows" && <WorkflowsTab detail={detail} />}
       {tab === "star" && <StarTab detail={detail} onClose={onClose} />}
       </section>
       </div>

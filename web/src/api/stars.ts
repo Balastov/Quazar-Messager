@@ -237,6 +237,48 @@ export interface CommunitySettings {
 }
 
 /** Другая Звезда общего Спутника. */
+export type WorkflowTrigger = "member_joined" | "schedule" | "form";
+
+export interface WorkflowSchedule {
+  /** 1 — понедельник … 7 — воскресенье. */
+  days: number[];
+  /** «ЧЧ:ММ». */
+  time: string;
+  tz: string;
+}
+
+export interface WorkflowField {
+  id: string;
+  label: string;
+  kind: "text" | "textarea" | "select";
+  required: boolean;
+  options: string[];
+}
+
+export interface WorkflowBody {
+  name: string;
+  enabled: boolean;
+  trigger: WorkflowTrigger;
+  schedule: WorkflowSchedule | null;
+  form: WorkflowField[] | null;
+  channel_id: string;
+  text: string;
+}
+
+export interface StarWorkflow extends WorkflowBody {
+  id: string;
+  next_run_at: string | null;
+  last_run_at: string | null;
+}
+
+/** Форма для участников (меню «+» в Спутнике). */
+export interface StarForm {
+  id: string;
+  name: string;
+  channel_id: string;
+  fields: WorkflowField[];
+}
+
 /** Кнопка под сообщением бота. */
 export interface BotButton {
   id: string;
@@ -822,6 +864,16 @@ export const starsApi = {
     http.get<StarMessage[]>(`${base(starId)}/search`, { params: { q, ...params } }).then((r) => r.data),
   webhooks: (starId: string) => http.get<StarWebhook[]>(`${base(starId)}/webhooks`).then((r) => r.data),
   bots: (starId: string) => http.get<StarBot[]>(`${base(starId)}/bots`).then((r) => r.data),
+  workflows: (starId: string) => http.get<StarWorkflow[]>(`${base(starId)}/workflows`).then((r) => r.data),
+  createWorkflow: (starId: string, body: WorkflowBody) =>
+    http.post<StarWorkflow>(`${base(starId)}/workflows`, body).then((r) => r.data),
+  updateWorkflow: (starId: string, id: string, body: WorkflowBody) =>
+    http.put<StarWorkflow>(`${base(starId)}/workflows/${id}`, body).then((r) => r.data),
+  deleteWorkflow: (starId: string, id: string) => http.delete(`${base(starId)}/workflows/${id}`),
+  testWorkflow: (starId: string, id: string) => http.post(`${base(starId)}/workflows/${id}/test`),
+  forms: (starId: string) => http.get<StarForm[]>(`${base(starId)}/forms`).then((r) => r.data),
+  submitForm: (starId: string, id: string, values: Record<string, string>) =>
+    http.post(`${base(starId)}/forms/${id}`, { values }),
   createBot: (starId: string, body: BotBody) =>
     http.post<StarBotSecrets>(`${base(starId)}/bots`, body).then((r) => r.data),
   updateBot: (starId: string, botId: string, body: BotBody) =>

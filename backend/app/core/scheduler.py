@@ -200,6 +200,12 @@ async def booking_tick(db: AsyncSession, now: datetime | None = None) -> int:
     return await tick(db, now)
 
 
+async def run_due_workflows(db: AsyncSession, now: datetime | None = None) -> int:
+    from app.core import workflows
+
+    return await workflows.run_due(db, now)
+
+
 async def run_forever(session_factory: async_sessionmaker) -> None:
     while True:
         for job in (
@@ -210,6 +216,7 @@ async def run_forever(session_factory: async_sessionmaker) -> None:
             start_due_lfg,
             sweep_temporary_planets,
             booking_tick,
+            run_due_workflows,
         ):
             try:
                 async with session_factory() as db:

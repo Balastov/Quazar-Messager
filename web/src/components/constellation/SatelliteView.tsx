@@ -1,5 +1,13 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { starsApi, type StarAsset, type StarBookmark, type StarChannel, type StarDetail, type StarMessage } from "../../api/stars";
+import {
+  starsApi,
+  type StarAsset,
+  type StarBookmark,
+  type StarChannel,
+  type StarDetail,
+  type StarForm,
+  type StarMessage,
+} from "../../api/stars";
 import { stickerFileUrl } from "../../api/stickers";
 import { useAuthStore } from "../../store/auth";
 import { useStarsStore } from "../../store/stars";
@@ -67,6 +75,7 @@ import StarFilesView from "./StarFilesView";
 import NotesView from "./NotesView";
 import EditHistory from "../messages/EditHistory";
 import { BotButtons } from "./Bots";
+import { FormDialog } from "./Workflows";
 import { BookmarkDialog, BookmarksBar, ChannelTabs, PinnedList, canAddBookmark, type ChannelTab } from "./ChannelTabs";
 import { stripMarkup } from "../../chat/markdown";
 
@@ -110,6 +119,18 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
   const ack = useStarsStore((st) => st.ack);
   const typingIds = useTyping(satelliteTypingKey(channel.id));
   const [dialog, setDialog] = useState<"poll" | "lfg" | null>(null);
+  const [forms, setForms] = useState<StarForm[]>([]);
+  const [openForm, setOpenForm] = useState<StarForm | null>(null);
+  useEffect(() => {
+    let alive = true;
+    starsApi
+      .forms(detail.id)
+      .then((list) => alive && setForms(list))
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [detail.id]);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [plusMenu, setPlusMenu] = useState<{ x: number; y: number } | null>(null);
   const emoji = useMemo(
@@ -668,6 +689,8 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
           onClick={(e) => {
             const r = e.currentTarget.getBoundingClientRect();
             setPlusMenu({ x: r.left, y: r.top - 140 });
+            // Свежий список форм — сценарии могли добавить, пока Спутник открыт.
+            void starsApi.forms(detail.id).then(setForms).catch(() => {});
           }}
         >
           +
@@ -773,10 +796,13 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
                   { label: "📊 Опрос", onClick: () => setDialog("poll") },
                   { label: "🎮 Сбор группы", onClick: () => setDialog("lfg") },
                 ]),
+            // Формы сценариев Звезды: карточка уйдёт в Спутник, указанный в сценарии.
+            ...forms.map((form) => ({ label: `📝 ${form.name}`, onClick: () => setOpenForm(form) })),
           ]}
           onClose={() => setPlusMenu(null)}
         />
       )}
+      {openForm && <FormDialog detail={detail} form={openForm} onClose={() => setOpenForm(null)} />}
       {dialog === "poll" && <PollDialog starId={detail.id} channelId={channel.id} onClose={() => setDialog(null)} />}
       {dialog === "lfg" && <LfgDialog starId={detail.id} channelId={channel.id} onClose={() => setDialog(null)} />}
       {acksOf && <AcksDialog message={acksOf} onClose={() => setAcksOf(null)} />}
@@ -927,7 +953,7 @@ export function SatelliteMessage({
           <span className={s.messageAuthor} style={color ? { color } : undefined}>
             {msg.kind === "bot" ? (msg.bot_name ?? "Интеграция") : (displayName(msg.sender) ?? "Бывший участник")}
           </span>
-          {msg.kind === "bot" && <span className={w.botBadge}>бот</span>}
+          {msg.kind === "bot" && <span className={w.botBadge}>{msg.bot_kind === "workflow" ? "сценарий" : "бот"}</span>}
           {external && (
             <span className={w.botBadge} title="Участник другой Звезды общего Спутника">
               внешний

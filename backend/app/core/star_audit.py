@@ -22,6 +22,7 @@ ACTIONS = (
     "transfer",
     "webhook",
     "bot",
+    "workflow",
 )
 
 

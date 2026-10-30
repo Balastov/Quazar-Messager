@@ -659,3 +659,34 @@ class StarBot(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_error: Mapped[str | None] = mapped_column(String(200), nullable=True)
+
+
+class StarWorkflow(Base):
+    """Сценарий Звезды: триггер → сообщение в Спутник от имени сценария.
+
+    trigger: member_joined (новый участник) | schedule (дни недели и время, schedule JSON) |
+    form (участник заполняет поля form JSON, в Спутник уходит карточка). text — шаблон с
+    подстановками {user}, {name}, {star}, {date} и {<id поля>}."""
+
+    __tablename__ = "star_workflows"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    star_id: Mapped[str] = mapped_column(
+        ForeignKey("stars.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    name: Mapped[str] = mapped_column(String(48), nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
+    trigger: Mapped[str] = mapped_column(String(16), nullable=False)
+    schedule: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    form: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    channel_id: Mapped[str] = mapped_column(
+        ForeignKey("star_channels.id", ondelete="CASCADE"), nullable=False
+    )
+    text: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    # Расписание: когда сработать в следующий раз (UTC).
+    next_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    last_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_by: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)

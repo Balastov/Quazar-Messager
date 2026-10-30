@@ -10,9 +10,8 @@ import ComposerInput, { type ComposerHandle } from "../messages/ComposerInput";
 import FormatBar, { useFormatBarOpen } from "../messages/FormatBar";
 import { SatelliteMessage, editable, repliesLabel } from "./SatelliteView";
 import { useMentionSuggest } from "../messages/MentionSuggest";
-import { isAllWord } from "../../chat/mentions";
+import { useStarMentions } from "./starMentions";
 import { isStaff } from "../../store/stars";
-import type { MentionKind } from "../LinkifiedText";
 import { apiError, can, outranks } from "./rules";
 import { formatWhen } from "../../chat/when";
 import s from "./Constellation.module.css";
@@ -55,19 +54,16 @@ export default function ThreadPanel({ detail, fullscreen = false }: Props) {
   const messages = thread?.messages ?? [];
   const fileRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState<string | null>(null);
-  const others = useMemo(
-    () => detail.members.filter((mb) => mb.user.id !== myId).map((mb) => mb.user.username),
-    [detail.members, myId]
-  );
-  const mentionKind = useMemo<MentionKind>(() => {
-    const names = new Map(detail.members.map((mb) => [mb.user.username.toLowerCase(), mb.user.id]));
-    return (name) => {
-      if (isAllWord(name)) return "other";
-      const id = names.get(name.toLowerCase());
-      return id ? (id === myId ? "me" : "other") : null;
-    };
-  }, [detail.members, myId]);
-  const mention = useMentionSuggest({ text, setText, inputRef, names: others, allowAll: isStaff(detail.my_role) });
+  const starMentions = useStarMentions(detail, myId);
+  const mentionKind = starMentions.kind;
+  const mention = useMentionSuggest({
+    text,
+    setText,
+    inputRef,
+    names: starMentions.names,
+    allowAll: isStaff(detail.my_role),
+    options: starMentions.options,
+  });
   const lastId = messages.length ? messages[messages.length - 1].id : null;
 
   useLayoutEffect(() => {

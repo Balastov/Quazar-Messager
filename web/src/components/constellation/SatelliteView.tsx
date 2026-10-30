@@ -22,7 +22,7 @@ import StarFileView from "./StarFileView";
 import NotifyDialog from "../NotifyDialog";
 import { channelLevel, levelSummary, settingKey, starLevel, useNotifyStore } from "../../notifications/levels";
 import { useMentionSuggest } from "../messages/MentionSuggest";
-import { isAllWord } from "../../chat/mentions";
+import { useStarMentions } from "./starMentions";
 import { MAX_FILE_BYTES } from "../../attachments/file";
 import c from "../chat/Chat.module.css";
 import type { MentionKind } from "../LinkifiedText";
@@ -141,24 +141,15 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
   const lastId = messages.length ? messages[messages.length - 1].id : null;
 
   const roleOf = (userId: string) => detail.members.find((mb) => mb.user.id === userId)?.role;
-  const others = useMemo(
-    () => detail.members.filter((mb) => mb.user.id !== myId).map((mb) => mb.user.username),
-    [detail.members, myId]
-  );
-  const mentionKind = useMemo<MentionKind>(() => {
-    const names = new Map(detail.members.map((mb) => [mb.user.username.toLowerCase(), mb.user.id]));
-    return (name) => {
-      if (isAllWord(name)) return "other";
-      const id = names.get(name.toLowerCase());
-      return id ? (id === myId ? "me" : "other") : null;
-    };
-  }, [detail.members, myId]);
+  const starMentions = useStarMentions(detail, myId);
+  const mentionKind = starMentions.kind;
   const mention = useMentionSuggest({
     text,
     setText,
     inputRef,
-    names: others,
+    names: starMentions.names,
     allowAll: isStaff(detail.my_role),
+    options: starMentions.options,
   });
   const level = channelLevel(notifySettings, detail.id, channel.id);
   const composerPreview = useComposerPreview(text, !editing);

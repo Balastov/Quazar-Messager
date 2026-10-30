@@ -73,7 +73,7 @@ export default function StarSettings({ detail, initialTab = "general", onClose }
       title: "Сообщество",
       tabs: [
         { id: "community", label: "Правила и приветствие", show: isAdmin },
-        { id: "tags", label: "Роли", show: isAdmin },
+        { id: "tags", label: "Роли и группы", show: isAdmin },
         { id: "assets", label: "Стикеры и звуки", show: can(detail, "manage_channels") },
       ],
     },

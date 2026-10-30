@@ -118,12 +118,22 @@ export interface StarAcks {
 }
 
 /** Своя роль с цветом: подпись и цвет имени, права не даёт. */
+/** Создание и правка роли. handle не прислали — сервер его не трогает; "" — убрать. */
+export interface TagBody {
+  name: string;
+  color: string;
+  self_assign: boolean;
+  handle?: string | null;
+}
+
 export interface StarTag {
   id: string;
   name: string;
   color: string;
   /** Участник может выбрать её себе сам. */
   self_assign: boolean;
+  /** Имя для упоминания группы без «@»: «@backend» зовёт всех, у кого роль. */
+  handle?: string | null;
   position: number;
 }
 
@@ -735,9 +745,9 @@ export const starsApi = {
     http.delete(`${base(starId)}/channels/${channelId}/messages/${messageId}`),
   community: (starId: string, body: CommunitySettings) => http.patch(`${base(starId)}/community`, body),
   acceptRules: (starId: string) => http.post(`${base(starId)}/rules/accept`),
-  createTag: (starId: string, body: { name: string; color: string; self_assign: boolean }) =>
+  createTag: (starId: string, body: TagBody) =>
     http.post<StarTag>(`${base(starId)}/tags`, body).then((r) => r.data),
-  updateTag: (starId: string, tagId: string, body: { name: string; color: string; self_assign: boolean }) =>
+  updateTag: (starId: string, tagId: string, body: TagBody) =>
     http.patch<StarTag>(`${base(starId)}/tags/${tagId}`, body).then((r) => r.data),
   deleteTag: (starId: string, tagId: string) => http.delete(`${base(starId)}/tags/${tagId}`),
   giveTag: (starId: string, userId: string, tagId: string) =>

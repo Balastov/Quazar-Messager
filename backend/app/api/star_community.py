@@ -22,7 +22,7 @@ from app.api.stars import (
     _user_out,
     broadcast_member,
 )
-from app.core import star_audit
+from app.core import notify, star_audit
 from app.core import stars as rules
 from app.core import livekit, voice
 from app.core.database import get_db
@@ -37,6 +37,8 @@ CurrentUser = Annotated[User, Depends(get_current_user)]
 Db = Annotated[AsyncSession, Depends(get_db)]
 
 COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
+# Как в разборе упоминаний (notify._MENTION): буквы, цифры, «_» и «.».
+HANDLE_RE = re.compile(r"[\w.]{2,32}")
 
 
 def _now() -> datetime:
@@ -138,6 +140,20 @@ class TagBody(BaseModel):
     name: str = Field(min_length=1, max_length=32)
     color: str
     self_assign: bool = False
+    # Имя для упоминания: «@backend» зовёт всех, у кого эта роль. Пусто — роль не упоминается.
+    handle: str | None = Field(default=None, max_length=33)
+
+    @field_validator("handle")
+    @classmethod
+    def _handle(cls, v: str | None) -> str | None:
+        v = (v or "").strip().removeprefix("@")
+        if not v:
+            return None
+        if not HANDLE_RE.fullmatch(v) or v.endswith("."):
+            raise ValueError("Имя для упоминания — от 2 до 32 букв, цифр, «_» или «.», без пробелов")
+        if v.lower() in notify.RESERVED_WORDS:
+            raise ValueError(f"@{v} уже значит «всем» или «кто в сети» — выберите другое имя")
+        return v
 
     @field_validator("name")
     @classmethod
@@ -164,6 +180,31 @@ async def _tags_event(db: AsyncSession, star_id: str) -> None:
     )
 
 
+async def _check_handle(db: AsyncSession, star_id: str, handle: str | None, tag_id: str | None = None) -> None:
+    """Имя группы не совпадает с именем другой группы или ником участника этой Звезды."""
+    if not handle:
+        return
+    key = handle.lower()
+    taken = (
+        await db.execute(
+            select(StarTag.id).where(
+                StarTag.star_id == star_id, func.lower(StarTag.handle) == key, StarTag.id != (tag_id or "")
+            )
+        )
+    ).first()
+    if taken:
+        raise HTTPException(status_code=409, detail=f"@{handle} уже есть у другой роли")
+    member = (
+        await db.execute(
+            select(User.id)
+            .join(StarMember, StarMember.user_id == User.id)
+            .where(StarMember.star_id == star_id, func.lower(User.username) == key)
+        )
+    ).first()
+    if member:
+        raise HTTPException(status_code=409, detail=f"@{handle} — ник участника этой Звезды")
+
+
 async def _tag(db: AsyncSession, star_id: str, tag_id: str) -> StarTag:
     tag = (
         await db.execute(select(StarTag).where(StarTag.id == tag_id, StarTag.star_id == star_id))
@@ -183,6 +224,7 @@ async def create_tag(star_id: str, body: TagBody, current_user: CurrentUser, db:
     ).one()
     if count >= rules.MAX_TAGS:
         raise HTTPException(status_code=409, detail=f"Не больше {rules.MAX_TAGS} ролей")
+    await _check_handle(db, star_id, body.handle)
     tag = StarTag(star_id=star_id, position=(top or 0) + 1, **body.model_dump())
     db.add(tag)
     await db.commit()
@@ -195,7 +237,11 @@ async def create_tag(star_id: str, body: TagBody, current_user: CurrentUser, db:
 async def update_tag(star_id: str, tag_id: str, body: TagBody, current_user: CurrentUser, db: Db):
     await _admin(db, star_id, current_user)
     tag = await _tag(db, star_id, tag_id)
-    for key, value in body.model_dump().items():
+    # Не прислали handle (старый клиент) — имя для упоминания не трогаем.
+    changes = body.model_dump(exclude_unset=True)
+    if "handle" in changes:
+        await _check_handle(db, star_id, body.handle, tag_id)
+    for key, value in changes.items():
         setattr(tag, key, value)
     await db.commit()
     await _tags_event(db, star_id)

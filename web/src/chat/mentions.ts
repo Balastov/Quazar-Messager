@@ -1,7 +1,9 @@
 // @упоминания: разбор как на сервере (backend/app/core/notify.py → parse_mentions) и подсказка при вводе.
 
-/** @все — всем (в Звёздах — только от модераторов и выше). */
-export const ALL_WORDS = ["все", "all", "everyone", "here"];
+/** @все / @channel — всем (в Звёздах — только от модераторов и выше). */
+export const ALL_WORDS = ["все", "all", "everyone", "channel", "канал"];
+/** @here — тем, кто сейчас в сети (в Звёздах; в обычных чатах — как @все). */
+export const HERE_WORDS = ["here", "тут", "здесь"];
 
 const MENTION = /(^|[^\p{L}\p{N}_@.])@([\p{L}\p{N}_.]{2,64})/gu;
 
@@ -24,8 +26,10 @@ export function splitMentions(text: string): MentionPart[] {
   return parts;
 }
 
+/** @все, @channel или @here — упоминание не одного человека, а многих. */
 export function isAllWord(name: string): boolean {
-  return ALL_WORDS.includes(name.toLowerCase());
+  const key = name.toLowerCase();
+  return ALL_WORDS.includes(key) || HERE_WORDS.includes(key);
 }
 
 /** Упомянут ли человек в тексте (по имени, без учёта регистра; @все — да). */

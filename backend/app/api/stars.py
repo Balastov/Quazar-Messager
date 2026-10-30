@@ -23,7 +23,7 @@ from app.core.backgrounds import (
     save_background,
 )
 from app.core import doors
-from app.core import markup, notify, star_assets, star_audit, star_files
+from app.core import markup, notify, presence, star_assets, star_audit, star_files
 from app.core import floors as floors_svc
 from app.core import voice
 from app.core.database import get_db
@@ -1267,7 +1267,11 @@ async def prepare_message(
 
 
 async def _mentions(db: AsyncSession, star_id: str, me: StarMember, text: str) -> tuple[list[str], bool]:
-    """@имя участников этой Звезды; @все — только у модераторов и выше (у остальных это просто текст)."""
+    """@имя участников этой Звезды и @группа (все, у кого роль с этим именем упоминания).
+
+    @все и @here — только у модераторов и выше (у остальных это просто текст). @here упоминает
+    тех, кто в сети прямо сейчас: их id попадают в mentions, как при упоминании по имени.
+    """
     if "@" not in text:
         return [], False
     names = dict(
@@ -1279,9 +1283,21 @@ async def _mentions(db: AsyncSession, star_id: str, me: StarMember, text: str) -
             )
         ).all()
     )
-    ids, everyone = notify.parse_mentions(text, names)
-    ids.discard(me.user_id)
-    return sorted(ids), everyone and rules.is_staff(me.role)
+    groups: dict[str, list[str]] = {}
+    for handle, user_id in (
+        await db.execute(
+            select(func.lower(StarTag.handle), StarMemberTag.user_id)
+            .join(StarMemberTag, StarMemberTag.tag_id == StarTag.id)
+            .where(StarTag.star_id == star_id, StarTag.handle.is_not(None))
+        )
+    ).all():
+        groups.setdefault(handle, []).append(user_id)
+    found = notify.find_mentions(text, names, groups)
+    staff = rules.is_staff(me.role)
+    if found.here and staff:
+        found.ids.update(uid for uid in names.values() if presence.status_of(uid) == presence.ONLINE)
+    found.ids.discard(me.user_id)
+    return sorted(found.ids), found.everyone and staff
 
 
 async def _push_message(

@@ -203,6 +203,8 @@ class StarTagOut(BaseModel):
     name: str
     color: str
     self_assign: bool
+    # Имя для упоминания группы (без «@»); None — роль не упоминается.
+    handle: str | None = None
     position: int
 
     model_config = {"from_attributes": True}

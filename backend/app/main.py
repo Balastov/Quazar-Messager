@@ -284,6 +284,7 @@ async def lifespan(app: FastAPI):
             "ALTER TABLE user_reports ADD COLUMN IF NOT EXISTS resolved_by VARCHAR(36) "
             "REFERENCES users(id) ON DELETE SET NULL",
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_official BOOLEAN NOT NULL DEFAULT false",
+            "ALTER TABLE star_tags ADD COLUMN IF NOT EXISTS handle VARCHAR(32)",
         ):
             await conn.execute(text(ddl))
         # Владельцы ресурса из окружения сервера.

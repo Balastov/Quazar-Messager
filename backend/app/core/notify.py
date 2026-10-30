@@ -10,6 +10,7 @@ import asyncio
 import logging
 import re
 from collections.abc import Iterable
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
 from sqlalchemy import select
@@ -28,27 +29,53 @@ LEVELS = ("all", "mentions", "none")
 CHAT_DEFAULT = "all"
 # В Звёздах по умолчанию — только упоминания и ответы мне: в больших Звёздах «всё» быстро надоедает.
 STAR_DEFAULT = "mentions"
-# @все — всем участникам (пишут модераторы и выше).
-ALL_WORDS = {"все", "all", "everyone", "here"}
+# @все / @channel — всем участникам, @here / @тут — тем, кто сейчас в сети (оба пишут модераторы и выше).
+ALL_WORDS = {"все", "all", "everyone", "channel", "канал"}
+HERE_WORDS = {"here", "тут", "здесь"}
+# Эти слова нельзя занять под имя группы.
+RESERVED_WORDS = ALL_WORDS | HERE_WORDS
 
 _MENTION = re.compile(r"(?<![\w@.])@([\w.]{2,64})")
 
 
-def parse_mentions(text: str, usernames: dict[str, str]) -> tuple[set[str], bool]:
-    """@имя → id участников (без учёта регистра) и было ли @все. usernames: имя в нижнем регистре → id."""
-    ids: set[str] = set()
-    everyone = False
+@dataclass
+class Mentions:
+    # Упомянутые по имени и через группы.
+    ids: set[str] = field(default_factory=set)
+    everyone: bool = False
+    here: bool = False
+
+
+def find_mentions(text: str, usernames: dict[str, str], groups: dict[str, list[str]] | None = None) -> Mentions:
+    """@имя → id участников, @группа → id всех в группе (без учёта регистра), @все и @here.
+
+    usernames: имя в нижнем регистре → id; groups: имя группы в нижнем регистре → id участников.
+    """
+    found = Mentions()
+    groups = groups or {}
     # «@имя» в коде — пример, а не упоминание.
     for raw in _MENTION.findall(markup.without_code(text)):
         for name in (raw, raw.rstrip(".")):
             key = name.lower()
             if key in ALL_WORDS:
-                everyone = True
+                found.everyone = True
+                break
+            if key in HERE_WORDS:
+                found.here = True
                 break
             if key in usernames:
-                ids.add(usernames[key])
+                found.ids.add(usernames[key])
                 break
-    return ids, everyone
+            if key in groups:
+                found.ids.update(groups[key])
+                break
+    return found
+
+
+def parse_mentions(text: str, usernames: dict[str, str]) -> tuple[set[str], bool]:
+    """@имя → id участников и было ли @все (или @here) — без групп."""
+    found = find_mentions(text, usernames)
+    return found.ids, found.everyone or found.here
 
 
 def _active(setting: NotifySetting | None, now: datetime) -> bool:

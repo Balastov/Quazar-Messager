@@ -111,6 +111,7 @@ export function TagsTab({ detail }: { detail: StarDetail }) {
   const [name, setName] = useState("");
   const [color, setColor] = useState(PALETTE[6]);
   const [selfAssign, setSelfAssign] = useState(false);
+  const [handle, setHandle] = useState("");
   const { busy, run, status } = useRun();
 
   return (
@@ -120,6 +121,11 @@ export function TagsTab({ detail }: { detail: StarDetail }) {
         встроенная роль (участник, модератор, админ). «Можно взять себе» — участник выберет сам в правилах
         или в списке участников.
       </p>
+      <p className={s.hint}>
+        Имя для упоминания превращает роль в группу: <b>@backend</b> в сообщении позовёт всех, у кого эта роль.
+        Упомянуть группу может любой участник. <b>@here</b> (кто сейчас в сети) и <b>@channel</b> (все) пишут
+        модераторы и выше.
+      </p>
       {tags.map((t) => (
         <TagRow key={t.id} detail={detail} tag={t} />
       ))}
@@ -127,6 +133,7 @@ export function TagsTab({ detail }: { detail: StarDetail }) {
         <input className={s.input} style={{ flex: 1, minWidth: 140 }} maxLength={32} placeholder="Новая роль: «Танк»" value={name} onChange={(e) => setName(e.target.value)} />
         <input type="color" value={color} onChange={(e) => setColor(e.target.value)} aria-label="Цвет" />
       </div>
+      <HandleInput value={handle} onChange={setHandle} />
       <label className={g.check}>
         <input type="checkbox" checked={selfAssign} onChange={(e) => setSelfAssign(e.target.checked)} />
         Можно взять себе
@@ -138,8 +145,9 @@ export function TagsTab({ detail }: { detail: StarDetail }) {
         disabled={busy || !name.trim()}
         onClick={() =>
           void run(async () => {
-            await starsApi.createTag(detail.id, { name: name.trim(), color, self_assign: selfAssign });
+            await starsApi.createTag(detail.id, { name: name.trim(), color, self_assign: selfAssign, handle: handle.trim() || null });
             setName("");
+            setHandle("");
           })
         }
       >
@@ -149,15 +157,50 @@ export function TagsTab({ detail }: { detail: StarDetail }) {
   );
 }
 
+/** Поле «@имя для упоминания»: «@» нарисован слева, вводить его не нужно. */
+function HandleInput({ value, onChange, compact }: { value: string; onChange: (value: string) => void; compact?: boolean }) {
+  return (
+    <label className={compact ? `${g.handleField} ${g.handleCompact}` : g.handleField}>
+      <span aria-hidden>@</span>
+      <input
+        className={s.input}
+        maxLength={32}
+        placeholder={compact ? "не задано" : "имя для упоминания, например backend (необязательно)"}
+        value={value}
+        onChange={(e) => onChange(e.target.value.replace(/^@+/, "").replace(/\s/g, ""))}
+        aria-label="Имя для упоминания группы"
+      />
+    </label>
+  );
+}
+
 function TagRow({ detail, tag }: { detail: StarDetail; tag: StarTag }) {
   const holders = detail.members.filter((m) => m.tag_ids?.includes(tag.id)).length;
   const { busy, run, status } = useRun();
+  const [handle, setHandle] = useState(tag.handle ?? "");
+  useEffect(() => setHandle(tag.handle ?? ""), [tag.handle]);
+  const handleChanged = handle.trim() !== (tag.handle ?? "");
   return (
     <div className={s.row}>
       <TagChip tag={tag} />
       <span className={s.hint}>
         {holders} · {tag.self_assign ? "можно взять себе" : "выдают админы"}
       </span>
+      <HandleInput value={handle} onChange={setHandle} compact />
+      {handleChanged && (
+        <button
+          type="button"
+          className={`${s.primary} ${s.small}`}
+          disabled={busy}
+          onClick={() =>
+            void run(() =>
+              starsApi.updateTag(detail.id, tag.id, { name: tag.name, color: tag.color, self_assign: tag.self_assign, handle: handle.trim() })
+            )
+          }
+        >
+          Сохранить
+        </button>
+      )}
       <button
         type="button"
         className={`${s.secondary} ${s.small}`}

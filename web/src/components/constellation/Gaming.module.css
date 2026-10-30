@@ -193,6 +193,26 @@
   cursor: pointer;
 }
 
+/* «@» перед полем имени для упоминания группы. */
+.handleField {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1;
+  min-width: 180px;
+  color: var(--qz-text-muted);
+}
+
+.handleField input {
+  flex: 1;
+  min-width: 0;
+}
+
+.handleCompact {
+  flex: 0 1 140px;
+  min-width: 100px;
+}
+
 .check {
   display: flex;
   align-items: center;

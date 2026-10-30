@@ -255,7 +255,8 @@ class StarBan(Base):
 
 class StarTag(Base):
     """Своя роль с цветом. Права не даёт — это подпись: цвет имени, отметка в списке участников.
-    self_assign — участник может выбрать её себе сам («Танк», «Хил», «Новичок»)."""
+    self_assign — участник может выбрать её себе сам («Танк», «Хил», «Новичок»).
+    С handle роль становится группой: «@backend» упоминает всех, у кого она есть."""
 
     __tablename__ = "star_tags"
 
@@ -266,6 +267,8 @@ class StarTag(Base):
     name: Mapped[str] = mapped_column(String(32), nullable=False)
     color: Mapped[str] = mapped_column(String(7), nullable=False)
     self_assign: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # Имя для упоминания группы: «@backend» зовёт всех, у кого роль. Уникально в Звезде без учёта регистра.
+    handle: Mapped[str | None] = mapped_column(String(32), nullable=True)
     position: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 

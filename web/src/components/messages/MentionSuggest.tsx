@@ -2,6 +2,12 @@ import { useEffect, useState } from "react";
 import { insertMention, mentionQuery, suggestNames } from "../../chat/mentions";
 import w from "../constellation/Work.module.css";
 
+/** Не человек, а группа или @here — с пояснением справа. */
+export interface MentionOption {
+  name: string;
+  hint: string;
+}
+
 interface Options {
   text: string;
   setText: (value: string) => void;
@@ -10,19 +16,23 @@ interface Options {
   names: string[];
   /** Предлагать ли @все. */
   allowAll?: boolean;
+  /** Группы, @here и т. п. */
+  options?: MentionOption[];
 }
 
 /**
  * Подсказка «@имя» в поле ввода. Возвращает всплывающий список (класть в обёртку с
  * position: relative) и обработчик клавиш: ↑↓ — выбор, Enter/Tab — подставить, Esc — скрыть.
  */
-export function useMentionSuggest({ text, setText, inputRef, names, allowAll = false }: Options) {
+export function useMentionSuggest({ text, setText, inputRef, names, allowAll = false, options = [] }: Options) {
   const [caret, setCaret] = useState(0);
   const [active, setActive] = useState(0);
   const [hiddenFor, setHiddenFor] = useState<string | null>(null);
 
   const query = mentionQuery(text, caret);
-  const candidates = allowAll ? [...names, "все"] : names;
+  const hints = new Map(options.map((o) => [o.name, o.hint]));
+  if (allowAll) hints.set("все", "всем участникам");
+  const candidates = [...names, ...hints.keys()];
   const items = query && hiddenFor !== text ? suggestNames(candidates, query.query) : [];
 
   useEffect(() => setActive(0), [query?.query]);
@@ -79,7 +89,7 @@ export function useMentionSuggest({ text, setText, inputRef, names, allowAll = f
           }}
         >
           @{name}
-          {name === "все" && <span className={w.suggestHint}>всем участникам</span>}
+          {hints.has(name) && <span className={w.suggestHint}>{hints.get(name)}</span>}
         </button>
       ))}
     </div>

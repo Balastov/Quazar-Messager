@@ -1,0 +1,103 @@
+/* Кнопки под сообщением бота и раздел «Боты» в настройках. */
+
+.buttons {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.button {
+  padding: 6px 14px;
+  border: 1px solid var(--qz-border-strong);
+  border-radius: 10px;
+  background: var(--qz-glass-inner);
+  color: var(--qz-text);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.button:hover:not(:disabled) {
+  background: rgba(168, 85, 247, 0.2);
+}
+
+.button:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+.primary {
+  border-color: transparent;
+  background: var(--qz-outgoing);
+  color: #fff;
+}
+
+.primary:hover:not(:disabled) {
+  filter: brightness(1.1);
+  background: var(--qz-outgoing);
+}
+
+.danger {
+  border-color: rgba(248, 113, 113, 0.5);
+  background: rgba(248, 113, 113, 0.14);
+  color: #fecaca;
+}
+
+.error {
+  color: var(--qz-danger);
+  font-size: 12px;
+}
+
+.secrets {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid rgba(251, 191, 36, 0.45);
+  border-radius: 12px;
+  background: rgba(251, 191, 36, 0.1);
+}
+
+.secretRow {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 8px;
+  align-items: center;
+}
+
+.secretRow span {
+  grid-column: 1 / -1;
+}
+
+.secretRow code {
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+
+.guide {
+  font-size: 13px;
+  color: var(--qz-text-muted);
+}
+
+.guide summary {
+  cursor: pointer;
+  color: var(--qz-text);
+}
+
+.guide pre {
+  margin: 6px 0;
+  padding: 10px;
+  border-radius: 8px;
+  background: rgba(8, 6, 18, 0.62);
+  font-size: 11.5px;
+  overflow-x: auto;
+  white-space: pre;
+}
+
+.guide code {
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}

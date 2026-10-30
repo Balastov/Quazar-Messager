@@ -237,6 +237,36 @@ export interface CommunitySettings {
 }
 
 /** Другая Звезда общего Спутника. */
+/** Кнопка под сообщением бота. */
+export interface BotButton {
+  id: string;
+  label: string;
+  style: "default" | "primary" | "danger";
+}
+
+/** Бот Звезды (без токена — он показывается один раз). */
+export interface StarBot {
+  id: string;
+  name: string;
+  events_url: string | null;
+  message_events: boolean;
+  created_at: string;
+  last_used_at: string | null;
+  last_error: string | null;
+}
+
+export interface StarBotSecrets {
+  bot: StarBot;
+  token: string;
+  signing_secret: string;
+}
+
+export interface BotBody {
+  name: string;
+  events_url: string | null;
+  message_events: boolean;
+}
+
 export interface SharedStar {
   id: string;
   name: string;
@@ -421,6 +451,9 @@ export interface StarMessage {
   /** Сообщение интеграции: имя вебхука и сервис (github, gitlab, jira, grafana, alertmanager, generic). */
   bot_name?: string | null;
   bot_kind?: string | null;
+  /** Сообщение бота Звезды (Bot API) — кто его написал, и кнопки под ним. */
+  bot_id?: string | null;
+  buttons?: BotButton[];
   /** У kind === "file"; text тогда — подпись (может быть пустой). */
   file?: StarFile | null;
   /** Упомянутые (@имя) участники и @все. */
@@ -540,9 +573,11 @@ export type StarEvent =
       channel_id: string;
       message_id: string;
       text: string;
-      edited_at: string;
+      edited_at: string | null;
       mentions?: string[];
       mention_all?: boolean;
+      /** Правка сообщения бота: новые кнопки ([] — убрать). Нет — кнопки прежние. */
+      buttons?: BotButton[];
     }
   /** Закреплённые в Спутнике изменились (свежие первыми). */
   | { type: "star_pins"; star_id: string; channel_id: string; message_ids: string[] }
@@ -786,6 +821,20 @@ export const starsApi = {
   search: (starId: string, q: string, params: { channel_id?: string; before?: string } = {}) =>
     http.get<StarMessage[]>(`${base(starId)}/search`, { params: { q, ...params } }).then((r) => r.data),
   webhooks: (starId: string) => http.get<StarWebhook[]>(`${base(starId)}/webhooks`).then((r) => r.data),
+  bots: (starId: string) => http.get<StarBot[]>(`${base(starId)}/bots`).then((r) => r.data),
+  createBot: (starId: string, body: BotBody) =>
+    http.post<StarBotSecrets>(`${base(starId)}/bots`, body).then((r) => r.data),
+  updateBot: (starId: string, botId: string, body: BotBody) =>
+    http.patch<StarBot>(`${base(starId)}/bots/${botId}`, body).then((r) => r.data),
+  reissueBotSecrets: (starId: string, botId: string) =>
+    http.post<StarBotSecrets>(`${base(starId)}/bots/${botId}/secrets`).then((r) => r.data),
+  deleteBot: (starId: string, botId: string) => http.delete(`${base(starId)}/bots/${botId}`),
+  pressButton: (starId: string, channelId: string, messageId: string, buttonId: string) =>
+    http
+      .post<{ notice: string | null }>(
+        `${base(starId)}/channels/${channelId}/messages/${messageId}/buttons/${encodeURIComponent(buttonId)}`
+      )
+      .then((r) => r.data),
   createWebhook: (starId: string, channelId: string, body: { name: string; kind: WebhookKind }) =>
     http.post<StarWebhook>(`${base(starId)}/channels/${channelId}/webhooks`, body).then((r) => r.data),
   updateWebhook: (

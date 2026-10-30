@@ -174,6 +174,12 @@ class StarMessage(Base):
     )
     bot_name: Mapped[str | None] = mapped_column(String(48), nullable=True)
     bot_kind: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    # Сообщение бота Звезды (Bot API): кто его написал — править и удалять может только он.
+    bot_id: Mapped[str | None] = mapped_column(
+        ForeignKey("star_bots.id", ondelete="SET NULL", use_alter=True), nullable=True
+    )
+    # Кнопки под сообщением бота: [{"id", "label", "style"}]; нажатие уходит боту.
+    buttons: Mapped[list | None] = mapped_column(JSON, nullable=True)
     edited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_now, index=True
@@ -625,3 +631,31 @@ class StarMessageRevision(Base):
     )
     text: Mapped[str] = mapped_column(Text, nullable=False)
     written_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+
+class StarBot(Base):
+    """Бот Звезды: пишет в её Спутники через Bot API (токен) и получает события на events_url.
+
+    Токен — «qzb.<id>.<secret>», хранится только sha256 от secret. События подписаны HMAC-SHA256
+    с signing_secret (заголовок X-Quazar-Signature)."""
+
+    __tablename__ = "star_bots"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    star_id: Mapped[str] = mapped_column(
+        ForeignKey("stars.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    name: Mapped[str] = mapped_column(String(48), nullable=False)
+    token_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    signing_secret: Mapped[str] = mapped_column(String(64), nullable=False)
+    # Куда слать события (новые сообщения, нажатия кнопок); пусто — бот только пишет.
+    events_url: Mapped[str | None] = mapped_column(String(2000), nullable=True)
+    # Слать ли боту все новые сообщения его Спутников (нажатия кнопок — всегда).
+    message_events: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
+    created_by: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_error: Mapped[str | None] = mapped_column(String(200), nullable=True)

@@ -66,6 +66,7 @@ import StarScheduledBar from "./StarScheduledBar";
 import StarFilesView from "./StarFilesView";
 import NotesView from "./NotesView";
 import EditHistory from "../messages/EditHistory";
+import { BotButtons } from "./Bots";
 import { BookmarkDialog, BookmarksBar, ChannelTabs, PinnedList, canAddBookmark, type ChannelTab } from "./ChannelTabs";
 import { stripMarkup } from "../../chat/markdown";
 
@@ -946,6 +947,7 @@ export function SatelliteMessage({
           </div>
         )}
         {body}
+        {!!msg.buttons?.length && <BotButtons starId={detail.id} message={msg} />}
         {msg.link_preview && <LinkPreviewCard preview={msg.link_preview} />}
         {!!msg.reactions?.length && (
           <div className={s.messageExtra}>

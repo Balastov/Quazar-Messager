@@ -21,6 +21,7 @@ ACTIONS = (
     "tag",
     "transfer",
     "webhook",
+    "bot",
 )
 
 

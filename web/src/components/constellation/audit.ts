@@ -31,6 +31,12 @@ export function auditText(e: AuditEntry): string {
       return `${who} изменил(а) канал ${channel}`;
     case "channel_delete":
       return `${who} удалил(а) канал ${channel}`;
+    case "bot": {
+      const bot = typeof d.name === "string" ? `«${d.name}»` : "";
+      if (d.op === "delete") return `${who} удалил(а) бота ${bot}`;
+      if (d.op === "secrets") return `${who} выпустил(а) новый токен бота ${bot}`;
+      return `${who} создал(а) бота ${bot}`;
+    }
     case "channel_share": {
       const where = typeof d.channel === "string" ? `«${d.channel}»` : "";
       const star = typeof d.star === "string" ? `«${d.star}»` : "другой Звезде";

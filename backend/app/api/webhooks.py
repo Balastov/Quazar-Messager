@@ -16,8 +16,8 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.stars import _broadcast, _messages_out, _require_perm, _satellite
-from app.core import markup, notify, star_audit, webhooks
+from app.api.stars import _broadcast, _messages_out, _require_perm, _satellite, bot_targets
+from app.core import bots, markup, notify, star_audit, webhooks
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.core.stars import Perm
@@ -187,6 +187,7 @@ async def receive(webhook_id: str, token: str, request: Request, db: Db):
 
     star = await db.get(Star, hook.star_id)
     channel = await db.get(StarChannel, hook.channel_id)
+    bots.dispatch_later(await bot_targets(db, channel), out.model_dump(mode="json"))
     targets = await notify.star_push_targets(db, star, channel, message)
     notify.push_later(
         targets,

@@ -24,7 +24,7 @@ from app.core.backgrounds import (
     save_background,
 )
 from app.core import doors
-from app.core import markup, notify, presence, revisions, shares, star_assets, star_audit, star_files
+from app.core import bots, markup, notify, presence, revisions, shares, star_assets, star_audit, star_files
 from app.core import floors as floors_svc
 from app.core import voice
 from app.core.database import get_db
@@ -33,6 +33,7 @@ from app.core.stars import Perm
 from app.models.star import (
     Star,
     StarBan,
+    StarBot,
     StarChannel,
     StarChannelShare,
     StarFile,
@@ -1216,6 +1217,8 @@ async def _messages_out(
             link_preview=m.link_preview,
             bot_name=m.bot_name,
             bot_kind=m.bot_kind,
+            bot_id=m.bot_id,
+            buttons=m.buttons or [],
             thread_id=m.thread_id,
             thread_count=threads.get(m.id, (0, None, []))[0],
             thread_last_at=threads.get(m.id, (0, None, []))[1],
@@ -1321,8 +1324,23 @@ async def send_message(
     if message.thread_id:
         await thread_event(db, star_id, channel_id, message.thread_id)
     await _push_message(db, star, channel, message, current_user, reply_to, file)
+    bots.dispatch_later(await bot_targets(db, channel), out.model_dump(mode="json"))
     out.star_id = star_id
     return out
+
+
+async def bot_targets(
+    db: AsyncSession, channel: StarChannel, exclude_bot_id: str | None = None
+) -> list[tuple[str, str, str]]:
+    """Боты Звезды-хозяина канала, которым слать новые сообщения: (id, events_url, signing_secret)."""
+    rows = await db.execute(
+        select(StarBot.id, StarBot.events_url, StarBot.signing_secret).where(
+            StarBot.star_id == channel.star_id,
+            StarBot.events_url.is_not(None),
+            StarBot.message_events.is_(True),
+        )
+    )
+    return [(i, url, secret) for i, url, secret in rows.all() if i != exclude_bot_id]
 
 
 async def prepare_message(

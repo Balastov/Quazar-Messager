@@ -378,6 +378,14 @@ class StarFileListItem(StarFileOut):
     created_at: datetime
 
 
+class BotButton(BaseModel):
+    """Кнопка под сообщением бота: нажатие уходит боту событием button (id — для бота)."""
+
+    id: str = Field(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_.:\-]+$")
+    label: str = Field(min_length=1, max_length=40)
+    style: Literal["default", "primary", "danger"] = "default"
+
+
 class StarMessageOut(BaseModel):
     id: str
     star_id: str
@@ -394,6 +402,9 @@ class StarMessageOut(BaseModel):
     # Сообщение интеграции (kind == "bot"): имя вебхука и сервис (github, grafana…).
     bot_name: str | None = None
     bot_kind: str | None = None
+    # Сообщение бота Звезды (Bot API) и кнопки под ним.
+    bot_id: str | None = None
+    buttons: list[BotButton] = []
     poll: PollOut | None = None
     lfg: LfgOut | None = None
     # Ответ в ветке — id корня; у корня — сводка ветки.

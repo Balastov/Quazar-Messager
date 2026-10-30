@@ -557,6 +557,7 @@ export const useStarsStore = create<StarsState>((set, get) => {
                 edited_at: event.edited_at,
                 mentions: event.mentions ?? m.mentions,
                 mention_all: event.mention_all ?? m.mention_all,
+                buttons: event.buttons ?? m.buttons,
                 // Текст другой — старое превью сервер убрал.
                 link_preview: null,
               };

@@ -120,6 +120,15 @@ export const IconSticker = (p: IconProps) => (
   </Svg>
 );
 
+/** Панель разметки текста. */
+export const IconFormat = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M4 7V4h16v3" />
+    <path d="M9 20h6" />
+    <path d="M12 4v16" />
+  </Svg>
+);
+
 export const IconStar = (p: IconProps) => (
   <Svg {...p} size={p.size ?? 16}>
     <path d="m12 3 2.6 5.3L20.5 9l-4.2 4.1L17.4 20 12 17.1 6.6 20l1.1-6.9L3.5 9l5.9-.7L12 3z" />

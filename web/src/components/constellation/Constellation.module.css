@@ -542,6 +542,8 @@
 
 .composer {
   display: flex;
+  /* Поле растёт вверх — кнопки остаются у нижнего края. */
+  align-items: flex-end;
   gap: 8px;
   padding: 10px 12px calc(10px + var(--qz-safe-bottom));
   border-top: 1px solid var(--qz-border);
@@ -551,11 +553,18 @@
   box-shadow: var(--qz-glass-shine);
 }
 
+.composer > button {
+  min-height: 44px;
+}
+
 .composerInput {
   flex: 1;
   min-width: 0;
-  padding: 12px 14px;
-  border-radius: var(--qz-radius-pill);
+  margin: 0;
+  padding: 11px 14px;
+  font: inherit;
+  line-height: 1.4;
+  border-radius: 22px;
   border: 1px solid var(--qz-border);
   background: var(--qz-glass-inner);
   color: var(--qz-text);

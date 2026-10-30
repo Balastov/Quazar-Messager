@@ -5,7 +5,6 @@ import {
   Image,
   Keyboard,
   KeyboardAvoidingView,
-  Linking,
   Platform,
   Pressable,
   StyleSheet,
@@ -22,7 +21,8 @@ import {useAuthStore} from '../store/auth';
 import {useCallStore} from '../store/call';
 import type {RootStackParamList} from '../navigation';
 import type {Message} from '../api/types';
-import {splitLinks} from '../utils/linkify';
+import FormattedText from '../components/FormattedText';
+import {plainPreview} from '../chat/markdown';
 import type {StickerInfo} from '../api/stickers';
 import {useStickersStore} from '../store/stickers';
 import {encodeSticker, parseSticker} from '../stickers/format';
@@ -64,7 +64,7 @@ function previewOf(payload: string, stickerEmoji: (pack: string, id: string) => 
     const emoji = stickerEmoji(ref.pack, ref.id);
     return emoji ? `Стикер ${emoji}` : 'Стикер';
   }
-  return payload;
+  return plainPreview(payload);
 }
 
 /** «Аня печатает…», «Аня и Боря печатают…», «Аня и ещё 2 печатают…». */
@@ -82,28 +82,6 @@ function typingLabel(names: string[]): string | null {
 }
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Chat'>;
-
-/** Текст сообщения, где ссылки нажимаются и открываются в браузере. */
-function MessageText({text, isOwn}: {text: string; isOwn: boolean}) {
-  const parts = React.useMemo(() => splitLinks(text), [text]);
-  return (
-    <Text style={s.text}>
-      {parts.map((part, i) =>
-        part.type === 'link' ? (
-          <Text
-            key={i}
-            style={[s.link, isOwn ? s.linkOwn : s.linkOther]}
-            onPress={() => void Linking.openURL(part.href).catch(() => {})}
-            accessibilityRole="link">
-            {part.text}
-          </Text>
-        ) : (
-          part.text
-        ),
-      )}
-    </Text>
-  );
-}
 
 export default function ChatScreen({route, navigation}: Props) {
   const {chatId} = route.params;
@@ -565,9 +543,9 @@ export default function ChatScreen({route, navigation}: Props) {
         ) : ref ? (
           <Text style={s.textMuted}>Стикер недоступен</Text>
         ) : parseTicket(item.payload) ? (
-          <MessageText text={ticketText(parseTicket(item.payload)!)} isOwn={isOwn} />
+          <FormattedText text={ticketText(parseTicket(item.payload)!)} isOwn={isOwn} style={s.text} />
         ) : (
-          <MessageText text={item.payload} isOwn={isOwn} />
+          <FormattedText text={item.payload} isOwn={isOwn} style={s.text} />
         )}
         {groups.length > 0 && (
           <View style={s.reactions}>
@@ -829,9 +807,6 @@ const s = StyleSheet.create({
   },
   stickerBtnActive: {backgroundColor: 'rgba(108,99,255,0.25)'},
   stickerIcon: {fontSize: 22},
-  link: {textDecorationLine: 'underline'},
-  linkOwn: {color: '#fff'},
-  linkOther: {color: '#d8c8ff'},
   meta: {flexDirection: 'row', gap: 4, alignSelf: 'flex-end', marginTop: 2},
   time: {color: 'rgba(255,255,255,0.6)', fontSize: 11},
   status: {fontSize: 11, letterSpacing: -1},

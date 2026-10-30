@@ -32,9 +32,11 @@ import LinkPreviewCard from "../messages/LinkPreviewCard";
 import StarSearchPanel from "./StarSearchPanel";
 import BotAvatar from "./BotAvatar";
 import { useComposerPreview } from "../../chat/useComposerPreview";
+import ComposerInput, { type ComposerHandle } from "../messages/ComposerInput";
+import FormatBar, { useFormatBarOpen } from "../messages/FormatBar";
 import { IconSearch } from "../icons";
 import UserAvatar from "../UserAvatar";
-import { IconBack, IconGear, IconSatellite, IconSend } from "../icons";
+import { IconBack, IconFormat, IconGear, IconSatellite, IconSend } from "../icons";
 import { apiError, can, formatTime, outranks } from "./rules";
 import s from "./Constellation.module.css";
 import m from "../messages/Messages.module.css";
@@ -61,6 +63,7 @@ import { notifyInfo } from "../../notifications/notify";
 import ScheduleButton from "../chat/ScheduleButton";
 import WhenDialog from "../chat/WhenDialog";
 import StarScheduledBar from "./StarScheduledBar";
+import { stripMarkup } from "../../chat/markdown";
 
 const EMPTY: StarMessage[] = [];
 const NO_ASSETS: StarAsset[] = [];
@@ -131,7 +134,9 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
     reply_to_id?: string; ack_required: boolean; link_preview?: LinkPreview;
   } | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const composerHandle = useRef<ComposerHandle>(null);
+  const [formatOpen, toggleFormat] = useFormatBarOpen();
   const stickToBottom = useRef(true);
   const lastId = messages.length ? messages[messages.length - 1].id : null;
 
@@ -286,7 +291,7 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
     });
   };
 
-  const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+  const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (mention.onKeyDown(e)) return;
     if (e.key === "Escape" && (replyTo || editing)) {
       e.preventDefault();
@@ -579,6 +584,7 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
           onClose={() => setPickerOpen(false)}
         />
       )}
+      {formatOpen && <FormatBar onFormat={(kind) => composerHandle.current?.format(kind)} />}
       <form className={s.composer} onSubmit={(e) => void submit(e)}>
         <button
           type="button"
@@ -593,14 +599,15 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
         >
           +
         </button>
-        <input
+        <ComposerInput
           ref={inputRef}
+          handleRef={composerHandle}
           className={s.composerInput}
           value={text}
-          onChange={(e) => {
-            setText(e.target.value);
+          onValueChange={(value) => {
+            setText(value);
             mention.syncCaret();
-            if (!editing && e.target.value.trim()) sendSatelliteTyping(detail.id, channel.id);
+            if (!editing && value.trim()) sendSatelliteTyping(detail.id, channel.id);
           }}
           onSelect={mention.syncCaret}
           onPaste={(e) => {
@@ -614,6 +621,17 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
           maxLength={4000}
           aria-label="Сообщение"
         />
+        <button
+          type="button"
+          className={formatOpen ? `${g.composerExtra} ${g.composerExtraOn}` : g.composerExtra}
+          aria-label="Форматирование"
+          aria-pressed={formatOpen}
+          title="Форматирование"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={toggleFormat}
+        >
+          <IconFormat size={18} />
+        </button>
         <button
           type="button"
           className={g.composerExtra}
@@ -723,7 +741,7 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
 export function previewText(text: string): string {
   // У файла без подписи текста нет.
   if (!text) return "📎 Файл";
-  return parseSticker(text) ? "Стикер" : text;
+  return parseSticker(text) ? "Стикер" : stripMarkup(text);
 }
 
 /** Исправлять можно только обычный текст (не опрос, сбор, приветствие или стикер). */

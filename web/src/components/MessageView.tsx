@@ -8,6 +8,7 @@ import E2EStatusPanel from "./E2EStatusPanel";
 import UserAvatar from "./UserAvatar";
 import {
   IconBack,
+  IconFormat,
   IconImage,
   IconMore,
   IconPhone,
@@ -23,6 +24,9 @@ import m from "./messages/Messages.module.css";
 import { usePresence, usePresenceStore, usePresenceText } from "../store/presence";
 import { presenceTone } from "../utils/presence";
 import LinkifiedText from "./LinkifiedText";
+import FormattedText from "./messages/FormattedText";
+import ComposerInput, { type ComposerHandle } from "./messages/ComposerInput";
+import FormatBar, { useFormatBarOpen } from "./messages/FormatBar";
 import Sticker from "./Sticker";
 import StickerPicker from "./StickerPicker";
 import { messagePreview, useStickersStore } from "../store/stickers";
@@ -165,7 +169,9 @@ export default function MessageView({ showBack = false }: Props) {
   } | { kind: "remind"; msg: Message } | null>(null);
   const [sendMenu, setSendMenu] = useState<{ x: number; y: number } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const composerHandle = useRef<ComposerHandle>(null);
+  const [formatOpen, toggleFormat] = useFormatBarOpen();
   const listRef = useRef<HTMLDivElement>(null);
   const stickersByKey = useStickersStore((st) => st.byKey);
   const stickersLoaded = useStickersStore((st) => st.loaded);
@@ -517,7 +523,7 @@ export default function MessageView({ showBack = false }: Props) {
     handleDropped(files);
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (mention.onKeyDown(e)) return;
     if (e.key === "Escape" && (replyTo || editing)) {
       e.preventDefault();
@@ -885,6 +891,10 @@ export default function MessageView({ showBack = false }: Props) {
           />
         </div>
       ) : (
+      <>
+      {formatOpen && (
+        <FormatBar onFormat={(kind) => composerHandle.current?.format(kind)} disabled={inputDisabled} />
+      )}
       <form className={s.composer} onSubmit={(e) => void handleSend(e)} style={{ position: "relative" }}>
         {mention.popup}
         <button
@@ -924,8 +934,9 @@ export default function MessageView({ showBack = false }: Props) {
           }}
         />
         <div className={s.field}>
-          <input
+          <ComposerInput
             ref={inputRef}
+            handleRef={composerHandle}
             className={s.textInput}
             placeholder={
               inputDisabled
@@ -935,12 +946,25 @@ export default function MessageView({ showBack = false }: Props) {
                   : "Написать сообщение..."
             }
             value={text}
-            onChange={(e) => handleTextChange(e.target.value)}
+            onValueChange={handleTextChange}
             onKeyDown={handleKeyDown}
             onSelect={mention.syncCaret}
             onPaste={handlePaste}
             disabled={inputDisabled}
+            aria-label="Сообщение"
           />
+          <button
+            type="button"
+            className={`${formatOpen ? s.stickerBtnActive : s.stickerBtn} ${s.formatToggle}`}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={toggleFormat}
+            disabled={inputDisabled}
+            aria-label="Форматирование"
+            aria-pressed={formatOpen}
+            title="Форматирование"
+          >
+            <IconFormat size={18} />
+          </button>
           <button
             type="button"
             className={stickersOpen ? s.stickerBtnActive : s.stickerBtn}
@@ -979,6 +1003,7 @@ export default function MessageView({ showBack = false }: Props) {
           </button>
         )}
       </form>
+      </>
       )}
       </div>
       )}
@@ -1165,19 +1190,25 @@ function ChatMessage({
       ) : stickerRef ? (
         <span className={s.textMuted}>Стикер недоступен</span>
       ) : (
-        <span className={unavailable ? s.textMuted : s.text}>
-          {unavailable ? (
-            msg.payload
-          ) : (
-            <LinkifiedText
+        unavailable ? (
+          <span className={s.textMuted}>{msg.payload}</span>
+        ) : (
+          <div className={s.text}>
+            <FormattedText
               text={msg.payload}
-              linkClassName={s.link}
-              mention={mention}
-              mentionClassName={w.mention}
-              mentionMeClassName={w.mentionMe}
+              leaf={(chunk, key) => (
+                <LinkifiedText
+                  key={key}
+                  text={chunk}
+                  linkClassName={s.link}
+                  mention={mention}
+                  mentionClassName={w.mention}
+                  mentionMeClassName={w.mentionMe}
+                />
+              )}
             />
-          )}
-        </span>
+          </div>
+        )
       )}
       {msg.link_preview && !unavailable && <LinkPreviewCard preview={msg.link_preview} tone={isOwn ? "own" : "other"} />}
       <ReactionChips groups={groups} nameOf={nameOf} onToggle={onReact} />

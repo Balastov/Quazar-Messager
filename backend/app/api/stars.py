@@ -23,7 +23,7 @@ from app.core.backgrounds import (
     save_background,
 )
 from app.core import doors
-from app.core import notify, star_assets, star_audit, star_files
+from app.core import markup, notify, star_assets, star_audit, star_files
 from app.core import floors as floors_svc
 from app.core import voice
 from app.core.database import get_db
@@ -1303,7 +1303,7 @@ async def _push_message(
             also.add(root_author)
     also.discard(sender.id)
     targets = await notify.star_push_targets(db, star, channel, message, also)
-    body = message.text or (f"📎 {file.name}" if file else "")
+    body = markup.plain_text(message.text or "") or (f"📎 {file.name}" if file else "")
     notify.push_later(
         targets,
         {

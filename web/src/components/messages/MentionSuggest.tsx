@@ -5,7 +5,7 @@ import w from "../constellation/Work.module.css";
 interface Options {
   text: string;
   setText: (value: string) => void;
-  inputRef: React.RefObject<HTMLInputElement | null>;
+  inputRef: React.RefObject<HTMLInputElement | HTMLTextAreaElement | null>;
   /** Кого можно упомянуть (без себя). */
   names: string[];
   /** Предлагать ли @все. */
@@ -43,7 +43,7 @@ export function useMentionSuggest({ text, setText, inputRef, names, allowAll = f
   };
 
   /** true — клавишу обработала подсказка (форме её не отдавать). */
-  const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>): boolean => {
+  const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>): boolean => {
     if (!items.length) return false;
     if (e.key === "ArrowDown" || e.key === "ArrowUp") {
       e.preventDefault();

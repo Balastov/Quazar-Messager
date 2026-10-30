@@ -17,7 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.stars import _broadcast, _messages_out, _require_perm, _satellite
-from app.core import notify, star_audit, webhooks
+from app.core import markup, notify, star_audit, webhooks
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.core.stars import Perm
@@ -193,7 +193,7 @@ async def receive(webhook_id: str, token: str, request: Request, db: Db):
         {
             "type": "star_message",
             "title": f"{hook.name} · #{channel.name} · {star.name}",
-            "body": text[:200],
+            "body": markup.plain_text(text)[:200],
             "star_id": star.id,
             "channel_id": channel.id,
             "message_id": message.id,

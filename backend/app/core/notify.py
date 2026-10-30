@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core import work_hours
+from app.core import markup, work_hours
 from app.core.push import send_push_to_user
 from app.models.notify import NotifySetting
 from app.models.star import Star, StarChannel, StarMember, StarMessage
@@ -38,7 +38,8 @@ def parse_mentions(text: str, usernames: dict[str, str]) -> tuple[set[str], bool
     """@имя → id участников (без учёта регистра) и было ли @все. usernames: имя в нижнем регистре → id."""
     ids: set[str] = set()
     everyone = False
-    for raw in _MENTION.findall(text):
+    # «@имя» в коде — пример, а не упоминание.
+    for raw in _MENTION.findall(markup.without_code(text)):
         for name in (raw, raw.rstrip(".")):
             key = name.lower()
             if key in ALL_WORDS:

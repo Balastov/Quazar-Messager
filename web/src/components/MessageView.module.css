@@ -331,7 +331,8 @@
 
 .composer {
   display: flex;
-  align-items: center;
+  /* Поле растёт вверх — кнопки остаются у нижнего края. */
+  align-items: flex-end;
   gap: 8px;
   flex-shrink: 0;
   padding: 10px 12px calc(10px + var(--qz-safe-bottom));
@@ -384,10 +385,10 @@
   flex: 1;
   min-width: 0;
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   padding: 0 14px;
-  height: 44px;
-  border-radius: var(--qz-radius-pill);
+  min-height: 44px;
+  border-radius: 22px;
   background: var(--qz-glass-inner);
   border: 1px solid var(--qz-border);
 }
@@ -426,12 +427,26 @@
 }
 
 .textInput {
+  display: block;
   width: 100%;
+  margin: 0;
+  padding: 10px 0;
   border: none;
   background: transparent;
   color: var(--qz-text);
+  font: inherit;
   font-size: 16px;
+  line-height: 1.375;
   outline: none;
+}
+
+.field .stickerBtn,
+.field .stickerBtnActive {
+  margin-bottom: 5px;
+}
+
+.field .formatToggle {
+  margin-right: 2px;
 }
 
 .micBtn,

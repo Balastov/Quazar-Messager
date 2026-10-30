@@ -5,7 +5,9 @@ import { useStarsStore } from "../../store/stars";
 import { myReaction, toggledReaction } from "../../chat/reactions";
 import MessageMenu, { type MenuAction } from "../messages/MessageMenu";
 import { ComposerContext, revealMessage } from "../messages/parts";
-import { IconBack, IconSend } from "../icons";
+import { IconBack, IconFormat, IconSend } from "../icons";
+import ComposerInput, { type ComposerHandle } from "../messages/ComposerInput";
+import FormatBar, { useFormatBarOpen } from "../messages/FormatBar";
 import { SatelliteMessage, editable, repliesLabel } from "./SatelliteView";
 import { useMentionSuggest } from "../messages/MentionSuggest";
 import { isAllWord } from "../../chat/mentions";
@@ -42,7 +44,9 @@ export default function ThreadPanel({ detail, fullscreen = false }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [menu, setMenu] = useState<{ msg: StarMessage; x: number; y: number } | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const composerHandle = useRef<ComposerHandle>(null);
+  const [formatOpen, toggleFormat] = useFormatBarOpen();
   const closeMenu = useCallback(() => setMenu(null), []);
   const emoji = useMemo(
     () => Object.fromEntries(assets.filter((a) => a.kind === "emoji").map((a) => [a.name, a.url])),
@@ -230,6 +234,8 @@ export default function ThreadPanel({ detail, fullscreen = false }: Props) {
       {blocked ? (
         <div className={g.notice}>{blocked}</div>
       ) : (
+        <>
+        {formatOpen && <FormatBar onFormat={(kind) => composerHandle.current?.format(kind)} />}
         <form className={s.composer} onSubmit={(e) => void submit(e)} style={{ position: "relative" }}>
           {mention.popup}
           <button
@@ -253,12 +259,13 @@ export default function ThreadPanel({ detail, fullscreen = false }: Props) {
               void attach(files);
             }}
           />
-          <input
+          <ComposerInput
             ref={inputRef}
+            handleRef={composerHandle}
             className={s.composerInput}
             value={text}
-            onChange={(e) => {
-              setText(e.target.value);
+            onValueChange={(value) => {
+              setText(value);
               mention.syncCaret();
             }}
             onSelect={mention.syncCaret}
@@ -273,10 +280,22 @@ export default function ThreadPanel({ detail, fullscreen = false }: Props) {
             maxLength={4000}
             aria-label="Ответ в ветке"
           />
+          <button
+            type="button"
+            className={formatOpen ? `${g.composerExtra} ${g.composerExtraOn}` : g.composerExtra}
+            aria-label="Форматирование"
+            aria-pressed={formatOpen}
+            title="Форматирование"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={toggleFormat}
+          >
+            <IconFormat size={18} />
+          </button>
           <button type="submit" className={s.primary} disabled={!text.trim()} aria-label="Отправить" style={{ padding: "0 16px" }}>
             {editing ? "✓" : <IconSend size={18} />}
           </button>
         </form>
+        </>
       )}
       {menu && (
         <MessageMenu

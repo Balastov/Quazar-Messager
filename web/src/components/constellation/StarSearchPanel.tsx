@@ -6,6 +6,7 @@ import { useStarsStore } from "../../store/stars";
 import { apiError } from "./rules";
 import s from "../messages/SearchBar.module.css";
 import { displayName } from "../../utils/profile";
+import { stripMarkup } from "../../chat/markdown";
 
 /** Поиск по Спутникам Звезды (на сервере): текст сообщений и названия файлов. */
 export default function StarSearchPanel({
@@ -90,7 +91,7 @@ export default function StarSearchPanel({
                   {formatWhen(m.created_at)}
                 </span>
                 <span className={s.snippet}>
-                  {snippet(m.text || (m.file ? `📎 ${m.file.name}` : ""), words).map((p, i) =>
+                  {snippet(stripMarkup(m.text) || (m.file ? `📎 ${m.file.name}` : ""), words).map((p, i) =>
                     p.hit ? <mark key={i}>{p.text}</mark> : p.text
                   )}
                 </span>

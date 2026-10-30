@@ -1,11 +1,12 @@
 import { Fragment } from "react";
 import LinkifiedText, { type MentionKind } from "../LinkifiedText";
+import FormattedText from "../messages/FormattedText";
 import g from "./Gaming.module.css";
 import w from "./Work.module.css";
 
 const EMOJI_RE = /:([a-z0-9_]{2,32}):/g;
 
-/** Текст сообщения Спутника: ссылки кликабельны, :name: — эмодзи Звезды картинкой. */
+/** Текст сообщения Спутника: разметка, ссылки кликабельны, :name: — эмодзи Звезды картинкой. */
 export default function StarText({
   text,
   emoji,
@@ -17,6 +18,21 @@ export default function StarText({
   emoji: Record<string, string>;
   linkClassName?: string;
   /** Подсветка @имён участников. */
+  mention?: MentionKind;
+}) {
+  return <FormattedText text={text} leaf={(chunk, key) => <StarLeaf key={key} text={chunk} emoji={emoji} linkClassName={linkClassName} mention={mention} />} />;
+}
+
+/** Кусок обычного текста (не код): ссылки, @имена и эмодзи Звезды. */
+function StarLeaf({
+  text,
+  emoji,
+  linkClassName,
+  mention,
+}: {
+  text: string;
+  emoji: Record<string, string>;
+  linkClassName?: string;
   mention?: MentionKind;
 }) {
   const linked = (chunk: string, key?: string) => (

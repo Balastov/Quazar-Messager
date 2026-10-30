@@ -337,7 +337,15 @@ span.tagActive {
   cursor: pointer;
 }
 
-.composerExtra:hover {
+.composerExtra {
+  height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.composerExtra:hover,
+.composerExtraOn {
   color: #fff;
   background: rgba(168, 85, 247, 0.2);
 }

@@ -119,12 +119,13 @@
 
 .scheduleButton {
   flex-shrink: 0;
-  align-self: center;
+  /* У нижнего края, вместе с отправкой, когда поле в несколько строк. */
+  align-self: flex-end;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 32px;
-  height: 36px;
+  height: 44px;
   padding: 0;
   border: none;
   border-radius: 10px;

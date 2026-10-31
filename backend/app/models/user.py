@@ -107,6 +107,9 @@ class OAuthFlow(Base):
     client: Mapped[str] = mapped_column(String(8), nullable=False, default="web")
     user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=True)
     handoff: Mapped[str | None] = mapped_column(String(64), nullable=True, unique=True, index=True)
+    # Мобильное приложение: sha256(секрет приложения) в base64url. Вернувшийся по quazar://
+    # код меняют на сессию только с этим секретом — перехватившее ссылку приложение его не знает.
+    client_challenge: Mapped[str | None] = mapped_column(String(64), nullable=True)
     # Профиль у провайдера (для регистрации) — до завершения.
     profile: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

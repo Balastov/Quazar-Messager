@@ -62,7 +62,28 @@ def _return_url(client: str, **fragment: str) -> str:
     return f"{base}#{urlencode(fragment)}"
 
 
-async def _new_flow(db: AsyncSession, mode: str, client: str, user_id: str | None = None) -> OAuthFlow:
+_CHALLENGE = re.compile(r"^[A-Za-z0-9_-]{43}$")
+
+
+def _client_challenge(client: str, challenge: str | None) -> str | None:
+    """Мобильному приложению обязателен хэш своего секрета (PKCE для возврата по quazar://)."""
+    if client != "mobile":
+        return None
+    if not challenge or not _CHALLENGE.fullmatch(challenge):
+        raise HTTPException(status_code=422, detail="Нужен challenge приложения (sha256 секрета, base64url)")
+    return challenge
+
+
+def _check_client(flow: OAuthFlow, verifier: str | None) -> None:
+    if not flow.client_challenge:
+        return
+    if not verifier or not secrets.compare_digest(yandex.challenge(verifier), flow.client_challenge):
+        raise HTTPException(status_code=410, detail="Время входа истекло — начните заново")
+
+
+async def _new_flow(
+    db: AsyncSession, mode: str, client: str, user_id: str | None = None, challenge: str | None = None
+) -> OAuthFlow:
     await db.execute(delete(OAuthFlow).where(OAuthFlow.expires_at < _now()))
     flow = OAuthFlow(
         state=secrets.token_urlsafe(32),
@@ -71,6 +92,7 @@ async def _new_flow(db: AsyncSession, mode: str, client: str, user_id: str | Non
         mode=mode,
         client=client,
         user_id=user_id,
+        client_challenge=_client_challenge(client, challenge),
         expires_at=_now() + STATE_TTL,
     )
     db.add(flow)
@@ -89,10 +111,14 @@ async def providers():
 
 
 @router.get("/yandex/start")
-async def yandex_start(db: Db, client: Literal["web", "mobile"] = "web"):
-    """Начать вход: уводим в Яндекс."""
+async def yandex_start(
+    db: Db,
+    client: Literal["web", "mobile"] = "web",
+    challenge: str | None = Query(None, max_length=64),
+):
+    """Начать вход: уводим в Яндекс. Мобильное приложение передаёт challenge (см. OAuthFlow)."""
     _require_enabled()
-    flow = await _new_flow(db, "login", client)
+    flow = await _new_flow(db, "login", client, challenge=challenge)
     return RedirectResponse(yandex.authorize_url(flow.state, flow.verifier), status_code=status.HTTP_302_FOUND)
 
 
@@ -205,6 +231,8 @@ async def consume_reauth(db: AsyncSession, user_id: str, code: str | None) -> bo
 
 class ExchangeBody(BaseModel):
     code: str = Field(min_length=1, max_length=128)
+    # Мобильное приложение: секрет, хэш которого был в /start.
+    verifier: str | None = Field(default=None, max_length=128)
 
 
 class SuggestedProfile(BaseModel):
@@ -262,6 +290,7 @@ def _clean(fn, value: str | None, *args) -> str | None:
 @router.post("/yandex/exchange", response_model=ExchangeOut)
 async def yandex_exchange(body: ExchangeBody, db: Db):
     flow = await _flow_by_handoff(db, body.code)
+    _check_client(flow, body.verifier)
     if flow.user_id:
         user = await db.get(User, flow.user_id)
         await db.delete(flow)
@@ -289,6 +318,7 @@ async def yandex_exchange(body: ExchangeBody, db: Db):
 
 class CompleteBody(BaseModel):
     code: str = Field(min_length=1, max_length=128)
+    verifier: str | None = Field(default=None, max_length=128)
     username: str
     phone: str
     phone_discoverable: bool
@@ -315,6 +345,7 @@ class CompleteBody(BaseModel):
 async def yandex_complete(body: CompleteBody, db: Db):
     """Новичок выбрал ник и телефон — создаём аккаунт без пароля, с привязанным Яндексом."""
     flow = await _flow_by_handoff(db, body.code)
+    _check_client(flow, body.verifier)
     if flow.user_id or not flow.profile:
         raise HTTPException(status_code=410, detail="Время входа истекло — начните заново")
     p = flow.profile

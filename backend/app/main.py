@@ -295,6 +295,7 @@ async def lifespan(app: FastAPI):
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_official BOOLEAN NOT NULL DEFAULT false",
             "ALTER TABLE star_tags ADD COLUMN IF NOT EXISTS handle VARCHAR(32)",
             "ALTER TABLE users ALTER COLUMN password_hash DROP NOT NULL",
+            "ALTER TABLE oauth_flows ADD COLUMN IF NOT EXISTS client_challenge VARCHAR(64)",
             "ALTER TABLE star_messages ADD COLUMN IF NOT EXISTS bot_id VARCHAR(36) REFERENCES star_bots(id) ON DELETE SET NULL",
             "ALTER TABLE star_messages ADD COLUMN IF NOT EXISTS buttons JSON",
         ):

@@ -67,8 +67,10 @@ class YandexOAuthTest(StarsTestBase):
         async with self.Session() as db:
             return await fn(*args, db=db, **kwargs)
 
-    async def start(self, client="web") -> str:
-        resp = await self.db_call(oauth.yandex_start, client=client)
+    async def start(self, client="web", challenge=None) -> str:
+        if client == "mobile" and challenge is None:
+            challenge = yandex.challenge("app-secret-" + "x" * 40)
+        resp = await self.db_call(oauth.yandex_start, client=client, challenge=challenge)
         url = urlsplit(resp.headers["location"])
         params = parse_qs(url.query)
         self.assertEqual(url.netloc, "oauth.yandex.ru")
@@ -207,6 +209,24 @@ class YandexOAuthTest(StarsTestBase):
         # Мобильный клиент возвращается по своей ссылке.
         back = await self.callback(await self.start(client="mobile"))
         self.assertEqual(back["base"], "quazar://auth/yandex")
+
+    async def test_mobile_code_needs_the_app_secret(self):
+        secret = "app-secret-" + "y" * 40
+        # Без challenge мобильный вход не начать.
+        with self.assertRaises(HTTPException) as ctx:
+            await self.db_call(oauth.yandex_start, client="mobile", challenge=None)
+        self.assertEqual(ctx.exception.status_code, 422)
+        back = await self.callback(await self.start(client="mobile", challenge=yandex.challenge(secret)))
+        # Приложение, перехватившее quazar://, секрета не знает.
+        await self.expect_status(410, oauth.yandex_exchange, oauth.ExchangeBody(code=back["code"]))
+        await self.expect_status(410, oauth.yandex_exchange, oauth.ExchangeBody(code=back["code"], verifier="guess"))
+        out = await self.db_call(oauth.yandex_exchange, oauth.ExchangeBody(code=back["code"], verifier=secret))
+        self.assertEqual(out.status, "register")
+        await self.expect_status(410, oauth.yandex_complete, oauth.CompleteBody(
+            code=back["code"], username="mobile_anna", phone="+79160000001", phone_discoverable=False))
+        token = await self.db_call(oauth.yandex_complete, oauth.CompleteBody(
+            code=back["code"], verifier=secret, username="mobile_anna", phone="+79160000001", phone_discoverable=False))
+        self.assertTrue(token.access_token)
 
     async def test_blocked_account_cannot_sign_in(self):
         async with self.Session() as db:

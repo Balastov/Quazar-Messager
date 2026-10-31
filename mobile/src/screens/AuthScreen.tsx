@@ -1,8 +1,9 @@
-import React, {useState} from 'react';
+import React, {useEffect, useRef, useState} from 'react';
 import {
   ActivityIndicator,
   Image,
   KeyboardAvoidingView,
+  Linking,
   Platform,
   Pressable,
   StyleSheet,
@@ -11,14 +12,22 @@ import {
   View,
 } from 'react-native';
 import {authApi} from '../api/auth';
+import {forgetVerifier, parseReturnUrl, startYandexLogin, storedVerifier} from '../auth/yandex';
 import {useAuthStore} from '../store/auth';
 import {formatRuPhoneMask, isCompleteRuPhone, toE164Ru} from '../utils/phone';
 import {apiErrorText, USERNAME_MAX} from '../utils/profile';
 import {useUsernameCheck} from '../hooks/useUsernameCheck';
 import PhoneVisibilityChoice from '../components/PhoneVisibilityChoice';
 
-// register — обязательное (телефон, никнейм, пароль); about — предлагаем имя и почту.
-type Mode = 'login' | 'register' | 'about';
+// register — обязательное (телефон, никнейм, пароль); about — предлагаем имя и почту;
+// yandex — вошли через Яндекс ID впервые: выбрать никнейм и телефон.
+type Mode = 'login' | 'register' | 'about' | 'yandex';
+
+const YANDEX_ERRORS: Record<string, string> = {
+  denied: 'Вход через Яндекс отменён.',
+  expired: 'Время входа истекло — попробуйте ещё раз.',
+  yandex: 'Яндекс не ответил — попробуйте ещё раз через минуту.',
+};
 
 export default function AuthScreen() {
   const [mode, setMode] = useState<Mode>('login');
@@ -32,10 +41,108 @@ export default function AuthScreen() {
   const [phoneDiscoverable, setPhoneDiscoverable] = useState<boolean | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const check = useUsernameCheck(mode === 'register' ? username : '');
+  const check = useUsernameCheck(mode === 'register' || mode === 'yandex' ? username : '');
 
   const setToken = useAuthStore(s => s.setToken);
   const nick = username.trim().replace(/^@/, '');
+
+  // Вход через Яндекс ID: кнопка — если включён на сервере; возврат — по ссылке quazar://.
+  const [yandexOn, setYandexOn] = useState(false);
+  const [yandexCode, setYandexCode] = useState<{code: string; verifier: string} | null>(null);
+  const handled = useRef<string | null>(null);
+
+  useEffect(() => {
+    authApi
+      .providers()
+      .then(p => setYandexOn(p.yandex))
+      .catch(() => {});
+    const onUrl = async (url: string | null) => {
+      const params = parseReturnUrl(url);
+      if (!params || handled.current === url) {
+        return;
+      }
+      handled.current = url;
+      if (params.error || !params.code) {
+        setError(YANDEX_ERRORS[params.error] ?? YANDEX_ERRORS.expired);
+        return;
+      }
+      const verifier = await storedVerifier();
+      if (!verifier) {
+        setError(YANDEX_ERRORS.expired);
+        return;
+      }
+      setLoading(true);
+      setError('');
+      try {
+        const res = await authApi.yandexExchange(params.code, verifier);
+        if (res.status === 'login') {
+          await forgetVerifier();
+          await setToken(res.access_token);
+          return;
+        }
+        const p = res.profile;
+        setUsername(p.username ?? '');
+        setPhone(p.phone ? formatRuPhoneMask(p.phone) : '+7');
+        setFirstName(p.first_name ?? '');
+        setLastName(p.last_name ?? '');
+        setPhoneDiscoverable(null);
+        setYandexCode({code: params.code, verifier});
+        setMode('yandex');
+      } catch (err: unknown) {
+        setError(apiErrorText(err));
+      } finally {
+        setLoading(false);
+      }
+    };
+    // Приложение было открыто — событие; было выгружено и запущено по ссылке — начальная ссылка.
+    const sub = Linking.addEventListener('url', e => void onUrl(e.url));
+    void Linking.getInitialURL().then(onUrl);
+    return () => sub.remove();
+  }, [setToken]);
+
+  const completeYandex = async () => {
+    setError('');
+    if (!yandexCode) {
+      return;
+    }
+    if (!isCompleteRuPhone(phone)) {
+      setError('Введите номер в формате +7 (999) 000-00-00');
+      return;
+    }
+    if (phoneDiscoverable === null) {
+      setError('Выберите, можно ли найти вас по номеру');
+      return;
+    }
+    setLoading(true);
+    try {
+      const data = await authApi.yandexComplete({
+        ...yandexCode,
+        username: nick,
+        phone: toE164Ru(phone)!,
+        phone_discoverable: phoneDiscoverable,
+        first_name: firstName.trim() || null,
+        last_name: lastName.trim() || null,
+      });
+      await forgetVerifier();
+      await setToken(data.access_token);
+    } catch (err: unknown) {
+      setError(apiErrorText(err));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const yandexButton = yandexOn && (
+    <Pressable
+      style={[s.yandex, loading && s.disabled]}
+      disabled={loading}
+      onPress={() => void startYandexLogin().catch(() => setError('Не получилось открыть Яндекс ID'))}>
+      <View style={s.yandexMark}>
+        <Text style={s.yandexMarkText}>Я</Text>
+      </View>
+      <Text style={s.yandexText}>Войти с Яндекс ID</Text>
+    </Pressable>
+  );
 
   const switchMode = (next: Mode) => {
     setError('');
@@ -98,6 +205,84 @@ export default function AuthScreen() {
       setLoading(false);
     }
   };
+
+  if (mode === 'yandex') {
+    const ready =
+      !loading && check.state === 'ok' && isCompleteRuPhone(phone) && phoneDiscoverable !== null;
+    return (
+      <KeyboardAvoidingView
+        style={s.root}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+        <View style={s.card}>
+          <Pressable onPress={() => switchMode('login')} hitSlop={8}>
+            <Text style={s.back}>← Назад</Text>
+          </Pressable>
+          <Text style={s.title}>Почти готово</Text>
+          <Text style={s.lead}>
+            Вы вошли через Яндекс ID. Осталось выбрать никнейм и указать телефон — по ним вас
+            найдут знакомые.
+          </Text>
+          <TextInput
+            style={[s.input, s.nickInput]}
+            placeholder="@никнейм"
+            placeholderTextColor="#555"
+            value={username}
+            onChangeText={text => setUsername(text.replace(/\s/g, ''))}
+            maxLength={USERNAME_MAX + 1}
+            autoCapitalize="none"
+            autoCorrect={false}
+            keyboardType="ascii-capable"
+            textContentType="username"
+          />
+          <Text style={[s.hint, check.state === 'bad' && s.hintBad, check.state === 'ok' && s.hintOk]}>
+            {check.state === 'bad'
+              ? check.message
+              : check.state === 'ok'
+                ? 'Никнейм свободен'
+                : check.state === 'checking'
+                  ? 'Проверяем…'
+                  : 'Латиницей: по нему вас найдут и @упомянут'}
+          </Text>
+          <TextInput
+            style={s.input}
+            placeholder="+7 (999) 000-00-00"
+            placeholderTextColor="#555"
+            value={phone}
+            onChangeText={text => setPhone(formatRuPhoneMask(text))}
+            keyboardType="phone-pad"
+          />
+          <TextInput
+            style={s.input}
+            placeholder="Имя"
+            placeholderTextColor="#555"
+            value={firstName}
+            onChangeText={setFirstName}
+            maxLength={64}
+            textContentType="givenName"
+          />
+          <TextInput
+            style={s.input}
+            placeholder="Фамилия"
+            placeholderTextColor="#555"
+            value={lastName}
+            onChangeText={setLastName}
+            maxLength={64}
+            textContentType="familyName"
+          />
+          <View style={s.choice}>
+            <PhoneVisibilityChoice value={phoneDiscoverable} onChange={setPhoneDiscoverable} />
+          </View>
+          {error !== '' && <Text style={s.error}>{error}</Text>}
+          <Pressable
+            style={[s.submit, !ready && s.disabled]}
+            onPress={() => void completeYandex()}
+            disabled={!ready}>
+            {loading ? <ActivityIndicator color="#fff" /> : <Text style={s.submitText}>Готово</Text>}
+          </Pressable>
+        </View>
+      </KeyboardAvoidingView>
+    );
+  }
 
   if (mode === 'about') {
     const hasAbout = !!(firstName.trim() || lastName.trim() || email.trim());
@@ -261,6 +446,7 @@ export default function AuthScreen() {
             <Text style={s.submitText}>{isLogin ? 'Войти' : 'Далее'}</Text>
           )}
         </Pressable>
+        {yandexButton}
       </View>
     </KeyboardAvoidingView>
   );
@@ -320,4 +506,27 @@ const s = StyleSheet.create({
   },
   disabled: {opacity: 0.5},
   submitText: {color: '#fff', fontWeight: '700', fontSize: 15},
+  // «Войти с Яндекс ID» — по правилам бренда: тёмная кнопка, красная «Я».
+  yandex: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    backgroundColor: '#000',
+    borderWidth: 1,
+    borderColor: '#2a2d3a',
+    borderRadius: 10,
+    paddingVertical: 13,
+    marginTop: 12,
+  },
+  yandexMark: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: '#fc3f1d',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  yandexMarkText: {color: '#fff', fontWeight: '700', fontSize: 14},
+  yandexText: {color: '#fff', fontWeight: '600', fontSize: 15},
 });

@@ -40,11 +40,11 @@
 - `GET /contacts` — найденные, время последней сверки; `DELETE /contacts` — стереть.
 - После сверки сервер шлёт событие `contacts_updated` — открытый веб обновляет список сам.
 
-## Нативная настройка мобильного приложения (один раз, после `npx react-native init`)
+## Нативная настройка мобильного приложения
 
 Библиотека — `react-native-contacts` 8.0.4.
 
-**Android** — `android/app/src/main/AndroidManifest.xml`:
+**Android** — `android/app/src/main/AndroidManifest.xml` (уже добавлено):
 
 ```xml
 <uses-permission android:name="android.permission.READ_CONTACTS" />

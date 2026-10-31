@@ -4,8 +4,8 @@
  * @noble/ciphers xsalsa20poly1305 побайтово совместим с tweetnacl secretbox из web.
  */
 import {xsalsa20poly1305} from '@noble/ciphers/salsa';
-import {randombytes_buf, ready} from 'react-native-libsodium';
 import {decodeB64, encodeB64} from '../crypto/base64';
+import {randomBytes} from '../crypto/nacl';
 
 export const IMAGE_PREFIX = 'IMG1:';
 export const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
@@ -55,7 +55,6 @@ export function detectImageMime(bytes: Uint8Array): ImageMime | null {
 
 /** Картинка из галереи (base64 от image picker) → байты; бросает Error с текстом для пользователя. */
 export async function readPickedImage(base64: string): Promise<{bytes: Uint8Array; mime: ImageMime}> {
-  await ready;
   const bytes = decodeB64(base64);
   if (bytes.length > MAX_IMAGE_BYTES) {
     throw new Error('Картинка больше 10 МБ — такую не отправить');
@@ -93,9 +92,8 @@ export function parseImage(payload: string): ImageRef | null {
 }
 
 export async function encryptFile(data: Uint8Array): Promise<{blob: Uint8Array; key: string}> {
-  await ready;
-  const key = randombytes_buf(KEY_BYTES);
-  const nonce = randombytes_buf(NONCE_BYTES);
+  const key = randomBytes(KEY_BYTES);
+  const nonce = randomBytes(NONCE_BYTES);
   const box = xsalsa20poly1305(key, nonce).encrypt(data);
   const blob = new Uint8Array(NONCE_BYTES + box.length);
   blob.set(nonce, 0);
@@ -104,7 +102,6 @@ export async function encryptFile(data: Uint8Array): Promise<{blob: Uint8Array; 
 }
 
 export async function decryptFile(blob: Uint8Array, keyB64: string): Promise<Uint8Array | null> {
-  await ready;
   try {
     const key = decodeB64(keyB64);
     if (key.length !== KEY_BYTES || blob.length <= NONCE_BYTES) {

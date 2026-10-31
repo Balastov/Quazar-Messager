@@ -1,9 +1,13 @@
 import axios from 'axios';
 
-// Для Android эмулятора 10.0.2.2 = localhost хоста
-// Для iOS симулятора и реального устройства — IP вашего компьютера
-export const API_BASE_URL = 'http://10.0.2.2:8000';
-export const WS_BASE_URL = 'ws://10.0.2.2:8000';
+// Отладка: бэкенд на этом компьютере (в Android-эмуляторе 10.0.2.2 = localhost хоста;
+// для iOS-симулятора и телефона по USB впишите IP компьютера).
+// Релиз: боевой сервер — nginx отдаёт API под /api, WebSocket под /ws.
+const DEV_HOST = '10.0.2.2:8000';
+const PROD_HOST = 'quazar-msg.ru';
+
+export const API_BASE_URL = __DEV__ ? `http://${DEV_HOST}` : `https://${PROD_HOST}/api`;
+export const WS_BASE_URL = __DEV__ ? `ws://${DEV_HOST}` : `wss://${PROD_HOST}`;
 
 export const http = axios.create({baseURL: API_BASE_URL});
 

@@ -9,9 +9,9 @@ import {gcm} from '@noble/ciphers/aes';
 import {pbkdf2Async} from '@noble/hashes/pbkdf2';
 import {sha256} from '@noble/hashes/sha2';
 import {utf8ToBytes} from '@noble/hashes/utils';
-import {randombytes_buf, ready, to_string} from 'react-native-libsodium';
 import {decodeB64, encodeB64} from './base64';
 import {publicKeyFromSecret} from './identity';
+import {bytesToUtf8, randomBytes} from './nacl';
 
 export const BACKUP_PREFIX = 'ENC_BACKUP:v1:';
 const PBKDF2_ITERATIONS = 210_000;
@@ -45,16 +45,14 @@ export async function encryptBackup(secret: Uint8Array, password: string): Promi
   if (password.length < 8) {
     throw new BackupError('Пароль для резервной копии должен быть не короче 8 символов');
   }
-  await ready;
-
   const payload: BackupPayload = {
     version: 1,
     publicKey: publicKeyFromSecret(secret),
     seed: encodeB64(secret),
   };
 
-  const salt = randombytes_buf(SALT_LEN);
-  const iv = randombytes_buf(IV_LEN);
+  const salt = randomBytes(SALT_LEN);
+  const iv = randomBytes(IV_LEN);
   const aesKey = await deriveAesKey(password, salt);
   const ciphertext = gcm(aesKey, iv).encrypt(utf8ToBytes(JSON.stringify(payload)));
 
@@ -74,7 +72,6 @@ export async function decryptBackup(
   }
 
   try {
-    await ready;
     const raw = decodeB64(backup.slice(BACKUP_PREFIX.length));
     if (raw.length < SALT_LEN + IV_LEN + TAG_LEN) {
       throw new BackupError('Повреждённая резервная копия');
@@ -85,7 +82,7 @@ export async function decryptBackup(
     const ciphertext = raw.slice(SALT_LEN + IV_LEN);
     const aesKey = await deriveAesKey(password, salt);
     const plainBytes = gcm(aesKey, iv).decrypt(ciphertext);
-    const parsed = JSON.parse(to_string(plainBytes)) as BackupPayload;
+    const parsed = JSON.parse(bytesToUtf8(plainBytes)) as BackupPayload;
 
     if (parsed.version !== 1 || !parsed.seed || !parsed.publicKey) {
       throw new BackupError('Неподдерживаемая версия резервной копии');

@@ -6,16 +6,8 @@
  * ENC2: "ENC2:" + base64( u32be(len_r) || box_r || u32be(len_s) || box_s )
  */
 import {utf8ToBytes} from '@noble/hashes/utils';
-import {
-  crypto_box_easy,
-  crypto_box_open_easy,
-  crypto_box_keypair,
-  randombytes_buf,
-  crypto_box_NONCEBYTES,
-  to_string,
-  ready,
-} from 'react-native-libsodium';
 import {decodeB64, encodeB64} from './base64';
+import {BOX_NONCE_BYTES, box, boxKeyPair, boxOpen, bytesToUtf8, randomBytes} from './nacl';
 
 export const E2E_PREFIX = 'ENC1:';
 export const E2E_PREFIX_V2 = 'ENC2:';
@@ -41,17 +33,11 @@ async function sealBox(
   plaintext: string,
   recipientPublicKeyB64: string,
 ): Promise<Uint8Array> {
-  await ready;
   const recipientPubKey = decodeB64(recipientPublicKeyB64);
-  const ephemeral = crypto_box_keypair();
-  const nonce = randombytes_buf(crypto_box_NONCEBYTES);
+  const ephemeral = boxKeyPair();
+  const nonce = randomBytes(BOX_NONCE_BYTES);
 
-  const ciphertext = crypto_box_easy(
-    utf8ToBytes(plaintext),
-    nonce,
-    recipientPubKey,
-    ephemeral.privateKey,
-  );
+  const ciphertext = box(utf8ToBytes(plaintext), nonce, recipientPubKey, ephemeral.secretKey);
 
   const blob = new Uint8Array(32 + 24 + ciphertext.length);
   blob.set(ephemeral.publicKey, 0);
@@ -66,13 +52,12 @@ async function openBox(
 ): Promise<string | null> {
   if (blob.length < 56) {return null;}
   try {
-    await ready;
     const ephPub = blob.slice(0, 32);
     const nonce = blob.slice(32, 56);
     const ciphertext = blob.slice(56);
     const myPrivKey = decodeB64(myPrivateKeyB64);
-    const plainBytes = crypto_box_open_easy(ciphertext, nonce, ephPub, myPrivKey);
-    return to_string(plainBytes);
+    const plainBytes = boxOpen(ciphertext, nonce, ephPub, myPrivKey);
+    return plainBytes ? bytesToUtf8(plainBytes) : null;
   } catch {
     return null;
   }

@@ -9,11 +9,11 @@
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
-import {crypto_box_keypair, randombytes_buf, ready} from 'react-native-libsodium';
 import {http} from '../api/client';
 import {BackupError, decryptBackup, encryptBackup} from './backup';
 import {decodeB64, encodeB64} from './base64';
 import {publicKeyFromSecret} from './identity';
+import {randomBytes} from './nacl';
 
 const KEY_PRIVATE = 'quazar_e2e_priv';
 const KEY_PUBLIC = 'quazar_e2e_pub';
@@ -93,8 +93,7 @@ async function saveIdentity(secret: Uint8Array): Promise<KeyPair> {
 }
 
 async function generateIdentity(): Promise<KeyPair> {
-  await ready;
-  return saveIdentity(crypto_box_keypair().privateKey);
+  return saveIdentity(randomBytes(32));
 }
 
 /** Текущий ключ устройства (без создания нового). */
@@ -243,8 +242,7 @@ export async function createAndUploadBackup(userId: string, password: string): P
  * как сервер принял ключ (иначе при неверном пароле устройство осталось бы без ключа аккаунта).
  */
 export async function rotateKeys(userId: string, accountPassword: string): Promise<void> {
-  await ready;
-  const secret = randombytes_buf(32);
+  const secret = randomBytes(32);
   await http.post('/users/me/key/rotate', {
     password: accountPassword,
     public_key: publicKeyFromSecret(secret),

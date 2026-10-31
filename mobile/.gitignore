@@ -1,0 +1,18 @@
+# Android / Gradle
+build/
+.gradle/
+.cxx/
+local.properties
+*.iml
+*.hprof
+*.apk
+*.aab
+
+# Ключи подписи: release-ключ хранится вне репозитория
+*.keystore
+*.jks
+!debug.keystore
+
+# Metro
+*.jsbundle
+.metro-health-check*

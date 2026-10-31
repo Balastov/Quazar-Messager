@@ -10,9 +10,9 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import {Linking} from 'react-native';
 import {sha256} from '@noble/hashes/sha2';
 import {utf8ToBytes} from '@noble/hashes/utils';
-import {randombytes_buf, ready} from 'react-native-libsodium';
 import {API_BASE_URL} from '../api/client';
 import {encodeB64} from '../crypto/base64';
+import {randomBytes} from '../crypto/nacl';
 
 const VERIFIER_KEY = 'quazar.yandexVerifier';
 export const RETURN_PREFIX = 'quazar://auth/yandex';
@@ -23,8 +23,7 @@ function base64url(bytes: Uint8Array): string {
 
 /** Открыть вход через Яндекс в браузере. Секрет хранится до возвращения (приложение могут выгрузить). */
 export async function startYandexLogin(): Promise<void> {
-  await ready;
-  const verifier = base64url(randombytes_buf(32));
+  const verifier = base64url(randomBytes(32));
   await AsyncStorage.setItem(VERIFIER_KEY, verifier);
   const challenge = base64url(sha256(utf8ToBytes(verifier)));
   await Linking.openURL(`${API_BASE_URL}/auth/yandex/start?client=mobile&challenge=${challenge}`);

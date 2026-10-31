@@ -1,14 +1,15 @@
 # Ссылка `quazar://` — возврат после входа через Яндекс ID
 
 Сервер возвращает человека из Яндекса по адресу `quazar://auth/yandex#code=…`
-(`backend/app/api/oauth.py`). Приложение должно открываться по этой схеме. Папок `android/` и
-`ios/` в репозитории нет — после `npx react-native init` добавьте в них следующее.
+(`backend/app/api/oauth.py`). Приложение должно открываться по этой схеме. В Android это уже сделано
+(`mobile/android/app/src/main/AndroidManifest.xml`); папки `ios/` в репозитории пока нет — после
+её создания добавьте в неё то, что описано ниже для iOS.
 
 Код из ссылки сам по себе бесполезен: обменять его на сессию можно только с секретом, который
 приложение создало перед входом (`src/auth/yandex.ts`). Поэтому чужое приложение, перехватившее
 ссылку `quazar://`, войти не сможет.
 
-## Android — `android/app/src/main/AndroidManifest.xml`
+## Android — `android/app/src/main/AndroidManifest.xml` (сделано)
 
 Внутри `<activity android:name=".MainActivity" …>` (у неё уже должно быть
 `android:launchMode="singleTask"`, иначе ссылка откроет второе окно приложения):
@@ -55,9 +56,8 @@
 
 ## Проверка
 
-- Android: `adb shell am start -W -a android.intent.action.VIEW -d "quazar://auth/yandex#error=denied" com.quazarmobile`
-  (`com.quazarmobile` — идентификатор по умолчанию после `react-native init QuazarMobile`; если меняли — ваш
-  `applicationId`) — на экране входа появится «Вход через Яндекс отменён».
+- Android: `adb shell am start -W -a android.intent.action.VIEW -d "quazar://auth/yandex#error=denied" ru.quazarmsg.app`
+  — на экране входа появится «Вход через Яндекс отменён».
 - iOS: `xcrun simctl openurl booted "quazar://auth/yandex#error=denied"`.
 - Сервер: в окружении нужны `YANDEX_CLIENT_ID`, `YANDEX_CLIENT_SECRET`; адрес `API_BASE_URL`
   в `src/api/client.ts` должен вести на тот же сервер, что указан у Яндекса как адрес возврата

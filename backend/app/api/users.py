@@ -45,7 +45,9 @@ class UploadKeyBody(BaseModel):
 
 
 class RotateKeyBody(BaseModel):
-    password: str = Field(min_length=8)
+    # Пароль аккаунта; у аккаунта без пароля (через Яндекс) — код подтверждения через Яндекс.
+    password: str | None = None
+    reauth_code: str | None = None
     public_key: str
 
 
@@ -278,9 +280,15 @@ async def rotate_public_key(
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    """Ротация публичного ключа с подтверждением паролем аккаунта."""
-    if not verify_password(body.password, current_user.password_hash):
-        raise HTTPException(status_code=401, detail="Invalid password")
+    """Ротация публичного ключа с подтверждением паролем аккаунта (или через Яндекс, если пароля нет):
+    одной украденной сессии мало, чтобы подменить ключ шифрования."""
+    from app.api.oauth import consume_reauth
+
+    if current_user.password_hash:
+        if not verify_password(body.password or "", current_user.password_hash):
+            raise HTTPException(status_code=401, detail="Invalid password")
+    elif not await consume_reauth(db, current_user.id, body.reauth_code):
+        raise HTTPException(status_code=403, detail="Подтвердите, что это вы, через Яндекс ID")
 
     # Резервная копия содержит старый ключ — другим устройствам она больше не поможет.
     current_user.key_backup = None

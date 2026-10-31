@@ -15,11 +15,12 @@ from sqlalchemy import select, update
 
 from app.api import auth as auth_api
 from app.api import oauth
+from app.api import users as users_api
 from app.core import yandex
 from app.core.config import settings
 from app.core.security import decode_token, hash_password
 from app.models.user import OAuthFlow, User, UserIdentity
-from app.schemas.user import UserLogin
+from app.schemas.user import MeOut, UserLogin
 from tests.stars_base import StarsTestBase
 
 PNG = b"\x89PNG\r\n\x1a\n" + b"\0" * 64
@@ -221,6 +222,43 @@ class YandexOAuthTest(StarsTestBase):
             with self.assertRaises(HTTPException) as ctx:
                 await self.db_call(oauth.yandex_start, client="web")
             self.assertEqual(ctx.exception.status_code, 404)
+
+    async def as_user(self, fn, *args, user: str, **kwargs):
+        """Как в настоящем запросе: пользователь загружен в той же сессии, что и эндпоинт."""
+        async with self.Session() as db:
+            me = await db.get(User, self.users[user].id)
+            return await fn(*args, current_user=me, db=db, **kwargs)
+
+    async def expect_user_error(self, code: int, fn, *args, user: str, **kwargs):
+        with self.assertRaises(HTTPException) as ctx:
+            await self.as_user(fn, *args, user=user, **kwargs)
+        self.assertEqual(ctx.exception.status_code, code)
+
+    async def test_key_rotation_proofs(self):
+        """Смена ключа шифрования: пароль аккаунта или — без пароля — подтверждение Яндексом."""
+        key = "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA="
+        alice, bob = self.users["alice"], self.users["bob"]
+        async with self.Session() as db:
+            await db.execute(update(User).where(User.id == bob.id).values(password_hash=hash_password("bobsecret1")))
+            await db.execute(update(User).where(User.id == alice.id).values(password_hash=None))
+            db.add(UserIdentity(user_id=alice.id, provider="yandex", subject="1130000012345678"))
+            await db.commit()
+
+        body = users_api.RotateKeyBody
+        await self.expect_user_error(401, users_api.rotate_public_key, body(password="wrong", public_key=key), user="bob")
+        out = await self.as_user(users_api.rotate_public_key, body(password="bobsecret1", public_key=key), user="bob")
+        self.assertEqual(out.public_key, key)
+
+        # Без пароля: одной сессии мало — нужен свежий код подтверждения Яндексом.
+        await self.expect_user_error(403, users_api.rotate_public_key, body(public_key=key), user="alice")
+        re = await self.call(oauth.yandex_reauth_start, user="alice")
+        back = await self.callback(parse_qs(urlsplit(re.url).query)["state"][0])
+        out = await self.as_user(users_api.rotate_public_key, body(reauth_code=back["reauth"], public_key=key), user="alice")
+        self.assertEqual(out.public_key, key)
+        await self.expect_user_error(403, users_api.rotate_public_key,
+                                     body(reauth_code=back["reauth"], public_key=key), user="alice")
+        async with self.Session() as db:
+            self.assertFalse(MeOut.model_validate(await db.get(User, alice.id)).has_password)
 
     async def expect_status(self, code: int, fn, *args):
         with self.assertRaises(HTTPException) as ctx:

@@ -165,6 +165,8 @@ export interface User {
   email?: string | null;
   /** Только у себя: можно ли найти по номеру; null — ещё не выбирал (спросим окном). */
   phone_discoverable?: boolean | null;
+  /** Нет пароля (аккаунт через Яндекс ID) — важные действия подтверждаются через Яндекс. */
+  has_password?: boolean;
   avatar_url: string | null;
   created_at: string;
   /** Официальный аккаунт Квазара (Quazar_Admin_bot) — зелёный значок у имени. */

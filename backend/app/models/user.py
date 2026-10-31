@@ -59,6 +59,10 @@ class User(Base):
     memberships: Mapped[list["ChatMember"]] = relationship("ChatMember", back_populates="user")  # noqa: F821
 
     @property
+    def has_password(self) -> bool:
+        return bool(self.password_hash)
+
+    @property
     def visible_phone(self) -> str | None:
         """Номер глазами других: только если разрешили находить по нему."""
         return self.phone if self.phone_discoverable else None

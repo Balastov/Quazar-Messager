@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { BackupError, readBackupFile } from "../crypto/backup";
 import {
+  type AccountProof,
   adoptBackupAsAccountKey,
   createAndUploadBackup,
   fetchKeyBackup,
@@ -31,8 +32,8 @@ interface E2EState {
   restoreFromServer: (password: string) => Promise<void>;
   restoreFromFile: (file: File, password: string) => Promise<void>;
   createBackup: (password: string) => Promise<string>;
-  rotate: (accountPassword: string) => Promise<void>;
-  adoptBackup: (blob: string, backupPassword: string, accountPassword: string) => Promise<void>;
+  rotate: (proof: AccountProof) => Promise<void>;
+  adoptBackup: (blob: string, backupPassword: string, proof: AccountProof) => Promise<void>;
   setRestorePromptOpen: (open: boolean) => void;
   reset: () => void;
 }
@@ -125,14 +126,14 @@ export const useE2EStore = create<E2EState>((set, get) => {
     createBackup: (password) =>
       exclusive((userId) => createAndUploadBackup(userId, password)),
 
-    rotate: (accountPassword) =>
+    rotate: (proof) =>
       exclusive(async (userId) => {
-        await rotateKeys(userId, accountPassword);
+        await rotateKeys(userId, proof);
       }),
 
-    adoptBackup: (blob, backupPassword, accountPassword) =>
+    adoptBackup: (blob, backupPassword, proof) =>
       exclusive(async (userId) => {
-        await adoptBackupAsAccountKey(userId, blob, backupPassword, accountPassword);
+        await adoptBackupAsAccountKey(userId, blob, backupPassword, proof);
       }),
 
     setRestorePromptOpen: (open) => set({ restorePromptOpen: open }),

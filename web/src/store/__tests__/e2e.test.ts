@@ -52,9 +52,12 @@ vi.mock("../../api/client", () => ({
       }
       throw httpError(404, "Not found");
     },
-    post: async (url: string, body: { password: string; public_key: string }) => {
+    post: async (url: string, body: { password?: string; reauth_code?: string; public_key: string }) => {
       if (url === "/users/me/key/rotate") {
-        if (body.password !== ACCOUNT_PASSWORD) throw httpError(401, "Invalid password");
+        // Пароль аккаунта или (аккаунт без пароля) код подтверждения через Яндекс.
+        if (body.reauth_code !== undefined) {
+          if (body.reauth_code !== "fresh-reauth") throw httpError(403, "Подтвердите через Яндекс ID");
+        } else if (body.password !== ACCOUNT_PASSWORD) throw httpError(401, "Invalid password");
         server.publicKey = body.public_key;
         server.backup = null;
         return { data: {} };
@@ -146,11 +149,11 @@ describe("account key across devices", () => {
 
     // Неверный пароль аккаунта ничего не меняет.
     await expect(
-      useE2EStore.getState().adoptBackup(blob, "backup-password", "wrong-password")
+      useE2EStore.getState().adoptBackup(blob, "backup-password", { password: "wrong-password" })
     ).rejects.toMatchObject({ response: { status: 401 } });
     expect(useE2EStore.getState().status).toBe("needs_restore");
 
-    await useE2EStore.getState().adoptBackup(blob, "backup-password", ACCOUNT_PASSWORD);
+    await useE2EStore.getState().adoptBackup(blob, "backup-password", { password: ACCOUNT_PASSWORD });
     expect(useE2EStore.getState().status).toBe("ready");
     expect(server.publicKey).toBe(laptopKey);
     expect(server.backup).toBe(blob);
@@ -160,8 +163,18 @@ describe("account key across devices", () => {
   it("does not persist a rotated key the server rejected", async () => {
     await syncDevice();
     const before = (await loadKeys())!.publicKey;
-    await expect(useE2EStore.getState().rotate("wrong-password")).rejects.toBeTruthy();
+    await expect(useE2EStore.getState().rotate({ password: "wrong-password" })).rejects.toBeTruthy();
+    await expect(useE2EStore.getState().rotate({ reauthCode: "stale" })).rejects.toBeTruthy();
     expect((await loadKeys())!.publicKey).toBe(before);
     expect(useE2EStore.getState().status).toBe("ready");
+  });
+
+  it("rotates keys of an account without a password after Yandex re-auth", async () => {
+    await syncDevice();
+    const before = (await loadKeys())!.publicKey;
+    await useE2EStore.getState().rotate({ reauthCode: "fresh-reauth" });
+    const after = (await loadKeys())!.publicKey;
+    expect(after).not.toBe(before);
+    expect(server.publicKey).toBe(after);
   });
 });

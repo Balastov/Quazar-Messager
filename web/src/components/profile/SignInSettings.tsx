@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { authApi, type SignInMethods } from "../../api/auth";
 import { apiErrorText } from "../../utils/profile";
-import { REAUTH_KEY } from "../../pages/YandexAuthPage";
+import { clearReauth, reauthCode, startReauth } from "../../auth/reauth";
 import s from "../SettingsView.module.css";
 
 /** «Вход в аккаунт»: пароль (задать или сменить) и Яндекс ID (привязать или отвязать). */
@@ -15,7 +15,7 @@ export default function SignInSettings() {
   const [error, setError] = useState<string | null>(null);
 
   // Вернулись после подтверждения через Яндекс — сразу форма пароля.
-  const [reauth] = useState(() => sessionStorage.getItem(REAUTH_KEY));
+  const [reauth] = useState(reauthCode);
   const reload = useCallback(() => authApi.signInMethods().then(setMethods), []);
   useEffect(() => {
     void reload().catch(() => {});
@@ -57,7 +57,7 @@ export default function SignInSettings() {
                 next,
                 methods.has_password ? { currentPassword: current } : { reauthCode: reauth ?? undefined }
               );
-              sessionStorage.removeItem(REAUTH_KEY);
+              clearReauth();
               setEditing(false);
               setCurrent("");
               setNext("");
@@ -99,7 +99,7 @@ export default function SignInSettings() {
               methods.has_password || reauth
                 ? setEditing(true)
                 : // Без пароля — сначала подтвердить себя через Яндекс: одной сессии мало.
-                  void run(async () => window.location.assign((await authApi.yandexReauth()).url))
+                  void run(() => startReauth("settings"))
             }
           >
             {methods.has_password ? "Сменить пароль" : "Задать пароль"}

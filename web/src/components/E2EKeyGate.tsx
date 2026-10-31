@@ -4,6 +4,9 @@ import { shortKeyId, StaleBackupError } from "../crypto/keys";
 import { useE2EStore } from "../store/e2e";
 import { useUiStore } from "../store/ui";
 import s from "./E2EKeyGate.module.css";
+import AccountProofInput from "./profile/AccountProofInput";
+import { clearReauth } from "../auth/reauth";
+import type { AccountProof } from "../crypto/keys";
 
 const BACKUP_HINT_DISMISSED_KEY = "quazar_e2e_backup_hint_dismissed";
 
@@ -49,8 +52,11 @@ export default function E2EKeyGate() {
   const busy = useE2EStore((st) => st.busy);
 
   const [password, setPassword] = useState("");
-  const [accountPassword, setAccountPassword] = useState("");
-  const [adoptPassword, setAdoptPassword] = useState("");
+  // Пароль аккаунта или подтверждение через Яндекс (аккаунт без пароля).
+  const [rotateProof, setRotateProof] = useState<AccountProof | null>(null);
+  const [adoptProof, setAdoptProof] = useState<AccountProof | null>(null);
+  // Подтверждение одноразовое: после попытки поля подтверждения начинаются заново.
+  const [proofRound, setProofRound] = useState(0);
   const [stale, setStale] = useState<StaleBackup | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [hintDismissed, setHintDismissed] = useState(readHintDismissed);
@@ -61,8 +67,6 @@ export default function E2EKeyGate() {
     try {
       await fn();
       setPassword("");
-      setAccountPassword("");
-      setAdoptPassword("");
       setStale(null);
     } catch (err) {
       setError(errorMessage(err));
@@ -189,21 +193,29 @@ export default function E2EKeyGate() {
                 <code>{shortKeyId(stale.accountPublicKey)}</code>, останутся читаемыми только на
                 том устройстве; на остальных ключи нужно будет восстановить из этой копии.
               </p>
-              <input
-                className={s.input}
-                type="password"
-                placeholder="Пароль аккаунта"
-                value={adoptPassword}
-                onChange={(e) => setAdoptPassword(e.target.value)}
+              <AccountProofInput
+                key={`adopt-${proofRound}`}
+                purpose="app"
+                onChange={setAdoptProof}
                 disabled={busy}
-                autoFocus
+                inputClassName={s.input}
+                buttonClassName={s.primary}
+                hintClassName={s.hint}
               />
               <button
                 type="button"
                 className={s.primary}
-                disabled={busy || adoptPassword.length < 8}
+                disabled={busy || !adoptProof}
                 onClick={() =>
-                  void run(() => adoptBackup(stale.blob, stale.backupPassword, adoptPassword))
+                  void run(async () => {
+                    try {
+                      await adoptBackup(stale.blob, stale.backupPassword, adoptProof!);
+                    } finally {
+                      clearReauth();
+                      setAdoptProof(null);
+                      setProofRound((n) => n + 1);
+                    }
+                  })
                 }
               >
                 {busy ? "Сохраняем…" : "Сделать ключом аккаунта"}
@@ -218,19 +230,30 @@ export default function E2EKeyGate() {
               не прочитается, а на остальных устройствах ключи придётся восстановить заново.
               Собеседники увидят предупреждение о смене ключа.
             </p>
-            <input
-              className={s.input}
-              type="password"
-              placeholder="Пароль аккаунта"
-              value={accountPassword}
-              onChange={(e) => setAccountPassword(e.target.value)}
+            <AccountProofInput
+              key={`rotate-${proofRound}`}
+              purpose="app"
+              onChange={setRotateProof}
               disabled={busy}
+              inputClassName={s.input}
+              buttonClassName={s.primary}
+              hintClassName={s.hint}
             />
             <button
               type="button"
               className={s.danger}
-              disabled={busy || accountPassword.length < 8}
-              onClick={() => void run(() => rotate(accountPassword))}
+              disabled={busy || !rotateProof}
+              onClick={() =>
+                void run(async () => {
+                  try {
+                    await rotate(rotateProof!);
+                  } finally {
+                    clearReauth();
+                    setRotateProof(null);
+                    setProofRound((n) => n + 1);
+                  }
+                })
+              }
             >
               Создать новые ключи
             </button>

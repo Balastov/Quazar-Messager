@@ -115,5 +115,7 @@ class UserOut(BaseModel):
 class MeOut(UserOut):
     phone: str
     email: str | None = None
+    # Нет пароля (аккаунт через Яндекс) — важные действия подтверждаются через Яндекс.
+    has_password: bool = True
     # None — ещё не выбирал: клиент покажет окно с выбором.
     phone_discoverable: bool | None = None

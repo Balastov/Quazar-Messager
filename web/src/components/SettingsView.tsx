@@ -41,6 +41,9 @@ import UserAvatar from "./UserAvatar";
 import ProfileEditor from "./profile/ProfileEditor";
 import PhoneVisibilitySetting from "./profile/PhoneVisibilitySetting";
 import SignInSettings from "./profile/SignInSettings";
+import AccountProofInput from "./profile/AccountProofInput";
+import { clearReauth } from "../auth/reauth";
+import type { AccountProof } from "../crypto/keys";
 import { displayName } from "../utils/profile";
 import { formatRuPhoneDisplay } from "../utils/phone";
 import MicCheck from "./MicCheck";
@@ -89,7 +92,9 @@ export default function SettingsView() {
   const [busy, setBusy] = useState(false);
   const [backupPassword, setBackupPassword] = useState("");
   const [restorePassword, setRestorePassword] = useState("");
-  const [rotatePassword, setRotatePassword] = useState("");
+  const [rotateProof, setRotateProof] = useState<AccountProof | null>(null);
+  // Подтверждение одноразовое: после смены ключей поле подтверждения начинается заново.
+  const [proofRound, setProofRound] = useState(0);
   const fileRef = useRef<HTMLInputElement>(null);
   const wallpaperRef = useRef<HTMLInputElement>(null);
   const personalWallpaper = useWallpaperStore((st) => st.personalUrl);
@@ -661,22 +666,26 @@ export default function SettingsView() {
             }}
           />
 
-          <input
-            className={s.input}
-            type="password"
-            placeholder="Пароль аккаунта для ротации"
-            value={rotatePassword}
-            onChange={(e) => setRotatePassword(e.target.value)}
+          <AccountProofInput
+            key={proofRound}
+            purpose="settings"
+            onChange={setRotateProof}
             disabled={busy}
+            inputClassName={s.input}
+            buttonClassName={s.secondary}
+            hintClassName={s.hint}
+            placeholder="Пароль аккаунта для ротации"
           />
           <button
             type="button"
             className={s.danger}
-            disabled={busy || rotatePassword.length < 8}
+            disabled={busy || !rotateProof}
             onClick={() =>
               void run(async () => {
-                await useE2EStore.getState().rotate(rotatePassword);
-                setRotatePassword("");
+                await useE2EStore.getState().rotate(rotateProof!);
+                clearReauth();
+                setRotateProof(null);
+                setProofRound((n) => n + 1);
                 setStatus(
                   "Ключи обновлены. Создайте новую резервную копию — без неё другие устройства не смогут читать новые сообщения."
                 );

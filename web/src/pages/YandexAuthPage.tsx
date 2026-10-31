@@ -3,14 +3,12 @@ import { useNavigate } from "react-router-dom";
 import { authApi, type YandexProfile } from "../api/auth";
 import { useAuthStore } from "../store/auth";
 import { useUiStore } from "../store/ui";
+import { saveReauthCode } from "../auth/reauth";
 import { formatRuPhoneMask, isCompleteRuPhone, toE164Ru } from "../utils/phone";
 import { apiErrorText, USERNAME_MAX } from "../utils/profile";
 import { useUsernameCheck } from "../components/profile/useUsernameCheck";
 import PhoneVisibilityChoice from "../components/profile/PhoneVisibilityChoice";
 import s from "./AuthPage.module.css";
-
-/** Код подтверждения через Яндекс — его заберёт «Вход в аккаунт» в настройках. */
-export const REAUTH_KEY = "quazar.yandexReauth";
 
 const ERRORS: Record<string, string> = {
   mismatch: "Подтвердить можно только тем Яндекс ID, что привязан к аккаунту.",
@@ -64,19 +62,19 @@ export default function YandexAuthPage() {
   }, [fragment.code, navigate, setToken]);
 
   if (fragment.reauth) {
-    sessionStorage.setItem(REAUTH_KEY, fragment.reauth);
+    const purpose = saveReauthCode(fragment.reauth);
     return (
       <Shell title="Подтверждено">
-        <p className={s.lead}>Это вы — теперь можно задать пароль в настройках, раздел «Вход в аккаунт».</p>
+        <p className={s.lead}>Это вы — вернитесь и завершите то, что начали. Подтверждение действует 5 минут.</p>
         <button
           type="button"
           className={s.submit}
           onClick={() => {
-            useUiStore.getState().setTab("settings");
+            if (purpose === "settings") useUiStore.getState().setTab("settings");
             navigate("/", { replace: true });
           }}
         >
-          Задать пароль
+          Продолжить
         </button>
       </Shell>
     );

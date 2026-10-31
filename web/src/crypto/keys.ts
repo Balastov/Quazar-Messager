@@ -195,21 +195,25 @@ export async function restoreFromBackup(
   return publicKey;
 }
 
+/** Подтверждение важного действия: пароль аккаунта или (аккаунт без пароля) код подтверждения через Яндекс. */
+export type AccountProof = { password: string } | { reauthCode: string };
+
+function proofBody(proof: AccountProof) {
+  return "password" in proof ? { password: proof.password } : { reauth_code: proof.reauthCode };
+}
+
 /**
- * Делает ключ из резервной копии ключом аккаунта (подтверждение паролем аккаунта).
+ * Делает ключ из резервной копии ключом аккаунта (подтверждение паролем аккаунта или через Яндекс).
  * Нужен, когда ключ на сервере перезаписало другое устройство, а копия — с «правильным» ключом.
  */
 export async function adoptBackupAsAccountKey(
   userId: string,
   blob: string,
   backupPassword: string,
-  accountPassword: string
+  proof: AccountProof
 ): Promise<string> {
   const { publicKey, seed } = await decryptBackup(blob, backupPassword);
-  await http.post("/users/me/key/rotate", {
-    password: accountPassword,
-    public_key: publicKey,
-  });
+  await http.post("/users/me/key/rotate", { ...proofBody(proof), public_key: publicKey });
   await saveIdentitySeed(seed);
   // Ротация удаляет копию на сервере; эта копия как раз для нового ключа аккаунта.
   await uploadKeyBackup(blob);
@@ -238,13 +242,10 @@ export async function createAndUploadBackup(userId: string, password: string): P
  * Новая пара ключей для аккаунта. Локально сохраняется только после того,
  * как сервер принял ключ (иначе при неверном пароле устройство осталось бы без ключа аккаунта).
  */
-export async function rotateKeys(userId: string, accountPassword: string): Promise<string> {
+export async function rotateKeys(userId: string, proof: AccountProof): Promise<string> {
   const seed = nacl.randomBytes(32);
   const publicKey = derivePublicKeyFromSeed(seed);
-  await http.post("/users/me/key/rotate", {
-    password: accountPassword,
-    public_key: publicKey,
-  });
+  await http.post("/users/me/key/rotate", { ...proofBody(proof), public_key: publicKey });
   await saveIdentitySeed(seed);
   invalidateKeyCache(userId);
   clearBackupDone();

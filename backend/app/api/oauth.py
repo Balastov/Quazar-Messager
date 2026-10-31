@@ -43,6 +43,8 @@ Db = Annotated[AsyncSession, Depends(get_db)]
 STATE_TTL = timedelta(minutes=10)
 # Сколько ждём, пока новичок выберет ник и телефон.
 REGISTER_TTL = timedelta(minutes=30)
+# Подтверждение через Яндекс (аккаунт без пароля задаёт пароль) годится столько.
+REAUTH_TTL = timedelta(minutes=5)
 MOBILE_RETURN = "quazar://auth/yandex"
 
 
@@ -135,6 +137,17 @@ async def yandex_callback(
         )
     ).scalar_one_or_none()
 
+    if flow.mode == "reauth":
+        # Подтвердить можно только тем Яндексом, что привязан к этому аккаунту.
+        if not identity or identity.user_id != flow.user_id:
+            await db.delete(flow)
+            await db.commit()
+            return RedirectResponse(_return_url(client, error="mismatch"), status_code=status.HTTP_302_FOUND)
+        flow.handoff = secrets.token_urlsafe(32)
+        flow.expires_at = _now() + REAUTH_TTL
+        await db.commit()
+        return RedirectResponse(_return_url(client, reauth=flow.handoff), status_code=status.HTTP_302_FOUND)
+
     if flow.mode == "link":
         result = await _link(db, flow, identity, profile)
         await db.delete(flow)
@@ -168,6 +181,28 @@ async def _link(db: AsyncSession, flow: OAuthFlow, identity: UserIdentity | None
     return "ok"
 
 
+@router.post("/yandex/reauth", response_model=LinkStartOut)
+async def yandex_reauth_start(current_user: CurrentUser, db: Db, client: Literal["web", "mobile"] = "web"):
+    """Подтвердить себя через Яндекс — для аккаунтов без пароля перед важными действиями
+    (задать пароль): одной украденной сессии для них мало."""
+    _require_enabled()
+    flow = await _new_flow(db, "reauth", client, current_user.id)
+    return LinkStartOut(url=yandex.authorize_url(flow.state, flow.verifier))
+
+
+async def consume_reauth(db: AsyncSession, user_id: str, code: str | None) -> bool:
+    """Одноразовый код подтверждения через Яндекс для этого человека (и сразу погасить)."""
+    if not code:
+        return False
+    flow = (
+        await db.execute(select(OAuthFlow).where(OAuthFlow.handoff == code, OAuthFlow.mode == "reauth"))
+    ).scalar_one_or_none()
+    if not flow or flow.user_id != user_id or flow.expires_at < _now():
+        return False
+    await db.delete(flow)
+    return True
+
+
 class ExchangeBody(BaseModel):
     code: str = Field(min_length=1, max_length=128)
 
@@ -189,7 +224,9 @@ class ExchangeOut(BaseModel):
 
 
 async def _flow_by_handoff(db: AsyncSession, code: str) -> OAuthFlow:
-    flow = (await db.execute(select(OAuthFlow).where(OAuthFlow.handoff == code))).scalar_one_or_none()
+    flow = (
+        await db.execute(select(OAuthFlow).where(OAuthFlow.handoff == code, OAuthFlow.mode == "login"))
+    ).scalar_one_or_none()
     if not flow or flow.expires_at < _now():
         raise HTTPException(status_code=410, detail="Время входа истекло — начните заново")
     return flow
@@ -369,6 +406,8 @@ async def unlink_identity(provider: str, current_user: CurrentUser, db: Db):
 class PasswordBody(BaseModel):
     # Нужен, если пароль уже есть.
     current_password: str | None = None
+    # Пароля ещё нет (аккаунт через Яндекс) — код подтверждения через Яндекс (/auth/yandex/reauth).
+    reauth_code: str | None = None
     new_password: str = Field(min_length=8, max_length=128)
 
 
@@ -376,7 +415,10 @@ class PasswordBody(BaseModel):
 async def set_password(body: PasswordBody, current_user: CurrentUser, db: Db):
     """Задать пароль (аккаунт через Яндекс) или сменить его (нужен текущий)."""
     user = await db.get(User, current_user.id)
-    if user.password_hash and not verify_password(body.current_password or "", user.password_hash):
-        raise HTTPException(status_code=401, detail="Неверный текущий пароль")
+    if user.password_hash:
+        if not verify_password(body.current_password or "", user.password_hash):
+            raise HTTPException(status_code=401, detail="Неверный текущий пароль")
+    elif not await consume_reauth(db, user.id, body.reauth_code):
+        raise HTTPException(status_code=403, detail="Подтвердите, что это вы, через Яндекс ID")
     user.password_hash = hash_password(body.new_password)
     await db.commit()

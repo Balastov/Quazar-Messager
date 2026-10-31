@@ -3,6 +3,7 @@ import { useAuthStore } from "./store/auth";
 import AuthPage from "./pages/AuthPage";
 import MessengerPage from "./pages/MessengerPage";
 import GuestPage from "./pages/GuestPage";
+import YandexAuthPage from "./pages/YandexAuthPage";
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const token = useAuthStore((s) => s.token);
@@ -26,6 +27,8 @@ export default function App() {
             </PublicRoute>
           }
         />
+        {/* Возврат из Яндекса: и вход, и привязка к уже открытому аккаунту. */}
+        <Route path="/auth/yandex" element={<YandexAuthPage />} />
         {/* Гость по ссылке в комнату — без входа в аккаунт. */}
         <Route path="/guest/:code" element={<GuestPage />} />
         <Route

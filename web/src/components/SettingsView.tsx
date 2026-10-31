@@ -40,6 +40,7 @@ const STAR_SOUNDS: [StarSoundEvent, string][] = [
 import UserAvatar from "./UserAvatar";
 import ProfileEditor from "./profile/ProfileEditor";
 import PhoneVisibilitySetting from "./profile/PhoneVisibilitySetting";
+import SignInSettings from "./profile/SignInSettings";
 import { displayName } from "../utils/profile";
 import { formatRuPhoneDisplay } from "../utils/phone";
 import MicCheck from "./MicCheck";
@@ -143,6 +144,7 @@ export default function SettingsView() {
           <h3 className={s.sectionTitle}>Профиль</h3>
           <ProfileEditor user={user} />
           <PhoneVisibilitySetting user={user} />
+          <SignInSettings />
           <h3 className={s.sectionTitle}>Аватар</h3>
           <p className={s.hint}>JPEG, PNG, WebP или GIF. Не больше 3 МБ.</p>
           <div className={s.rowBtns}>

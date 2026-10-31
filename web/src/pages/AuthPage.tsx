@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { authApi } from "../api/auth";
 import { useAuthStore } from "../store/auth";
@@ -27,6 +27,25 @@ export default function AuthPage() {
 
   const setToken = useAuthStore((st) => st.setToken);
   const navigate = useNavigate();
+  // Кнопка «Войти с Яндекс ID» — только если вход настроен на сервере.
+  const [yandex, setYandex] = useState(false);
+  useEffect(() => {
+    authApi
+      .providers()
+      .then((p) => setYandex(p.yandex))
+      .catch(() => {});
+  }, []);
+  const yandexButton = yandex && (
+    <>
+      <div className={s.or}>или</div>
+      <a className={s.yandex} href={authApi.yandexStartUrl}>
+        <span className={s.yandexMark} aria-hidden>
+          Я
+        </span>
+        Войти с Яндекс ID
+      </a>
+    </>
+  );
 
   const go = (next: Screen) => {
     setError("");
@@ -100,6 +119,7 @@ export default function AuthPage() {
             <button type="button" className={s.ghost} onClick={() => go("register")}>
               Создать аккаунт
             </button>
+            {yandexButton}
           </div>
         </div>
       </div>
@@ -249,6 +269,7 @@ export default function AuthPage() {
             >
               {loading ? "..." : isLogin ? "Войти" : "Далее"}
             </button>
+            {yandexButton}
           </form>
         </div>
       </div>

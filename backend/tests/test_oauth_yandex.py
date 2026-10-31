@@ -151,7 +151,28 @@ class YandexOAuthTest(StarsTestBase):
             await db.execute(update(User).where(User.id == alice.id).values(password_hash=None))
             await db.commit()
         await self.expect_error(409, oauth.unlink_identity, "yandex", user="alice")
-        await self.call(oauth.set_password, oauth.PasswordBody(new_password="newsecret1"), user="alice")
+        # Задать первый пароль одной сессией нельзя — только подтвердив себя Яндексом.
+        await self.expect_error(403, oauth.set_password, oauth.PasswordBody(new_password="newsecret1"), user="alice")
+        re = await self.call(oauth.yandex_reauth_start, user="alice")
+        back = await self.callback(parse_qs(urlsplit(re.url).query)["state"][0])
+        # Код подтверждения не годится как код входа.
+        await self.expect_status(410, oauth.yandex_exchange, oauth.ExchangeBody(code=back["reauth"]))
+        # Чужой код подтверждения не годится (bob тоже без пароля).
+        async with self.Session() as db:
+            await db.execute(update(User).where(User.username == "bob").values(password_hash=None))
+            await db.commit()
+        await self.expect_error(403, oauth.set_password,
+                                oauth.PasswordBody(new_password="newsecret1", reauth_code=back["reauth"]), user="bob")
+        await self.call(oauth.set_password, oauth.PasswordBody(new_password="newsecret1", reauth_code=back["reauth"]), user="alice")
+        # Код одноразовый.
+        async with self.Session() as db:
+            await db.execute(update(User).where(User.id == alice.id).values(password_hash=None))
+            await db.commit()
+        await self.expect_error(403, oauth.set_password,
+                                oauth.PasswordBody(new_password="newsecret2", reauth_code=back["reauth"]), user="alice")
+        async with self.Session() as db:
+            await db.execute(update(User).where(User.id == alice.id).values(password_hash=hash_password("newsecret1")))
+            await db.commit()
         await self.call(oauth.unlink_identity, "yandex", user="alice")
         self.assertEqual((await self.call(oauth.my_sign_in, user="alice")).identities, [])
 
@@ -162,6 +183,12 @@ class YandexOAuthTest(StarsTestBase):
         await self.expect_error(401, oauth.set_password, oauth.PasswordBody(new_password="newsecret1"), user="bob")
         await self.call(oauth.set_password, oauth.PasswordBody(current_password="oldsecret1", new_password="newsecret1"), user="bob")
         await self.db_call(auth_api.login, UserLogin(phone=self.users["bob"].phone, password="newsecret1"))
+
+    async def test_reauth_needs_the_linked_yandex(self):
+        # У bob нет привязки — подтвердить себя чужим Яндексом нельзя.
+        re = await self.call(oauth.yandex_reauth_start, user="bob")
+        back = await self.callback(parse_qs(urlsplit(re.url).query)["state"][0])
+        self.assertEqual(back["error"], "mismatch")
 
     async def test_bad_states_and_errors(self):
         # Неизвестный state, отказ пользователя, ошибка Яндекса, просроченный и повторный state.

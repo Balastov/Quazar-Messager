@@ -48,6 +48,13 @@ class Settings(BaseSettings):
     CALL_HEARTBEAT_TIMEOUT_SEC: int = 6
 
     # LiveKit — медиасервер голосовых Планет. Пусто = голос на Планетах выключен.
+    # Вход через Яндекс ID (oauth.yandex.ru). Пусто — кнопки нет. Адрес возврата у Яндекса:
+    # {PUBLIC_URL}/api/auth/yandex/callback.
+    YANDEX_CLIENT_ID: str = ""
+    YANDEX_CLIENT_SECRET: str = ""
+    # Публичный адрес сайта — для адресов возврата после внешнего входа.
+    PUBLIC_URL: str = "https://quazar-msg.ru"
+
     # LIVEKIT_URL — адрес для бэкенда внутри docker-сети, LIVEKIT_PUBLIC_URL — для браузеров.
     LIVEKIT_URL: str = ""
     LIVEKIT_PUBLIC_URL: str = ""

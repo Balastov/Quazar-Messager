@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, JSON, String, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, JSON, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -22,7 +22,8 @@ class User(Base):
     # Можно ли найти по номеру (поиск, телефонная книга) и видеть номер. None — ещё не выбрал:
     # клиент спросит при входе, а пока номер скрыт.
     phone_discoverable: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
-    password_hash: Mapped[str] = mapped_column(String(256), nullable=False)
+    # Нет (None) — аккаунт создан через внешний вход (Яндекс) и пароля пока не задали.
+    password_hash: Mapped[str | None] = mapped_column(String(256), nullable=True)
     avatar_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Личный фон приложения (/media/backgrounds/…); видит только сам пользователь.
     background_url: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -65,3 +66,43 @@ class User(Base):
     @property
     def display_name(self) -> str:
         return display_name(self.first_name, self.last_name, self.username)
+
+
+class UserIdentity(Base):
+    """Внешний вход, привязанный к аккаунту: provider («yandex») и id человека у провайдера."""
+
+    __tablename__ = "user_identities"
+    __table_args__ = (UniqueConstraint("provider", "subject"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    provider: Mapped[str] = mapped_column(String(16), nullable=False)
+    subject: Mapped[str] = mapped_column(String(64), nullable=False)
+    # Почта и логин у провайдера — только для подписи в настройках («Яндекс: anna@yandex.ru»).
+    email: Mapped[str | None] = mapped_column(String(254), nullable=True)
+    login: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+
+
+class OAuthFlow(Base):
+    """Один вход через внешнего провайдера: от редиректа до выдачи сессии (минуты).
+
+    state — в адресе к провайдеру; verifier — PKCE. После ответа провайдера появляется
+    одноразовый handoff-код: по нему клиент забирает сессию или данные для регистрации."""
+
+    __tablename__ = "oauth_flows"
+
+    state: Mapped[str] = mapped_column(String(64), primary_key=True)
+    provider: Mapped[str] = mapped_column(String(16), nullable=False)
+    verifier: Mapped[str] = mapped_column(String(128), nullable=False)
+    # login — войти или зарегистрироваться; link — привязать к уже вошедшему user_id.
+    mode: Mapped[str] = mapped_column(String(8), nullable=False)
+    # web | mobile — куда вернуть человека.
+    client: Mapped[str] = mapped_column(String(8), nullable=False, default="web")
+    user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=True)
+    handoff: Mapped[str | None] = mapped_column(String(64), nullable=True, unique=True, index=True)
+    # Профиль у провайдера (для регистрации) — до завершения.
+    profile: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

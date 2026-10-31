@@ -44,6 +44,8 @@ from app.api.star_shares import router as star_shares_router
 from app.api.bots import api_router as bot_api_router
 from app.api.bots import router as bots_router
 from app.api.workflows import router as workflows_router
+from app.api.oauth import me_router as oauth_me_router
+from app.api.oauth import router as oauth_router
 from app.api.search import router as search_router
 from app.api.link_preview import router as link_preview_router
 from app.api.webhooks import hooks_router, router as webhooks_router
@@ -292,6 +294,7 @@ async def lifespan(app: FastAPI):
             "REFERENCES users(id) ON DELETE SET NULL",
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_official BOOLEAN NOT NULL DEFAULT false",
             "ALTER TABLE star_tags ADD COLUMN IF NOT EXISTS handle VARCHAR(32)",
+            "ALTER TABLE users ALTER COLUMN password_hash DROP NOT NULL",
             "ALTER TABLE star_messages ADD COLUMN IF NOT EXISTS bot_id VARCHAR(36) REFERENCES star_bots(id) ON DELETE SET NULL",
             "ALTER TABLE star_messages ADD COLUMN IF NOT EXISTS buttons JSON",
         ):
@@ -334,6 +337,8 @@ app.add_middleware(
 app.add_middleware(SecurityHeadersMiddleware)
 
 app.include_router(auth_router)
+app.include_router(oauth_router)
+app.include_router(oauth_me_router)
 app.include_router(moderation_router)
 app.include_router(star_work_me_router)
 app.include_router(notify_router)

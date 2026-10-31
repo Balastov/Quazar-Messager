@@ -46,6 +46,10 @@ services:
       VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
       VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
       VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:admin@quazar-msg.ru}
+      # Вход через Яндекс ID: ключи приложения с oauth.yandex.ru. Пусто — кнопки входа нет.
+      YANDEX_CLIENT_ID: ${YANDEX_CLIENT_ID:-}
+      YANDEX_CLIENT_SECRET: ${YANDEX_CLIENT_SECRET:-}
+      PUBLIC_URL: ${PUBLIC_URL:-https://quazar-msg.ru}
       CALL_RING_TIMEOUT_SEC: ${CALL_RING_TIMEOUT_SEC:-45}
       # Голос на Планетах (profile voice). Пустые ключи = голос выключен.
       LIVEKIT_URL: http://livekit:7880

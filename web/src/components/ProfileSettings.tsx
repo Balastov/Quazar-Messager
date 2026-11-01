@@ -201,7 +201,7 @@ export default function ProfileSettings({ onClose }: Props) {
               onChange={(e) => handleToggleSound(e.target.checked)}
             />
             <span className={s.toggleUi} />
-            <span className={s.toggleLabel}>Мягкий звук</span>
+            <span className={s.toggleLabel}>Звук сообщений</span>
           </label>
 
           {permission !== "granted" && permission !== "unsupported" && (

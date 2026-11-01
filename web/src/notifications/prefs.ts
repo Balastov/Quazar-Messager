@@ -5,7 +5,7 @@ const STORAGE_KEY = "quazar-notify-prefs";
 export interface NotifyPrefs {
   /** Пользователь хочет получать уведомления. */
   enabled: boolean;
-  /** Мягкий звук при новом сообщении. */
+  /** Звук при новом сообщении. */
   sound: boolean;
   /** Баннер «включить уведомления» уже скрывали. */
   promptDismissed: boolean;

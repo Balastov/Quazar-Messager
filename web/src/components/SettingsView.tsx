@@ -374,7 +374,7 @@ export default function SettingsView() {
               }}
             />
             <span className={s.toggleUi} />
-            <span className={s.toggleLabel}>Мягкий звук</span>
+            <span className={s.toggleLabel}>Звук сообщений</span>
           </label>
           {permission !== "granted" && permission !== "unsupported" && (
             <button

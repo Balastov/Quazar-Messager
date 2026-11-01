@@ -2,8 +2,8 @@
  * Звуки Созвездия — один мягкий набор для всех Звёзд (игровых и рабочих).
  * Синтез через Web Audio API, без аудиофайлов.
  *
- * Вход и выход — мягкий аккорд вверх / вниз; кто-то вошёл или вышел — пузырёк;
- * стук — два мягких касания; приглашение — вокзальный «дин-дон-дан».
+ * Вход — две ноты вверх, выход — те же ноты вниз; кто-то вошёл или вышел — то же,
+ * но выше, короче и тише; стук — два мягких касания; приглашение — вокзальный «дин-дон-дан».
  */
 import { getCtx } from "../notifications/sound";
 import { useUiStore } from "../store/ui";
@@ -99,37 +99,29 @@ function softNote(ctx: BaseAudioContext, out: AudioNode, t: number, freq: number
   tone(ctx, out, t, { freq: freq * 2, peak: peak * 0.16, attack: 0.012, decay: decay * 0.55 });
 }
 
-/** «Воздух»: тихий шум через мягкий полосовой фильтр, который плывёт от from к to. */
-function air(ctx: BaseAudioContext, out: AudioNode, t: number, from: number, to: number, peak: number, dur: number) {
-  burst(ctx, out, t, { type: "bandpass", freq: from, to, q: 0.7, peak, attack: dur * 0.45, decay: dur * 0.55 });
-}
-
-/** Пузырёк: короткая нота со скольжением высоты (как пузыри в мессенджерах). */
-function bubble(ctx: BaseAudioContext, out: AudioNode, t: number, from: number, to: number, peak: number) {
-  tone(ctx, out, t, { freq: from, to, glide: 0.07, peak, attack: 0.006, decay: 0.3 });
-  tone(ctx, out, t, { freq: from * 2, to: to * 2, glide: 0.07, peak: peak * 0.12, attack: 0.006, decay: 0.12 });
-}
-
-/** Я вошёл: мягкий восходящий аккорд, «воздух» и искорка сверху. */
+/** Я вошёл: две ноты вверх (A4, E5). */
 const softEnter: Synth = (ctx, out, t) => {
-  air(ctx, out, t, 600, 2400, 0.05, 0.55);
-  softNote(ctx, out, t + 0.02, 659.25, 0.14, 0.45); // E5
-  softNote(ctx, out, t + 0.11, 987.77, 0.13, 0.55); // B5
-  softNote(ctx, out, t + 0.2, 1318.51, 0.05, 0.7); // E6 — искорка
+  softNote(ctx, out, t, 440, 0.22, 0.16);
+  softNote(ctx, out, t + 0.13, 659.25, 0.26, 0.45);
 };
 
-/** Я вышел: те же ноты вниз, «воздух» стихает. */
+/** Я вышел: те же ноты вниз, последняя без обертона — глуше. */
 const softLeave: Synth = (ctx, out, t) => {
-  softNote(ctx, out, t, 987.77, 0.12, 0.35); // B5
-  softNote(ctx, out, t + 0.1, 659.25, 0.13, 0.5); // E5
-  air(ctx, out, t + 0.02, 2200, 500, 0.04, 0.5);
+  softNote(ctx, out, t, 659.25, 0.22, 0.16);
+  tone(ctx, out, t + 0.13, { freq: 440, peak: 0.28, attack: 0.014, decay: 0.45 });
 };
 
-/** Кто-то вошёл: пузырёк вверх. */
-const bubbleIn: Synth = (ctx, out, t) => bubble(ctx, out, t, 540, 820, 0.16);
+/** Кто-то вошёл: две короткие ноты вверх (D5, A5). */
+const peerIn: Synth = (ctx, out, t) => {
+  softNote(ctx, out, t, 587.33, 0.13, 0.1);
+  softNote(ctx, out, t + 0.09, 880, 0.14, 0.2);
+};
 
-/** Кто-то вышел: пузырёк вниз. */
-const bubbleOut: Synth = (ctx, out, t) => bubble(ctx, out, t, 820, 540, 0.14);
+/** Кто-то вышел: те же ноты вниз. */
+const peerOut: Synth = (ctx, out, t) => {
+  softNote(ctx, out, t, 880, 0.13, 0.1);
+  softNote(ctx, out, t + 0.09, 587.33, 0.14, 0.2);
+};
 
 /** Стук: два мягких «деревянных» касания — тук-тук. */
 const softKnock: Synth = (ctx, out, t) => {
@@ -151,8 +143,8 @@ const stationChime: Synth = (ctx, out, t) => {
 const SOUNDS: Record<StarSoundEvent, Synth> = {
   enter: softEnter,
   leave: softLeave,
-  peerJoin: bubbleIn,
-  peerLeave: bubbleOut,
+  peerJoin: peerIn,
+  peerLeave: peerOut,
   knock: softKnock,
   invite: stationChime,
 };

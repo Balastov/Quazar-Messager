@@ -29,6 +29,7 @@ afterEach(async () => {
   host.remove();
   restoreFullscreen();
   vi.restoreAllMocks();
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
@@ -132,5 +133,30 @@ describe("screen sharing fullscreen controls", () => {
       actions: [{ label: "Показать экран", onClick: vi.fn() }], onClose: vi.fn(),
     })));
     expect(host.contains(document.querySelector('[role="menu"]'))).toBe(true);
+  });
+
+  it("sends clicks in video coordinates and removes short-lived named pointers", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-11-01T12:00:00Z"));
+    const { props } = fixture();
+    const point = vi.fn();
+    await act(async () => root.render(createElement(ScreenStage, { ...props, pointersEnabled: true, onPoint: point,
+      pointers: [{ user_id: "bob", name: "Боб", sharer_id: "sharer", x: 0.5, y: 0.5,
+        created_at: new Date().toISOString(), expires: Date.now() + 1000 }],
+    })));
+    const video = host.querySelector("video")!;
+    const media = video.parentElement!;
+    Object.defineProperties(video, { videoWidth: { configurable: true, value: 1920 }, videoHeight: { configurable: true, value: 1080 } });
+    Object.defineProperties(media, { clientWidth: { configurable: true, value: 1000 }, clientHeight: { configurable: true, value: 600 } });
+    await act(async () => video.dispatchEvent(new Event("loadedmetadata")));
+    expect(host.textContent).toContain("Боб");
+    const toggle = [...host.querySelectorAll("button")].find((el) => el.textContent === "Указатель")!;
+    await act(async () => toggle.click());
+    const overlay = host.querySelector<HTMLElement>('[aria-label="Указатели на демонстрации"]')!;
+    vi.spyOn(overlay, "getBoundingClientRect").mockReturnValue({ left: 100, top: 100, width: 500, height: 250 } as DOMRect);
+    await act(async () => overlay.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0, clientX: 225, clientY: 225 })));
+    expect(point).toHaveBeenCalledWith(0.25, 0.5);
+    await act(async () => { vi.advanceTimersByTime(1100); });
+    expect(host.textContent).not.toContain("Боб");
   });
 });

@@ -1,4 +1,5 @@
 from app.models.chat import Chat, ChatMember
+from app.models.room_activity import RoomActivity, RoomVideo
 from app.models.message import (
     HiddenMessage,
     Message,
@@ -41,6 +42,8 @@ from app.models.star import (
 )
 
 __all__ = [
+    "RoomActivity",
+    "RoomVideo",
     "User",
     "Chat",
     "ChatMember",

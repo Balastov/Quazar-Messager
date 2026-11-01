@@ -101,13 +101,15 @@ def delete_file(file_id: str) -> None:
 async def sweep(session: AsyncSession) -> int:
     """Неотправленные за сутки и файлы без строки в БД (удалили сообщение, канал, Звезду)."""
     from app.models.star import StarFile
+    from app.models.room_activity import RoomVideo
 
     now_dt = datetime.now(timezone.utc)
     stale = set(
         (
             await session.execute(
                 delete(StarFile)
-                .where(StarFile.message_id.is_(None), StarFile.created_at < now_dt - UNSENT_TTL)
+                .where(StarFile.message_id.is_(None), StarFile.created_at < now_dt - UNSENT_TTL,
+                       ~select(RoomVideo.file_id).where(RoomVideo.file_id == StarFile.id).exists())
                 .returning(StarFile.id)
             )
         ).scalars().all()

@@ -16,6 +16,7 @@ from app.core import presence
 from app.api.messages import deliver
 from app.ws import calls as call_signaling
 from app.ws import typing as typing_signals
+from app.core import room_activities
 from app.ws.hub import manager
 
 router = APIRouter()
@@ -74,6 +75,9 @@ async def websocket_endpoint(websocket: WebSocket, token: str, state: str = "act
 
             elif event_type == "typing":
                 await typing_signals.handle_typing(data, user_id)
+
+            elif event_type == "room_pointer":
+                await room_activities.handle_pointer(data, user_id)
 
             elif isinstance(event_type, str) and event_type.startswith("call_"):
                 await call_signaling.handle_call_event(data, user_id, websocket)

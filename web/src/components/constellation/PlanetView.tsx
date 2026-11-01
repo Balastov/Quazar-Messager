@@ -9,7 +9,7 @@ import { IconBack, IconGear, IconPlanet, IconStarMic, IconStarMicOff, IconNoiseF
 import { ActiveTime, activeSince } from "./ActiveTime";
 import Dialog from "./Dialog";
 import AudioDevices from "../AudioDevices";
-import ScreenStage from "./ScreenStage";
+import RoomActivities from "./RoomActivities";
 import MessageMenu from "../messages/MessageMenu";
 import { Soundboard, VoiceKeysSettings } from "./VoicePanels";
 import { keyLabel } from "../../voice/keys";
@@ -324,17 +324,17 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
             Модератор выключил вам микрофон. Вы слышите всех, но вас пока не слышно.
           </p>
         )}
-        {sharerId && (
-          <ScreenStage
+        {(
+          <RoomActivities
+            detail={detail}
+            channel={channel}
+            sharerId={sharerId}
             sharerName={sharerName}
-            placeInside={nouns.inside}
-            screen={voice.screens.find((sc) => sc.userId === sharerId) ?? null}
-            isMine={sharerId === myId}
             controls={<RoomControls detail={detail} channel={channel} />}
             onStop={
               sharerId === myId
                 ? () => void voice.stopScreenShare()
-                : canStopSharer
+                : canStopSharer && sharerId
                   ? () => {
                       if (window.confirm(`Остановить показ экрана ${sharerName}?`)) {
                         void moderate(() => starsApi.stopScreenOf(detail.id, channel.id, sharerId));

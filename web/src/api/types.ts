@@ -1,4 +1,5 @@
 import type { StarEvent, WorkSchedule } from "./stars";
+import type { RoomActivityEvent } from "./roomActivities";
 
 export type CallMedia = {
   audio: boolean;
@@ -34,6 +35,7 @@ export interface IceServer {
 
 // WebSocket events
 export type WsEvent =
+  | RoomActivityEvent
   | StarEvent
   | {
       type: "new_message";

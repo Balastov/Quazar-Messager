@@ -1,0 +1,88 @@
+.activities { display: flex; flex-direction: column; gap: 12px; width: 100%; min-width: 0; }
+.tabs, .tools, .focusActions, .playerControls, .queueHeader { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.tabs { padding: 4px 0; }
+.button, .activeButton, .primary, .danger {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  min-height: 34px; padding: 7px 12px; border-radius: 10px; border: 1px solid var(--qz-border);
+  background: var(--qz-bg-soft); color: var(--qz-text); font: inherit; font-size: 12px; cursor: pointer;
+}
+.button:hover { border-color: var(--qz-border-strong); background: rgba(168, 85, 247, .12); }
+.activeButton, .primary { background: rgba(52, 211, 153, .14); color: var(--qz-online); border-color: rgba(52, 211, 153, .45); }
+.danger { background: rgba(248, 113, 113, .1); color: var(--qz-danger); border-color: rgba(248, 113, 113, .3); }
+.button:disabled, .activeButton:disabled, .primary:disabled, .danger:disabled { opacity: .45; cursor: not-allowed; }
+.button:focus-visible, .activeButton:focus-visible, .primary:focus-visible, .danger:focus-visible {
+  outline: 2px solid var(--qz-online); outline-offset: 2px;
+}
+.hint { font-size: 12px; line-height: 1.45; color: var(--qz-text-muted); margin: 0; }
+.error { color: var(--qz-danger); font-size: 13px; line-height: 1.5; margin: 4px 0; overflow-wrap: anywhere; }
+.focus { padding: 10px 12px; border-radius: 14px; border: 1px solid rgba(52, 211, 153, .23); background: rgba(52, 211, 153, .05); }
+.focusHead { display: flex; align-items: center; gap: 10px; }
+.focusHead > svg { flex-shrink: 0; color: var(--qz-online); }
+.focusTitle { display: flex; flex: 1; flex-direction: column; gap: 3px; min-width: 0; }
+.focusTitle strong { font-size: 14px; }
+.countdown { font-size: 24px; line-height: 1; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--qz-online); }
+.focusActions { padding-top: 12px; }
+.focusCompact { display: flex; justify-content: center; gap: 12px; padding: 5px 12px;
+  font-size: 12px; font-variant-numeric: tabular-nums; color: var(--qz-online); }
+.smallLabel { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--qz-text-muted); }
+.smallLabel input, .smallLabel select { max-width: 220px; min-height: 34px; border-radius: 8px;
+  padding: 5px 8px; border: 1px solid var(--qz-border); background: #171323; color: var(--qz-text); }
+.smallLabel input[type=number] { width: 65px; }
+.frame { width: 100%; min-width: 0; border: 1px solid var(--qz-glass-border); border-radius: 16px;
+  background: var(--qz-glass-bg-strong); overflow: hidden; }
+.frameHeader { display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 9px 12px; border-bottom: 1px solid var(--qz-border); }
+.frameHeader strong { font-size: 14px; }
+.frameBody { min-height: 0; min-width: 0; }
+.full { display: flex; flex-direction: column; width: 100%; height: 100%; border: none; border-radius: 0; background: #0c0b14; }
+.full .frameHeader { flex-shrink: 0; }
+.full .frameBody { flex: 1; overflow: auto; }
+.expanded { position: fixed; inset: 0; z-index: 200; height: 100dvh; }
+.fullControls { flex-shrink: 0; max-height: 35%; overflow-y: auto; }
+.board { display: flex; flex-direction: column; gap: 10px; padding: 10px; }
+.boardCanvas { display: block; width: 100%; aspect-ratio: 12 / 7; max-height: 65vh; border-radius: 8px;
+  background: #0c0b14; touch-action: none; user-select: none; }
+.draw { cursor: crosshair; }
+.boardEditor { display: flex; flex-direction: column; gap: 8px; }
+.textarea { width: 100%; min-height: 64px; resize: vertical; padding: 10px; box-sizing: border-box;
+  border: 1px solid var(--qz-border); border-radius: 10px; background: var(--qz-glass-inner);
+  font: inherit; font-size: 14px; color: var(--qz-text); }
+.watch { display: flex; flex-direction: column; gap: 10px; padding: 10px; }
+.videoBox { position: relative; background: #05040b; width: 100%; aspect-ratio: 16 / 9;
+  max-height: 60vh; min-height: 180px; border-radius: 10px; overflow: hidden; }
+.video { display: block; width: 100%; height: 100%; object-fit: contain; }
+.videoEmpty { display: flex; height: 100%; min-height: 180px; align-items: center; justify-content: center;
+  padding: 20px; box-sizing: border-box; text-align: center; color: var(--qz-text-muted); font-size: 14px; }
+.unlock { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); max-width: 90%;
+  background: #10231c; color: var(--qz-online); border: 1px solid var(--qz-online); border-radius: 14px; padding: 16px; cursor: pointer; }
+.videoTime { font-size: 12px; font-variant-numeric: tabular-nums; color: var(--qz-text-muted); }
+.seek { flex: 1; min-width: 120px; accent-color: var(--qz-online); }
+.volume { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--qz-text-muted); }
+.volume input { width: 80px; accent-color: var(--qz-online); }
+.videoInfo { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; font-size: 13px; }
+.videoInfo > strong { max-width: 100%; overflow-wrap: anywhere; }
+.check { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; }
+.check input { accent-color: var(--qz-online); }
+.queueHeader { justify-content: space-between; font-size: 13px; }
+.queue { display: flex; flex-direction: column; gap: 4px; max-height: 200px; overflow-y: auto; }
+.queueItem, .queueCurrent { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 10px; }
+.queueCurrent { background: rgba(52, 211, 153, .09); }
+.queueName { flex: 1; min-width: 0; border: none; padding: 4px 0; background: transparent; text-align: left;
+  color: var(--qz-text); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.queueName:disabled { cursor: default; }
+.pointerOverlay { position: absolute; z-index: 2; touch-action: none; overflow: hidden; }
+.pointer { position: absolute; transform: translate(-50%, -50%); width: 20px; height: 20px;
+  border: 2px solid currentColor; border-radius: 50%; pointer-events: none; }
+.pointer::before { content: ""; position: absolute; inset: 5px; border-radius: 50%; background: currentColor; }
+.pointer span { position: absolute; top: 22px; left: 8px; max-width: 160px; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; padding: 2px 6px; border-radius: 5px; background: #0c0b14; font-size: 11px; font-weight: 600; }
+.previewHint { font-size: 12px; color: var(--qz-text-muted); margin: 8px 0; }
+@media (max-width: 600px) {
+  .focusHead { flex-wrap: wrap; gap: 8px; }
+  .focusTitle { min-width: 140px; }
+  .countdown { font-size: 20px; }
+  .playerControls > .seek { flex-basis: 100%; order: 2; }
+  .smallLabel { flex-wrap: wrap; }
+  .smallLabel select { max-width: 180px; }
+  .fullControls { max-height: 45%; }
+}

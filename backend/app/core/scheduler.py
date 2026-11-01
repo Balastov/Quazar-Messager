@@ -207,8 +207,10 @@ async def run_due_workflows(db: AsyncSession, now: datetime | None = None) -> in
 
 
 async def run_forever(session_factory: async_sessionmaker) -> None:
+    from app.core.room_activities import tick as room_activities_tick
     while True:
         for job in (
+            room_activities_tick,
             send_due_scheduled,
             send_due_star_scheduled,
             fire_due_reminders,

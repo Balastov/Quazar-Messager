@@ -1585,11 +1585,13 @@
 }
 
 .screenBar {
+  z-index: 3;
   position: absolute;
   left: 10px;
   right: 10px;
   bottom: 10px;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
   padding: 6px 6px 6px 12px;

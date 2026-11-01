@@ -29,6 +29,7 @@ from app.api.calls import router as calls_router
 from app.api.push import router as push_router
 from app.api.doors import router as doors_router
 from app.api.office import router as office_router
+from app.api.room_activities import router as room_activities_router
 from app.api.star_community import router as star_community_router
 from app.api.star_play import router as star_play_router
 from app.api.star_work import me_router as star_work_me_router
@@ -377,6 +378,7 @@ app.include_router(guest_public_router)
 app.include_router(star_invites_router)
 app.include_router(voice_router)
 app.include_router(office_router)
+app.include_router(room_activities_router)
 app.include_router(doors_router)
 app.include_router(livekit_webhook_router)
 app.include_router(stickers_router)

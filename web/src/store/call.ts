@@ -11,6 +11,8 @@ import { useAuthStore } from "./auth";
 import { useChatStore } from "./chat";
 import { useVoiceStore } from "./voice";
 import { displayName } from "../utils/profile";
+import { useScreenAudio } from "./screenAudio";
+import { NO_SCREEN_AUDIO } from "../calls/screenCapture";
 
 type EndReason =
   | "hangup"
@@ -44,6 +46,11 @@ interface CallState {
   /** RNNoise реально обрабатывает микрофон в текущем звонке. */
   noiseSuppressionActive: boolean;
   remoteStream: MediaStream | null;
+  remoteScreenStream: MediaStream | null;
+  remoteScreenAudio: boolean;
+  screenAudioAvailable: boolean;
+  sharingScreenAudio: boolean;
+  screenAudioNotice: string | null;
   localStream: MediaStream | null;
   /** Что я сейчас показываю собеседнику: камеру, экран или ничего. */
   localVideo: LocalVideo;
@@ -69,7 +76,9 @@ interface CallState {
   toggleCamera: () => Promise<void>;
   flipCamera: () => Promise<void>;
   /** Показ экрана вкл/выкл. */
-  toggleScreenShare: () => Promise<void>;
+  toggleScreenShare: (shareAudio?: boolean) => Promise<void>;
+  canSendScreenAudio: () => boolean;
+  setScreenAudioSharing: (enabled: boolean) => void;
   /** Можно ли в этом звонке включать видео (собеседник поддерживает, соединение готово). */
   canSendVideo: () => boolean;
   loadHistory: () => Promise<void>;
@@ -90,11 +99,14 @@ export interface RemoteVideo {
 }
 
 /** Видео в начале звонка: видеозвонок — камеры с обеих сторон, аудио — ничего. */
-function initialVideo(media: CallMedia): { localVideo: LocalVideo; remoteVideo: RemoteVideo; cameraOff: boolean } {
+function initialVideo(media: CallMedia): Pick<CallState, "localVideo" | "remoteVideo" | "cameraOff" |
+  "remoteScreenStream" | "remoteScreenAudio" | "screenAudioAvailable" | "sharingScreenAudio" | "screenAudioNotice"> {
   return {
     localVideo: media.video ? "camera" : null,
     remoteVideo: { video: !!media.video, screen: false },
     cameraOff: !media.video,
+    remoteScreenStream: null, remoteScreenAudio: false, screenAudioAvailable: false,
+    sharingScreenAudio: false, screenAudioNotice: null,
   };
 }
 
@@ -241,7 +253,8 @@ function cleanupPeer() {
 function sendMedia(localVideo: LocalVideo) {
   const callId = useCallStore.getState().callId;
   if (!callId) return;
-  socket.send({ type: "call_media", call_id: callId, video: localVideo === "camera", screen: localVideo === "screen" });
+  socket.send({ type: "call_media", call_id: callId, video: localVideo === "camera", screen: localVideo === "screen",
+    screen_audio: localVideo === "screen" && !!peer?.isScreenAudioEnabled() });
 }
 
 function exitPictureInPicture() {
@@ -279,12 +292,19 @@ async function ensurePeer(media: CallMedia): Promise<CallPeer> {
     onRemoteStream: (stream) => {
       useCallStore.setState({ remoteStream: stream });
     },
+    onRemoteScreenAudio: (stream) => useCallStore.setState({ remoteScreenStream: stream }),
+    onLocalScreenAudioEnded: () => {
+      useCallStore.setState({ screenAudioAvailable: false, sharingScreenAudio: false,
+        screenAudioNotice: "Источник перестал передавать звук трансляции." });
+      sendMedia(useCallStore.getState().localVideo);
+    },
     onConnectionState: (state) => {
       const phase = useCallStore.getState().phase;
       if (state === "connected") {
         mediaLost = false;
         if (phase === "connecting" || phase === "active") {
           useCallStore.setState({ phase: "active", error: null });
+          sendMedia(useCallStore.getState().localVideo);
         }
         updateReconnecting();
       } else if ((state === "disconnected" || state === "failed") && phase === "active") {
@@ -585,7 +605,13 @@ export const useCallStore = create<CallState>((set, get) => {
           if (event.call_id !== get().callId || event.user_id === myId) return;
           peerLost = false;
           updateReconnecting();
+          sendMedia(get().localVideo);
           void restartIce(true);
+          break;
+        }
+
+        case "call_resumed": {
+          if (event.call_id === get().callId) sendMedia(get().localVideo);
           break;
         }
 
@@ -617,7 +643,7 @@ export const useCallStore = create<CallState>((set, get) => {
 
         case "call_media": {
           if (event.call_id !== get().callId) return;
-          set({ remoteVideo: { video: event.video, screen: event.screen } });
+          set({ remoteVideo: { video: event.video, screen: event.screen }, remoteScreenAudio: event.screen && event.screen_audio === true });
           break;
         }
 
@@ -770,11 +796,25 @@ export const useCallStore = create<CallState>((set, get) => {
       }
       const localVideo: LocalVideo = turnOn ? "camera" : null;
       cameraBeforeScreen = false;
-      set({ localVideo, cameraOff: !turnOn, localStream: peer.getLocalStream(), error: null });
+      set({ localVideo, cameraOff: !turnOn, localStream: peer.getLocalStream(), error: null,
+        sharingScreenAudio: peer.isScreenAudioEnabled(), screenAudioAvailable: peer.hasScreenAudioCapture(), screenAudioNotice: null });
       sendMedia(localVideo);
     },
 
-    toggleScreenShare: async () => {
+    canSendScreenAudio: () => !!peer?.canSendScreenAudio(),
+
+    setScreenAudioSharing: (enabled) => {
+      if (!peer?.hasScreenAudioCapture()) {
+        set({ screenAudioNotice: "Для добавления звука начните показ заново с настройкой «Поделиться звуком — да»." });
+        return;
+      }
+      peer.setScreenAudioEnabled(enabled);
+      useScreenAudio.getState().setShareAudio(enabled);
+      set({ sharingScreenAudio: peer.isScreenAudioEnabled(), screenAudioNotice: null });
+      sendMedia(get().localVideo);
+    },
+
+    toggleScreenShare: async (shareAudio = useScreenAudio.getState().shareAudio) => {
       if (!peer) return;
       const p = peer;
       if (get().localVideo === "screen") {
@@ -788,26 +828,32 @@ export const useCallStore = create<CallState>((set, get) => {
         }
         const localVideo: LocalVideo = cameraBeforeScreen ? "camera" : null;
         cameraBeforeScreen = false;
-        set({ localVideo, cameraOff: localVideo !== "camera", localStream: p.getLocalStream() });
+        set({ localVideo, cameraOff: localVideo !== "camera", localStream: p.getLocalStream(),
+          sharingScreenAudio: false, screenAudioAvailable: false, screenAudioNotice: null });
         sendMedia(localVideo);
         return;
       }
       cameraBeforeScreen = get().localVideo === "camera";
       let track: MediaStreamTrack;
       try {
-        track = await p.startScreen();
+        track = await p.startScreen(shareAudio && p.canSendScreenAudio());
       } catch (err) {
+        if (peer !== p) return;
         cameraBeforeScreen = false;
         // Человек сам закрыл окно выбора экрана — это не ошибка.
         if (err instanceof DOMException && err.name === "NotAllowedError") return;
         set({ error: "Не удалось показать экран" });
         return;
       }
+      if (peer !== p) { p.close(); return; }
       // «Закрыть доступ» в панели браузера — показ закончился сам.
       track.addEventListener("ended", () => {
         if (peer === p && get().localVideo === "screen") void get().toggleScreenShare();
       });
-      set({ localVideo: "screen", cameraOff: true, localStream: p.getLocalStream(), error: null });
+      set({ localVideo: "screen", cameraOff: true, localStream: p.getLocalStream(), error: null,
+        sharingScreenAudio: p.isScreenAudioEnabled(), screenAudioAvailable: p.hasScreenAudioCapture(),
+        screenAudioNotice: shareAudio ? !p.canSendScreenAudio() ? "Собеседник не поддерживает отдельный звук трансляции. Показ идёт без звука."
+          : !p.hasScreenAudioCapture() ? NO_SCREEN_AUDIO : null : null });
       sendMedia("screen");
     },
 

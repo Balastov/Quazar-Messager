@@ -7,6 +7,9 @@ import Dialog from "./constellation/Dialog";
 import UserAvatar from "./UserAvatar";
 import { IconPhone, IconScreenShare, IconScreenStop, IconVideo } from "./icons";
 import s from "./CallOverlay.module.css";
+import ScreenAudioControls, { ShareScreenAudioToggle } from "./ScreenAudioControls";
+import ScreenAudioPlayer from "./ScreenAudioPlayer";
+import ScreenShareDialog from "./ScreenShareDialog";
 
 /** «Переподключение… 7 с» и пояснение, чья связь пропала. */
 function ReconnectNotice({ reason, deadline }: { reason: Reconnecting; deadline: number | null }) {
@@ -67,6 +70,13 @@ export default function CallOverlay() {
   const muted = useCallStore((st) => st.muted);
   const cameraOff = useCallStore((st) => st.cameraOff);
   const remoteStream = useCallStore((st) => st.remoteStream);
+  const remoteScreenStream = useCallStore((st) => st.remoteScreenStream);
+  const remoteScreenAudio = useCallStore((st) => st.remoteScreenAudio);
+  const screenAudioAvailable = useCallStore((st) => st.screenAudioAvailable);
+  const sharingScreenAudio = useCallStore((st) => st.sharingScreenAudio);
+  const screenAudioNotice = useCallStore((st) => st.screenAudioNotice);
+  const setScreenAudioSharing = useCallStore((st) => st.setScreenAudioSharing);
+  const canSendScreenAudio = useCallStore((st) => st.canSendScreenAudio);
   const localStream = useCallStore((st) => st.localStream);
   const error = useCallStore((st) => st.error);
   const endReason = useCallStore((st) => st.endReason);
@@ -89,6 +99,7 @@ export default function CallOverlay() {
   const audioRef = useRef<HTMLAudioElement>(null);
   const output = useDevicesStore((st) => st.output);
   const [devicesOpen, setDevicesOpen] = useState(false);
+  const [screenDialogOpen, setScreenDialogOpen] = useState(false);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const localVideoRef = useRef<HTMLVideoElement>(null);
 
@@ -182,7 +193,7 @@ export default function CallOverlay() {
         <button
           type="button"
           className={localVideo === "screen" ? s.screenOn : s.mute}
-          onClick={() => void toggleScreenShare()}
+          onClick={() => localVideo === "screen" ? void toggleScreenShare() : setScreenDialogOpen(true)}
           disabled={!videoReady}
           aria-label={localVideo === "screen" ? "Остановить показ экрана" : "Показать экран"}
           title={videoReady ? (localVideo === "screen" ? "Остановить показ экрана" : "Показать экран") : videoHint}
@@ -319,6 +330,15 @@ export default function CallOverlay() {
                 </>
               )}
             </div>
+            {(remoteVideo.screen || localVideo === "screen") && <div className={s.screenAudioControls}>
+              {remoteVideo.screen && <>
+                <ScreenAudioControls available={remoteScreenAudio && !!remoteScreenStream?.getAudioTracks().length} />
+                {remoteScreenAudio && remoteScreenStream && <ScreenAudioPlayer stream={remoteScreenStream} />}
+              </>}
+              {localVideo === "screen" && <ShareScreenAudioToggle enabled={sharingScreenAudio} available={screenAudioAvailable}
+                onChange={setScreenAudioSharing} />}
+              {screenAudioNotice && <p className={s.hint} role="status">{screenAudioNotice}</p>}
+            </div>}
           </div>
         </div>
       ) : (
@@ -386,6 +406,8 @@ export default function CallOverlay() {
           <AudioDevices />
         </Dialog>
       )}
+      {screenDialogOpen && <ScreenShareDialog quality={false} audioSupported={canSendScreenAudio()}
+        onStart={(_mode, shareAudio) => void toggleScreenShare(shareAudio)} onClose={() => setScreenDialogOpen(false)} />}
     </div>
   );
 }

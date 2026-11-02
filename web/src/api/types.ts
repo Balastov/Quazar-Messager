@@ -137,7 +137,7 @@ export type WsEvent =
   /** Пора напомнить о сообщении. */
   | { type: "reminder"; reminder_id: string; chat_id: string; message_id: string }
   /** Собеседник по звонку включил/выключил камеру или показ экрана. */
-  | { type: "call_media"; call_id: string; video: boolean; screen: boolean; from_user_id: string }
+  | { type: "call_media"; call_id: string; video: boolean; screen: boolean; screen_audio?: boolean; from_user_id: string }
   /** Мой рабочий график сменили (в том числе на другом устройстве). */
   | { type: "my_work_schedule"; schedule: WorkSchedule | null }
   /** Закреплённые в чате изменились. */

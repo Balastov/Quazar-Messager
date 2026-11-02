@@ -1,4 +1,5 @@
 import type { CallMedia, IceServer } from "../api/types";
+import { captureScreen } from "./screenCapture";
 import { getMicrophone, getPreferredInput } from "./devices";
 import {
   isNoiseSuppressionSupported,
@@ -10,6 +11,8 @@ import {
 export type PeerCallbacks = {
   onIceCandidate: (candidate: RTCIceCandidateInit | null) => void;
   onRemoteStream: (stream: MediaStream) => void;
+  onRemoteScreenAudio?: (stream: MediaStream) => void;
+  onLocalScreenAudioEnded?: () => void;
   onConnectionState: (state: RTCPeerConnectionState) => void;
   onError: (message: string) => void;
   /** Работает ли сейчас шумоподавление RNNoise для микрофона. */
@@ -24,11 +27,16 @@ export type PeerCallbacks = {
  * всегда заводит видеоканал (addTransceiver, sendrecv), а принимающий разрешает в нём отправку.
  * Дальше камера или экран просто подставляются в этот канал (replaceTrack) — без нового
  * offer/answer. Собеседнику о смене сообщает сигнал call_media.
+ * Звук экрана использует вторую аудиосекцию SDP; микрофон и трансляция не смешиваются.
  */
 export class CallPeer {
   private pc: RTCPeerConnection | null = null;
   private localStream: MediaStream | null = null;
   private remoteStream: MediaStream | null = null;
+  private remoteScreenStream: MediaStream | null = null;
+  private screenAudioSender: RTCRtpTransceiver | null = null;
+  private remoteScreenAudioMid: string | null = null;
+  private screenAudioTrack: MediaStreamTrack | null = null;
   private pendingIce: RTCIceCandidateInit[] = [];
   private remoteSet = false;
   private facingMode: "user" | "environment" = "user";
@@ -216,15 +224,19 @@ export class CallPeer {
     };
 
     pc.ontrack = (ev) => {
-      if (!this.remoteStream) {
-        this.remoteStream = new MediaStream();
+      if (this.pc !== pc) return;
+      const screenAudio = ev.track.kind === "audio" &&
+        (ev.transceiver === this.screenAudioSender || (!!this.remoteScreenAudioMid && ev.transceiver.mid === this.remoteScreenAudioMid));
+      if (screenAudio) {
+        this.remoteScreenStream ??= new MediaStream();
+        if (!this.remoteScreenStream.getTracks().some((track) => track.id === ev.track.id)) this.remoteScreenStream.addTrack(ev.track);
+        this.cb.onRemoteScreenAudio?.(new MediaStream(this.remoteScreenStream.getTracks()));
+      } else {
+        this.remoteStream ??= new MediaStream();
+        if (!this.remoteStream.getTracks().some((track) => track.id === ev.track.id)) this.remoteStream.addTrack(ev.track);
+        // У каждого события новый объект: React обновит srcObject и при позднем аудиотреке.
+        this.cb.onRemoteStream(new MediaStream(this.remoteStream.getTracks()));
       }
-      const incoming = ev.streams[0]?.getTracks() ?? [ev.track];
-      for (const track of incoming) {
-        const exists = this.remoteStream.getTracks().some((t) => t.id === track.id);
-        if (!exists) this.remoteStream.addTrack(track);
-      }
-      this.cb.onRemoteStream(this.remoteStream);
     };
 
     pc.onconnectionstatechange = () => {
@@ -243,8 +255,12 @@ export class CallPeer {
 
   async createOffer(): Promise<RTCSessionDescriptionInit> {
     const pc = await this.ensurePeer();
+    // Даже video-only звонок сохраняет первую аудиосекцию для микрофона:
+    // вторая всегда однозначно обозначает звук демонстрации.
+    if (!pc.getTransceivers().some((track) => track.receiver.track?.kind === "audio")) pc.addTransceiver("audio", { direction: "sendrecv" });
     // Аудиозвонок: пустой видеоканал, чтобы потом включить камеру или экран без пересогласования.
     if (!this.videoTransceiver()) pc.addTransceiver("video", { direction: "sendrecv" });
+    this.screenAudioSender ??= pc.addTransceiver("audio", { direction: "sendrecv" });
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
     return pc.localDescription!.toJSON();
@@ -265,12 +281,15 @@ export class CallPeer {
 
   async handleRemoteOffer(sdp: RTCSessionDescriptionInit): Promise<RTCSessionDescriptionInit> {
     const pc = await this.ensurePeer();
+    this.remoteScreenAudioMid = screenAudioMid(sdp.sdp ?? "");
     await pc.setRemoteDescription(sdp);
     this.remoteSet = true;
     await this.flushIce();
     // Видеоканал из offer, в который нам пока нечего слать, — разрешаем и отправку.
     const video = this.videoTransceiver();
     if (video && video.direction === "recvonly") video.direction = "sendrecv";
+    this.screenAudioSender = this.remoteScreenAudioMid ? pc.getTransceivers().find((track) => track.mid === this.remoteScreenAudioMid) ?? null : null;
+    if (this.screenAudioSender && this.screenAudioSender.direction === "recvonly") this.screenAudioSender.direction = "sendrecv";
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
     return pc.localDescription!.toJSON();
@@ -278,6 +297,7 @@ export class CallPeer {
 
   async handleRemoteAnswer(sdp: RTCSessionDescriptionInit): Promise<void> {
     const pc = await this.ensurePeer();
+    this.remoteScreenAudioMid = screenAudioMid(sdp.sdp ?? "");
     await pc.setRemoteDescription(sdp);
     this.remoteSet = true;
     await this.flushIce();
@@ -319,10 +339,11 @@ export class CallPeer {
   }
 
   /** Подставить в видеоканал камеру, экран или ничего (null). Прежняя дорожка останавливается. */
-  async setOutgoingVideo(track: MediaStreamTrack | null): Promise<void> {
+  async setOutgoingVideo(track: MediaStreamTrack | null, keepScreenAudio = false): Promise<void> {
     const transceiver = this.videoTransceiver();
     if (!transceiver || !this.localStream) throw new Error("Видео в этом звонке недоступно");
     await transceiver.sender.replaceTrack(track);
+    if (!keepScreenAudio) await this.stopScreenAudio();
     for (const old of this.localStream.getVideoTracks()) {
       if (old === track) continue;
       this.localStream.removeTrack(old);
@@ -341,17 +362,52 @@ export class CallPeer {
   }
 
   /** Показ экрана: возвращает дорожку (её «ended» — человек нажал «Закрыть доступ» в браузере). */
-  async startScreen(): Promise<MediaStreamTrack> {
-    const stream = await navigator.mediaDevices.getDisplayMedia({
-      video: { frameRate: { ideal: 15, max: 30 } },
-      audio: false,
-    });
+  async startScreen(shareAudio = false): Promise<MediaStreamTrack> {
+    if (shareAudio && !this.canSendScreenAudio()) throw new Error("Собеседник не поддерживает отдельный звук трансляции");
+    const stream = await captureScreen(shareAudio);
     const track = stream.getVideoTracks()[0];
-    if (!track) throw new Error("Экран не выбран");
-    // Текст и мелкие детали важнее плавности.
-    track.contentHint = "detail";
-    await this.setOutgoingVideo(track);
+    const audio = stream.getAudioTracks()[0] ?? null;
+    try {
+      if (audio && this.screenAudioSender) {
+        await this.screenAudioSender.sender.replaceTrack(audio);
+        this.screenAudioTrack = audio;
+        audio.addEventListener("ended", () => {
+          if (this.screenAudioTrack !== audio) return;
+          void this.stopScreenAudio();
+          this.cb.onLocalScreenAudioEnded?.();
+        }, { once: true });
+      }
+      await this.setOutgoingVideo(track, true);
+    } catch (error) {
+      await this.stopScreenAudio();
+      stream.getTracks().forEach((captured) => captured.stop());
+      throw error;
+    }
     return track;
+  }
+
+  canSendScreenAudio(): boolean {
+    const direction = this.screenAudioSender?.currentDirection;
+    return direction === "sendrecv" || direction === "sendonly";
+  }
+
+  hasScreenAudioCapture(): boolean {
+    return !!this.screenAudioTrack && this.screenAudioTrack.readyState !== "ended";
+  }
+
+  isScreenAudioEnabled(): boolean {
+    return this.hasScreenAudioCapture() && !!this.screenAudioTrack?.enabled;
+  }
+
+  setScreenAudioEnabled(enabled: boolean): void {
+    if (this.hasScreenAudioCapture()) this.screenAudioTrack!.enabled = enabled;
+  }
+
+  private async stopScreenAudio(): Promise<void> {
+    const track = this.screenAudioTrack;
+    this.screenAudioTrack = null;
+    track?.stop();
+    await this.screenAudioSender?.sender.replaceTrack(null).catch(() => {});
   }
 
   /** Switch front/back camera on devices that support it. */
@@ -405,6 +461,12 @@ export class CallPeer {
   }
 
   close() {
+    const screenAudio = this.screenAudioTrack;
+    this.screenAudioTrack = null;
+    screenAudio?.stop();
+    this.screenAudioSender = null;
+    this.remoteScreenStream = null;
+    this.remoteScreenAudioMid = null;
     this.localStream?.getTracks().forEach((t) => t.stop());
     this.localStream = null;
     this.denoiser?.close();
@@ -435,4 +497,10 @@ export class CallPeer {
       }
     }
   }
+}
+
+/** В наших offer первая аудиосекция — микрофон, вторая — звук демонстрации. */
+export function screenAudioMid(sdp: string): string | null {
+  const audio = sdp.split(/(?=^m=)/m).filter((section) => section.startsWith("m=audio "));
+  return audio[1]?.match(/^a=mid:([^\r\n]+)/m)?.[1] ?? null;
 }

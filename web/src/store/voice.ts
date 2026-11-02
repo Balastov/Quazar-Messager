@@ -12,7 +12,8 @@
  * сервер и не пустит. Режим могут переключить на ходу — тогда микрофон освобождаем или
  * возвращаем выключенным.
  *
- * Громкость собеседников: у каждого своя (см. calls/peerVolume) — на микрофон и звук экрана.
+ * Громкость собеседников — отдельно для микрофонов (calls/peerVolume).
+ * Звук демонстрации управляется личными настройками screenAudio независимо от голосов.
  */
 import type {
   LocalTrack,
@@ -50,6 +51,8 @@ import { playStarSound } from "../sounds/starSounds";
 import { SpeakingMonitor } from "../voice/speaking";
 import { socket } from "../ws/socket";
 import { hotkey, isTyping, loadVoiceKeys, saveVoiceKeys, type VoiceKeyPrefs } from "../voice/keys";
+import { captureScreen, NO_SCREEN_AUDIO, type ScreenMode } from "../calls/screenCapture";
+import { useScreenAudio, screenAudioVolume } from "./screenAudio";
 
 export type VoiceStatus = "idle" | "connecting" | "connected" | "reconnecting";
 
@@ -67,6 +70,7 @@ export interface VoiceScreen {
   userId: string;
   isLocal: boolean;
   track: Track;
+  hasAudio?: boolean;
 }
 
 interface VoiceState {
@@ -89,6 +93,8 @@ interface VoiceState {
   sharingScreen: boolean;
   /** Выбираем экран / занимаем слот. */
   screenStarting: boolean;
+  screenAudioAvailable: boolean;
+  screenAudioSharing: boolean;
   noiseSuppression: boolean;
   noiseActive: boolean;
   /** Громкость собеседников по userId (нет записи — 100 %). */
@@ -117,7 +123,8 @@ interface VoiceState {
   applyOutput: () => Promise<void>;
   toggleNoise: () => Promise<void>;
   /** detail — чётко (текст, документы), motion — плавно (игры, видео). */
-  startScreenShare: (mode?: ScreenMode) => Promise<void>;
+  startScreenShare: (mode?: ScreenMode, shareAudio?: boolean) => Promise<void>;
+  setScreenAudioSharing: (enabled: boolean) => Promise<void>;
   toggleDeafen: () => Promise<void>;
   setVoiceKeys: (prefs: VoiceKeyPrefs) => Promise<void>;
   stopScreenShare: () => Promise<void>;
@@ -179,7 +186,7 @@ let unwatchPlanet: (() => void) | null = null;
 let stoppingScreen = false;
 /** Мы сами вышли — не показываем «связь прервалась». */
 let leavingOnPurpose = false;
-export type ScreenMode = "detail" | "motion";
+export type { ScreenMode } from "../calls/screenCapture";
 
 /** Микрофон был включён до «оглушения» — вернуть, когда звук включат обратно. */
 let micBeforeDeafen = false;
@@ -190,6 +197,7 @@ let speakingMonitor: SpeakingMonitor | null = null;
 /** Звук собеседника, который сейчас играет: по sid трека. */
 interface PlayedAudio {
   userId: string;
+  screen: boolean;
   track: RemoteTrack;
   elements: HTMLMediaElement[];
   /** Громкость не 100 % там, где элемент сам так не умеет. */
@@ -210,7 +218,10 @@ function audioContainer(): HTMLElement {
 
 /** Выставляет громкость. false — усилитель не заиграл без нажатия. */
 async function applyVolume(audio: PlayedAudio, volume: number): Promise<boolean> {
-  if (needsAmplifier(volume)) {
+  const amplified = volume > 0 && needsAmplifier(volume);
+  // LiveKit помнит этот уровень и при повторном запуске audio после разблокировки.
+  (audio.track as RemoteTrack & { setVolume?: (value: number) => void }).setVolume?.(amplified ? 0 : volume);
+  if (amplified) {
     audio.amp ??= new Amplifier(audio.track.mediaStreamTrack, audioContainer());
     audio.amp.setVolume(volume);
     // Исходный элемент играет беззвучно: без него Chrome не отдаёт звук в WebAudio.
@@ -221,12 +232,12 @@ async function applyVolume(audio: PlayedAudio, volume: number): Promise<boolean>
   audio.amp = null;
   for (const el of audio.elements) {
     el.volume = volume;
-    el.muted = false;
+    el.muted = volume === 0;
   }
   return true;
 }
 
-function attachAudio(track: RemoteTrack, userId: string, volume: number): Promise<boolean> {
+function attachAudio(track: RemoteTrack, userId: string, volume: number, screen = false): Promise<boolean> {
   if (track.kind !== "audio" || !track.sid) return Promise.resolve(true);
   const elements = track.attach();
   const list = (Array.isArray(elements) ? elements : [elements]) as HTMLMediaElement[];
@@ -234,9 +245,9 @@ function attachAudio(track: RemoteTrack, userId: string, volume: number): Promis
     audioContainer().appendChild(el);
     void applyOutput(el);
   }
-  const audio: PlayedAudio = { userId, track, elements: list, amp: null };
+  const audio: PlayedAudio = { userId, screen, track, elements: list, amp: null };
   played.set(track.sid, audio);
-  return volume === 1 ? Promise.resolve(true) : applyVolume(audio, volume);
+  return applyVolume(audio, volume);
 }
 
 function detachAudio(track: RemoteTrack) {
@@ -358,18 +369,24 @@ export const useVoiceStore = create<VoiceState>((set, get) => {
     const remote = [...room.remoteParticipants.values()].map((p) => peerOf(p, false));
     const screens: VoiceScreen[] = [];
     const localScreen = room.localParticipant.getTrackPublication(lk!.Track.Source.ScreenShare);
+    const localAudio = room.localParticipant.getTrackPublication(lk!.Track.Source.ScreenShareAudio);
     if (localScreen?.track) {
-      screens.push({ userId: room.localParticipant.identity, isLocal: true, track: localScreen.track });
+      screens.push({ userId: room.localParticipant.identity, isLocal: true, track: localScreen.track,
+        hasAudio: !!localAudio?.track && !localAudio.isMuted });
     }
     for (const p of room.remoteParticipants.values()) {
       const pub = p.getTrackPublication(lk!.Track.Source.ScreenShare);
-      if (pub?.track) screens.push({ userId: p.identity, isLocal: false, track: pub.track });
+      const audio = p.getTrackPublication(lk!.Track.Source.ScreenShareAudio);
+      if (pub?.track) screens.push({ userId: p.identity, isLocal: false, track: pub.track,
+        hasAudio: !!audio?.track && !audio.isMuted });
     }
     set({
       peers: [local, ...remote.sort((a, b) => a.name.localeCompare(b.name, "ru"))],
       micOn: local.micOn,
       screens,
       sharingScreen: !!localScreen?.track,
+      screenAudioAvailable: !!localAudio?.track,
+      screenAudioSharing: !!localAudio?.track && !localAudio.isMuted,
     });
   }
 
@@ -459,6 +476,8 @@ export const useVoiceStore = create<VoiceState>((set, get) => {
       screens: [],
       sharingScreen: false,
       screenStarting: false,
+      screenAudioAvailable: false,
+      screenAudioSharing: false,
       noiseActive: false,
       needsAudioUnlock: false,
       deafened: false,
@@ -553,17 +572,21 @@ export const useVoiceStore = create<VoiceState>((set, get) => {
   }
 
   /** Громкость собеседника с учётом «оглушения». */
-  function volumeOf(userId: string): number {
-    return get().deafened ? 0 : (get().volumes[userId] ?? 1);
+  function volumeOf(userId: string, screen = false): number {
+    return get().deafened ? 0 : screen ? screenAudioVolume() : (get().volumes[userId] ?? 1);
   }
 
   /** Громкость всем, кто сейчас звучит (после разблокировки звука LiveKit снимает mute). */
   async function applyVolumes() {
     const results = await Promise.all(
-      [...played.values()].map((audio) => applyVolume(audio, volumeOf(audio.userId)))
+      [...played.values()].map((audio) => applyVolume(audio, volumeOf(audio.userId, audio.screen)))
     );
     if (results.includes(false)) set({ needsAudioUnlock: true });
   }
+
+  useScreenAudio.subscribe((state, previous) => {
+    if (state.enabled !== previous.enabled || state.volume !== previous.volume) void applyVolumes();
+  });
 
   function wire(r: Room, { RoomEvent, DisconnectReason }: LiveKit) {
     r.on(RoomEvent.ParticipantConnected, () => {
@@ -586,7 +609,8 @@ export const useVoiceStore = create<VoiceState>((set, get) => {
       .on(RoomEvent.TrackPublished, syncPeers)
       .on(RoomEvent.TrackUnpublished, syncPeers)
       .on(RoomEvent.TrackSubscribed, (track, _pub, participant) => {
-        void attachAudio(track, participant.identity, volumeOf(participant.identity)).then((ok) => {
+        const screen = _pub.source === "screen_share_audio" || track.source === "screen_share_audio";
+        void attachAudio(track, participant.identity, volumeOf(participant.identity, screen), screen).then((ok) => {
           if (!ok && room === r) set({ needsAudioUnlock: true });
         });
         syncPeers();
@@ -597,6 +621,7 @@ export const useVoiceStore = create<VoiceState>((set, get) => {
       })
       .on(RoomEvent.AudioPlaybackStatusChanged, () => {
         set({ needsAudioUnlock: !r.canPlaybackAudio });
+        void applyVolumes();
       })
       .on(RoomEvent.Reconnecting, () => set({ status: "reconnecting" }))
       .on(RoomEvent.Reconnected, () => {
@@ -655,6 +680,8 @@ export const useVoiceStore = create<VoiceState>((set, get) => {
     screens: [],
     sharingScreen: false,
     screenStarting: false,
+    screenAudioAvailable: false,
+    screenAudioSharing: false,
     noiseSuppression: getNoiseSuppressionPref(),
     noiseActive: false,
     volumes: loadPeerVolumes(),
@@ -838,7 +865,7 @@ export const useVoiceStore = create<VoiceState>((set, get) => {
       set({ noiseActive: true });
     },
 
-    startScreenShare: async (mode = "detail") => {
+    startScreenShare: async (mode = "detail", shareAudio = useScreenAudio.getState().shareAudio) => {
       const r = room;
       const { starId, channelId, status, sharingScreen, screenStarting } = get();
       if (!r || !lk || !starId || !channelId || status !== "connected") return;
@@ -846,30 +873,29 @@ export const useVoiceStore = create<VoiceState>((set, get) => {
       set({ screenStarting: true });
 
       // Сначала выбор экрана: браузер разрешает его только сразу после нажатия кнопки.
-      let tracks: LocalTrack[];
+      let tracks: MediaStreamTrack[];
       try {
-        tracks = await r.localParticipant.createScreenTracks({
-          audio: true,
-          systemAudio: "include",
-          selfBrowserSurface: "exclude",
-          surfaceSwitching: "include",
-          contentHint: mode === "motion" ? "motion" : "detail",
-          resolution: (mode === "motion" ? lk.ScreenSharePresets.h1080fps30 : lk.ScreenSharePresets.h1080fps15).resolution,
-        });
+        const stream = await captureScreen(shareAudio, mode);
+        tracks = stream.getTracks();
       } catch (err) {
+        if (room !== r) return;
         set({ screenStarting: false });
         const text = screenErrorText(err);
         if (text) set({ notice: text });
         return;
       }
 
-      const published: LocalTrack[] = [];
+      const published: MediaStreamTrack[] = [];
       try {
+        if (room !== r) throw new Error("left the planet");
         await starsApi.startScreen(starId, channelId);
         await waitForScreenPermission(r);
         if (room !== r) throw new Error("left the planet");
         for (const track of tracks) {
           await r.localParticipant.publishTrack(track, {
+            source: track.kind === "audio" ? lk.Track.Source.ScreenShareAudio : lk.Track.Source.ScreenShare,
+            dtx: track.kind !== "audio",
+            ...(track.kind === "audio" ? { audioPreset: { maxBitrate: 128000 }, forceStereo: true } : {}),
             screenShareEncoding: (mode === "motion" ? lk.ScreenSharePresets.h1080fps30 : lk.ScreenSharePresets.h1080fps15).encoding,
             // Текст на экране важнее плавности.
             // Текст — держим чёткость; игры — держим плавность.
@@ -877,6 +903,7 @@ export const useVoiceStore = create<VoiceState>((set, get) => {
           });
           published.push(track);
         }
+        if (shareAudio && !tracks.some((track) => track.kind === "audio")) set({ notice: NO_SCREEN_AUDIO });
       } catch (err) {
         stoppingScreen = true;
         for (const track of published) await r.localParticipant.unpublishTrack(track).catch(() => {});
@@ -887,7 +914,18 @@ export const useVoiceStore = create<VoiceState>((set, get) => {
           set({ notice: apiError(err, "Не удалось начать показ экрана. Попробуйте ещё раз.") });
         }
       }
-      set({ screenStarting: false });
+      if (room === r) { set({ screenStarting: false }); syncPeers(); }
+    },
+
+    setScreenAudioSharing: async (enabled) => {
+      const publication = room?.localParticipant.getTrackPublication(lk!.Track.Source.ScreenShareAudio);
+      if (!publication?.track) {
+        set({ notice: "Для добавления звука начните показ заново с настройкой «Поделиться звуком — да»." });
+        return;
+      }
+      if (enabled) await publication.unmute();
+      else await publication.mute();
+      useScreenAudio.getState().setShareAudio(enabled);
       syncPeers();
     },
 
@@ -960,7 +998,7 @@ export const useVoiceStore = create<VoiceState>((set, get) => {
       savePeerVolumes(volumes);
       set({ volumes });
       for (const audio of played.values()) {
-        if (audio.userId !== userId) continue;
+        if (audio.userId !== userId || audio.screen) continue;
         void applyVolume(audio, volumeOf(userId)).then((ok) => {
           if (!ok) set({ needsAudioUnlock: true });
         });

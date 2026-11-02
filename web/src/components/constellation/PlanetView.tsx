@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useState } from "react";
 import { starsApi, type StarChannel, type StarDetail } from "../../api/stars";
 import { useAuthStore } from "../../store/auth";
 import { useCallStore } from "../../store/call";
@@ -10,7 +10,7 @@ import { ActiveTime, activeSince } from "./ActiveTime";
 import Dialog from "./Dialog";
 import AudioDevices from "../AudioDevices";
 import RoomActivities from "./RoomActivities";
-import MessageMenu from "../messages/MessageMenu";
+import ScreenShareDialog from "../ScreenShareDialog";
 import { Soundboard, VoiceKeysSettings } from "./VoicePanels";
 import { keyLabel } from "../../voice/keys";
 import { apiError, can, canStopScreen, outranks, ROOM_LABEL, roomDoor } from "./rules";
@@ -436,8 +436,7 @@ export function RoomControls({ detail, channel }: { detail: StarDetail; channel:
   const [inviteOpen, setInviteOpen] = useState(false);
   const [devicesOpen, setDevicesOpen] = useState(false);
   const [soundsOpen, setSoundsOpen] = useState(false);
-  const [screenMenu, setScreenMenu] = useState<{ x: number; y: number } | null>(null);
-  const closeScreenMenu = useCallback(() => setScreenMenu(null), []);
+  const [screenDialogOpen, setScreenDialogOpen] = useState(false);
 
   const presence = detail.voice?.[channel.id] ?? [];
   const door = roomDoor(detail, channel, myId);
@@ -527,12 +526,7 @@ export function RoomControls({ detail, channel }: { detail: StarDetail; channel:
                     : `Показать экран всем ${nouns.inside}`
               }
               disabled={!!sharerId || voice.screenStarting || voice.status !== "connected"}
-              onClick={(e) => {
-                // От самой кнопки: Safari на Mac не ставит фокус на кнопку при клике, и
-                // document.activeElement там — body (меню уезжало за верх экрана).
-                const r = e.currentTarget.getBoundingClientRect();
-                setScreenMenu({ x: r.left, y: r.top - 110 });
-              }}
+              onClick={() => setScreenDialogOpen(true)}
             />
           ))}
         <ControlButton
@@ -562,17 +556,8 @@ export function RoomControls({ detail, channel }: { detail: StarDetail; channel:
           <Soundboard detail={detail} channelId={channel.id} />
         </Dialog>
       )}
-      {screenMenu && (
-        <MessageMenu
-          at={screenMenu}
-          reaction={null}
-          actions={[
-            { label: "📄 Чётко — текст и документы", onClick: () => void voice.startScreenShare("detail") },
-            { label: "🎮 Плавно — игры и видео (30 к/с)", onClick: () => void voice.startScreenShare("motion") },
-          ]}
-          onClose={closeScreenMenu}
-        />
-      )}
+      {screenDialogOpen && <ScreenShareDialog onStart={(mode, shareAudio) => void voice.startScreenShare(mode, shareAudio)}
+        onClose={() => setScreenDialogOpen(false)} />}
       {inviteOpen && (
         <InviteDialog
           detail={detail}

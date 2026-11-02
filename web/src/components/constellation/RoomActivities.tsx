@@ -10,6 +10,7 @@ import FocusOrbit from "./FocusOrbit";
 import RoomBoard from "./RoomBoard";
 import RoomVideo from "./RoomVideo";
 import ActivityFrame from "./ActivityFrame";
+import ScreenAudioControls, { ShareScreenAudioToggle } from "../ScreenAudioControls";
 import s from "./RoomActivities.module.css";
 
 export default function RoomActivities({ detail, channel, sharerId, sharerName, onStop, controls }: {
@@ -19,6 +20,9 @@ export default function RoomActivities({ detail, channel, sharerId, sharerName, 
   const myId = useAuthStore((st) => st.user?.id);
   const status = useVoiceStore((st) => st.status);
   const screens = useVoiceStore((st) => st.screens);
+  const screenAudioAvailable = useVoiceStore((st) => st.screenAudioAvailable);
+  const screenAudioSharing = useVoiceStore((st) => st.screenAudioSharing);
+  const setScreenAudioSharing = useVoiceStore((st) => st.setScreenAudioSharing);
   const room = useRoomActivities((st) => st.rooms[channel.id]);
   const load = useRoomActivities((st) => st.load);
   const setPointers = useRoomActivities((st) => st.setPointers);
@@ -68,6 +72,9 @@ export default function RoomActivities({ detail, channel, sharerId, sharerName, 
         sharerName={sharerName} placeInside={detail.kind === "work" ? "в Комнате" : "на Планете"}
         screen={screens.find((screen) => screen.userId === sharerId) ?? null} isMine={sharerId === myId}
         controls={fullscreenControls} onStop={onStop} pointersEnabled={pointersEnabled}
+        audioControls={sharerId === myId ? <ShareScreenAudioToggle enabled={screenAudioSharing} available={screenAudioAvailable}
+          onChange={(enabled) => void setScreenAudioSharing(enabled).catch((err) => setError(apiError(err, "Не удалось изменить передачу звука")))} />
+          : <ScreenAudioControls available={!!screens.find((screen) => screen.userId === sharerId)?.hasAudio} />}
         pointers={Object.values(room?.pointers ?? {})}
         onPoint={!readOnly && pointersEnabled ? (x, y) => point(detail.id, channel.id, sharerId, x, y) : undefined}
         onTogglePointers={sharerId === myId && room?.ready && !readOnly ? () => {

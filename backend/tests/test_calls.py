@@ -159,6 +159,15 @@ class TestMultiDeviceCalls(unittest.IsolatedAsyncioTestCase):
             ("call_media", True, False, "alice"),
         )
 
+    async def test_screen_audio_flag_is_boolean_and_only_valid_during_screen_share(self):
+        await self.accept_on_phone()
+        for screen, sound, expected in ((True, True, True), (False, True, False), (True, "yes", False)):
+            await calls.handle_call_event(
+                {"type": "call_media", "call_id": "c1", "video": False, "screen": screen, "screen_audio": sound},
+                "alice", self.alice,
+            )
+            self.assertEqual(self.bob_phone.sent[-1]["screen_audio"], expected)
+
     async def test_call_to_someone_who_blocked_you_looks_offline(self):
         self.blocks = (False, True)
         bob_before = len(self.bob_phone.sent)

@@ -10,7 +10,7 @@ Protocol (extensible):
     call_answer  { call_id, sdp }
     call_ice     { call_id, candidate }
     call_resume  { call_id, device_id? } — the device is back after a dropped connection
-    call_media   { call_id, video, screen } — my camera / screen share went on or off mid-call
+    call_media   { call_id, video, screen, screen_audio? } — camera / screen / source sound changed mid-call
   (call_invite / call_accept may carry device_id — a per-tab id that lets a device resume
   even before the server notices its old connection is dead)
 
@@ -581,6 +581,7 @@ async def _relay_signaling(data: dict, user_id: str, ws: Any = None) -> None:
                 "call_id": call_id,
                 "video": data.get("video") is True,
                 "screen": data.get("screen") is True,
+                "screen_audio": data.get("screen") is True and data.get("screen_audio") is True,
                 "from_user_id": user_id,
             },
         )

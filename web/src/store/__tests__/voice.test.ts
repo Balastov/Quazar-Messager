@@ -15,6 +15,7 @@ class FakeTrack {
     readonly id: string,
     readonly source = "microphone"
   ) {}
+  get kind() { return this.source === "screen_share" ? "video" : "audio"; }
   stop() {
     this.stopped = true;
   }
@@ -181,6 +182,12 @@ let micDenied = false;
 let micRequests = 0;
 vi.stubGlobal("navigator", {
   mediaDevices: {
+    getDisplayMedia: vi.fn(async () => {
+      let tracks = [...room().screenTracks];
+      return { getTracks: () => tracks, getAudioTracks: () => tracks.filter((track) => track.kind === "audio"),
+        getVideoTracks: () => tracks.filter((track) => track.kind === "video"),
+        removeTrack: (track: FakeTrack) => { tracks = tracks.filter((value) => value !== track); } };
+    }),
     getUserMedia: async () => {
       micRequests++;
       if (micDenied) throw new DOMException("denied", "NotAllowedError");
@@ -190,9 +197,12 @@ vi.stubGlobal("navigator", {
 });
 
 const { useVoiceStore } = await import("../voice");
+const { useScreenAudio } = await import("../screenAudio");
 
 beforeEach(async () => {
   await useVoiceStore.getState().leave();
+  useScreenAudio.setState({ shareAudio: false, enabled: true, volume: 1 });
+  vi.mocked(navigator.mediaDevices.getDisplayMedia).mockClear();
   useVoiceStore.setState({ notice: null, error: null, noiseSuppression: true });
   FakeRoom.last = null;
   FakeDenoiser.fail = false;
@@ -342,7 +352,7 @@ describe("screen share", () => {
 
   it("publishes the screen only after the server grants the slot", async () => {
     await useVoiceStore.getState().join("s1", "p1");
-    await useVoiceStore.getState().startScreenShare();
+    await useVoiceStore.getState().startScreenShare("detail", true);
     expect(startScreen).toHaveBeenCalledWith("s1", "p1");
     expect(sources()).toEqual(["microphone", "screen_share", "screen_share_audio"]);
     const st = useVoiceStore.getState();
@@ -365,7 +375,7 @@ describe("screen share", () => {
 
   it("stays quiet when the person closes the screen picker", async () => {
     await useVoiceStore.getState().join("s1", "p1");
-    room().localParticipant.createScreenTracks.mockRejectedValueOnce(new DOMException("x", "NotAllowedError"));
+    vi.mocked(navigator.mediaDevices.getDisplayMedia).mockRejectedValueOnce(new DOMException("x", "NotAllowedError"));
     await useVoiceStore.getState().startScreenShare();
     expect(startScreen).not.toHaveBeenCalled();
     expect(useVoiceStore.getState().notice).toBeNull();
@@ -399,6 +409,38 @@ describe("screen share", () => {
     const r = room();
     await useVoiceStore.getState().leave();
     expect(r.screenTracks.every((t) => t.stopped)).toBe(true);
+  });
+
+  it("does not publish unexpected audio when sharing sound was declined", async () => {
+    await useVoiceStore.getState().join("s1", "p1");
+    await useVoiceStore.getState().startScreenShare("detail", false);
+    expect(sources()).toEqual(["microphone", "screen_share"]);
+    expect(room().screenTracks.find((track) => track.source === "screen_share_audio")?.stopped).toBe(true);
+    expect(navigator.mediaDevices.getDisplayMedia).toHaveBeenCalledWith(expect.objectContaining({ audio: false, systemAudio: "exclude" }));
+  });
+
+  it("can mute and restore captured screen sound without muting the microphone", async () => {
+    await useVoiceStore.getState().join("s1", "p1");
+    await useVoiceStore.getState().startScreenShare("detail", true);
+    const audio = [...room().live].find((pub) => pub.source === "screen_share_audio")!;
+    const microphone = [...room().live].find((pub) => pub.source === "microphone")!;
+    expect(useVoiceStore.getState().screenAudioSharing).toBe(true);
+    await useVoiceStore.getState().setScreenAudioSharing(false);
+    expect(audio.isMuted).toBe(true);
+    expect(microphone.isMuted).toBe(false);
+    expect(useVoiceStore.getState().screenAudioSharing).toBe(false);
+    await useVoiceStore.getState().setScreenAudioSharing(true);
+    expect(audio.isMuted).toBe(false);
+    expect(microphone.isMuted).toBe(false);
+  });
+
+  it("keeps the screen running and explains when the browser returns no audio", async () => {
+    await useVoiceStore.getState().join("s1", "p1");
+    room().screenTracks = [new FakeTrack("screen", "screen_share")];
+    await useVoiceStore.getState().startScreenShare("detail", true);
+    expect(useVoiceStore.getState().sharingScreen).toBe(true);
+    expect(useVoiceStore.getState().screenAudioSharing).toBe(false);
+    expect(useVoiceStore.getState().notice).toContain("Браузер не передал звук");
   });
 });
 
@@ -485,16 +527,16 @@ vi.stubGlobal("AudioContext", FakeAudioContext);
 vi.stubGlobal("MediaStream", class {});
 
 describe("peer volume", () => {
-  function subscribe(userId: string) {
+  function subscribe(userId: string, source = "microphone") {
     const el = new FakeAudioEl();
     const track = {
       kind: "audio",
-      sid: `TR_${userId}`,
+      sid: `TR_${userId}_${source}`,
       mediaStreamTrack: {},
       attach: () => el,
       detach: () => [el],
     };
-    FakeRoom.last!.emit("TrackSubscribed", track, {}, { identity: userId });
+    FakeRoom.last!.emit("TrackSubscribed", track, { source }, { identity: userId });
     return { el, track };
   }
 
@@ -543,6 +585,40 @@ describe("peer volume", () => {
 
     await useVoiceStore.getState().leave();
     expect(createdAudio[0].removed).toBe(true);
+  });
+
+  it("controls screen sound separately from the presenter's microphone", async () => {
+    await useVoiceStore.getState().join("s1", "p1");
+    const microphone = subscribe("presenter");
+    const screen = subscribe("presenter", "screen_share_audio");
+    useScreenAudio.getState().setVolume(0.35);
+    expect(screen.el.volume).toBe(0.35);
+    expect(microphone.el.volume).toBe(1);
+    useVoiceStore.getState().setPeerVolume("presenter", 0.7);
+    expect(microphone.el.volume).toBe(0.7);
+    expect(screen.el.volume).toBe(0.35);
+    useScreenAudio.getState().setEnabled(false);
+    expect(screen.el.volume).toBe(0);
+    expect(microphone.el.volume).toBe(0.7);
+    useScreenAudio.getState().setEnabled(true);
+    expect(screen.el.volume).toBe(0.35);
+    expect(microphone.el.volume).toBe(0.7);
+  });
+
+  it("applies screen preferences to a newly subscribed stream and preserves mute after deafen", async () => {
+    useScreenAudio.getState().setVolume(0.25);
+    useScreenAudio.getState().setEnabled(false);
+    await useVoiceStore.getState().join("s1", "p1");
+    const screen = subscribe("presenter", "screen_share_audio");
+    const microphone = subscribe("presenter");
+    expect(screen.el.volume).toBe(0);
+    await useVoiceStore.getState().toggleDeafen();
+    expect(microphone.el.volume).toBe(0);
+    await useVoiceStore.getState().toggleDeafen();
+    expect(microphone.el.volume).toBe(1);
+    expect(screen.el.volume).toBe(0);
+    useScreenAudio.getState().setEnabled(true);
+    expect(screen.el.volume).toBe(0.25);
   });
 });
 

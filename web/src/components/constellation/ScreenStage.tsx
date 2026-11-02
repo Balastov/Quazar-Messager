@@ -18,6 +18,7 @@ interface Props {
   onStop?: () => void;
   /** Та же панель разговора, что под сценой, — внутри полноэкранного просмотра. */
   controls?: ReactNode;
+  audioControls?: ReactNode;
   pointersEnabled?: boolean;
   pointers?: (ScreenPointer & { expires: number })[];
   onPoint?: (x: number, y: number) => void;
@@ -26,7 +27,7 @@ interface Props {
 
 /** Сцена Планеты: трансляция экрана на всю ширину, с полноэкранным режимом. */
 export default function ScreenStage({ sharerName, placeInside, screen, isMine, onStop, controls,
-  pointersEnabled = false, pointers = [], onPoint, onTogglePointers }: Props) {
+  audioControls, pointersEnabled = false, pointers = [], onPoint, onTogglePointers }: Props) {
   const frameRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const [nativeFullscreen, setNativeFullscreen] = useState(false);
@@ -123,6 +124,7 @@ export default function ScreenStage({ sharerName, placeInside, screen, isMine, o
             </button>
           )}
         </div>
+        {audioControls}
       </div>
     );
   }
@@ -182,9 +184,9 @@ export default function ScreenStage({ sharerName, placeInside, screen, isMine, o
           )}
         </div>
       </div>
-      {fullscreen && controls && <div className={s.screenControls}>{controls}</div>}
+      {fullscreen && (controls || audioControls) && <div className={s.screenControls}>{controls}{audioControls}</div>}
     </div>
   );
 
-  return <div className={s.screenStage}>{expanded ? createPortal(frame, document.body) : frame}</div>;
+  return <div className={s.screenStage}>{expanded ? createPortal(frame, document.body) : frame}{!fullscreen && audioControls}</div>;
 }

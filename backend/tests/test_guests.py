@@ -50,6 +50,9 @@ class GuestsTest(StarsTestBase):
         claims = jwt.decode(out.token, LK["LIVEKIT_API_SECRET"], algorithms=["HS256"])
         self.assertEqual((claims["name"], claims["video"]["room"]), ("Пётр Иванов (гость)", voice.room_name(self.room.id)))
         self.assertEqual(claims["video"]["canPublishSources"], ["microphone"])
+        self.assertTrue(claims["video"]["canSubscribe"])
+        self.assertFalse(claims["video"]["canPublishData"])
+        self.assertTrue(claims["video"]["canPublish"])
         self.assertTrue(out.identity.startswith(f"guest-{link.id}-"))
 
         # Гость главным не становится; первый вошедший участник — да.
@@ -74,6 +77,21 @@ class GuestsTest(StarsTestBase):
         with self.assertRaises(HTTPException) as ctx:
             await self.public(guests.guest_info, link.code)
         self.assertEqual(ctx.exception.status_code, 404)
+
+    async def test_listen_only_guest_can_watch_tracks_but_cannot_publish(self):
+        from app.models.star import StarChannel
+        async with self.Session() as db:
+            channel = await db.get(StarChannel, self.room.id)
+            channel.listen_only = True
+            await db.commit()
+        link = await self.call(guests.create_guest_link, self.star.id, self.room.id, guests.CreateGuestLink(), user="alice")
+        out = await self.guest_enters(link.code, "Зритель")
+        claims = jwt.decode(out.token, LK["LIVEKIT_API_SECRET"], algorithms=["HS256"])
+        self.assertEqual(claims["video"]["room"], voice.room_name(self.room.id))
+        self.assertTrue(claims["video"]["canSubscribe"])
+        self.assertFalse(claims["video"]["canPublish"])
+        self.assertFalse(claims["video"]["canPublishData"])
+        self.assertEqual(claims["video"]["canPublishSources"], [])
 
     async def test_who_can_invite_guests(self):
         cabinet = await self.call(

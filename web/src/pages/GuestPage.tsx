@@ -1,9 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import axios from "axios";
-import type { Participant, Room } from "livekit-client";
+import type { Participant, RemoteAudioTrack, Room, Track } from "livekit-client";
 import { http } from "../api/client";
 import { compareNames } from "../utils/profile";
+import ScreenStage from "../components/constellation/ScreenStage";
+import ScreenAudioControls from "../components/ScreenAudioControls";
+import { screenAudioVolume, useScreenAudio } from "../store/screenAudio";
 import s from "./GuestPage.module.css";
 
 interface GuestInfo {
@@ -30,6 +33,13 @@ interface Person {
   me: boolean;
 }
 
+interface GuestScreen {
+  userId: string;
+  name: string;
+  track: Track | null;
+  hasAudio: boolean;
+}
+
 const NAME_KEY = "quazar-guest-name";
 
 function errorText(err: unknown, fallback: string): string {
@@ -50,7 +60,8 @@ function people(room: Room): Person[] {
 
 /**
  * Гость по ссылке: без аккаунта, только эта комната. Видит, кто внутри и кто говорит,
- * может выключить микрофон и выйти. Больше ничего из Звезды гостю не видно.
+ * смотрит демонстрацию экрана, может выключить микрофон и выйти.
+ * Больше ничего из Звезды гостю не видно.
  */
 export default function GuestPage() {
   const { code = "" } = useParams();
@@ -67,22 +78,46 @@ export default function GuestPage() {
   const [list, setList] = useState<Person[]>([]);
   const [micOn, setMicOn] = useState(false);
   const [needsUnlock, setNeedsUnlock] = useState(false);
+  const [screen, setScreen] = useState<GuestScreen | null>(null);
   const roomRef = useRef<Room | null>(null);
   const audioRef = useRef<HTMLDivElement>(null);
+  const audioTracks = useRef(new Map<RemoteAudioTrack, boolean>());
+  const attemptRef = useRef(0);
+
+  const clearAudio = () => {
+    for (const track of audioTracks.current.keys()) track.detach().forEach((el) => el.remove());
+    audioTracks.current.clear();
+  };
 
   useEffect(() => {
+    let active = true;
+    setInfo(null); setError(null); setState("form"); setScreen(null); setList([]);
     http
       .get<GuestInfo>(`/guest/${encodeURIComponent(code)}`)
-      .then((r) => setInfo(r.data))
-      .catch((err) => setError(errorText(err, "Ссылка не открывается")));
+      .then((r) => { if (active) setInfo(r.data); })
+      .catch((err) => { if (active) setError(errorText(err, "Ссылка не открывается")); });
+    return () => { active = false; };
   }, [code]);
 
-  useEffect(() => () => void roomRef.current?.disconnect(), []);
+  useEffect(() => () => {
+    attemptRef.current++;
+    const room = roomRef.current;
+    roomRef.current = null;
+    clearAudio();
+    void room?.disconnect();
+  }, [code]);
+
+  useEffect(() => useScreenAudio.subscribe(() => {
+    for (const [track, isScreen] of audioTracks.current) {
+      if (isScreen) track.setVolume(screenAudioVolume());
+    }
+  }), []);
 
   const join = async (e: React.FormEvent) => {
     e.preventDefault();
     const clean = name.trim();
     if (!clean) return;
+    const attempt = ++attemptRef.current;
     setError(null);
     setState("joining");
     try {
@@ -93,11 +128,18 @@ export default function GuestPage() {
     try {
       const { data } = await http.post<GuestJoin>(`/guest/${encodeURIComponent(code)}/join`, { name: clean });
       const lk = await import("livekit-client");
+      if (attempt !== attemptRef.current) return;
       const room = new lk.Room({ adaptiveStream: true, dynacast: true, disconnectOnPageLeave: true });
       roomRef.current = room;
       const sync = () => {
+        if (roomRef.current !== room) return;
         setList(people(room));
         setMicOn(room.localParticipant.isMicrophoneEnabled);
+        const sharer = [...room.remoteParticipants.values()].find((p) => p.getTrackPublication(lk.Track.Source.ScreenShare));
+        const video = sharer?.getTrackPublication(lk.Track.Source.ScreenShare);
+        const audio = sharer?.getTrackPublication(lk.Track.Source.ScreenShareAudio);
+        setScreen(sharer && video ? { userId: sharer.identity, name: sharer.name || "Участник",
+          track: video.track ?? null, hasAudio: !!audio?.track && !audio.isMuted } : null);
       };
       room
         .on(lk.RoomEvent.ParticipantConnected, sync)
@@ -106,30 +148,60 @@ export default function GuestPage() {
         .on(lk.RoomEvent.TrackMuted, sync)
         .on(lk.RoomEvent.TrackUnmuted, sync)
         .on(lk.RoomEvent.LocalTrackPublished, sync)
-        .on(lk.RoomEvent.TrackSubscribed, (track) => {
-          if (track.kind === "audio") audioRef.current?.appendChild(track.attach());
+        .on(lk.RoomEvent.LocalTrackUnpublished, sync)
+        .on(lk.RoomEvent.TrackPublished, sync)
+        .on(lk.RoomEvent.TrackUnpublished, sync)
+        .on(lk.RoomEvent.ParticipantNameChanged, sync)
+        .on(lk.RoomEvent.Reconnected, sync)
+        .on(lk.RoomEvent.TrackSubscribed, (track, publication) => {
+          if (roomRef.current !== room) return;
+          if (track.kind === "audio") {
+            const audio = track as RemoteAudioTrack;
+            if (!audioTracks.current.has(audio)) {
+              const isScreen = publication.source === lk.Track.Source.ScreenShareAudio || track.source === lk.Track.Source.ScreenShareAudio;
+              audioTracks.current.set(audio, isScreen);
+              if (isScreen) audio.setVolume(screenAudioVolume());
+              audioRef.current?.appendChild(audio.attach());
+            }
+          }
           sync();
         })
         .on(lk.RoomEvent.TrackUnsubscribed, (track) => {
-          track.detach().forEach((el) => el.remove());
+          // Видео и его DOM-узел принадлежат ScreenStage; здесь освобождаем только аудиоплееры.
+          if (track.kind === "audio") {
+            track.detach().forEach((el) => el.remove());
+            audioTracks.current.delete(track as RemoteAudioTrack);
+          }
           sync();
         })
-        .on(lk.RoomEvent.AudioPlaybackStatusChanged, () => setNeedsUnlock(!room.canPlaybackAudio))
+        .on(lk.RoomEvent.AudioPlaybackStatusChanged, () => {
+          if (roomRef.current === room) setNeedsUnlock(!room.canPlaybackAudio);
+        })
         .on(lk.RoomEvent.Disconnected, () => {
-          setState("left");
+          if (roomRef.current !== room) return;
           roomRef.current = null;
+          clearAudio();
+          setScreen(null); setList([]); setMicOn(false); setNeedsUnlock(false); setState("left");
         });
       await room.connect(data.url, data.token);
+      if (attempt !== attemptRef.current || roomRef.current !== room) return;
       if (!info?.listen_only) {
         await room.localParticipant.setMicrophoneEnabled(true).catch(() => {
           setError("Микрофон не включился — вас не слышно, но вы слышите всех");
         });
       }
       await room.startAudio().catch(() => {});
+      if (attempt !== attemptRef.current || roomRef.current !== room) return;
       setNeedsUnlock(!room.canPlaybackAudio);
       setState("in");
       sync();
     } catch (err) {
+      if (attempt !== attemptRef.current) return;
+      const room = roomRef.current;
+      roomRef.current = null;
+      clearAudio();
+      void room?.disconnect();
+      setScreen(null);
       setState("form");
       setError(errorText(err, "Не удалось войти — попробуйте ещё раз"));
     }
@@ -139,6 +211,7 @@ export default function GuestPage() {
     const room = roomRef.current;
     if (!room) return;
     await room.localParticipant.setMicrophoneEnabled(!room.localParticipant.isMicrophoneEnabled).catch(() => {});
+    if (roomRef.current !== room) return;
     setMicOn(room.localParticipant.isMicrophoneEnabled);
     setList(people(room));
   };
@@ -147,9 +220,19 @@ export default function GuestPage() {
     await roomRef.current?.disconnect();
   };
 
+  const controls = <div className={s.controls}>
+    {needsUnlock && <button type="button" className={s.primary} onClick={() => void roomRef.current?.startAudio().then(() => setNeedsUnlock(false))}>
+      🔊 Нажмите, чтобы слышать собеседников
+    </button>}
+    {!info?.listen_only && <button type="button" className={micOn ? s.secondary : s.danger} onClick={() => void toggleMic()}>
+      {micOn ? "🎙 Выключить микрофон" : "🔇 Включить микрофон"}
+    </button>}
+    <button type="button" className={s.danger} onClick={() => void leave()}>Выйти</button>
+  </div>;
+
   return (
     <div className={s.page}>
-      <div className={s.card}>
+      <div className={`${s.card} ${state === "in" && screen ? s.cardWithScreen : ""}`}>
         <img className={s.logo} src="/logo-mark.png?v=neon-q-2" alt="Quazar" />
         {!info && !error && <p className={s.hint}>Открываем приглашение…</p>}
         {info && (
@@ -184,11 +267,11 @@ export default function GuestPage() {
 
         {state === "in" && (
           <>
-            {needsUnlock && (
-              <button type="button" className={s.primary} onClick={() => void roomRef.current?.startAudio().then(() => setNeedsUnlock(false))}>
-                🔊 Нажмите, чтобы слышать собеседников
-              </button>
-            )}
+            {screen && <section aria-label="Демонстрация экрана в комнате">
+              <ScreenStage sharerName={screen.name} placeInside="в комнате" isMine={false}
+                screen={screen.track ? { userId: screen.userId, isLocal: false, track: screen.track, hasAudio: screen.hasAudio } : null}
+                controls={controls} audioControls={<ScreenAudioControls available={screen.hasAudio} />} />
+            </section>}
             <div className={s.people} aria-label="Кто в комнате">
               {list.map((p) => (
                 <div key={p.id} className={s.person}>
@@ -203,16 +286,7 @@ export default function GuestPage() {
                 </div>
               ))}
             </div>
-            <div className={s.controls}>
-              {!info?.listen_only && (
-                <button type="button" className={micOn ? s.secondary : s.danger} onClick={() => void toggleMic()}>
-                  {micOn ? "🎙 Выключить микрофон" : "🔇 Включить микрофон"}
-                </button>
-              )}
-              <button type="button" className={s.danger} onClick={() => void leave()}>
-                Выйти
-              </button>
-            </div>
+            {controls}
           </>
         )}
 

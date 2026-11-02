@@ -29,6 +29,10 @@
   height: 44px;
 }
 
+.cardWithScreen {
+  max-width: 1100px;
+}
+
 .title {
   font-size: 22px;
   font-weight: 700;

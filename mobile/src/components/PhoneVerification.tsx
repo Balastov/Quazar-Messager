@@ -1,10 +1,11 @@
 import React, {useEffect, useRef, useState} from 'react';
 import {Linking, Pressable, StyleSheet, Text, View} from 'react-native';
-import {phoneVerificationApi, type PhoneVerification as Attempt} from '../api/phoneVerification';
+import {phoneVerificationApi, type PhoneVerification as Attempt, type PhoneMode} from '../api/phoneVerification';
+import {useAuthStore} from '../store/auth';
 import {apiErrorText} from '../utils/profile';
 
-export default function PhoneVerification({phone, account = false, proof, onVerified}: {
-  phone: string; account?: boolean; proof?: string; onVerified: (token: string) => void;
+export default function PhoneVerification({phone, account = false, proof, onVerified, buttonLabel = 'Подтвердить телефон звонком'}: {
+  phone: string; account?: PhoneMode; proof?: string; onVerified: (token: string) => void; buttonLabel?: string;
 }) {
   const [attempt, setAttempt] = useState<Attempt | null>(null);
   const [busy, setBusy] = useState(false);
@@ -26,6 +27,8 @@ export default function PhoneVerification({phone, account = false, proof, onVeri
     const poll = async () => {
       try {
         const result = await phoneVerificationApi.status(token, account);
+        if (!active || current !== round.current) {return;}
+        if (result.access_token) {await useAuthStore.getState().refreshSession(result.access_token);}
         if (!active || current !== round.current) {return;}
         setError(''); setAttempt({...result, verification_token: token});
         if (result.state === 'verified') {callback.current(token);}
@@ -59,7 +62,7 @@ export default function PhoneVerification({phone, account = false, proof, onVeri
     </> : <>
       {!!attempt && <Text style={s.hint}>{attempt.state === 'expired' ? 'Время проверки истекло.' : 'Номер не подтверждён.'}</Text>}
       <Pressable style={s.button} disabled={busy} onPress={() => void start()}>
-        <Text style={s.success}>{busy ? 'Подготавливаем проверку…' : 'Подтвердить телефон звонком'}</Text>
+        <Text style={s.success}>{busy ? 'Подготавливаем проверку…' : buttonLabel}</Text>
       </Pressable>
     </>}
     {!!error && <Text style={s.error}>{error}</Text>}

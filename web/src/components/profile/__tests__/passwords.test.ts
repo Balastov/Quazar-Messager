@@ -10,7 +10,7 @@ vi.mock("../../../store/auth", () => ({ useAuthStore: Object.assign(
   (select: (state: typeof mocks) => unknown) => select(mocks), { getState: () => mocks },
 ) }));
 vi.mock("../../../api/auth", () => ({ authApi: {
-  providers: vi.fn(), forgotPassword: vi.fn(), signInMethods: vi.fn(), setPassword: vi.fn(),
+  providers: vi.fn(), phoneOptions: vi.fn(), forgotPassword: vi.fn(), signInMethods: vi.fn(), setPassword: vi.fn(),
 } }));
 vi.mock("../../../api/admin", () => ({ adminApi: { tickets: vi.fn(), ticket: vi.fn(), assignPassword: vi.fn() } }));
 vi.mock("../../../auth/reauth", () => ({ reauthCode: () => null, clearReauth: vi.fn(), startReauth: vi.fn() }));
@@ -50,6 +50,7 @@ beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   host = document.createElement("div"); document.body.append(host); root = createRoot(host);
   vi.mocked(authApi.providers).mockResolvedValue({ yandex: false });
+  vi.mocked(authApi.phoneOptions).mockResolvedValue({password_login_allowed: true});
   vi.mocked(authApi.signInMethods).mockResolvedValue({ has_password: true, identities: [], providers: { yandex: false } });
   vi.mocked(adminApi.tickets).mockResolvedValue([recovery]);
   vi.mocked(adminApi.ticket).mockResolvedValue(recovery);
@@ -68,6 +69,10 @@ describe("password recovery and change", () => {
     vi.mocked(authApi.forgotPassword).mockResolvedValue({ message: "Если аккаунт найден, запрос передан администратору." });
     await act(async () => root.render(createElement(MemoryRouter, null, createElement(AuthPage))));
     await act(async () => button("Войти").click());
+    const phoneInput = host.querySelector<HTMLInputElement>('input[type="tel"]')!;
+    await act(async () => { phoneInput.value = "+79160001122"; Simulate.change(phoneInput); });
+    await act(async () => new Promise(resolve => setTimeout(resolve, 350)));
+    await act(async () => button("Войти паролем — старый аккаунт").click());
     await act(async () => button("Забыл пароль").click());
     await input("Логин для восстановления", "  @alice  ");
     await submit(document.querySelector('[role="dialog"] form')!);

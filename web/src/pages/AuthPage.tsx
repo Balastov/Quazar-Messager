@@ -1,289 +1,118 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { authApi } from "../api/auth";
+import { phoneVerificationApi } from "../api/phoneVerification";
 import { useAuthStore } from "../store/auth";
 import { formatRuPhoneMask, isCompleteRuPhone, toE164Ru } from "../utils/phone";
 import { apiErrorText, USERNAME_MAX } from "../utils/profile";
 import { useUsernameCheck } from "../components/profile/useUsernameCheck";
 import PhoneVisibilityChoice from "../components/profile/PhoneVisibilityChoice";
-import s from "./AuthPage.module.css";
 import ForgotPasswordDialog from "../components/profile/ForgotPasswordDialog";
 import PhoneVerification from "../components/profile/PhoneVerification";
-
-// register — обязательное (телефон, никнейм, пароль); about — предлагаем имя и почту.
-type Screen = "welcome" | "login" | "register" | "about";
+import s from "./AuthPage.module.css";
 
 export default function AuthPage() {
-  const [screen, setScreen] = useState<Screen>("welcome");
-  const [username, setUsername] = useState("");
+  const [screen, setScreen] = useState<"welcome" | "login" | "register" | "profile">("welcome");
   const [phone, setPhone] = useState("+7");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [legacy, setLegacy] = useState(false);
+  const [passwordAllowed, setPasswordAllowed] = useState(false);
+  const [proof, setProof] = useState<string>();
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
-  // Без значения по умолчанию: «Да» или «Нет» человек выбирает сам.
-  const [phoneDiscoverable, setPhoneDiscoverable] = useState<boolean | null>(null);
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [forgotOpen, setForgotOpen] = useState(false);
-  const [phoneVerificationRequired, setPhoneVerificationRequired] = useState(false);
-  const [phoneProof, setPhoneProof] = useState<string>();
-  const usernameCheck = useUsernameCheck(screen === "register" ? username : "");
-
-  const setToken = useAuthStore((st) => st.setToken);
-  const navigate = useNavigate();
-  // Кнопка «Войти с Яндекс ID» — только если вход настроен на сервере.
+  const [discoverable, setDiscoverable] = useState<boolean | null>(null);
   const [yandex, setYandex] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [forgot, setForgot] = useState(false);
+  const [round, setRound] = useState(0);
+  const setToken = useAuthStore(st => st.setToken);
+  const navigate = useNavigate();
+  const check = useUsernameCheck(screen === "profile" ? username : "");
+  const e164 = isCompleteRuPhone(phone) ? toE164Ru(phone) : null;
+  useEffect(() => { void authApi.providers().then(p => setYandex(p.yandex)).catch(() => {}); }, []);
   useEffect(() => {
-    authApi
-      .providers()
-      .then((p) => { setYandex(p.yandex); setPhoneVerificationRequired(!!p.phone_verification); })
-      .catch(() => {});
-  }, []);
-  const yandexButton = yandex && (
-    <>
-      <div className={s.or}>или</div>
-      <a className={s.yandex} href={authApi.yandexStartUrl}>
-        <span className={s.yandexMark} aria-hidden>
-          Я
-        </span>
-        Войти с Яндекс ID
-      </a>
-    </>
-  );
-
-  const go = (next: Screen) => {
-    setError("");
-    setScreen(next);
-  };
-
-  const login = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError("");
-    const e164 = toE164Ru(phone);
-    if (!e164 || !isCompleteRuPhone(phone)) {
-      setError("Введите номер в формате +7 (999) 000-00-00");
-      return;
-    }
-    setLoading(true);
+    let active = true;
+    setPasswordAllowed(false); setLegacy(false); setPassword("");
+    if (!e164 || screen !== "login") return;
+    const timer = setTimeout(() => {
+      void authApi.phoneOptions(e164).then(result => { if (active) setPasswordAllowed(result.password_login_allowed); })
+        .catch(() => { if (active) setError("Не удалось проверить способы входа. Повторите попытку."); });
+    }, 300);
+    return () => { active = false; clearTimeout(timer); };
+  }, [e164, screen]);
+  const go = (value: typeof screen) => { setError(""); setScreen(value); setLegacy(false); };
+  const finish = async (token: string) => { await setToken(token); navigate("/"); };
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault(); setError("");
+    if (!e164) return;
+    setBusy(true);
     try {
-      const data = await authApi.login(e164, password);
-      await setToken(data.access_token);
-      navigate("/");
+      if (screen === "login" && legacy) await finish((await authApi.login(e164, password)).access_token);
+      else if (screen === "profile") {
+        if (!proof) { go("register"); return; }
+        if (discoverable === null) { setError("Выберите, можно ли найти вас по номеру"); return; }
+        await finish((await authApi.register({ username: username.trim().replace(/^@/, ""), phone: e164,
+          phone_discoverable: discoverable, phone_verification_token: proof, first_name: firstName, last_name: lastName, email })).access_token);
+      }
     } catch (err) {
-      setError(apiErrorText(err));
-    } finally {
-      setLoading(false);
-    }
+      const text = apiErrorText(err); setError(text);
+      if (/Подтвердите телефон/.test(text)) { setProof(undefined); setScreen("register"); }
+    } finally { setBusy(false); }
   };
-
-  const toAbout = (e: React.FormEvent) => {
-    e.preventDefault();
-    setError("");
-    if (!isCompleteRuPhone(phone)) return setError("Введите номер в формате +7 (999) 000-00-00");
-    if (usernameCheck.state === "bad") return setError(usernameCheck.message);
-    if (password.length < 8) return setError("Пароль — не короче 8 символов");
-    if (phoneDiscoverable === null) return setError("Выберите, можно ли найти вас по номеру");
-    setScreen("about");
-  };
-
-  const register = async (withAbout: boolean) => {
-    setError("");
-    if (phoneVerificationRequired && !phoneProof) { setError("Подтвердите телефон звонком"); return; }
-    setLoading(true);
-    try {
-      const data = await authApi.register({
-        username: username.trim().replace(/^@/, ""),
-        phone: toE164Ru(phone)!,
-        password,
-        phone_discoverable: phoneDiscoverable!,
-        phone_verification_token: phoneProof,
-        ...(withAbout ? { first_name: firstName, last_name: lastName, email } : {}),
-      });
-      await setToken(data.access_token);
-      navigate("/");
-    } catch (err) {
-      const text = apiErrorText(err);
-      setError(text);
-      if (/Подтвердите телефон/.test(text)) { setPhoneProof(undefined); setPhoneVerificationRequired(true); }
-      // Номер или никнейм успели занять — это поля первого шага.
-      if (/номер|никнейм|Phone|ароль/i.test(text)) setScreen("register");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  if (screen === "welcome") {
-    return (
-      <div className={s.root}>
-        <div className={s.card}>
-          <img className={s.logoMark} src="/logo-mark.png?v=neon-q-2" alt="" />
-          <h1 className={s.brandName}>Quazar</h1>
-          <p className={s.tagline}>Общение. Звонки. Люди. В одном пространстве.</p>
-          <div className={s.actions}>
-            <button type="button" className={s.primary} onClick={() => go("login")}>
-              Войти
-            </button>
-            <button type="button" className={s.ghost} onClick={() => go("register")}>
-              Создать аккаунт
-            </button>
-            {yandexButton}
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (screen === "about") {
-    return (
-      <div className={s.root}>
-        <div className={s.card}>
-          <div className={s.formCard}>
-            <button type="button" className={s.back} onClick={() => go("register")}>
-              ← Назад
-            </button>
-            <h2 className={s.formTitle}>Как вас представить?</h2>
-            <p className={s.lead}>
-              Имя и фамилию увидят собеседники вместо @{username.trim().replace(/^@/, "")}. Почта
-              пригодится, чтобы восстановить доступ. Всё это можно указать и позже в настройках.
-            </p>
-            <form
-              className={s.form}
-              onSubmit={(e) => {
-                e.preventDefault();
-                void register(true);
-              }}
-            >
-              <div className={s.pair}>
-                <input
-                  className={s.input}
-                  placeholder="Имя"
-                  value={firstName}
-                  onChange={(e) => setFirstName(e.target.value)}
-                  maxLength={64}
-                  autoComplete="given-name"
-                  autoFocus
-                />
-                <input
-                  className={s.input}
-                  placeholder="Фамилия"
-                  value={lastName}
-                  onChange={(e) => setLastName(e.target.value)}
-                  maxLength={64}
-                  autoComplete="family-name"
-                />
-              </div>
-              <input
-                className={s.input}
-                type="email"
-                placeholder="Электронная почта"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                maxLength={254}
-                autoComplete="email"
-              />
-              {phoneVerificationRequired && <PhoneVerification phone={toE164Ru(phone)!} proof={phoneProof} onVerified={setPhoneProof} />}
-              {error && <p className={s.error}>{error}</p>}
-              <button
-                className={s.submit}
-                type="submit"
-                disabled={loading || (phoneVerificationRequired && !phoneProof) || !(firstName.trim() || lastName.trim() || email.trim())}
-              >
-                {loading ? "..." : "Готово"}
-              </button>
-              <button type="button" className={s.skip} disabled={loading || (phoneVerificationRequired && !phoneProof)} onClick={() => void register(false)}>
-                Пропустить
-              </button>
-            </form>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  const isLogin = screen === "login";
-  return (
-    <div className={s.root}>
-      <div className={s.card}>
-        <div className={s.formCard}>
-          <button type="button" className={s.back} onClick={() => go("welcome")}>
-            ← Назад
-          </button>
-          <h2 className={s.formTitle}>{isLogin ? "Вход" : "Регистрация"}</h2>
-          <form className={s.form} onSubmit={(e) => (isLogin ? void login(e) : toAbout(e))}>
-            <input
-              className={s.input}
-              type="tel"
-              inputMode="numeric"
-              placeholder="+7 (999) 000-00-00"
-              value={phone}
-              onChange={(e) => { setPhone(formatRuPhoneMask(e.target.value)); setPhoneProof(undefined); }}
-              required
-              autoComplete="tel"
-            />
-            {!isLogin && (
-              <div>
-                <div className={s.nickField}>
-                  <span className={s.nickAt}>@</span>
-                  <input
-                    className={`${s.input} ${s.nickInput}`}
-                    placeholder="никнейм"
-                    value={username}
-                    onChange={(e) => setUsername(e.target.value.replace(/\s/g, ""))}
-                    maxLength={USERNAME_MAX + 1}
-                    required
-                    autoComplete="username"
-                    autoCapitalize="none"
-                    spellCheck={false}
-                  />
-                </div>
-                <p
-                  className={
-                    usernameCheck.state === "bad" ? s.hintBad : usernameCheck.state === "ok" ? s.hintOk : s.hint
-                  }
-                >
-                  {usernameCheck.state === "bad"
-                    ? usernameCheck.message
-                    : usernameCheck.state === "ok"
-                      ? "Никнейм свободен"
-                      : usernameCheck.state === "checking"
-                        ? "Проверяем…"
-                        : "Латиницей: по нему вас найдут и @упомянут"}
-                </p>
-              </div>
-            )}
-            <input
-              className={s.input}
-              type="password"
-              placeholder="Пароль"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-              autoComplete={isLogin ? "current-password" : "new-password"}
-            />
-            {!isLogin && (
-              <div className={s.choice}>
-                <PhoneVisibilityChoice value={phoneDiscoverable} onChange={setPhoneDiscoverable} />
-              </div>
-            )}
-            {error && <p className={s.error}>{error}</p>}
-            <button
-              className={s.submit}
-              type="submit"
-              disabled={
-                loading ||
-                !isCompleteRuPhone(phone) ||
-                (!isLogin && (usernameCheck.state !== "ok" || password.length < 8 || phoneDiscoverable === null))
+  const yandexButton = yandex && <><div className={s.or}>или</div><a className={s.yandex} href={authApi.yandexStartUrl}>
+    <span className={s.yandexMark} aria-hidden>Я</span>Войти с Яндекс ID</a></>;
+  if (screen === "welcome") return <div className={s.root}><div className={s.card}>
+    <img className={s.logoMark} src="/logo-mark.png?v=neon-q-2" alt="" />
+    <h1 className={s.brandName}>Quazar</h1><p className={s.tagline}>Общение. Звонки. Люди. В одном пространстве.</p>
+    <div className={s.actions}><button type="button" className={s.primary} onClick={() => go("login")}>Войти</button>
+      <button type="button" className={s.ghost} onClick={() => go("register")}>Создать аккаунт</button>{yandexButton}</div>
+  </div></div>;
+  return <div className={s.root}><div className={s.card}><div className={s.formCard}>
+    <button type="button" className={s.back} onClick={() => go(screen === "profile" ? "register" : "welcome")}>← Назад</button>
+    <h2 className={s.formTitle}>{screen === "login" ? "Вход" : screen === "profile" ? "Как вас представить?" : "Регистрация"}</h2>
+    {screen === "register" && <p className={s.lead}>Сначала подтвердите телефон. Пароль для регистрации не нужен.</p>}
+    <form className={s.form} onSubmit={event => void submit(event)}>
+      {screen === "profile" ? <>
+        <p className={s.hint}>✓ Телефон {phone} подтверждён</p>
+        <div className={s.nickField}><span className={s.nickAt}>@</span><input className={`${s.input} ${s.nickInput}`}
+          placeholder="никнейм" value={username} onChange={event => setUsername(event.target.value.replace(/\s/g, ""))}
+          maxLength={USERNAME_MAX + 1} required autoComplete="username" autoCapitalize="none" spellCheck={false} /></div>
+        <p className={check.state === "bad" ? s.hintBad : s.hint}>{check.state === "bad" ? check.message : "Латиницей: по нему вас найдут и @упомянут"}</p>
+        <div className={s.pair}><input className={s.input} placeholder="Имя" value={firstName} onChange={e => setFirstName(e.target.value)} maxLength={64} autoComplete="given-name" />
+          <input className={s.input} placeholder="Фамилия" value={lastName} onChange={e => setLastName(e.target.value)} maxLength={64} autoComplete="family-name" /></div>
+        <input className={s.input} type="email" placeholder="Почта — необязательно" value={email} onChange={e => setEmail(e.target.value)} maxLength={254} autoComplete="email" />
+        <PhoneVisibilityChoice value={discoverable} onChange={setDiscoverable} disabled={busy} />
+        <button className={s.submit} type="submit" disabled={busy || check.state !== "ok" || discoverable === null}>{busy ? "Создаём аккаунт…" : "Создать аккаунт"}</button>
+      </> : <>
+        <input className={s.input} type="tel" inputMode="numeric" placeholder="+7 (999) 000-00-00" value={phone}
+          onChange={event => { setPhone(formatRuPhoneMask(event.target.value)); setProof(undefined); setError(""); }} required autoComplete="tel" />
+        {screen === "login" && legacy ? <>
+          <input className={s.input} type="password" placeholder="Пароль" value={password} onChange={event => setPassword(event.target.value)} required autoComplete="current-password" />
+          <button className={s.submit} type="submit" disabled={busy || !e164 || !password}>Войти</button>
+          <button type="button" className={s.skip} onClick={() => setForgot(true)}>Забыл пароль</button>
+          <button type="button" className={s.skip} onClick={() => setLegacy(false)}>Вернуться ко входу звонком</button>
+        </> : <>
+          {e164 && <PhoneVerification key={`${screen}:${e164}:${round}`} phone={e164} account={screen === "login" ? "login" : false}
+            proof={screen === "register" ? proof : undefined} buttonLabel={screen === "login" ? "Войти звонком" : "Подтвердить телефон звонком"}
+            onVerified={token => {
+              if (screen === "register") { setProof(token); go("profile"); }
+              else {
+                setBusy(true);
+                void phoneVerificationApi.completeLogin(token).then(result => finish(result.access_token)).catch(err => {
+                  setError(apiErrorText(err));
+                  sessionStorage.removeItem(`quazar-phone-check:login:${e164}`); setRound(value => value + 1);
+                }).finally(() => setBusy(false));
               }
-            >
-              {loading ? "..." : isLogin ? "Войти" : "Далее"}
-            </button>
-            {isLogin && <button type="button" className={s.skip} disabled={loading} onClick={() => setForgotOpen(true)}>Забыл пароль</button>}
-            {yandexButton}
-          </form>
-          {forgotOpen && <ForgotPasswordDialog initialLogin={isCompleteRuPhone(phone) ? phone : ""} onClose={() => setForgotOpen(false)} />}
-        </div>
-      </div>
-    </div>
-  );
+            }} />}
+          {screen === "register" && proof && <button className={s.submit} type="button" onClick={() => go("profile")}>Продолжить</button>}
+          {screen === "login" && passwordAllowed && <button type="button" className={s.skip} onClick={() => setLegacy(true)}>Войти паролем — старый аккаунт</button>}
+        </>}
+      </>}
+      {error && <p className={s.error} role="alert">{error}</p>}
+    </form>{yandexButton}
+    {forgot && <ForgotPasswordDialog initialLogin={e164 ?? ""} onClose={() => setForgot(false)} />}
+  </div></div></div>;
 }

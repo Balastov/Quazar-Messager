@@ -27,7 +27,7 @@ async def close_sessions(user_id: str) -> None:
             pass
 
 
-async def complete_recoveries(db, user, admin=None):
+async def complete_recoveries(db, user, admin=None, *, phone_verified=False):
     """Пароль, статус заявок, карточки и запись о смене фиксируются одним коммитом вызывающего."""
     import uuid
     from fastapi import HTTPException
@@ -48,11 +48,13 @@ async def complete_recoveries(db, user, admin=None):
         raise HTTPException(status_code=503, detail="Служба поддержки сейчас недоступна")
     text = ("Администратор назначил новый пароль для входа. Получите его у администратора вне Quazar."
             if admin else "Владелец аккаунта изменил пароль в настройках. Запрос восстановления завершён.")
+    if phone_verified:
+        text = "Телефон подтверждён. Вход доступен звонком или через привязанный Яндекс ID; парольное восстановление завершено."
     for ticket in tickets:
         ticket.status = "done"
-        ticket.password_reset_at = user.password_changed_at
+        ticket.password_reset_at = None if phone_verified else user.password_changed_at
         ticket.password_reset_by_id = admin.id if admin else None
-        ticket.updated_at = user.password_changed_at
+        ticket.updated_at = user.phone_verified_at if phone_verified else user.password_changed_at
         card = await db.get(Message, ticket.message_id) if ticket.message_id else None
         if card and card.payload.startswith(support.TICKET_PREFIX):
             card.payload = support.card_payload(ticket)

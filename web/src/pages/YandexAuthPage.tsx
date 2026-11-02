@@ -19,6 +19,7 @@ const ERRORS: Record<string, string> = {
 };
 
 const LINKED: Record<string, string> = {
+  unavailable: "Привязка недоступна. Войдите в аккаунт и подтвердите телефон.",
   ok: "Яндекс ID привязан — теперь можно входить через него.",
   taken: "Этот Яндекс ID уже привязан к другому аккаунту Quazar.",
   other: "К аккаунту уже привязан другой Яндекс ID — сначала отвяжите его в настройках.",
@@ -138,9 +139,7 @@ function AlmostDone({ code, profile }: { code: string; profile: YandexProfile })
   const [phoneDiscoverable, setPhoneDiscoverable] = useState<boolean | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [phoneVerificationRequired, setPhoneVerificationRequired] = useState(false);
   const [phoneProof, setPhoneProof] = useState<string>();
-  useEffect(() => { void authApi.providers().then(p => setPhoneVerificationRequired(!!p.phone_verification)).catch(() => {}); }, []);
   const usernameCheck = useUsernameCheck(username);
 
   const submit = async (e: React.FormEvent) => {
@@ -148,7 +147,7 @@ function AlmostDone({ code, profile }: { code: string; profile: YandexProfile })
     setError("");
     if (!isCompleteRuPhone(phone)) return setError("Введите номер в формате +7 (999) 000-00-00");
     if (phoneDiscoverable === null) return setError("Выберите, можно ли найти вас по номеру");
-    if (phoneVerificationRequired && !phoneProof) return setError("Подтвердите телефон звонком");
+    if (!phoneProof) return setError("Подтвердите телефон звонком");
     setLoading(true);
     try {
       const data = await authApi.yandexComplete({
@@ -164,12 +163,20 @@ function AlmostDone({ code, profile }: { code: string; profile: YandexProfile })
       navigate("/", { replace: true });
     } catch (err) {
       const text = apiErrorText(err); setError(text);
-      if (/Подтвердите телефон/.test(text)) { setPhoneProof(undefined); setPhoneVerificationRequired(true); }
+      if (/Подтвердите телефон/.test(text)) setPhoneProof(undefined);
     } finally {
       setLoading(false);
     }
   };
 
+  if (!phoneProof) return <Shell title="Подтвердите телефон">
+    <p className={s.lead}>Вы вошли через Яндекс ID. Подтвердите телефон, чтобы создать аккаунт Quazar без пароля.</p>
+    <input className={s.input} type="tel" value={phone} onChange={e => setPhone(formatRuPhoneMask(e.target.value))}
+      placeholder="+7 (999) 000-00-00" autoComplete="tel" />
+    {isCompleteRuPhone(phone) && <PhoneVerification phone={toE164Ru(phone)!} onVerified={setPhoneProof} />}
+    {error && <p className={s.error}>{error}</p>}
+    <p className={s.hint}>Уже есть аккаунт? Войдите в него и привяжите Яндекс ID в настройках.</p>
+  </Shell>;
   return (
     <Shell title="Почти готово">
       <p className={s.lead}>
@@ -234,12 +241,11 @@ function AlmostDone({ code, profile }: { code: string; profile: YandexProfile })
         <div className={s.choice}>
           <PhoneVisibilityChoice value={phoneDiscoverable} onChange={setPhoneDiscoverable} />
         </div>
-        {phoneVerificationRequired && isCompleteRuPhone(phone) && <PhoneVerification phone={toE164Ru(phone)!} proof={phoneProof} onVerified={setPhoneProof} />}
         {error && <p className={s.error}>{error}</p>}
         <button
           className={s.submit}
           type="submit"
-          disabled={loading || usernameCheck.state !== "ok" || !isCompleteRuPhone(phone) || phoneDiscoverable === null || (phoneVerificationRequired && !phoneProof)}
+          disabled={loading || usernameCheck.state !== "ok" || !isCompleteRuPhone(phone) || phoneDiscoverable === null || !phoneProof}
         >
           {loading ? "..." : "Готово"}
         </button>

@@ -1,18 +1,7 @@
 import React, {useEffect, useRef, useState} from 'react';
-import {
-  ActivityIndicator,
-  Image,
-  KeyboardAvoidingView,
-  Linking,
-  Platform,
-  Pressable,
-  StyleSheet,
-  ScrollView,
-  Text,
-  TextInput,
-  View,
-} from 'react-native';
+import {ActivityIndicator, Image, KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View} from 'react-native';
 import {authApi} from '../api/auth';
+import {phoneVerificationApi} from '../api/phoneVerification';
 import {forgetVerifier, parseReturnUrl, startYandexLogin, storedVerifier} from '../auth/yandex';
 import {useAuthStore} from '../store/auth';
 import {formatRuPhoneMask, isCompleteRuPhone, toE164Ru} from '../utils/phone';
@@ -22,455 +11,123 @@ import PhoneVisibilityChoice from '../components/PhoneVisibilityChoice';
 import ForgotPassword from '../components/ForgotPassword';
 import PhoneVerification from '../components/PhoneVerification';
 
-// register — обязательное (телефон, никнейм, пароль); about — предлагаем имя и почту;
-// yandex — вошли через Яндекс ID впервые: выбрать никнейм и телефон.
-type Mode = 'login' | 'register' | 'about' | 'yandex';
-
-const YANDEX_ERRORS: Record<string, string> = {
-  denied: 'Вход через Яндекс отменён.',
-  expired: 'Время входа истекло — попробуйте ещё раз.',
-  yandex: 'Яндекс не ответил — попробуйте ещё раз через минуту.',
-};
-
+type Mode = 'login' | 'register' | 'profile' | 'yandex';
 export default function AuthScreen() {
   const [mode, setMode] = useState<Mode>('login');
-  const [username, setUsername] = useState('');
-  const [phone, setPhone] = useState('+7');
-  const [password, setPassword] = useState('');
-  const [firstName, setFirstName] = useState('');
-  const [lastName, setLastName] = useState('');
-  const [email, setEmail] = useState('');
-  // Без значения по умолчанию: «Да» или «Нет» человек выбирает сам.
-  const [phoneDiscoverable, setPhoneDiscoverable] = useState<boolean | null>(null);
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [phoneVerificationRequired, setPhoneVerificationRequired] = useState(false);
-  const [phoneProof, setPhoneProof] = useState<string>();
-  const check = useUsernameCheck(mode === 'register' || mode === 'yandex' ? username : '');
-
-  const setToken = useAuthStore(s => s.setToken);
-  const nick = username.trim().replace(/^@/, '');
-
-  // Вход через Яндекс ID: кнопка — если включён на сервере; возврат — по ссылке quazar://.
-  const [yandexOn, setYandexOn] = useState(false);
+  const [phone, setPhone] = useState('+7'), [username, setUsername] = useState('');
+  const [password, setPassword] = useState(''), [legacy, setLegacy] = useState(false);
+  const [passwordAllowed, setPasswordAllowed] = useState(false);
+  const [proof, setProof] = useState<string>();
+  const [firstName, setFirstName] = useState(''), [lastName, setLastName] = useState(''), [email, setEmail] = useState('');
+  const [discoverable, setDiscoverable] = useState<boolean | null>(null);
+  const [error, setError] = useState(''), [loading, setLoading] = useState(false);
+  const [yandex, setYandex] = useState(false);
+  const [round, setRound] = useState(0);
   const [yandexCode, setYandexCode] = useState<{code: string; verifier: string} | null>(null);
   const handled = useRef<string | null>(null);
-
+  const setToken = useAuthStore(st => st.setToken);
+  const profile = mode === 'profile' || (mode === 'yandex' && !!proof);
+  const check = useUsernameCheck(profile ? username : '');
+  const e164 = isCompleteRuPhone(phone) ? toE164Ru(phone) : null;
   useEffect(() => {
-    authApi
-      .providers()
-      .then(p => {setYandexOn(p.yandex); setPhoneVerificationRequired(!!p.phone_verification);})
-      .catch(() => {});
+    void authApi.providers().then(p => setYandex(p.yandex)).catch(() => {});
     const onUrl = async (url: string | null) => {
       const params = parseReturnUrl(url);
-      if (!params || handled.current === url) {
-        return;
-      }
+      if (!params || handled.current === url) {return;}
       handled.current = url;
-      if (params.error || !params.code) {
-        setError(YANDEX_ERRORS[params.error] ?? YANDEX_ERRORS.expired);
-        return;
-      }
+      if (params.error || !params.code) {setError('Вход через Яндекс не завершён. Повторите попытку.'); return;}
       const verifier = await storedVerifier();
-      if (!verifier) {
-        setError(YANDEX_ERRORS.expired);
-        return;
-      }
-      setLoading(true);
-      setError('');
+      if (!verifier) {setError('Время входа истекло. Повторите попытку.'); return;}
+      setLoading(true); setError('');
       try {
-        const res = await authApi.yandexExchange(params.code, verifier);
-        if (res.status === 'login') {
-          await forgetVerifier();
-          await setToken(res.access_token);
-          return;
-        }
-        const p = res.profile;
-        setUsername(p.username ?? '');
-        setPhone(p.phone ? formatRuPhoneMask(p.phone) : '+7');
-        setPhoneProof(undefined);
-        setFirstName(p.first_name ?? '');
-        setLastName(p.last_name ?? '');
-        setPhoneDiscoverable(null);
-        setYandexCode({code: params.code, verifier});
-        setMode('yandex');
-      } catch (err: unknown) {
-        setError(apiErrorText(err));
-      } finally {
-        setLoading(false);
-      }
+        const result = await authApi.yandexExchange(params.code, verifier);
+        if (result.status === 'login') {await forgetVerifier(); await setToken(result.access_token); return;}
+        setUsername(result.profile.username ?? ''); setPhone(result.profile.phone ? formatRuPhoneMask(result.profile.phone) : '+7');
+        setFirstName(result.profile.first_name ?? ''); setLastName(result.profile.last_name ?? '');
+        setProof(undefined); setDiscoverable(null); setYandexCode({code: params.code, verifier}); setMode('yandex');
+      } catch (err) {setError(apiErrorText(err));}
+      finally {setLoading(false);}
     };
-    // Приложение было открыто — событие; было выгружено и запущено по ссылке — начальная ссылка.
-    const sub = Linking.addEventListener('url', e => void onUrl(e.url));
+    const sub = Linking.addEventListener('url', event => void onUrl(event.url));
     void Linking.getInitialURL().then(onUrl);
     return () => sub.remove();
   }, [setToken]);
-
-  const completeYandex = async () => {
-    setError('');
-    if (phoneVerificationRequired && !phoneProof) {setError('Подтвердите телефон звонком'); return;}
-    if (!yandexCode) {
-      return;
-    }
-    if (!isCompleteRuPhone(phone)) {
-      setError('Введите номер в формате +7 (999) 000-00-00');
-      return;
-    }
-    if (phoneDiscoverable === null) {
-      setError('Выберите, можно ли найти вас по номеру');
-      return;
-    }
-    setLoading(true);
+  useEffect(() => {
+    let active = true;
+    setPasswordAllowed(false); setLegacy(false); setPassword('');
+    if (!e164 || mode !== 'login') {return;}
+    const timer = setTimeout(() => {
+      void authApi.phoneOptions(e164).then(result => {if (active) {setPasswordAllowed(result.password_login_allowed);}})
+        .catch(() => {if (active) {setError('Не удалось проверить способы входа. Повторите попытку.');}});
+    }, 300);
+    return () => {active = false; clearTimeout(timer);};
+  }, [e164, mode]);
+  const changeMode = (value: Mode) => {setMode(value); setError(''); setLegacy(false);};
+  const submit = async () => {
+    if (!e164 || loading) {return;}
+    setLoading(true); setError('');
     try {
-      const data = await authApi.yandexComplete({
-        ...yandexCode,
-        username: nick,
-        phone: toE164Ru(phone)!,
-        phone_discoverable: phoneDiscoverable,
-        phone_verification_token: phoneProof,
-        first_name: firstName.trim() || null,
-        last_name: lastName.trim() || null,
-      });
-      await forgetVerifier();
-      await setToken(data.access_token);
-    } catch (err: unknown) {
-      const text = apiErrorText(err); setError(text);
-      if (/Подтвердите телефон/.test(text)) {setPhoneProof(undefined); setPhoneVerificationRequired(true);}
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const yandexButton = yandexOn && (
-    <Pressable
-      style={[s.yandex, loading && s.disabled]}
-      disabled={loading}
-      onPress={() => void startYandexLogin().catch(() => setError('Не получилось открыть Яндекс ID'))}>
-      <View style={s.yandexMark}>
-        <Text style={s.yandexMarkText}>Я</Text>
-      </View>
-      <Text style={s.yandexText}>Войти с Яндекс ID</Text>
-    </Pressable>
-  );
-
-  const switchMode = (next: Mode) => {
-    setError('');
-    setMode(next);
-  };
-
-  const login = async () => {
-    setError('');
-    const e164 = toE164Ru(phone);
-    if (!e164 || !isCompleteRuPhone(phone)) {
-      setError('Введите номер в формате +7 (999) 000-00-00');
-      return;
-    }
-    setLoading(true);
-    try {
-      const data = await authApi.login(e164, password);
-      await setToken(data.access_token);
-    } catch (err: unknown) {
-      setError(apiErrorText(err));
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const toAbout = () => {
-    setError('');
-    if (!isCompleteRuPhone(phone)) {
-      setError('Введите номер в формате +7 (999) 000-00-00');
-    } else if (check.state === 'bad') {
-      setError(check.message);
-    } else if (password.length < 8) {
-      setError('Пароль — не короче 8 символов');
-    } else if (phoneDiscoverable === null) {
-      setError('Выберите, можно ли найти вас по номеру');
-    } else {
-      setMode('about');
-    }
-  };
-
-  const register = async (withAbout: boolean) => {
-    setError('');
-    if (phoneVerificationRequired && !phoneProof) {setError('Подтвердите телефон звонком'); return;}
-    setLoading(true);
-    try {
-      const data = await authApi.register({
-        username: nick,
-        phone: toE164Ru(phone)!,
-        password,
-        phone_discoverable: phoneDiscoverable!,
-        phone_verification_token: phoneProof,
-        ...(withAbout ? {first_name: firstName, last_name: lastName, email} : {}),
-      });
-      await setToken(data.access_token);
-    } catch (err: unknown) {
-      const text = apiErrorText(err);
-      setError(text);
-      if (/Подтвердите телефон/.test(text)) {setPhoneProof(undefined); setPhoneVerificationRequired(true);}
-      // Номер или никнейм успели занять — это поля первого шага.
-      if (/номер|никнейм|Phone|ароль/i.test(text)) {
-        setMode('register');
+      if (mode === 'login' && legacy) {await setToken((await authApi.login(e164, password)).access_token);}
+      else if (profile && proof && discoverable !== null) {
+        const body = {username: username.trim().replace(/^@/, ''), phone: e164, phone_discoverable: discoverable,
+          phone_verification_token: proof, first_name: firstName, last_name: lastName};
+        const result = mode === 'yandex' && yandexCode
+          ? await authApi.yandexComplete({...body, ...yandexCode}) : await authApi.register({...body, email});
+        if (mode === 'yandex') {await forgetVerifier();}
+        await setToken(result.access_token);
       }
-    } finally {
-      setLoading(false);
-    }
+    } catch (err) {
+      const text = apiErrorText(err); setError(text);
+      if (/Подтвердите телефон/.test(text)) {setProof(undefined); if (mode !== 'yandex') {setMode('register');}}
+    } finally {setLoading(false);}
   };
-
-  if (mode === 'yandex') {
-    const ready =
-      !loading && check.state === 'ok' && isCompleteRuPhone(phone) && phoneDiscoverable !== null && (!phoneVerificationRequired || !!phoneProof);
-    return (
-      <KeyboardAvoidingView
-        style={s.root}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-        <ScrollView style={s.scroll} contentContainerStyle={s.scrollContent} keyboardShouldPersistTaps="handled">
-          <View style={s.card}>
-            <Pressable onPress={() => switchMode('login')} hitSlop={8}>
-              <Text style={s.back}>← Назад</Text>
-            </Pressable>
-            <Text style={s.title}>Почти готово</Text>
-            <Text style={s.lead}>
-              Вы вошли через Яндекс ID. Осталось выбрать никнейм и указать телефон — по ним вас
-              найдут знакомые.
-            </Text>
-            <TextInput
-              style={[s.input, s.nickInput]}
-              placeholder="@никнейм"
-              placeholderTextColor="#555"
-              value={username}
-              onChangeText={text => setUsername(text.replace(/\s/g, ''))}
-              maxLength={USERNAME_MAX + 1}
-              autoCapitalize="none"
-              autoCorrect={false}
-              keyboardType="ascii-capable"
-              textContentType="username"
-            />
-            <Text style={[s.hint, check.state === 'bad' && s.hintBad, check.state === 'ok' && s.hintOk]}>
-              {check.state === 'bad'
-                ? check.message
-                : check.state === 'ok'
-                  ? 'Никнейм свободен'
-                  : check.state === 'checking'
-                    ? 'Проверяем…'
-                    : 'Латиницей: по нему вас найдут и @упомянут'}
-            </Text>
-            <TextInput
-              style={s.input}
-              placeholder="+7 (999) 000-00-00"
-              placeholderTextColor="#555"
-              value={phone}
-              onChangeText={text => {setPhone(formatRuPhoneMask(text)); setPhoneProof(undefined);}}
-              keyboardType="phone-pad"
-            />
-            <TextInput
-              style={s.input}
-              placeholder="Имя"
-              placeholderTextColor="#555"
-              value={firstName}
-              onChangeText={setFirstName}
-              maxLength={64}
-              textContentType="givenName"
-            />
-            <TextInput
-              style={s.input}
-              placeholder="Фамилия"
-              placeholderTextColor="#555"
-              value={lastName}
-              onChangeText={setLastName}
-              maxLength={64}
-              textContentType="familyName"
-            />
-            <View style={s.choice}>
-              <PhoneVisibilityChoice value={phoneDiscoverable} onChange={setPhoneDiscoverable} />
-            </View>
-            {phoneVerificationRequired && isCompleteRuPhone(phone) && <PhoneVerification phone={toE164Ru(phone)!} proof={phoneProof} onVerified={setPhoneProof} />}
-            {error !== '' && <Text style={s.error}>{error}</Text>}
-            <Pressable
-              style={[s.submit, !ready && s.disabled]}
-              onPress={() => void completeYandex()}
-              disabled={!ready || (phoneVerificationRequired && !phoneProof)}>
-              {loading ? <ActivityIndicator color="#fff" /> : <Text style={s.submitText}>Готово</Text>}
-            </Pressable>
-          </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
-    );
-  }
-
-  if (mode === 'about') {
-    const hasAbout = !!(firstName.trim() || lastName.trim() || email.trim());
-    return (
-      <KeyboardAvoidingView
-        style={s.root}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-        <ScrollView style={s.scroll} contentContainerStyle={s.scrollContent} keyboardShouldPersistTaps="handled">
-          <View style={s.card}>
-            <Pressable onPress={() => switchMode('register')} hitSlop={8}>
-              <Text style={s.back}>← Назад</Text>
-            </Pressable>
-            <Text style={s.title}>Как вас представить?</Text>
-            <Text style={s.lead}>
-              Имя и фамилию увидят собеседники вместо @{nick}. Почта пригодится, чтобы восстановить
-              доступ. Всё это можно указать и позже в профиле.
-            </Text>
-            <TextInput
-              style={s.input}
-              placeholder="Имя"
-              placeholderTextColor="#555"
-              value={firstName}
-              onChangeText={setFirstName}
-              maxLength={64}
-              textContentType="givenName"
-              autoFocus
-            />
-            <TextInput
-              style={s.input}
-              placeholder="Фамилия"
-              placeholderTextColor="#555"
-              value={lastName}
-              onChangeText={setLastName}
-              maxLength={64}
-              textContentType="familyName"
-            />
-            <TextInput
-              style={s.input}
-              placeholder="Электронная почта"
-              placeholderTextColor="#555"
-              value={email}
-              onChangeText={setEmail}
-              maxLength={254}
-              keyboardType="email-address"
-              autoCapitalize="none"
-              textContentType="emailAddress"
-            />
-
-            {phoneVerificationRequired && <PhoneVerification phone={toE164Ru(phone)!} proof={phoneProof} onVerified={setPhoneProof} />}
-            {error !== '' && <Text style={s.error}>{error}</Text>}
-
-            <Pressable
-              style={[s.submit, (loading || !hasAbout || (phoneVerificationRequired && !phoneProof)) && s.disabled]}
-              onPress={() => void register(true)}
-              disabled={loading || !hasAbout || (phoneVerificationRequired && !phoneProof)}>
-              {loading ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <Text style={s.submitText}>Готово</Text>
-              )}
-            </Pressable>
-            <Pressable style={s.skip} onPress={() => void register(false)} disabled={loading || (phoneVerificationRequired && !phoneProof)}>
-              <Text style={s.skipText}>Пропустить</Text>
-            </Pressable>
-          </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
-    );
-  }
-
-  const isLogin = mode === 'login';
-  const disabled =
-    loading ||
-    !isCompleteRuPhone(phone) ||
-    (!isLogin && (check.state !== 'ok' || password.length < 8 || phoneDiscoverable === null));
-
-  return (
-    <KeyboardAvoidingView
-      style={s.root}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-      <ScrollView style={s.scroll} contentContainerStyle={s.scrollContent} keyboardShouldPersistTaps="handled">
-          <View style={s.card}>
-          <Image
-            source={require('../assets/logo-mark.png')}
-            style={s.logoMark}
-            resizeMode="contain"
-            accessible={false}
-          />
-          <Text style={s.logo}>Quazar</Text>
-
-          <View style={s.tabs}>
-            <Pressable
-              style={[s.tab, isLogin && s.activeTab]}
-              onPress={() => switchMode('login')}>
-              <Text style={[s.tabText, isLogin && s.activeTabText]}>Войти</Text>
-            </Pressable>
-            <Pressable
-              style={[s.tab, !isLogin && s.activeTab]}
-              onPress={() => switchMode('register')}>
-              <Text style={[s.tabText, !isLogin && s.activeTabText]}>Регистрация</Text>
-            </Pressable>
-          </View>
-
-          <TextInput
-            style={s.input}
-            placeholder="+7 (999) 000-00-00"
-            placeholderTextColor="#555"
-            value={phone}
-            onChangeText={text => {setPhone(formatRuPhoneMask(text)); setPhoneProof(undefined);}}
-            keyboardType="phone-pad"
-          />
-          {!isLogin && (
-            <>
-              <TextInput
-                style={[s.input, s.nickInput]}
-                placeholder="@никнейм"
-                placeholderTextColor="#555"
-                value={username}
-                onChangeText={text => setUsername(text.replace(/\s/g, ''))}
-                maxLength={USERNAME_MAX + 1}
-                autoCapitalize="none"
-                autoCorrect={false}
-                keyboardType="ascii-capable"
-                textContentType="username"
-              />
-              <Text
-                style={[
-                  s.hint,
-                  check.state === 'bad' && s.hintBad,
-                  check.state === 'ok' && s.hintOk,
-                ]}>
-                {check.state === 'bad'
-                  ? check.message
-                  : check.state === 'ok'
-                    ? 'Никнейм свободен'
-                    : check.state === 'checking'
-                      ? 'Проверяем…'
-                      : 'Латиницей: по нему вас найдут и @упомянут'}
-              </Text>
-            </>
-          )}
-          <TextInput
-            style={s.input}
-            placeholder="Пароль"
-            placeholderTextColor="#555"
-            value={password}
-            onChangeText={setPassword}
-            secureTextEntry
-          />
-          {!isLogin && (
-            <View style={s.choice}>
-              <PhoneVisibilityChoice value={phoneDiscoverable} onChange={setPhoneDiscoverable} />
-            </View>
-          )}
-
-          {error !== '' && <Text style={s.error}>{error}</Text>}
-
-          <Pressable
-            style={[s.submit, disabled && s.disabled]}
-            onPress={() => (isLogin ? void login() : toAbout())}
-            disabled={disabled}>
-            {loading ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <Text style={s.submitText}>{isLogin ? 'Войти' : 'Далее'}</Text>
-            )}
-          </Pressable>
-          {isLogin && <ForgotPassword initialLogin={isCompleteRuPhone(phone) ? phone : ''} />}
-          {yandexButton}
-        </View>
-      </ScrollView>
-    </KeyboardAvoidingView>
-  );
+  return <KeyboardAvoidingView style={s.root} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+    <ScrollView style={s.scroll} contentContainerStyle={s.scrollContent} keyboardShouldPersistTaps="handled"><View style={s.card}>
+      <Image style={s.logoMark} source={require('../assets/logo-mark.png')} />
+      <Text style={s.title}>{profile ? 'Как вас представить?' : mode === 'login' ? 'Вход' : 'Регистрация без пароля'}</Text>
+      {!profile && mode !== 'yandex' && <View style={s.tabs}>
+        {(['login', 'register'] as const).map(value => <Pressable key={value} style={[s.tab, mode === value && s.activeTab]} onPress={() => changeMode(value)}>
+          <Text style={s.tabText}>{value === 'login' ? 'Войти' : 'Создать аккаунт'}</Text></Pressable>)}
+      </View>}
+      {profile ? <>
+        <Text style={s.hint}>✓ Телефон {phone} подтверждён</Text>
+        <TextInput style={s.input} placeholder="никнейм" placeholderTextColor="#888" value={username} onChangeText={value => setUsername(value.replace(/\s/g, ''))}
+          maxLength={USERNAME_MAX + 1} autoCapitalize="none" autoCorrect={false} />
+        <Text style={s.hint}>{check.state === 'bad' ? check.message : 'Латиницей: по нему вас найдут и @упомянут'}</Text>
+        <TextInput style={s.input} placeholder="Имя — необязательно" placeholderTextColor="#888" value={firstName} onChangeText={setFirstName} maxLength={64} />
+        <TextInput style={s.input} placeholder="Фамилия — необязательно" placeholderTextColor="#888" value={lastName} onChangeText={setLastName} maxLength={64} />
+        {mode !== 'yandex' && <TextInput style={s.input} placeholder="Почта — необязательно" placeholderTextColor="#888" value={email} onChangeText={setEmail} keyboardType="email-address" autoCapitalize="none" />}
+        <PhoneVisibilityChoice value={discoverable} onChange={setDiscoverable} />
+        <Pressable style={[s.submit, (loading || !proof || check.state !== 'ok' || discoverable === null) && s.disabled]}
+          disabled={loading || !proof || check.state !== 'ok' || discoverable === null} onPress={() => void submit()}><Text style={s.submitText}>Создать аккаунт</Text></Pressable>
+        <Pressable style={s.skip} onPress={() => {setProof(undefined); if (mode !== 'yandex') {setMode('register');}}}><Text style={s.skipText}>Изменить номер</Text></Pressable>
+      </> : <>
+        <TextInput style={s.input} placeholder="+7 (999) 000-00-00" placeholderTextColor="#888" value={phone} keyboardType="phone-pad"
+          onChangeText={value => {setPhone(formatRuPhoneMask(value)); setProof(undefined); setError('');}} />
+        {legacy && mode === 'login' ? <>
+          <TextInput style={s.input} placeholder="Пароль" placeholderTextColor="#888" value={password} onChangeText={setPassword} secureTextEntry />
+          <Pressable style={s.submit} disabled={loading || !password} onPress={() => void submit()}><Text style={s.submitText}>Войти</Text></Pressable>
+          <ForgotPassword initialLogin={e164 ?? ''} />
+          <Pressable style={s.skip} onPress={() => setLegacy(false)}><Text style={s.skipText}>Вернуться ко входу звонком</Text></Pressable>
+        </> : <>
+          {e164 && <PhoneVerification key={`${mode}:${e164}:${round}`} phone={e164} account={mode === 'login' ? 'login' : false}
+            buttonLabel={mode === 'login' ? 'Войти звонком' : 'Подтвердить телефон звонком'} onVerified={token => {
+              if (mode === 'login') {
+                setLoading(true);
+                void phoneVerificationApi.completeLogin(token).then(result => setToken(result.access_token)).catch(err => {setError(apiErrorText(err)); setRound(value => value + 1);})
+                  .finally(() => setLoading(false));
+              } else {setProof(token); if (mode !== 'yandex') {setMode('profile');}}
+            }} />}
+          {mode === 'login' && passwordAllowed && <Pressable style={s.skip} onPress={() => setLegacy(true)}><Text style={s.skipText}>Войти паролем — старый аккаунт</Text></Pressable>}
+        </>}
+      </>}
+      {!!error && <Text style={s.error}>{error}</Text>}
+      {loading && <ActivityIndicator color="#34d399" />}
+      {yandex && !profile && <Pressable style={s.yandex} disabled={loading} onPress={() => void startYandexLogin().catch(() => setError('Не получилось открыть Яндекс ID'))}>
+        <Text style={s.yandexText}>Войти с Яндекс ID</Text></Pressable>}
+      {mode === 'yandex' && <Pressable style={s.skip} onPress={() => changeMode('login')}><Text style={s.skipText}>Вернуться ко входу</Text></Pressable>}
+    </View></ScrollView>
+  </KeyboardAvoidingView>;
 }
 
 const s = StyleSheet.create({

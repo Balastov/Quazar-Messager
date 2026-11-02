@@ -54,6 +54,7 @@ export interface AdminReport {
 export interface AdminTicket extends Ticket {
   recovery_login?: string | null;
   password_reset_at?: string | null;
+  password_reset_allowed?: boolean;
   author: AdminUser | null;
   /** Сообщения автора, которых команда ещё не видела. */
   unread: number;

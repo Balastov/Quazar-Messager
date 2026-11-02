@@ -10,6 +10,8 @@ import {
 } from 'react-native';
 import axios from 'axios';
 import {shortKeyId, StaleBackupError} from '../crypto/keys';
+import AccountProofInput from '../components/AccountProofInput';
+import type {AccountProof} from '../crypto/keys';
 import {useE2EStore} from '../store/e2e';
 
 function errorMessage(err: unknown): string {
@@ -36,8 +38,8 @@ export default function KeysScreen() {
   const {restore, createBackup, rotate, adoptBackup, sync} = useE2EStore.getState();
 
   const [password, setPassword] = useState('');
-  const [accountPassword, setAccountPassword] = useState('');
-  const [adoptPassword, setAdoptPassword] = useState('');
+  const [accountPassword, setAccountPassword] = useState<AccountProof | null>(null);
+  const [adoptPassword, setAdoptPassword] = useState<AccountProof | null>(null);
   /** Копия расшифровалась, но с другим ключом, чем у аккаунта. */
   const [stale, setStale] = useState<{
     backupPassword: string;
@@ -46,6 +48,7 @@ export default function KeysScreen() {
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [proofRound, setProofRound] = useState(0);
 
   const run = async (fn: () => Promise<void>, done?: string) => {
     setError(null);
@@ -53,12 +56,14 @@ export default function KeysScreen() {
     try {
       await fn();
       setPassword('');
-      setAccountPassword('');
-      setAdoptPassword('');
+      setAccountPassword(null);
+      setAdoptPassword(null);
       setStale(null);
       if (done) {setNotice(done);}
     } catch (err) {
       setError(errorMessage(err));
+    } finally {
+      setAccountPassword(null); setAdoptPassword(null); setProofRound(value => value + 1);
     }
   };
 
@@ -181,21 +186,12 @@ export default function KeysScreen() {
             <Text style={s.mono}>{shortKeyId(stale.accountPublicKey)}</Text>, останутся читаемыми
             только на том устройстве; на остальных ключи нужно будет восстановить из этой копии.
           </Text>
-          <TextInput
-            style={s.input}
-            placeholder="Пароль аккаунта"
-            placeholderTextColor="#555"
-            secureTextEntry
-            autoCapitalize="none"
-            value={adoptPassword}
-            onChangeText={setAdoptPassword}
-            editable={!busy}
-          />
+          <AccountProofInput key={`adopt-${proofRound}`} onChange={setAdoptPassword} disabled={busy} />
           <Pressable
-            style={[s.primary, (busy || adoptPassword.length < 8) && s.disabled]}
-            disabled={busy || adoptPassword.length < 8}
+            style={[s.primary, (busy || !adoptPassword) && s.disabled]}
+            disabled={busy || !adoptPassword}
             onPress={() =>
-              void run(() => adoptBackup(stale.backupPassword, adoptPassword))
+              void run(() => adoptBackup(stale.backupPassword, adoptPassword!))
             }>
             {busy ? (
               <ActivityIndicator color="#fff" />
@@ -215,22 +211,13 @@ export default function KeysScreen() {
           не прочитается, а на остальных ваших устройствах ключи придётся восстановить заново.
           Собеседники увидят предупреждение о смене ключа.
         </Text>
-        <TextInput
-          style={s.input}
-          placeholder="Пароль аккаунта"
-          placeholderTextColor="#555"
-          secureTextEntry
-          autoCapitalize="none"
-          value={accountPassword}
-          onChangeText={setAccountPassword}
-          editable={!busy}
-        />
+        <AccountProofInput key={`rotate-${proofRound}`} onChange={setAccountPassword} disabled={busy} />
         <Pressable
-          style={[s.danger, (busy || accountPassword.length < 8) && s.disabled]}
-          disabled={busy || accountPassword.length < 8}
+          style={[s.danger, (busy || !accountPassword) && s.disabled]}
+          disabled={busy || !accountPassword}
           onPress={() =>
             void run(
-              () => rotate(accountPassword),
+              () => rotate(accountPassword!),
               'Ключи обновлены. Создайте новую резервную копию — без неё другие устройства не смогут читать новые сообщения.',
             )
           }>

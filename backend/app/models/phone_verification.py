@@ -15,6 +15,7 @@ class PhoneVerification(Base):
     phone: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
     # None — регистрация; иначе подтверждение текущего номера этого аккаунта.
     user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=True)
+    purpose: Mapped[str] = mapped_column(String(16), nullable=False, default="register", server_default="register")
     ip_hash: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     campaign_id: Mapped[str] = mapped_column(String(32), nullable=False)
     call_id: Mapped[str | None] = mapped_column(String(64), nullable=True, unique=True)

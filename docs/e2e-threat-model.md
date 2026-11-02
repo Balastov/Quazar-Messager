@@ -30,7 +30,7 @@ This is not a full Signal Protocol deployment.
 3. Peer key change is visible and blocks send until confirmed.
 4. Users can verify fingerprints out-of-band.
 5. Password-protected backup can restore keys on a new browser profile.
-6. Key rotation requires account password and notifies direct partners.
+6. Key rotation requires fresh confirmation: a one-time phone/Yandex proof for phone-verified accounts, or the legacy password/Yandex proof for unverified accounts. Forced public-key replacement uses the same check. Direct partners are notified.
 
 ## Non-guarantees
 

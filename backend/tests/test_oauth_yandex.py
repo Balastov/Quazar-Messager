@@ -5,6 +5,10 @@
 """
 
 import json
+import secrets
+from app.models.phone_verification import PhoneVerification
+from app.core.phone_verification import digest
+from app.core.account_proof import AccountProof
 from datetime import datetime, timedelta, timezone
 from unittest import mock
 from urllib.parse import parse_qs, urlsplit
@@ -65,7 +69,27 @@ class YandexOAuthTest(StarsTestBase):
 
     async def db_call(self, fn, *args, **kwargs):
         async with self.Session() as db:
+            if fn is oauth.yandex_complete and args and not args[0].phone_verification_token:
+                token = secrets.token_urlsafe(32); stamp = datetime.now(timezone.utc)
+                db.add(PhoneVerification(token_hash=digest(token), phone=args[0].phone, purpose="register", ip_hash="test", campaign_id="test",
+                    state="verified", created_at=stamp, verified_at=stamp, expires_at=stamp + timedelta(minutes=5)))
+                await db.flush(); args[0].phone_verification_token = token
             return await fn(*args, db=db, **kwargs)
+
+    async def call(self, fn, *args, user: str, **kwargs):
+        async with self.Session() as db:
+            current = await db.get(User, self.users[user].id)
+            return await fn(*args, current_user=current, db=db, **kwargs)
+
+    async def fresh_proof(self, who):
+        token = secrets.token_urlsafe(32); stamp = datetime.now(timezone.utc)
+        async with self.Session() as db:
+            user = await db.get(User, self.users[who].id)
+            user.phone_verified_at = stamp
+            db.add(PhoneVerification(token_hash=digest(token), phone=user.phone, user_id=user.id, purpose="reauth", ip_hash="test", campaign_id="test",
+                state="verified", created_at=stamp, verified_at=stamp, expires_at=stamp + timedelta(minutes=5)))
+            await db.commit()
+        return AccountProof(phone_proof=token)
 
     async def start(self, client="web", challenge=None) -> str:
         if client == "mobile" and challenge is None:
@@ -134,50 +158,26 @@ class YandexOAuthTest(StarsTestBase):
 
     async def test_link_to_existing_account_and_unlink_rules(self):
         alice = self.users["alice"]
-        link = await self.call(oauth.yandex_link_start, user="alice")
-        state = parse_qs(urlsplit(link.url).query)["state"][0]
-        back = await self.callback(state)
+        await self.expect_error(403, oauth.yandex_link_start, body=AccountProof(), user="alice")
+        proof = await self.fresh_proof("alice")
+        link = await self.call(oauth.yandex_link_start, body=proof, user="alice")
+        back = await self.callback(parse_qs(urlsplit(link.url).query)["state"][0])
         self.assertEqual(back["linked"], "ok")
+        await self.expect_error(400, oauth.yandex_link_start, body=proof, user="alice")
         info = await self.call(oauth.my_sign_in, user="alice")
         self.assertEqual([i.email for i in info.identities], ["anna@yandex.ru"])
-        # Тот же Яндекс к другому аккаунту — нельзя.
-        link = await self.call(oauth.yandex_link_start, user="bob")
+        proof_bob = await self.fresh_proof("bob")
+        link = await self.call(oauth.yandex_link_start, body=proof_bob, user="bob")
         back = await self.callback(parse_qs(urlsplit(link.url).query)["state"][0])
         self.assertEqual(back["linked"], "taken")
-        # Вход Яндексом теперь открывает alice.
         login = await self.callback(await self.start())
         out = await self.db_call(oauth.yandex_exchange, oauth.ExchangeBody(code=login["code"]))
         self.assertEqual(decode_token(out.access_token), alice.id)
-
-        # У alice нет пароля (как будто зарегистрирована через Яндекс) — отвязать нельзя.
-        async with self.Session() as db:
-            await db.execute(update(User).where(User.id == alice.id).values(password_hash=None))
-            await db.commit()
-        await self.expect_error(409, oauth.unlink_identity, "yandex", user="alice")
-        # Задать первый пароль одной сессией нельзя — только подтвердив себя Яндексом.
-        await self.expect_error(403, oauth.set_password, oauth.PasswordBody(new_password="newsecret1"), user="alice")
-        re = await self.call(oauth.yandex_reauth_start, user="alice")
-        back = await self.callback(parse_qs(urlsplit(re.url).query)["state"][0])
-        # Код подтверждения не годится как код входа.
-        await self.expect_status(410, oauth.yandex_exchange, oauth.ExchangeBody(code=back["reauth"]))
-        # Чужой код подтверждения не годится (bob тоже без пароля).
-        async with self.Session() as db:
-            await db.execute(update(User).where(User.username == "bob").values(password_hash=None))
-            await db.commit()
-        await self.expect_error(403, oauth.set_password,
-                                oauth.PasswordBody(new_password="newsecret1", reauth_code=back["reauth"]), user="bob")
-        await self.call(oauth.set_password, oauth.PasswordBody(new_password="newsecret1", reauth_code=back["reauth"]), user="alice")
-        # Код одноразовый.
-        async with self.Session() as db:
-            await db.execute(update(User).where(User.id == alice.id).values(password_hash=None))
-            await db.commit()
-        await self.expect_error(403, oauth.set_password,
-                                oauth.PasswordBody(new_password="newsecret2", reauth_code=back["reauth"]), user="alice")
-        async with self.Session() as db:
-            await db.execute(update(User).where(User.id == alice.id).values(password_hash=hash_password("newsecret1")))
-            await db.commit()
-        await self.call(oauth.unlink_identity, "yandex", user="alice")
+        # Подтверждённый телефон остаётся способом входа после отвязки Яндекса.
+        await self.expect_error(403, oauth.unlink_identity, "yandex", body=AccountProof(), user="alice")
+        await self.call(oauth.unlink_identity, "yandex", body=await self.fresh_proof("alice"), user="alice")
         self.assertEqual((await self.call(oauth.my_sign_in, user="alice")).identities, [])
+        await self.expect_error(403, oauth.set_password, oauth.PasswordBody(new_password="newsecret1"), user="alice")
 
     async def test_change_password_needs_current(self):
         async with self.Session() as db:
@@ -186,6 +186,16 @@ class YandexOAuthTest(StarsTestBase):
         await self.expect_error(400, oauth.set_password, oauth.PasswordBody(new_password="newsecret1"), user="bob")
         await self.call(oauth.set_password, oauth.PasswordBody(current_password="oldsecret1", new_password="newsecret1"), user="bob")
         await self.db_call(auth_api.login, UserLogin(phone=self.users["bob"].phone, password="newsecret1"))
+
+    async def test_link_flow_from_previous_version_cannot_bypass_fresh_confirmation(self):
+        state = "old-link-state"
+        async with self.Session() as db:
+            db.add(OAuthFlow(state=state, provider="yandex", verifier="old-pkce", mode="link", client="web",
+                user_id=self.users["alice"].id, expires_at=datetime.now(timezone.utc) + timedelta(minutes=5)))
+            await db.commit()
+        back = await self.callback(state)
+        self.assertEqual(back["error"], "expired")
+        self.assertEqual(self.token_requests, [])
 
     async def test_reauth_needs_the_linked_yandex(self):
         # У bob нет привязки — подтвердить себя чужим Яндексом нельзя.
@@ -265,7 +275,7 @@ class YandexOAuthTest(StarsTestBase):
             await db.commit()
 
         body = users_api.RotateKeyBody
-        await self.expect_user_error(401, users_api.rotate_public_key, body(password="wrong", public_key=key), user="bob")
+        await self.expect_user_error(400, users_api.rotate_public_key, body(password="wrong", public_key=key), user="bob")
         out = await self.as_user(users_api.rotate_public_key, body(password="bobsecret1", public_key=key), user="bob")
         self.assertEqual(out.public_key, key)
 

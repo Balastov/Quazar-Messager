@@ -214,6 +214,7 @@ function TicketDetail({
         <p className={s.meta}>Указанный логин: {current.recovery_login}. Запрос отправлен без входа в аккаунт.</p>
         {current.password_reset_at ? <p className={s.meta}>Восстановление завершено · {stamp(current.password_reset_at)}</p>
           : current.status === "done" ? <p className={s.meta}>Запрос закрыт.</p>
+          : current.password_reset_allowed === false ? <p className={s.meta}>Телефон подтверждён. Вход и восстановление паролем отключены.</p>
           : detail && <form onSubmit={(event) => {
             event.preventDefault();
             const problem = newPasswordProblem(newPassword, confirmation);

@@ -4,7 +4,6 @@ import type {TokenResponse} from './types';
 export interface RegisterBody {
   username: string;
   phone: string;
-  password: string;
   /** Обязательный выбор: можно ли найти по номеру. */
   phone_discoverable: boolean;
   email?: string;
@@ -28,6 +27,7 @@ export type YandexExchange =
   | {status: 'register'; access_token: null; profile: YandexProfile};
 
 export const authApi = {
+  phoneOptions: (phone: string) => http.post<{password_login_allowed: boolean}>('/auth/phone-login/options', {phone}).then(r => r.data),
   forgotPassword: (login: string) => http.post<{message: string}>('/auth/forgot-password', {login}).then(r => r.data),
   changePassword: (currentPassword: string, newPassword: string, confirmation: string) =>
     http.put<TokenResponse>('/users/me/password', {current_password: currentPassword, new_password: newPassword,

@@ -17,6 +17,8 @@ import type { User } from "../api/types";
 interface AuthState {
   token: string | null;
   user: User | null;
+  phonePromptPending: boolean;
+  dismissPhonePrompt: () => void;
   setToken: (token: string) => Promise<void>;
   setUser: (user: User) => void;
   refreshSession: (token: string) => Promise<void>;
@@ -46,12 +48,14 @@ export const useAuthStore = create<AuthState>()(
     (set, get) => ({
       token: null,
       user: null,
+      phonePromptPending: false,
+      dismissPhonePrompt: () => set({ phonePromptPending: false }),
 
       setToken: async (token) => {
         setAuthToken(token);
         const user = await usersApi.me();
         setAuthToken(token);
-        set({ token, user });
+        set({ token, user, phonePromptPending: !user.phone_verified_at });
         afterAuth(token, user.id);
       },
 
@@ -59,8 +63,10 @@ export const useAuthStore = create<AuthState>()(
       refreshSession: async (token) => {
         if (!get().user) { await get().setToken(token); return; }
         setAuthToken(token);
-        set((state) => ({ token, user: state.user ? { ...state.user, has_password: true } : null }));
+        set({ token });
         socket.connect(token);
+        const user = await usersApi.me();
+        if (get().token === token) set({ user });
       },
 
       logout: () => {
@@ -73,7 +79,7 @@ export const useAuthStore = create<AuthState>()(
         useNotifyStore.getState().reset();
         useAdminStore.getState().reset();
         useWallpaperStore.getState().reset();
-        set({ token: null, user: null });
+        set({ token: null, user: null, phonePromptPending: false });
       },
     }),
     {

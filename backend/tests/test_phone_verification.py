@@ -7,13 +7,13 @@ from urllib.parse import parse_qs
 
 import httpx
 from fastapi import FastAPI
-from sqlalchemy import select, update
+from sqlalchemy import select, update, text
 
-from app.api import auth, oauth, phone_verification as api, users
+from app.api import auth, oauth, phone_verification as api, users, phone_reminders, password_recovery
 from app.core import phone_verification as verification, zvonok
 from app.core.config import settings
 from app.core.database import get_db
-from app.core.security import create_access_token
+from app.core.security import create_access_token, hash_password, token_is_current
 from app.models.phone_verification import PhoneVerification
 from app.models.user import OAuthFlow, User
 from tests.stars_base import StarsTestBase
@@ -40,7 +40,8 @@ class PhoneVerificationTest(StarsTestBase):
         patcher = mock.patch.object(verification, "POLL_SECONDS", 0)
         patcher.start(); self.addCleanup(patcher.stop)
         self.app = FastAPI()
-        for router in (api.router, auth.router, oauth.router, users.router): self.app.include_router(router)
+        for router in (api.router, auth.router, oauth.router, oauth.me_router, users.router, phone_reminders.router,
+                       password_recovery.router, password_recovery.admin_router): self.app.include_router(router)
         async def database():
             async with self.Session() as db: yield db
         self.app.dependency_overrides[get_db] = database
@@ -66,7 +67,7 @@ class PhoneVerificationTest(StarsTestBase):
         return token
 
     def registration(self, **extra):
-        return {"username": "new_user", "phone": PHONE, "password": "password123", "phone_discoverable": False, **extra}
+        return {"username": "new_user", "phone": PHONE, "phone_discoverable": False, **extra}
 
     async def test_creates_incoming_check_and_stores_only_a_hash_of_the_browser_token(self):
         response = await self.start()
@@ -164,10 +165,189 @@ class PhoneVerificationTest(StarsTestBase):
         response = await self.client.post("/auth/yandex/complete", json=body)
         self.assertEqual(response.status_code, 201, response.text)
 
-    async def test_unconfigured_environment_preserves_existing_registration(self):
+    async def test_unconfigured_environment_does_not_allow_unverified_passwordless_signup(self):
         with mock.patch.multiple(settings, ZVONOK_API_KEY="", ZVONOK_CAMPAIGN_ID=""):
             response = await self.client.post("/auth/register", json=self.registration())
+        self.assertEqual(response.status_code, 400)
+
+    async def test_new_signup_has_no_password_and_cannot_set_one(self):
+        token = await self.verified()
+        rejected = await self.client.post("/auth/register", json=self.registration(password="password123", phone_verification_token=token))
+        self.assertEqual(rejected.status_code, 422)
+        response = await self.client.post("/auth/register", json=self.registration(phone_verification_token=token))
         self.assertEqual(response.status_code, 201)
+        headers = {"Authorization": "Bearer " + response.json()["access_token"]}
+        me = (await self.client.get("/users/me", headers=headers)).json()
+        self.assertFalse(me["has_password"])
+        self.assertFalse(me["password_login_allowed"])
+        result = await self.client.put("/users/me/password", headers=headers, json={"new_password": "password123", "confirm_password": "password123"})
+        self.assertEqual(result.status_code, 403)
+
+    async def test_old_unverified_account_cannot_enter_by_call(self):
+        response = await self.client.post("/auth/phone-login/start", json={"phone": self.users["alice"].phone})
+        self.assertEqual(response.status_code, 403)
+        self.create.assert_not_awaited()
+
+    async def test_phone_confirmation_revokes_old_sessions_but_keeps_hash_and_returns_a_fresh_session(self):
+        async with self.Session() as db:
+            user = await db.get(User, self.users["alice"].id)
+            user.password_hash = hash_password("old-password-1"); await db.commit()
+            saved_hash = user.password_hash
+        old = self.bearer()
+        start = await self.client.post("/users/me/phone-verification/start", headers=old)
+        self.result.return_value = "verified"
+        response = await self.client.post("/users/me/phone-verification/status", headers=old,
+            json={"verification_token": start.json()["verification_token"]})
+        self.assertEqual(response.status_code, 200, response.text)
+        fresh = {"Authorization": "Bearer " + response.json()["access_token"]}
+        self.assertEqual((await self.client.get("/users/me", headers=old)).status_code, 401)
+        self.assertEqual((await self.client.get("/users/me", headers=fresh)).status_code, 200)
+        self.assertEqual((await self.client.post("/auth/login", json={"phone": self.users["alice"].phone, "password": "old-password-1"})).status_code, 403)
+        async with self.Session() as db:
+            self.assertEqual((await db.get(User, self.users["alice"].id)).password_hash, saved_hash)
+
+    async def mark_verified(self, who="alice"):
+        async with self.Session() as db:
+            user = await db.get(User, self.users[who].id)
+            user.phone_verified_at = verification.now(); user.sessions_revoked_at = verification.now()
+            await db.commit()
+
+    async def test_call_login_is_one_time_and_not_a_registration_proof(self):
+        await self.mark_verified()
+        start = await self.client.post("/auth/phone-login/start", json={"phone": self.users["alice"].phone})
+        token = start.json()["verification_token"]
+        body = {"verification_token": token}
+        self.assertEqual((await self.client.post("/auth/phone-login/complete", json=body)).status_code, 400)
+        self.assertEqual((await self.check(token)).status_code, 404)
+        self.result.return_value = "verified"
+        self.assertEqual((await self.client.post("/auth/phone-login/status", json=body)).json()["state"], "verified")
+        result = await self.client.post("/auth/phone-login/complete", json=body)
+        self.assertEqual(result.status_code, 200, result.text)
+        me = await self.client.get("/users/me", headers={"Authorization": "Bearer " + result.json()["access_token"]})
+        self.assertEqual(me.json()["id"], self.users["alice"].id)
+        self.assertEqual((await self.client.post("/auth/phone-login/complete", json=body)).status_code, 400)
+
+    async def test_important_actions_require_a_distinct_fresh_proof_and_force_upload_cannot_bypass_it(self):
+        import base64
+        await self.mark_verified()
+        key = base64.b64encode(b"a" * 32).decode()
+        async with self.Session() as db:
+            user = await db.get(User, self.users["alice"].id)
+            user.public_key = base64.b64encode(b"b" * 32).decode()
+            user.password_hash = hash_password("old-password-1"); await db.commit()
+        headers = self.bearer()
+        self.assertEqual((await self.client.post("/users/me/key/rotate", headers=headers, json={"public_key": key, "password": "old-password-1"})).status_code, 403)
+        self.assertEqual((await self.client.put("/users/me/key", headers=headers, json={"public_key": key, "force": True})).status_code, 403)
+        start = await self.client.post("/users/me/phone-reauth/start", headers=headers)
+        token = start.json()["verification_token"]
+        self.assertEqual((await self.check(token, account=True)).status_code, 404)
+        self.result.return_value = "verified"
+        await self.client.post("/users/me/phone-reauth/status", headers=headers, json={"verification_token": token})
+        body = {"public_key": key, "phone_proof": token}
+        self.assertEqual((await self.client.post("/users/me/key/rotate", headers=headers, json=body)).status_code, 200)
+        self.assertEqual((await self.client.post("/users/me/key/rotate", headers=headers, json=body)).status_code, 400)
+
+    async def test_weekly_reminder_is_claimed_once_per_user_and_never_for_verified_accounts(self):
+        first, second = await asyncio.gather(
+            self.client.post("/users/me/phone-verification/reminder", headers=self.bearer()),
+            self.client.post("/users/me/phone-verification/reminder", headers=self.bearer()))
+        self.assertEqual(sorted((first.json()["due"], second.json()["due"])), [False, True])
+        self.assertTrue((await self.client.post("/users/me/phone-verification/reminder", headers=self.bearer("bob"))).json()["due"])
+        await self.mark_verified()
+        self.assertFalse((await self.client.post("/users/me/phone-verification/reminder", headers=self.bearer())).json()["due"])
+
+    async def test_yandex_link_cannot_be_added_to_unverified_account(self):
+        with mock.patch.multiple(settings, YANDEX_CLIENT_ID="cid", YANDEX_CLIENT_SECRET="secret"):
+            response = await self.client.post("/auth/yandex/link", headers=self.bearer(), json={})
+        self.assertEqual(response.status_code, 403)
+
+    async def test_concurrent_login_completion_issues_only_one_session(self):
+        await self.mark_verified()
+        start = await self.client.post("/auth/phone-login/start", json={"phone": self.users["alice"].phone})
+        body = {"verification_token": start.json()["verification_token"]}
+        self.result.return_value = "verified"
+        await self.client.post("/auth/phone-login/status", json=body)
+        responses = await asyncio.gather(self.client.post("/auth/phone-login/complete", json=body),
+                                         self.client.post("/auth/phone-login/complete", json=body))
+        self.assertEqual(sorted(response.status_code for response in responses), [200, 400])
+
+    async def test_confirmation_revokes_a_password_session_issued_while_waiting_for_the_user_lock(self):
+        from app.schemas.user import UserLogin
+        async with self.Session() as db:
+            user = await db.get(User, self.users["alice"].id)
+            user.password_hash = hash_password("old-password-1"); await db.commit()
+        old = self.bearer()
+        start = await self.client.post("/users/me/phone-verification/start", headers=old)
+        provider_returned = asyncio.Event()
+        async def verified(*args):
+            provider_returned.set(); return "verified"
+        self.result.side_effect = verified
+        async with self.Session() as locker:
+            await locker.execute(select(User).where(User.id == self.users["alice"].id).with_for_update())
+            confirmation = asyncio.create_task(self.client.post("/users/me/phone-verification/status", headers=old,
+                json={"verification_token": start.json()["verification_token"]}))
+            await asyncio.wait_for(provider_returned.wait(), timeout=5)
+            login = await auth.login(UserLogin(phone=self.users["alice"].phone, password="old-password-1"), locker)
+            await locker.commit()
+            result = await confirmation
+        self.assertEqual(result.status_code, 200, result.text)
+        me = await self.client.get("/users/me", headers={"Authorization": "Bearer " + login.access_token})
+        self.assertEqual(me.status_code, 401)
+
+    async def test_phone_confirmation_closes_password_recovery_and_admin_cannot_restore_password_login(self):
+        from app.models.support import SupportTicket
+        password_recovery._requests.clear()
+        old = self.bearer()
+        await self.client.post("/auth/forgot-password", json={"login": "alice"})
+        async with self.Session() as db:
+            ticket = (await db.execute(select(SupportTicket))).scalar_one()
+            ticket_id = ticket.id
+            owner = await db.get(User, self.users["owner"].id); owner.is_superuser = True; await db.commit()
+        start = await self.client.post("/users/me/phone-verification/start", headers=old)
+        self.result.return_value = "verified"
+        response = await self.client.post("/users/me/phone-verification/status", headers=old,
+            json={"verification_token": start.json()["verification_token"]})
+        self.assertEqual(response.status_code, 200, response.text)
+        async with self.Session() as db:
+            ticket = await db.get(SupportTicket, ticket_id)
+            self.assertEqual(ticket.status, "done")
+            ticket.status = "queued"  # Даже оставшаяся открытой старая заявка не даёт обхода.
+            await db.commit()
+        await self.client.post("/auth/forgot-password", json={"login": "alice"})
+        async with self.Session() as db:
+            self.assertEqual(len((await db.execute(select(SupportTicket))).scalars().all()), 1)
+        denied = await self.client.post(f"/admin/tickets/{ticket_id}/password", headers=self.bearer("owner"),
+            json={"new_password": "new-password-1", "confirm_password": "new-password-1"})
+        self.assertEqual(denied.status_code, 403)
+
+    async def test_startup_migrates_previous_schema_and_revokes_old_verified_sessions_only_once(self):
+        from app import main
+        async with self.Session() as db:
+            user = await db.get(User, self.users["alice"].id)
+            user.phone_verified_at = verification.now()
+            db.add(PhoneVerification(token_hash="migration-token", phone=user.phone, user_id=user.id,
+                purpose="verify", ip_hash="test", campaign_id="test", expires_at=verification.now() + timedelta(minutes=5)))
+            await db.commit()
+        old_token = create_access_token(self.users["alice"].id)
+        async with self.engine.begin() as conn:
+            await conn.execute(text("ALTER TABLE users DROP COLUMN sessions_revoked_at"))
+            await conn.execute(text("ALTER TABLE users DROP COLUMN phone_reminder_week_at"))
+            await conn.execute(text("ALTER TABLE phone_verifications DROP COLUMN purpose"))
+        with mock.patch.object(main, "engine", self.engine), mock.patch.object(main, "AsyncSessionLocal", self.Session), \
+                mock.patch.object(main.voice, "resync", new_callable=mock.AsyncMock), \
+                mock.patch.object(main.attachments, "sweep_forever", new_callable=mock.AsyncMock), \
+                mock.patch.object(main.scheduler, "run_forever", new_callable=mock.AsyncMock):
+            async with main.lifespan(FastAPI()):
+                async with self.Session() as db:
+                    user = await db.get(User, self.users["alice"].id)
+                    stamp = user.sessions_revoked_at
+                    self.assertIsNotNone(stamp)
+                    self.assertFalse(token_is_current(old_token, user))
+                    attempt = (await db.execute(select(PhoneVerification))).scalar_one()
+                    self.assertEqual(attempt.purpose, "verify")
+            async with main.lifespan(FastAPI()):
+                async with self.Session() as db:
+                    self.assertEqual((await db.get(User, self.users["alice"].id)).sessions_revoked_at, stamp)
 
 
 class ZvonokContractTest(unittest.IsolatedAsyncioTestCase):
@@ -219,3 +399,10 @@ class ProxyAddressTest(unittest.TestCase):
         with mock.patch.object(settings, "TRUST_PROXY_REAL_IP", True):
             self.assertEqual(api.client_ip(self.request("8.8.8.8")), "8.8.8.8")
             self.assertEqual(api.client_ip(self.request("spoofed, 8.8.8.8")), "172.18.0.1")
+
+    def test_weekly_boundary_is_monday_at_noon_moscow(self):
+        before = datetime(2026, 11, 2, 8, 59, 59, tzinfo=timezone.utc)
+        at = datetime(2026, 11, 2, 9, 0, 0, tzinfo=timezone.utc)
+        self.assertEqual(phone_reminders.reminder_window(before)[1], at)
+        self.assertEqual(phone_reminders.reminder_window(at)[0], at)
+        self.assertEqual(phone_reminders.reminder_window(at)[1], at + timedelta(days=7))

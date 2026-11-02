@@ -4,10 +4,13 @@ import { apiErrorText } from "../../utils/profile";
 import { clearReauth, reauthCode, startReauth } from "../../auth/reauth";
 import { newPasswordProblem } from "../../auth/password";
 import { useAuthStore } from "../../store/auth";
+import AccountProofInput from "./AccountProofInput";
+import type { AccountProof } from "../../crypto/keys";
 import s from "../SettingsView.module.css";
 
 /** «Вход в аккаунт»: пароль (задать или сменить) и Яндекс ID (привязать или отвязать). */
 export default function SignInSettings() {
+  const phoneVerified = useAuthStore(st => !!st.user?.phone_verified_at);
   const [methods, setMethods] = useState<SignInMethods | null>(null);
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
@@ -23,7 +26,7 @@ export default function SignInSettings() {
   useEffect(() => {
     void reload().catch(() => {});
     if (reauth) setEditing(true);
-  }, [reload, reauth]);
+  }, [reload, reauth, phoneVerified]);
 
   const run = async (fn: () => Promise<unknown>, done?: string) => {
     setBusy(true);
@@ -41,6 +44,7 @@ export default function SignInSettings() {
   };
 
   if (!methods) return null;
+  if (phoneVerified || methods.phone_verified_at) return <VerifiedSignIn methods={methods} reload={reload} />;
   const yandexId = methods.identities.find((i) => i.provider === "yandex");
   const showYandex = methods.providers.yandex || !!yandexId;
 
@@ -126,45 +130,41 @@ export default function SignInSettings() {
           </button>
         </div>
       )}
-      {showYandex && (
-        <>
-          <p className={s.hint}>
-            Яндекс ID:{" "}
-            {yandexId ? `привязан${yandexId.email || yandexId.login ? ` (${yandexId.email ?? yandexId.login})` : ""}` : "не привязан"}
-          </p>
-          <div className={s.rowBtns}>
-            {yandexId ? (
-              <button
-                type="button"
-                className={s.secondary}
-                disabled={busy}
-                onClick={() => {
-                  if (window.confirm("Отвязать Яндекс ID? Входить через него больше не получится.")) {
-                    void run(() => authApi.unlink("yandex"), "Яндекс ID отвязан");
-                  }
-                }}
-              >
-                Отвязать
-              </button>
-            ) : (
-              <button
-                type="button"
-                className={s.secondary}
-                disabled={busy}
-                onClick={() =>
-                  void run(async () => {
-                    window.location.assign((await authApi.yandexLink()).url);
-                  })
-                }
-              >
-                Привязать Яндекс ID
-              </button>
-            )}
-          </div>
-        </>
-      )}
+      {showYandex && <p className={s.hint}>Яндекс ID: {yandexId ? "привязан" : "не привязан"}. Подтвердите телефон, чтобы управлять привязкой.</p>}
       {status && <p className={s.hint}>✓ {status}</p>}
       {error && <p className={s.hint} role="alert" style={{ color: "var(--qz-danger)" }}>{error}</p>}
     </>
   );
+}
+
+function VerifiedSignIn({ methods, reload }: { methods: SignInMethods; reload: () => Promise<unknown> }) {
+  const [action, setAction] = useState<"link" | "unlink" | null>(null);
+  const [proof, setProof] = useState<AccountProof | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const linked = methods.identities.find(identity => identity.provider === "yandex");
+  const run = async () => {
+    if (!proof || !action) return;
+    setBusy(true); setError(null);
+    const body = "phoneProof" in proof ? {phone_proof: proof.phoneProof} : "reauthCode" in proof ? {reauth_code: proof.reauthCode} : {password: proof.password};
+    try {
+      if (action === "link") window.location.assign((await authApi.yandexLink(body)).url);
+      else { await authApi.unlink("yandex", body); await reload(); setAction(null); setProof(null); }
+      clearReauth();
+    } catch (err) { setError(apiErrorText(err)); }
+    finally { setBusy(false); }
+  };
+  return <>
+    <h3 className={s.sectionTitle}>Вход в аккаунт</h3>
+    <p className={s.hint}>Телефон подтверждён. Входите звонком{linked ? " или через привязанный Яндекс ID" : ""}.</p>
+    {(methods.providers.yandex || linked) && <>
+      <p className={s.hint}>Яндекс ID: {linked ? `привязан${linked.login ? ` (${linked.login})` : ""}` : "не привязан"}</p>
+      {action ? <div className={s.rowBtns}>
+        <AccountProofInput purpose="settings" onChange={setProof} disabled={busy} inputClassName={s.input} buttonClassName={s.secondary} hintClassName={s.hint} />
+        <button type="button" className={s.primary} disabled={busy || !proof} onClick={() => void run()}>{action === "link" ? "Привязать Яндекс ID" : "Отвязать Яндекс ID"}</button>
+        <button type="button" className={s.secondary} disabled={busy} onClick={() => { setAction(null); setProof(null); }}>Отмена</button>
+      </div> : <button type="button" className={s.secondary} onClick={() => { setAction(linked ? "unlink" : "link"); setProof(null); }}>{linked ? "Отвязать Яндекс ID" : "Привязать Яндекс ID"}</button>}
+    </>}
+    {error && <p className={s.statusErr} role="alert">{error}</p>}
+  </>;
 }

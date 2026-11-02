@@ -4,12 +4,12 @@ import { Simulate } from "react-dom/test-utils";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
-const auth = vi.hoisted(() => ({ setToken: vi.fn(), setUser: vi.fn(), user: { id: "me", phone: "+79160001122", phone_verified_at: null } }));
+const auth = vi.hoisted(() => ({ setToken: vi.fn(), setUser: vi.fn(), user: { id: "me", phone: "+79160001122", phone_verified_at: null as string | null } }));
 vi.mock("../../../store/auth", () => ({ useAuthStore: Object.assign(
   (selector: (state: typeof auth) => unknown) => selector(auth), { getState: () => auth },
 ) }));
-vi.mock("../../../api/phoneVerification", () => ({ phoneVerificationApi: { start: vi.fn(), status: vi.fn() } }));
-vi.mock("../../../api/auth", () => ({ authApi: { providers: vi.fn(), register: vi.fn() } }));
+vi.mock("../../../api/phoneVerification", () => ({ phoneVerificationApi: { start: vi.fn(), status: vi.fn(), completeLogin: vi.fn() } }));
+vi.mock("../../../api/auth", () => ({ authApi: { providers: vi.fn(), register: vi.fn(), phoneOptions: vi.fn(), signInMethods: vi.fn() } }));
 vi.mock("../../../api/users", () => ({ usersApi: { me: vi.fn() } }));
 vi.mock("../../../auth/reauth", () => ({ reauthCode: () => null }));
 vi.mock("../useUsernameCheck", () => ({ useUsernameCheck: () => ({ state: "ok" }) }));
@@ -20,6 +20,7 @@ const { usersApi } = await import("../../../api/users");
 const { default: PhoneVerification } = await import("../PhoneVerification");
 const { default: PhoneVerificationSetting } = await import("../PhoneVerificationSetting");
 const { default: AuthPage } = await import("../../../pages/AuthPage");
+const { default: SignInSettings } = await import("../SignInSettings");
 
 let host: HTMLDivElement, root: Root;
 const phone = "+79160001122", token = "test-browser-token".repeat(3);
@@ -37,9 +38,11 @@ async function change(selector: string, value: string) {
 }
 beforeEach(() => {
   vi.clearAllMocks(); vi.useFakeTimers(); sessionStorage.clear();
+  auth.user.phone_verified_at = null;
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   host = document.createElement("div"); document.body.append(host); root = createRoot(host);
   vi.mocked(authApi.providers).mockResolvedValue({ yandex: false, phone_verification: true });
+  vi.mocked(authApi.phoneOptions).mockResolvedValue({password_login_allowed: false});
   vi.mocked(phoneVerificationApi.start).mockImplementation(async () => pending());
   vi.mocked(phoneVerificationApi.status).mockImplementation(async () => ({ ...pending(), verification_token: null, state: "verified" }));
 });
@@ -100,22 +103,21 @@ it("ignores a late result for the previous phone and stops polling after unmount
   expect(verified).not.toHaveBeenCalled();
 });
 
-it("requires a phone check before completing registration and sends its one-time proof", async () => {
+it("confirms the phone before collecting a nickname and never sends a registration password", async () => {
   vi.mocked(authApi.register).mockResolvedValue({ access_token: "fresh-session", token_type: "bearer" });
   await act(async () => root.render(createElement(MemoryRouter, { future: { v7_startTransition: true, v7_relativeSplatPath: true } }, createElement(AuthPage))));
   await act(async () => button("Создать аккаунт").click());
+  expect(host.querySelector('input[type="password"]')).toBeNull();
+  expect(host.querySelector('input[placeholder="никнейм"]')).toBeNull();
   await change('input[type="tel"]', phone);
+  await act(async () => button("Подтвердить телефон звонком").click());
+  expect(authApi.register).not.toHaveBeenCalled();
+  await act(async () => vi.advanceTimersByTimeAsync(4000));
   await change('input[placeholder="никнейм"]', "new_user");
-  await change('input[type="password"]', "password123");
   await act(async () => button("Нет").click());
   await act(async () => Simulate.submit(host.querySelector("form")!));
-  expect(button("Пропустить").disabled).toBe(true);
-  expect(authApi.register).not.toHaveBeenCalled();
-  await act(async () => button("Подтвердить телефон звонком").click());
-  await act(async () => vi.advanceTimersByTimeAsync(4000));
-  expect(button("Пропустить").disabled).toBe(false);
-  await act(async () => button("Пропустить").click());
   expect(authApi.register).toHaveBeenCalledWith(expect.objectContaining({ phone, phone_verification_token: token }));
+  expect(authApi.register).toHaveBeenCalledWith(expect.not.objectContaining({password: expect.anything()}));
   expect(auth.setToken).toHaveBeenCalledWith("fresh-session");
 });
 
@@ -129,18 +131,43 @@ it("confirms an existing user's number from settings and reloads the updated pro
   expect(auth.setUser).toHaveBeenCalledWith(expect.objectContaining({ phone_verified_at: expect.any(String) }));
 });
 
-it("shows verification when the initial capability request fails but registration requires it", async () => {
-  vi.mocked(authApi.providers).mockRejectedValueOnce(new Error("network"));
-  vi.mocked(authApi.register).mockRejectedValueOnce({ isAxiosError: true,
-    response: { data: { detail: "Подтвердите телефон звонком перед регистрацией" } } });
-  await act(async () => root.render(createElement(MemoryRouter, { future: { v7_startTransition: true, v7_relativeSplatPath: true } }, createElement(AuthPage))));
-  await act(async () => button("Создать аккаунт").click());
+it("enters a verified account by call and does not offer a password form", async () => {
+  vi.mocked(phoneVerificationApi.completeLogin).mockResolvedValue({access_token: "call-session"});
+  await act(async () => root.render(createElement(MemoryRouter, {future: {v7_startTransition: true, v7_relativeSplatPath: true}}, createElement(AuthPage))));
+  await act(async () => button("Войти").click());
   await change('input[type="tel"]', phone);
-  await change('input[placeholder="никнейм"]', "new_user");
-  await change('input[type="password"]', "password123");
-  await act(async () => button("Нет").click());
-  await act(async () => Simulate.submit(host.querySelector("form")!));
-  await act(async () => button("Пропустить").click());
-  expect(button("Подтвердить телефон звонком")).toBeDefined();
-  expect(button("Пропустить").disabled).toBe(true);
+  await act(async () => vi.advanceTimersByTimeAsync(300));
+  expect(host.textContent).not.toContain("Войти паролем");
+  await act(async () => button("Войти звонком").click());
+  expect(phoneVerificationApi.start).toHaveBeenCalledWith(phone, "login");
+  await act(async () => vi.advanceTimersByTimeAsync(4000));
+  expect(phoneVerificationApi.completeLogin).toHaveBeenCalledWith(token);
+  expect(auth.setToken).toHaveBeenCalledWith("call-session");
+});
+
+it("offers password login only when the server allows it for an unverified old account", async () => {
+  vi.mocked(authApi.phoneOptions).mockResolvedValue({password_login_allowed: true});
+  await act(async () => root.render(createElement(MemoryRouter, {future: {v7_startTransition: true, v7_relativeSplatPath: true}}, createElement(AuthPage))));
+  await act(async () => button("Войти").click());
+  await change('input[type="tel"]', phone);
+  await act(async () => vi.advanceTimersByTimeAsync(300));
+  await act(async () => button("Войти паролем — старый аккаунт").click());
+  expect(host.querySelector('input[type="password"]')).not.toBeNull();
+  expect(button("Забыл пароль")).toBeDefined();
+});
+
+it("hides password settings for confirmed users and requests a fresh proof before linking Yandex", async () => {
+  auth.user.phone_verified_at = "2026-11-02T10:00:00Z";
+  vi.mocked(authApi.signInMethods).mockResolvedValue({has_password: true, phone_verified_at: auth.user.phone_verified_at,
+    password_login_allowed: false, identities: [], providers: {yandex: true}});
+  await act(async () => root.render(createElement(SignInSettings)));
+  expect(host.textContent).not.toContain("Изменить пароль");
+  expect(host.textContent).not.toContain("Задать пароль");
+  expect(host.querySelector('input[type="password"]')).toBeNull();
+  await act(async () => button("Привязать Яндекс ID").click());
+  expect(button("Привязать Яндекс ID").disabled).toBe(true);
+  await act(async () => button("Подтвердить телефон звонком").click());
+  expect(phoneVerificationApi.start).toHaveBeenCalledWith(phone, "reauth");
+  await act(async () => vi.advanceTimersByTimeAsync(4000));
+  expect(button("Привязать Яндекс ID").disabled).toBe(false);
 });

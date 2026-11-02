@@ -22,6 +22,7 @@ from app.core.backgrounds import (
     save_background,
 )
 from app.core.accounts import TAKEN, email_taken, username_taken
+from app.core.account_proof import AccountProof, require_account_proof
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.core.e2e import decode_public_key_b64
@@ -42,9 +43,12 @@ MAX_BACKUP_LEN = 16_384
 class UploadKeyBody(BaseModel):
     public_key: str  # base64-encoded X25519 public key (32 bytes)
     force: bool = False
+    password: str | None = None
+    reauth_code: str | None = None
+    phone_proof: str | None = None
 
 
-class RotateKeyBody(BaseModel):
+class RotateKeyBody(AccountProof):
     # Пароль аккаунта; у аккаунта без пароля (через Яндекс) — код подтверждения через Яндекс.
     password: str | None = None
     reauth_code: str | None = None
@@ -254,6 +258,8 @@ async def upload_public_key(
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     """Загружает публичный X25519-ключ пользователя (используется для E2E шифрования)."""
+    current_user = (await db.execute(select(User).where(User.id == current_user.id).with_for_update()
+        .execution_options(populate_existing=True))).scalar_one()
     if (
         current_user.public_key
         and current_user.public_key != body.public_key
@@ -264,6 +270,8 @@ async def upload_public_key(
             detail="Public key already set. Use force=true to rotate.",
         )
 
+    if current_user.public_key and current_user.public_key != body.public_key:
+        await require_account_proof(db, current_user, body)
     return await _set_public_key_and_notify(
         current_user,
         body.public_key,
@@ -282,13 +290,7 @@ async def rotate_public_key(
 ):
     """Ротация публичного ключа с подтверждением паролем аккаунта (или через Яндекс, если пароля нет):
     одной украденной сессии мало, чтобы подменить ключ шифрования."""
-    from app.api.oauth import consume_reauth
-
-    if current_user.password_hash:
-        if not verify_password(body.password or "", current_user.password_hash):
-            raise HTTPException(status_code=401, detail="Invalid password")
-    elif not await consume_reauth(db, current_user.id, body.reauth_code):
-        raise HTTPException(status_code=403, detail="Подтвердите, что это вы, через Яндекс ID")
+    await require_account_proof(db, current_user, body)
 
     # Резервная копия содержит старый ключ — другим устройствам она больше не поможет.
     current_user.key_backup = None

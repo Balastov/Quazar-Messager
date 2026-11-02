@@ -4,7 +4,6 @@ import type { TokenResponse } from "./types";
 export interface RegisterBody {
   username: string;
   phone: string;
-  password: string;
   /** Обязательный выбор: можно ли найти по номеру. */
   phone_discoverable: boolean;
   email?: string;
@@ -29,6 +28,8 @@ export type YandexExchange =
 
 export interface SignInMethods {
   has_password: boolean;
+  phone_verified_at?: string | null;
+  password_login_allowed?: boolean;
   identities: { provider: string; email: string | null; login: string | null; created_at: string }[];
   providers: { yandex: boolean };
 }
@@ -49,11 +50,12 @@ export const authApi = {
     first_name?: string | null;
     last_name?: string | null;
   }) => http.post<TokenResponse>("/auth/yandex/complete", body).then((r) => r.data),
-  yandexLink: () => http.post<{ url: string }>("/auth/yandex/link").then((r) => r.data),
+  yandexLink: (proof: { phone_proof?: string; reauth_code?: string }) => http.post<{ url: string }>("/auth/yandex/link", proof).then((r) => r.data),
   /** Подтвердить себя через Яндекс (аккаунт без пароля перед тем, как задать пароль). */
   yandexReauth: () => http.post<{ url: string }>("/auth/yandex/reauth").then((r) => r.data),
   signInMethods: () => http.get<SignInMethods>("/users/me/sign-in").then((r) => r.data),
-  unlink: (provider: string) => http.delete(`/users/me/identities/${provider}`),
+  unlink: (provider: string, proof: {password?: string; phone_proof?: string; reauth_code?: string}) => http.delete(`/users/me/identities/${provider}`, {data: proof}),
+  phoneOptions: (phone: string) => http.post<{password_login_allowed: boolean}>("/auth/phone-login/options", {phone}).then(r => r.data),
   setPassword: (newPassword: string, opts: { currentPassword?: string; reauthCode?: string; confirmPassword?: string } = {}) =>
     http.put<TokenResponse>("/users/me/password", {
       new_password: newPassword,

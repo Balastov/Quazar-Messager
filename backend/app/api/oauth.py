@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import yandex, zvonok
 from app.core.phone_verification import consume as consume_phone_verification
+from app.core.account_proof import AccountProof, require_account_proof
 from app.core.accounts import TAKEN, email_taken, phone_taken, username_taken
 from app.core.avatars import detect_image, save_avatar
 from app.core.config import settings
@@ -130,10 +131,13 @@ class LinkStartOut(BaseModel):
 
 
 @router.post("/yandex/link", response_model=LinkStartOut)
-async def yandex_link_start(current_user: CurrentUser, db: Db, client: Literal["web", "mobile"] = "web"):
+async def yandex_link_start(current_user: CurrentUser, db: Db, body: AccountProof, client: Literal["web", "mobile"] = "web"):
     """Привязать Яндекс к своему аккаунту: адрес, куда перейти (переход — без заголовка авторизации)."""
     _require_enabled()
-    flow = await _new_flow(db, "link", client, current_user.id)
+    if not current_user.phone_verified_at:
+        raise HTTPException(status_code=403, detail="Сначала подтвердите телефон аккаунта")
+    await require_account_proof(db, current_user, body)
+    flow = await _new_flow(db, "link_v2", client, current_user.id)
     return LinkStartOut(url=yandex.authorize_url(flow.state, flow.verifier))
 
 
@@ -149,6 +153,11 @@ async def yandex_callback(
     if not flow or flow.handoff or flow.expires_at < _now():
         return RedirectResponse(_return_url("web", error="expired"), status_code=status.HTTP_302_FOUND)
     client = flow.client
+    if flow.mode == "link":
+        # Заявки старой версии были созданы без нового подтверждения личности.
+        await db.delete(flow)
+        await db.commit()
+        return RedirectResponse(_return_url(client, error="expired"), status_code=status.HTTP_302_FOUND)
     if error or not code:
         await db.delete(flow)
         await db.commit()
@@ -177,7 +186,7 @@ async def yandex_callback(
         await db.commit()
         return RedirectResponse(_return_url(client, reauth=flow.handoff), status_code=status.HTTP_302_FOUND)
 
-    if flow.mode == "link":
+    if flow.mode == "link_v2":
         result = await _link(db, flow, identity, profile)
         await db.delete(flow)
         await db.commit()
@@ -195,6 +204,10 @@ async def yandex_callback(
 
 
 async def _link(db: AsyncSession, flow: OAuthFlow, identity: UserIdentity | None, profile: yandex.Profile) -> str:
+    user = (await db.execute(select(User).where(User.id == flow.user_id).with_for_update()
+        .execution_options(populate_existing=True))).scalar_one_or_none()
+    if not user or not user.phone_verified_at or user.blocked_at or not user.is_active:
+        return "unavailable"
     if identity:
         return "ok" if identity.user_id == flow.user_id else "taken"
     existing = (
@@ -224,7 +237,8 @@ async def consume_reauth(db: AsyncSession, user_id: str, code: str | None) -> bo
     if not code:
         return False
     flow = (
-        await db.execute(select(OAuthFlow).where(OAuthFlow.handoff == code, OAuthFlow.mode == "reauth"))
+        await db.execute(select(OAuthFlow).where(OAuthFlow.handoff == code, OAuthFlow.mode == "reauth")
+                         .with_for_update().execution_options(populate_existing=True))
     ).scalar_one_or_none()
     if not flow or flow.user_id != user_id or flow.expires_at < _now():
         return False
@@ -370,6 +384,7 @@ async def yandex_complete(body: CompleteBody, db: Db):
         phone_discoverable=body.phone_discoverable,
         password_hash=None,
         phone_verified_at=verified_at,
+        sessions_revoked_at=verified_at,
     )
     db.add(user)
     try:
@@ -405,6 +420,8 @@ class IdentityOut(BaseModel):
 
 class SignInOut(BaseModel):
     has_password: bool
+    phone_verified_at: datetime | None
+    password_login_allowed: bool
     identities: list[IdentityOut]
     providers: ProvidersOut
 
@@ -416,6 +433,8 @@ async def my_sign_in(current_user: CurrentUser, db: Db):
     user = await db.get(User, current_user.id)
     return SignInOut(
         has_password=bool(user.password_hash),
+        phone_verified_at=user.phone_verified_at,
+        password_login_allowed=user.password_login_allowed,
         identities=[
             IdentityOut(provider=i.provider, email=i.email, login=i.login, created_at=i.created_at)
             for i in rows.scalars()
@@ -425,7 +444,7 @@ async def my_sign_in(current_user: CurrentUser, db: Db):
 
 
 @me_router.delete("/identities/{provider}", status_code=status.HTTP_204_NO_CONTENT)
-async def unlink_identity(provider: str, current_user: CurrentUser, db: Db):
+async def unlink_identity(provider: str, current_user: CurrentUser, db: Db, body: AccountProof):
     """Отвязать внешний вход — только если останется другой способ войти."""
     identities = (
         await db.execute(select(UserIdentity).where(UserIdentity.user_id == current_user.id))
@@ -434,8 +453,9 @@ async def unlink_identity(provider: str, current_user: CurrentUser, db: Db):
     if not target:
         raise HTTPException(status_code=404, detail="Этот вход не привязан")
     user = await db.get(User, current_user.id)
-    if not user.password_hash and len(identities) == 1:
+    if not user.phone_verified_at and not user.password_hash and len(identities) == 1:
         raise HTTPException(status_code=409, detail="Сначала задайте пароль — иначе войти будет нечем")
+    await require_account_proof(db, user, body)
     await db.delete(target)
     await db.commit()
 
@@ -465,6 +485,8 @@ async def set_password(body: PasswordBody, current_user: CurrentUser, db: Db):
     """Задать пароль (аккаунт через Яндекс) или сменить его (нужен текущий)."""
     user = (await db.execute(select(User).where(User.id == current_user.id).with_for_update()
                              .execution_options(populate_existing=True))).scalar_one()
+    if user.phone_verified_at:
+        raise HTTPException(status_code=403, detail="Телефон подтверждён: работа с паролем отключена")
     if user.password_hash:
         if not verify_password(body.current_password or "", user.password_hash):
             raise HTTPException(status_code=400, detail="Неверный текущий пароль")

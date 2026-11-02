@@ -9,7 +9,7 @@ from app.core.accounts import TAKEN, email_taken, phone_taken, username_taken
 from app.core.phone_verification import consume as consume_phone_verification
 from app.core.database import get_db
 from app.core.profile import normalize_username
-from app.core.security import create_access_token, hash_password, verify_password
+from app.core.security import create_access_token, verify_password
 from app.models.user import User
 from app.schemas.user import TokenResponse, UserLogin, UsernameCheckOut, UserRegister
 
@@ -46,11 +46,12 @@ async def register(body: UserRegister, db: Annotated[AsyncSession, Depends(get_d
         username=body.username,
         phone=body.phone,
         phone_verified_at=verified_at,
+        sessions_revoked_at=verified_at,
         email=body.email,
         first_name=body.first_name,
         last_name=body.last_name,
         phone_discoverable=body.phone_discoverable,
-        password_hash=hash_password(body.password),
+        password_hash=None,
     )
     db.add(user)
     try:
@@ -71,6 +72,8 @@ async def login(body: UserLogin, db: Annotated[AsyncSession, Depends(get_db)]):
     result = await db.execute(select(User).where(User.phone == body.phone))
     user = result.scalar_one_or_none()
 
+    if user and user.phone_verified_at:
+        raise HTTPException(status_code=403, detail="Телефон подтверждён. Войдите звонком или через привязанный Яндекс ID")
     if not user or not verify_password(body.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid credentials")
     # Пока проверяли хэш, администратор мог назначить другой пароль.
@@ -80,6 +83,8 @@ async def login(body: UserLogin, db: Annotated[AsyncSession, Depends(get_db)]):
                              .execution_options(populate_existing=True))).scalar_one_or_none()
     if not user or user.password_hash != verified_hash:
         raise HTTPException(status_code=401, detail="Invalid credentials")
+    if user.phone_verified_at:
+        raise HTTPException(status_code=403, detail="Телефон подтверждён. Войдите звонком или через привязанный Яндекс ID")
     if user.blocked_at:
         raise HTTPException(status_code=403, detail="Аккаунт заблокирован администрацией")
 

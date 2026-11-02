@@ -204,10 +204,15 @@ export async function restoreFromServerBackup(userId: string, password: string):
  * Делает ключ из резервной копии на сервере ключом аккаунта (подтверждение паролем аккаунта).
  * Нужен, когда ключ на сервере перезаписало другое устройство, а копия — с «правильным» ключом.
  */
+export type AccountProof = string | {phoneProof: string} | {reauthCode: string};
+function proofBody(proof: AccountProof) {
+  return typeof proof === 'string' ? {password: proof} : 'phoneProof' in proof ? {phone_proof: proof.phoneProof} : {reauth_code: proof.reauthCode};
+}
+
 export async function adoptServerBackupAsAccountKey(
   userId: string,
   backupPassword: string,
-  accountPassword: string,
+  accountPassword: AccountProof,
 ): Promise<void> {
   const blob = await fetchKeyBackup();
   if (!blob) {
@@ -215,7 +220,7 @@ export async function adoptServerBackupAsAccountKey(
   }
   const {publicKey, secret} = await decryptBackup(blob, backupPassword);
   await http.post('/users/me/key/rotate', {
-    password: accountPassword,
+    ...proofBody(accountPassword),
     public_key: publicKey,
   });
   await saveIdentity(secret);
@@ -241,10 +246,10 @@ export async function createAndUploadBackup(userId: string, password: string): P
  * Новая пара ключей для аккаунта. Локально сохраняется только после того,
  * как сервер принял ключ (иначе при неверном пароле устройство осталось бы без ключа аккаунта).
  */
-export async function rotateKeys(userId: string, accountPassword: string): Promise<void> {
+export async function rotateKeys(userId: string, accountPassword: AccountProof): Promise<void> {
   const secret = randomBytes(32);
   await http.post('/users/me/key/rotate', {
-    password: accountPassword,
+    ...proofBody(accountPassword),
     public_key: publicKeyFromSecret(secret),
   });
   await saveIdentity(secret);

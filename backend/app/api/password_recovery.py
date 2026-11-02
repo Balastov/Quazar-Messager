@@ -88,7 +88,7 @@ async def forgot_password(body: ForgotPasswordBody, request: Request, db: Db):
             except ValueError:
                 pass
         user = (await db.execute(select(User).where(condition, User.is_official.is_(False),
-                                                   User.is_active.is_(True), User.blocked_at.is_(None)))).scalar_one_or_none()
+                                                   User.is_active.is_(True), User.blocked_at.is_(None), User.phone_verified_at.is_(None)))).scalar_one_or_none()
         if user:
             # Создание служебного чата может коммитить: оно идёт до блокировки заявки.
             await support.support_chat(db, user)
@@ -118,6 +118,8 @@ async def assign_password(ticket_id: str, body: AssignPasswordBody, me: Super, d
         raise HTTPException(status_code=409, detail="Этот запрос восстановления уже завершён")
     if not user or user.is_official or not user.is_active or user.blocked_at:
         raise HTTPException(status_code=400, detail="Аккаунт недоступен для восстановления")
+    if user.phone_verified_at:
+        raise HTTPException(status_code=403, detail="Телефон подтверждён: парольное восстановление отключено")
     passwords.assign_password(user, body.new_password)
     tickets = await passwords.complete_recoveries(db, user, me)
     await db.commit()

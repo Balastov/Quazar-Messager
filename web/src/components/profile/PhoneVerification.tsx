@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { phoneVerificationApi, type PhoneVerification as Attempt } from "../../api/phoneVerification";
+import { phoneVerificationApi, type PhoneVerification as Attempt, type PhoneMode } from "../../api/phoneVerification";
+import { useAuthStore } from "../../store/auth";
 import { apiErrorText } from "../../utils/profile";
 import { formatRuPhoneDisplay } from "../../utils/phone";
 import s from "../SettingsView.module.css";
 
-export default function PhoneVerification({ phone, account = false, proof, onVerified }: {
-  phone: string; account?: boolean; proof?: string; onVerified: (token: string) => void;
+export default function PhoneVerification({ phone, account = false, proof, onVerified, buttonLabel = "Подтвердить телефон звонком" }: {
+  phone: string; account?: PhoneMode; proof?: string; onVerified: (token: string) => void; buttonLabel?: string;
 }) {
   const [attempt, setAttempt] = useState<Attempt | null>(null);
   const [busy, setBusy] = useState(false);
@@ -23,7 +24,7 @@ export default function PhoneVerification({ phone, account = false, proof, onVer
   useEffect(() => {
     round.current++; setAttempt(null); setBusy(false); setError(null);
     try {
-      const saved = JSON.parse(sessionStorage.getItem(`quazar-phone-check:${account}:${phone}`) ?? "null");
+      const saved = account === "reauth" ? null : JSON.parse(sessionStorage.getItem(`quazar-phone-check:${account}:${phone}`) ?? "null");
       if (saved?.phone === phone && saved.verification_token && Date.parse(saved.expires_at) > Date.now()) {
         setAttempt({ ...saved, state: "pending" });
       }
@@ -37,6 +38,8 @@ export default function PhoneVerification({ phone, account = false, proof, onVer
     const poll = async () => {
       try {
         const result = await phoneVerificationApi.status(token, account);
+        if (!active || current !== round.current) return;
+        if (result.access_token) await useAuthStore.getState().refreshSession(result.access_token);
         if (!active || current !== round.current) return;
         setError(null); setAttempt({ ...result, verification_token: token });
         if (result.state === "verified") callback.current(token);
@@ -64,7 +67,7 @@ export default function PhoneVerification({ phone, account = false, proof, onVer
       if (current === round.current) setError(apiErrorText(err, "Не удалось начать проверку"));
     } finally { if (current === round.current) setBusy(false); }
   };
-  if (proof || attempt?.state === "verified") return <p className={s.statusOk} role="status">✓ Телефон подтверждён</p>;
+  if (proof || attempt?.state === "verified") return <p className={s.statusOk} role="status">✓ {account === "reauth" ? "Действие подтверждено" : "Телефон подтверждён"}</p>;
   return <div role="group" aria-label="Подтверждение телефона">
     {attempt?.state === "pending" ? <>
       <p className={s.hint}>Позвоните с {formatRuPhoneDisplay(phone)} на проверочный номер. Разговаривать и вводить код не нужно.</p>
@@ -73,7 +76,7 @@ export default function PhoneVerification({ phone, account = false, proof, onVer
     </> : <>
       {attempt && <p className={s.hint}>{attempt.state === "expired" ? "Время проверки истекло. Начните заново." : "Номер не подтверждён. Повторите проверку."}</p>}
       <button type="button" className={s.secondary} disabled={busy} onClick={() => void start()}>
-        {busy ? "Подготавливаем проверку…" : "Подтвердить телефон звонком"}
+        {busy ? "Подготавливаем проверку…" : buttonLabel}
       </button>
     </>}
     {error && <p className={s.statusErr} role="alert">{error}</p>}

@@ -16,6 +16,8 @@ class User(Base):
     username: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
     phone: Mapped[str] = mapped_column(String(20), unique=True, nullable=False, index=True)
     phone_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    sessions_revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    phone_reminder_week_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # Необязательные: почта (в нижнем регистре, уникальна) и имя для отображения на любом языке.
     email: Mapped[str | None] = mapped_column(String(254), nullable=True)
     first_name: Mapped[str | None] = mapped_column(String(64), nullable=True)
@@ -63,6 +65,10 @@ class User(Base):
     @property
     def has_password(self) -> bool:
         return bool(self.password_hash)
+
+    @property
+    def password_login_allowed(self) -> bool:
+        return bool(self.password_hash) and self.phone_verified_at is None
 
     @property
     def visible_phone(self) -> str | None:

@@ -1,6 +1,10 @@
 """Профиль: никнейм латиницей (уникален без учёта регистра), почта, имя и фамилия."""
 
 import unittest
+import secrets
+from datetime import datetime, timedelta, timezone
+from app.models.phone_verification import PhoneVerification
+from app.core.phone_verification import digest
 
 from fastapi import HTTPException
 from pydantic import ValidationError
@@ -36,11 +40,11 @@ class TestProfileRules(unittest.TestCase):
 
     def test_register_requires_phone_and_username(self):
         with self.assertRaises(ValidationError):
-            UserRegister(username="alex", password="password1")  # type: ignore[call-arg]
+            UserRegister(username="alex")  # type: ignore[call-arg]
         with self.assertRaises(ValidationError):
-            UserRegister(phone="+79991234567", password="password1")  # type: ignore[call-arg]
+            UserRegister(phone="+79991234567")  # type: ignore[call-arg]
         body = UserRegister(
-            username="alex", phone="89991234567", password="password1", phone_discoverable=True, email=""
+            username="alex", phone="89991234567", phone_discoverable=True, email=""
         )
         self.assertIsNone(body.email)
 
@@ -60,8 +64,12 @@ class TestProfileApi(StarsTestBase):
             return await fn(*args, current_user=current, db=db, **kwargs)
 
     async def register(self, **fields):
-        body = UserRegister(**{"password": "password1", "phone_discoverable": True, **fields})
+        body = UserRegister(**{"phone_discoverable": True, **fields})
         async with self.Session() as db:
+            token = secrets.token_urlsafe(32); stamp = datetime.now(timezone.utc)
+            db.add(PhoneVerification(token_hash=digest(token), phone=body.phone, purpose="register", ip_hash="test", campaign_id="test",
+                state="verified", created_at=stamp, verified_at=stamp, expires_at=stamp + timedelta(minutes=5)))
+            await db.flush(); body.phone_verification_token = token
             return await auth.register(body, db=db)
 
     async def check(self, username: str):
@@ -137,7 +145,7 @@ class TestHiddenPhone(StarsTestBase):
 
     def test_register_requires_choice(self):
         with self.assertRaises(ValidationError):
-            UserRegister(username="alex", phone="+79991234567", password="password1")  # type: ignore[call-arg]
+            UserRegister(username="alex", phone="+79991234567")  # type: ignore[call-arg]
 
     async def test_hidden_phone(self):
         carol = self.users["carol"].phone

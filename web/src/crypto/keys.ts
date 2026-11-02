@@ -196,10 +196,10 @@ export async function restoreFromBackup(
 }
 
 /** Подтверждение важного действия: пароль аккаунта или (аккаунт без пароля) код подтверждения через Яндекс. */
-export type AccountProof = { password: string } | { reauthCode: string };
+export type AccountProof = { password: string } | { reauthCode: string } | { phoneProof: string };
 
-function proofBody(proof: AccountProof) {
-  return "password" in proof ? { password: proof.password } : { reauth_code: proof.reauthCode };
+export function proofBody(proof: AccountProof) {
+  return "password" in proof ? { password: proof.password } : "phoneProof" in proof ? {phone_proof: proof.phoneProof} : { reauth_code: proof.reauthCode };
 }
 
 /**

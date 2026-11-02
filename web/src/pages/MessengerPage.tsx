@@ -35,6 +35,7 @@ import E2EKeyGate from "../components/E2EKeyGate";
 import ContactsPrompt from "../components/ContactsPrompt";
 import s from "./MessengerPage.module.css";
 import PhoneVisibilityGate from "../components/profile/PhoneVisibilityGate";
+import PhoneVerificationPrompt from "../components/profile/PhoneVerificationPrompt";
 import FeedbackDialog from "../components/support/FeedbackDialog";
 
 type CallEventDetail = {
@@ -278,6 +279,7 @@ export default function MessengerPage() {
       <ToastStack />
       <E2EKeyGate />
       <PhoneVisibilityGate />
+      <PhoneVerificationPrompt />
       <ContactsPrompt />
       <VoiceBarHost />
       <DoorToasts />

@@ -1,5 +1,6 @@
 import {create} from 'zustand';
 import {BackupError} from '../crypto/backup';
+import type {AccountProof} from '../crypto/keys';
 import {
   adoptServerBackupAsAccountKey,
   createAndUploadBackup,
@@ -29,8 +30,8 @@ interface E2EState {
   sync: (userId: string) => Promise<void>;
   restore: (password: string) => Promise<void>;
   createBackup: (password: string) => Promise<void>;
-  rotate: (accountPassword: string) => Promise<void>;
-  adoptBackup: (backupPassword: string, accountPassword: string) => Promise<void>;
+  rotate: (accountPassword: AccountProof) => Promise<void>;
+  adoptBackup: (backupPassword: string, accountPassword: AccountProof) => Promise<void>;
   consumeRestorePrompt: () => void;
   reset: () => void;
 }

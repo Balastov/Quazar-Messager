@@ -10,11 +10,11 @@ NAME_LABELS = {"first_name": "Имя", "last_name": "Фамилия"}
 
 
 class UserRegister(BaseModel):
-    # Обязательны телефон, никнейм и пароль; почту и имя клиент предлагает указать
+    # Обязательны подтверждённый телефон и никнейм; почту и имя клиент предлагает указать
     # сразу после регистрации, но их можно прислать и здесь.
     username: str
     phone: str
-    password: str
+    password: str | None = None
     # Обязательный выбор без значения по умолчанию: можно ли найти по номеру.
     phone_discoverable: bool
     email: str | None = None
@@ -34,9 +34,9 @@ class UserRegister(BaseModel):
 
     @field_validator("password")
     @classmethod
-    def password_valid(cls, v: str) -> str:
-        if len(v) < 8:
-            raise ValueError("Пароль — не короче 8 символов")
+    def password_valid(cls, v: str | None) -> None:
+        if v is not None:
+            raise ValueError("Новые аккаунты создаются без пароля: подтвердите телефон звонком")
         return v
 
     @field_validator("email")
@@ -116,6 +116,7 @@ class UserOut(BaseModel):
 class MeOut(UserOut):
     phone: str
     phone_verified_at: datetime | None = None
+    password_login_allowed: bool = False
     email: str | None = None
     # Нет пароля (аккаунт через Яндекс) — важные действия подтверждаются через Яндекс.
     has_password: bool = True

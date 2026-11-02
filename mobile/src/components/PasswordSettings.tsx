@@ -5,7 +5,7 @@ import {useAuthStore} from '../store/auth';
 import {apiErrorText} from '../utils/profile';
 
 export default function PasswordSettings() {
-  const hasPassword = useAuthStore(state => state.user?.has_password !== false);
+  const hasPassword = useAuthStore(state => state.user?.has_password !== false && !state.user?.phone_verified_at);
   const [open, setOpen] = useState(false);
   const [current, setCurrent] = useState('');
   const [next, setNext] = useState('');

@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import type { AccountProof } from "../../crypto/keys";
 import { useAuthStore } from "../../store/auth";
 import { reauthCode, startReauth, type ReauthPurpose } from "../../auth/reauth";
+import PhoneVerification from "./PhoneVerification";
+import { authApi } from "../../api/auth";
 
 /**
  * Подтвердить важное действие: пароль аккаунта — или, если пароля нет (аккаунт через Яндекс),
@@ -25,15 +27,30 @@ export default function AccountProofInput({
   placeholder?: string;
 }) {
   const hasPassword = useAuthStore((st) => st.user?.has_password !== false);
+  const user = useAuthStore(st => st.user);
+  const phoneVerified = !!user?.phone_verified_at;
+  const [phoneProof, setPhoneProof] = useState<string>();
+  const [hasYandex, setHasYandex] = useState(false);
+  useEffect(() => { if (phoneVerified) void authApi.signInMethods().then(methods => setHasYandex(methods.identities.some(i => i.provider === "yandex"))).catch(() => {}); }, [phoneVerified]);
   const [password, setPassword] = useState("");
   const [code] = useState(reauthCode);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!hasPassword && code) onChange({ reauthCode: code });
+    if ((phoneVerified || !hasPassword) && code) onChange({ reauthCode: code });
+    else onChange(null);
     // onChange — новая функция на каждый рендер родителя; подтверждение отдаём один раз.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hasPassword, code]);
+  }, [hasPassword, phoneVerified, code]);
+
+  if (phoneVerified) return <>
+    {code ? <p className={hintClassName}>✓ Подтверждено через Яндекс ID</p> : <>
+      <PhoneVerification phone={user!.phone!} account="reauth" proof={phoneProof} onVerified={token => { setPhoneProof(token); onChange({phoneProof: token}); }} />
+      {hasYandex && <button type="button" className={buttonClassName} disabled={disabled}
+        onClick={() => void startReauth(purpose).catch(() => setError("Не получилось открыть Яндекс ID"))}>Подтвердить через Яндекс ID</button>}
+    </>}
+    {error && <p className={hintClassName}>{error}</p>}
+  </>;
 
   if (hasPassword) {
     return (

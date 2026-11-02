@@ -4,6 +4,7 @@ import Navigation from './navigation';
 import CallOverlay from './components/CallOverlay';
 import ContactsAutoSync from './contacts/ContactsAutoSync';
 import ActivityTracker from './presence/ActivityTracker';
+import PhoneVerificationPrompt from './components/PhoneVerificationPrompt';
 
 export default function App() {
   return (
@@ -12,6 +13,7 @@ export default function App() {
       <CallOverlay />
       <ContactsAutoSync />
       <ActivityTracker />
+      <PhoneVerificationPrompt />
     </SafeAreaProvider>
   );
 }

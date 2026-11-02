@@ -41,7 +41,8 @@ def decode_token(token: str) -> Optional[str]:
 
 
 def token_is_current(token: str, user) -> bool:
-    changed = getattr(user, "password_changed_at", None)
+    changed = max((value for value in (getattr(user, "password_changed_at", None),
+        getattr(user, "sessions_revoked_at", None)) if value is not None), default=None)
     if changed is None:
         return True
     try:

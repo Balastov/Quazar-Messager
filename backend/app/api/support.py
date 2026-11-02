@@ -73,6 +73,7 @@ class AdminTicketOut(TicketOut):
     unread: int = 0
     recovery_login: str | None = None
     password_reset_at: datetime | None = None
+    password_reset_allowed: bool = True
 
 
 class AdminTicketMessage(BaseModel):
@@ -112,10 +113,11 @@ def _unread_query(ticket_ids: list[str]):
 
 async def _tickets_out(db: AsyncSession, tickets: list[SupportTicket]) -> list[AdminTicketOut]:
     ids = [t.id for t in tickets]
-    users = {
-        u.id: _user_out(u)
+    accounts = {
+        u.id: u
         for u in (await db.execute(select(User).where(User.id.in_({t.user_id for t in tickets})))).scalars()
     }
+    users = {key: _user_out(user) for key, user in accounts.items()}
     unread = dict((await db.execute(_unread_query(ids))).all()) if ids else {}
     return [
         AdminTicketOut(
@@ -124,6 +126,7 @@ async def _tickets_out(db: AsyncSession, tickets: list[SupportTicket]) -> list[A
             unread=unread.get(t.id, 0),
             recovery_login=t.recovery_login,
             password_reset_at=t.password_reset_at,
+            password_reset_allowed=bool(accounts.get(t.user_id) and not accounts[t.user_id].phone_verified_at),
         )
         for t in tickets
     ]

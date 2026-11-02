@@ -18,6 +18,7 @@ from app.core.database import AsyncSessionLocal, Base, engine
 from app.core.legacy_usernames import migrate_legacy_usernames
 from app.models import Attachment, Call, PushSubscription, Star  # noqa: F401 — register tables for create_all
 from app.api.auth import router as auth_router
+from app.api.phone_verification import router as phone_verification_router
 from app.api.password_recovery import router as password_recovery_router, admin_router as password_recovery_admin_router
 from app.api.users import router as users_router
 from app.api.chats import router as chats_router
@@ -303,6 +304,7 @@ async def lifespan(app: FastAPI):
         ):
             await conn.execute(text(ddl))
         await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS password_changed_at TIMESTAMP WITH TIME ZONE"))
+        await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS phone_verified_at TIMESTAMP WITH TIME ZONE"))
         await conn.execute(text("ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS recovery_login VARCHAR(128)"))
         await conn.execute(text("ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS password_reset_at TIMESTAMP WITH TIME ZONE"))
         await conn.execute(text("ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS password_reset_by_id VARCHAR(36) REFERENCES users(id) ON DELETE SET NULL"))
@@ -344,6 +346,7 @@ app.add_middleware(
 app.add_middleware(SecurityHeadersMiddleware)
 
 app.include_router(auth_router)
+app.include_router(phone_verification_router)
 app.include_router(password_recovery_router)
 app.include_router(password_recovery_admin_router)
 app.include_router(oauth_router)

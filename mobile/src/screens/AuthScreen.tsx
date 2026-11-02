@@ -7,6 +7,7 @@ import {
   Platform,
   Pressable,
   StyleSheet,
+  ScrollView,
   Text,
   TextInput,
   View,
@@ -19,6 +20,7 @@ import {apiErrorText, USERNAME_MAX} from '../utils/profile';
 import {useUsernameCheck} from '../hooks/useUsernameCheck';
 import PhoneVisibilityChoice from '../components/PhoneVisibilityChoice';
 import ForgotPassword from '../components/ForgotPassword';
+import PhoneVerification from '../components/PhoneVerification';
 
 // register — обязательное (телефон, никнейм, пароль); about — предлагаем имя и почту;
 // yandex — вошли через Яндекс ID впервые: выбрать никнейм и телефон.
@@ -42,6 +44,8 @@ export default function AuthScreen() {
   const [phoneDiscoverable, setPhoneDiscoverable] = useState<boolean | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [phoneVerificationRequired, setPhoneVerificationRequired] = useState(false);
+  const [phoneProof, setPhoneProof] = useState<string>();
   const check = useUsernameCheck(mode === 'register' || mode === 'yandex' ? username : '');
 
   const setToken = useAuthStore(s => s.setToken);
@@ -55,7 +59,7 @@ export default function AuthScreen() {
   useEffect(() => {
     authApi
       .providers()
-      .then(p => setYandexOn(p.yandex))
+      .then(p => {setYandexOn(p.yandex); setPhoneVerificationRequired(!!p.phone_verification);})
       .catch(() => {});
     const onUrl = async (url: string | null) => {
       const params = parseReturnUrl(url);
@@ -84,6 +88,7 @@ export default function AuthScreen() {
         const p = res.profile;
         setUsername(p.username ?? '');
         setPhone(p.phone ? formatRuPhoneMask(p.phone) : '+7');
+        setPhoneProof(undefined);
         setFirstName(p.first_name ?? '');
         setLastName(p.last_name ?? '');
         setPhoneDiscoverable(null);
@@ -103,6 +108,7 @@ export default function AuthScreen() {
 
   const completeYandex = async () => {
     setError('');
+    if (phoneVerificationRequired && !phoneProof) {setError('Подтвердите телефон звонком'); return;}
     if (!yandexCode) {
       return;
     }
@@ -121,13 +127,15 @@ export default function AuthScreen() {
         username: nick,
         phone: toE164Ru(phone)!,
         phone_discoverable: phoneDiscoverable,
+        phone_verification_token: phoneProof,
         first_name: firstName.trim() || null,
         last_name: lastName.trim() || null,
       });
       await forgetVerifier();
       await setToken(data.access_token);
     } catch (err: unknown) {
-      setError(apiErrorText(err));
+      const text = apiErrorText(err); setError(text);
+      if (/Подтвердите телефон/.test(text)) {setPhoneProof(undefined); setPhoneVerificationRequired(true);}
     } finally {
       setLoading(false);
     }
@@ -185,6 +193,7 @@ export default function AuthScreen() {
 
   const register = async (withAbout: boolean) => {
     setError('');
+    if (phoneVerificationRequired && !phoneProof) {setError('Подтвердите телефон звонком'); return;}
     setLoading(true);
     try {
       const data = await authApi.register({
@@ -192,12 +201,14 @@ export default function AuthScreen() {
         phone: toE164Ru(phone)!,
         password,
         phone_discoverable: phoneDiscoverable!,
+        phone_verification_token: phoneProof,
         ...(withAbout ? {first_name: firstName, last_name: lastName, email} : {}),
       });
       await setToken(data.access_token);
     } catch (err: unknown) {
       const text = apiErrorText(err);
       setError(text);
+      if (/Подтвердите телефон/.test(text)) {setPhoneProof(undefined); setPhoneVerificationRequired(true);}
       // Номер или никнейм успели занять — это поля первого шага.
       if (/номер|никнейм|Phone|ароль/i.test(text)) {
         setMode('register');
@@ -209,78 +220,81 @@ export default function AuthScreen() {
 
   if (mode === 'yandex') {
     const ready =
-      !loading && check.state === 'ok' && isCompleteRuPhone(phone) && phoneDiscoverable !== null;
+      !loading && check.state === 'ok' && isCompleteRuPhone(phone) && phoneDiscoverable !== null && (!phoneVerificationRequired || !!phoneProof);
     return (
       <KeyboardAvoidingView
         style={s.root}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-        <View style={s.card}>
-          <Pressable onPress={() => switchMode('login')} hitSlop={8}>
-            <Text style={s.back}>← Назад</Text>
-          </Pressable>
-          <Text style={s.title}>Почти готово</Text>
-          <Text style={s.lead}>
-            Вы вошли через Яндекс ID. Осталось выбрать никнейм и указать телефон — по ним вас
-            найдут знакомые.
-          </Text>
-          <TextInput
-            style={[s.input, s.nickInput]}
-            placeholder="@никнейм"
-            placeholderTextColor="#555"
-            value={username}
-            onChangeText={text => setUsername(text.replace(/\s/g, ''))}
-            maxLength={USERNAME_MAX + 1}
-            autoCapitalize="none"
-            autoCorrect={false}
-            keyboardType="ascii-capable"
-            textContentType="username"
-          />
-          <Text style={[s.hint, check.state === 'bad' && s.hintBad, check.state === 'ok' && s.hintOk]}>
-            {check.state === 'bad'
-              ? check.message
-              : check.state === 'ok'
-                ? 'Никнейм свободен'
-                : check.state === 'checking'
-                  ? 'Проверяем…'
-                  : 'Латиницей: по нему вас найдут и @упомянут'}
-          </Text>
-          <TextInput
-            style={s.input}
-            placeholder="+7 (999) 000-00-00"
-            placeholderTextColor="#555"
-            value={phone}
-            onChangeText={text => setPhone(formatRuPhoneMask(text))}
-            keyboardType="phone-pad"
-          />
-          <TextInput
-            style={s.input}
-            placeholder="Имя"
-            placeholderTextColor="#555"
-            value={firstName}
-            onChangeText={setFirstName}
-            maxLength={64}
-            textContentType="givenName"
-          />
-          <TextInput
-            style={s.input}
-            placeholder="Фамилия"
-            placeholderTextColor="#555"
-            value={lastName}
-            onChangeText={setLastName}
-            maxLength={64}
-            textContentType="familyName"
-          />
-          <View style={s.choice}>
-            <PhoneVisibilityChoice value={phoneDiscoverable} onChange={setPhoneDiscoverable} />
+        <ScrollView style={s.scroll} contentContainerStyle={s.scrollContent} keyboardShouldPersistTaps="handled">
+          <View style={s.card}>
+            <Pressable onPress={() => switchMode('login')} hitSlop={8}>
+              <Text style={s.back}>← Назад</Text>
+            </Pressable>
+            <Text style={s.title}>Почти готово</Text>
+            <Text style={s.lead}>
+              Вы вошли через Яндекс ID. Осталось выбрать никнейм и указать телефон — по ним вас
+              найдут знакомые.
+            </Text>
+            <TextInput
+              style={[s.input, s.nickInput]}
+              placeholder="@никнейм"
+              placeholderTextColor="#555"
+              value={username}
+              onChangeText={text => setUsername(text.replace(/\s/g, ''))}
+              maxLength={USERNAME_MAX + 1}
+              autoCapitalize="none"
+              autoCorrect={false}
+              keyboardType="ascii-capable"
+              textContentType="username"
+            />
+            <Text style={[s.hint, check.state === 'bad' && s.hintBad, check.state === 'ok' && s.hintOk]}>
+              {check.state === 'bad'
+                ? check.message
+                : check.state === 'ok'
+                  ? 'Никнейм свободен'
+                  : check.state === 'checking'
+                    ? 'Проверяем…'
+                    : 'Латиницей: по нему вас найдут и @упомянут'}
+            </Text>
+            <TextInput
+              style={s.input}
+              placeholder="+7 (999) 000-00-00"
+              placeholderTextColor="#555"
+              value={phone}
+              onChangeText={text => {setPhone(formatRuPhoneMask(text)); setPhoneProof(undefined);}}
+              keyboardType="phone-pad"
+            />
+            <TextInput
+              style={s.input}
+              placeholder="Имя"
+              placeholderTextColor="#555"
+              value={firstName}
+              onChangeText={setFirstName}
+              maxLength={64}
+              textContentType="givenName"
+            />
+            <TextInput
+              style={s.input}
+              placeholder="Фамилия"
+              placeholderTextColor="#555"
+              value={lastName}
+              onChangeText={setLastName}
+              maxLength={64}
+              textContentType="familyName"
+            />
+            <View style={s.choice}>
+              <PhoneVisibilityChoice value={phoneDiscoverable} onChange={setPhoneDiscoverable} />
+            </View>
+            {phoneVerificationRequired && isCompleteRuPhone(phone) && <PhoneVerification phone={toE164Ru(phone)!} proof={phoneProof} onVerified={setPhoneProof} />}
+            {error !== '' && <Text style={s.error}>{error}</Text>}
+            <Pressable
+              style={[s.submit, !ready && s.disabled]}
+              onPress={() => void completeYandex()}
+              disabled={!ready || (phoneVerificationRequired && !phoneProof)}>
+              {loading ? <ActivityIndicator color="#fff" /> : <Text style={s.submitText}>Готово</Text>}
+            </Pressable>
           </View>
-          {error !== '' && <Text style={s.error}>{error}</Text>}
-          <Pressable
-            style={[s.submit, !ready && s.disabled]}
-            onPress={() => void completeYandex()}
-            disabled={!ready}>
-            {loading ? <ActivityIndicator color="#fff" /> : <Text style={s.submitText}>Готово</Text>}
-          </Pressable>
-        </View>
+        </ScrollView>
       </KeyboardAvoidingView>
     );
   }
@@ -291,62 +305,65 @@ export default function AuthScreen() {
       <KeyboardAvoidingView
         style={s.root}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-        <View style={s.card}>
-          <Pressable onPress={() => switchMode('register')} hitSlop={8}>
-            <Text style={s.back}>← Назад</Text>
-          </Pressable>
-          <Text style={s.title}>Как вас представить?</Text>
-          <Text style={s.lead}>
-            Имя и фамилию увидят собеседники вместо @{nick}. Почта пригодится, чтобы восстановить
-            доступ. Всё это можно указать и позже в профиле.
-          </Text>
-          <TextInput
-            style={s.input}
-            placeholder="Имя"
-            placeholderTextColor="#555"
-            value={firstName}
-            onChangeText={setFirstName}
-            maxLength={64}
-            textContentType="givenName"
-            autoFocus
-          />
-          <TextInput
-            style={s.input}
-            placeholder="Фамилия"
-            placeholderTextColor="#555"
-            value={lastName}
-            onChangeText={setLastName}
-            maxLength={64}
-            textContentType="familyName"
-          />
-          <TextInput
-            style={s.input}
-            placeholder="Электронная почта"
-            placeholderTextColor="#555"
-            value={email}
-            onChangeText={setEmail}
-            maxLength={254}
-            keyboardType="email-address"
-            autoCapitalize="none"
-            textContentType="emailAddress"
-          />
+        <ScrollView style={s.scroll} contentContainerStyle={s.scrollContent} keyboardShouldPersistTaps="handled">
+          <View style={s.card}>
+            <Pressable onPress={() => switchMode('register')} hitSlop={8}>
+              <Text style={s.back}>← Назад</Text>
+            </Pressable>
+            <Text style={s.title}>Как вас представить?</Text>
+            <Text style={s.lead}>
+              Имя и фамилию увидят собеседники вместо @{nick}. Почта пригодится, чтобы восстановить
+              доступ. Всё это можно указать и позже в профиле.
+            </Text>
+            <TextInput
+              style={s.input}
+              placeholder="Имя"
+              placeholderTextColor="#555"
+              value={firstName}
+              onChangeText={setFirstName}
+              maxLength={64}
+              textContentType="givenName"
+              autoFocus
+            />
+            <TextInput
+              style={s.input}
+              placeholder="Фамилия"
+              placeholderTextColor="#555"
+              value={lastName}
+              onChangeText={setLastName}
+              maxLength={64}
+              textContentType="familyName"
+            />
+            <TextInput
+              style={s.input}
+              placeholder="Электронная почта"
+              placeholderTextColor="#555"
+              value={email}
+              onChangeText={setEmail}
+              maxLength={254}
+              keyboardType="email-address"
+              autoCapitalize="none"
+              textContentType="emailAddress"
+            />
 
-          {error !== '' && <Text style={s.error}>{error}</Text>}
+            {phoneVerificationRequired && <PhoneVerification phone={toE164Ru(phone)!} proof={phoneProof} onVerified={setPhoneProof} />}
+            {error !== '' && <Text style={s.error}>{error}</Text>}
 
-          <Pressable
-            style={[s.submit, (loading || !hasAbout) && s.disabled]}
-            onPress={() => void register(true)}
-            disabled={loading || !hasAbout}>
-            {loading ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <Text style={s.submitText}>Готово</Text>
-            )}
-          </Pressable>
-          <Pressable style={s.skip} onPress={() => void register(false)} disabled={loading}>
-            <Text style={s.skipText}>Пропустить</Text>
-          </Pressable>
-        </View>
+            <Pressable
+              style={[s.submit, (loading || !hasAbout || (phoneVerificationRequired && !phoneProof)) && s.disabled]}
+              onPress={() => void register(true)}
+              disabled={loading || !hasAbout || (phoneVerificationRequired && !phoneProof)}>
+              {loading ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={s.submitText}>Готово</Text>
+              )}
+            </Pressable>
+            <Pressable style={s.skip} onPress={() => void register(false)} disabled={loading || (phoneVerificationRequired && !phoneProof)}>
+              <Text style={s.skipText}>Пропустить</Text>
+            </Pressable>
+          </View>
+        </ScrollView>
       </KeyboardAvoidingView>
     );
   }
@@ -361,95 +378,97 @@ export default function AuthScreen() {
     <KeyboardAvoidingView
       style={s.root}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-      <View style={s.card}>
-        <Image
-          source={require('../assets/logo-mark.png')}
-          style={s.logoMark}
-          resizeMode="contain"
-          accessible={false}
-        />
-        <Text style={s.logo}>Quazar</Text>
+      <ScrollView style={s.scroll} contentContainerStyle={s.scrollContent} keyboardShouldPersistTaps="handled">
+          <View style={s.card}>
+          <Image
+            source={require('../assets/logo-mark.png')}
+            style={s.logoMark}
+            resizeMode="contain"
+            accessible={false}
+          />
+          <Text style={s.logo}>Quazar</Text>
 
-        <View style={s.tabs}>
-          <Pressable
-            style={[s.tab, isLogin && s.activeTab]}
-            onPress={() => switchMode('login')}>
-            <Text style={[s.tabText, isLogin && s.activeTabText]}>Войти</Text>
-          </Pressable>
-          <Pressable
-            style={[s.tab, !isLogin && s.activeTab]}
-            onPress={() => switchMode('register')}>
-            <Text style={[s.tabText, !isLogin && s.activeTabText]}>Регистрация</Text>
-          </Pressable>
-        </View>
-
-        <TextInput
-          style={s.input}
-          placeholder="+7 (999) 000-00-00"
-          placeholderTextColor="#555"
-          value={phone}
-          onChangeText={text => setPhone(formatRuPhoneMask(text))}
-          keyboardType="phone-pad"
-        />
-        {!isLogin && (
-          <>
-            <TextInput
-              style={[s.input, s.nickInput]}
-              placeholder="@никнейм"
-              placeholderTextColor="#555"
-              value={username}
-              onChangeText={text => setUsername(text.replace(/\s/g, ''))}
-              maxLength={USERNAME_MAX + 1}
-              autoCapitalize="none"
-              autoCorrect={false}
-              keyboardType="ascii-capable"
-              textContentType="username"
-            />
-            <Text
-              style={[
-                s.hint,
-                check.state === 'bad' && s.hintBad,
-                check.state === 'ok' && s.hintOk,
-              ]}>
-              {check.state === 'bad'
-                ? check.message
-                : check.state === 'ok'
-                  ? 'Никнейм свободен'
-                  : check.state === 'checking'
-                    ? 'Проверяем…'
-                    : 'Латиницей: по нему вас найдут и @упомянут'}
-            </Text>
-          </>
-        )}
-        <TextInput
-          style={s.input}
-          placeholder="Пароль"
-          placeholderTextColor="#555"
-          value={password}
-          onChangeText={setPassword}
-          secureTextEntry
-        />
-        {!isLogin && (
-          <View style={s.choice}>
-            <PhoneVisibilityChoice value={phoneDiscoverable} onChange={setPhoneDiscoverable} />
+          <View style={s.tabs}>
+            <Pressable
+              style={[s.tab, isLogin && s.activeTab]}
+              onPress={() => switchMode('login')}>
+              <Text style={[s.tabText, isLogin && s.activeTabText]}>Войти</Text>
+            </Pressable>
+            <Pressable
+              style={[s.tab, !isLogin && s.activeTab]}
+              onPress={() => switchMode('register')}>
+              <Text style={[s.tabText, !isLogin && s.activeTabText]}>Регистрация</Text>
+            </Pressable>
           </View>
-        )}
 
-        {error !== '' && <Text style={s.error}>{error}</Text>}
-
-        <Pressable
-          style={[s.submit, disabled && s.disabled]}
-          onPress={() => (isLogin ? void login() : toAbout())}
-          disabled={disabled}>
-          {loading ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <Text style={s.submitText}>{isLogin ? 'Войти' : 'Далее'}</Text>
+          <TextInput
+            style={s.input}
+            placeholder="+7 (999) 000-00-00"
+            placeholderTextColor="#555"
+            value={phone}
+            onChangeText={text => {setPhone(formatRuPhoneMask(text)); setPhoneProof(undefined);}}
+            keyboardType="phone-pad"
+          />
+          {!isLogin && (
+            <>
+              <TextInput
+                style={[s.input, s.nickInput]}
+                placeholder="@никнейм"
+                placeholderTextColor="#555"
+                value={username}
+                onChangeText={text => setUsername(text.replace(/\s/g, ''))}
+                maxLength={USERNAME_MAX + 1}
+                autoCapitalize="none"
+                autoCorrect={false}
+                keyboardType="ascii-capable"
+                textContentType="username"
+              />
+              <Text
+                style={[
+                  s.hint,
+                  check.state === 'bad' && s.hintBad,
+                  check.state === 'ok' && s.hintOk,
+                ]}>
+                {check.state === 'bad'
+                  ? check.message
+                  : check.state === 'ok'
+                    ? 'Никнейм свободен'
+                    : check.state === 'checking'
+                      ? 'Проверяем…'
+                      : 'Латиницей: по нему вас найдут и @упомянут'}
+              </Text>
+            </>
           )}
-        </Pressable>
-        {isLogin && <ForgotPassword initialLogin={isCompleteRuPhone(phone) ? phone : ''} />}
-        {yandexButton}
-      </View>
+          <TextInput
+            style={s.input}
+            placeholder="Пароль"
+            placeholderTextColor="#555"
+            value={password}
+            onChangeText={setPassword}
+            secureTextEntry
+          />
+          {!isLogin && (
+            <View style={s.choice}>
+              <PhoneVisibilityChoice value={phoneDiscoverable} onChange={setPhoneDiscoverable} />
+            </View>
+          )}
+
+          {error !== '' && <Text style={s.error}>{error}</Text>}
+
+          <Pressable
+            style={[s.submit, disabled && s.disabled]}
+            onPress={() => (isLogin ? void login() : toAbout())}
+            disabled={disabled}>
+            {loading ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <Text style={s.submitText}>{isLogin ? 'Войти' : 'Далее'}</Text>
+            )}
+          </Pressable>
+          {isLogin && <ForgotPassword initialLogin={isCompleteRuPhone(phone) ? phone : ''} />}
+          {yandexButton}
+        </View>
+      </ScrollView>
     </KeyboardAvoidingView>
   );
 }
@@ -457,6 +476,8 @@ export default function AuthScreen() {
 const s = StyleSheet.create({
   root: {flex: 1, backgroundColor: '#0f1117', alignItems: 'center', justifyContent: 'center'},
   card: {width: '88%', maxWidth: 360},
+  scroll: {flex: 1, width: '100%'},
+  scrollContent: {flexGrow: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 24},
   logoMark: {width: 88, height: 88, alignSelf: 'center', marginBottom: 8},
   logo: {
     fontSize: 32,

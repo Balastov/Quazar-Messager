@@ -10,6 +10,7 @@ export interface RegisterBody {
   email?: string;
   first_name?: string;
   last_name?: string;
+  phone_verification_token?: string;
 }
 
 /** Данные из Яндекса для шага «Почти готово» (что не прошло наши правила — null). */
@@ -34,7 +35,7 @@ export interface SignInMethods {
 
 export const authApi = {
   /** Какие внешние входы включены на сервере. */
-  providers: () => http.get<{ yandex: boolean }>("/auth/providers").then((r) => r.data),
+  providers: () => http.get<{ yandex: boolean; phone_verification?: boolean }>("/auth/providers").then((r) => r.data),
   /** Адрес, с которого начинается вход через Яндекс (переход всей страницей). */
   yandexStartUrl: "/api/auth/yandex/start",
   yandexExchange: (code: string) =>
@@ -44,6 +45,7 @@ export const authApi = {
     username: string;
     phone: string;
     phone_discoverable: boolean;
+    phone_verification_token?: string;
     first_name?: string | null;
     last_name?: string | null;
   }) => http.post<TokenResponse>("/auth/yandex/complete", body).then((r) => r.data),

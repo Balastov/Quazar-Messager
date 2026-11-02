@@ -167,6 +167,7 @@ export interface User {
   email?: string | null;
   /** Только у себя: можно ли найти по номеру; null — ещё не выбирал (спросим окном). */
   phone_discoverable?: boolean | null;
+  phone_verified_at?: string | null;
   /** Нет пароля (аккаунт через Яндекс ID) — важные действия подтверждаются через Яндекс. */
   has_password?: boolean;
   avatar_url: string | null;

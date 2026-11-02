@@ -55,6 +55,13 @@ class Settings(BaseSettings):
     # Публичный адрес сайта — для адресов возврата после внешнего входа.
     PUBLIC_URL: str = "https://quazar-msg.ru"
 
+    # Подтверждение телефона входящим звонком. Ключ хранится только на сервере.
+    ZVONOK_API_KEY: str = ""
+    ZVONOK_CAMPAIGN_ID: str = ""
+    ZVONOK_DAILY_LIMIT: int = 500
+    # Включать только за nginx, который перезаписывает X-Real-IP; API закрыт от прямого доступа.
+    TRUST_PROXY_REAL_IP: bool = False
+
     # LIVEKIT_URL — адрес для бэкенда внутри docker-сети, LIVEKIT_PUBLIC_URL — для браузеров.
     LIVEKIT_URL: str = ""
     LIVEKIT_PUBLIC_URL: str = ""

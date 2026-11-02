@@ -8,6 +8,7 @@ import { formatRuPhoneMask, isCompleteRuPhone, toE164Ru } from "../utils/phone";
 import { apiErrorText, USERNAME_MAX } from "../utils/profile";
 import { useUsernameCheck } from "../components/profile/useUsernameCheck";
 import PhoneVisibilityChoice from "../components/profile/PhoneVisibilityChoice";
+import PhoneVerification from "../components/profile/PhoneVerification";
 import s from "./AuthPage.module.css";
 
 const ERRORS: Record<string, string> = {
@@ -137,6 +138,9 @@ function AlmostDone({ code, profile }: { code: string; profile: YandexProfile })
   const [phoneDiscoverable, setPhoneDiscoverable] = useState<boolean | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [phoneVerificationRequired, setPhoneVerificationRequired] = useState(false);
+  const [phoneProof, setPhoneProof] = useState<string>();
+  useEffect(() => { void authApi.providers().then(p => setPhoneVerificationRequired(!!p.phone_verification)).catch(() => {}); }, []);
   const usernameCheck = useUsernameCheck(username);
 
   const submit = async (e: React.FormEvent) => {
@@ -144,6 +148,7 @@ function AlmostDone({ code, profile }: { code: string; profile: YandexProfile })
     setError("");
     if (!isCompleteRuPhone(phone)) return setError("Введите номер в формате +7 (999) 000-00-00");
     if (phoneDiscoverable === null) return setError("Выберите, можно ли найти вас по номеру");
+    if (phoneVerificationRequired && !phoneProof) return setError("Подтвердите телефон звонком");
     setLoading(true);
     try {
       const data = await authApi.yandexComplete({
@@ -151,13 +156,15 @@ function AlmostDone({ code, profile }: { code: string; profile: YandexProfile })
         username: username.trim().replace(/^@/, ""),
         phone: toE164Ru(phone)!,
         phone_discoverable: phoneDiscoverable,
+        phone_verification_token: phoneProof,
         first_name: firstName.trim() || null,
         last_name: lastName.trim() || null,
       });
       await setToken(data.access_token);
       navigate("/", { replace: true });
     } catch (err) {
-      setError(apiErrorText(err));
+      const text = apiErrorText(err); setError(text);
+      if (/Подтвердите телефон/.test(text)) { setPhoneProof(undefined); setPhoneVerificationRequired(true); }
     } finally {
       setLoading(false);
     }
@@ -202,7 +209,7 @@ function AlmostDone({ code, profile }: { code: string; profile: YandexProfile })
           inputMode="numeric"
           placeholder="+7 (999) 000-00-00"
           value={phone}
-          onChange={(e) => setPhone(formatRuPhoneMask(e.target.value))}
+          onChange={(e) => { setPhone(formatRuPhoneMask(e.target.value)); setPhoneProof(undefined); }}
           required
           autoComplete="tel"
         />
@@ -227,11 +234,12 @@ function AlmostDone({ code, profile }: { code: string; profile: YandexProfile })
         <div className={s.choice}>
           <PhoneVisibilityChoice value={phoneDiscoverable} onChange={setPhoneDiscoverable} />
         </div>
+        {phoneVerificationRequired && isCompleteRuPhone(phone) && <PhoneVerification phone={toE164Ru(phone)!} proof={phoneProof} onVerified={setPhoneProof} />}
         {error && <p className={s.error}>{error}</p>}
         <button
           className={s.submit}
           type="submit"
-          disabled={loading || usernameCheck.state !== "ok" || !isCompleteRuPhone(phone) || phoneDiscoverable === null}
+          disabled={loading || usernameCheck.state !== "ok" || !isCompleteRuPhone(phone) || phoneDiscoverable === null || (phoneVerificationRequired && !phoneProof)}
         >
           {loading ? "..." : "Готово"}
         </button>

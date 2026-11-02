@@ -20,6 +20,7 @@ class UserRegister(BaseModel):
     email: str | None = None
     first_name: str | None = None
     last_name: str | None = None
+    phone_verification_token: str | None = Field(default=None, max_length=128)
 
     @field_validator("username")
     @classmethod
@@ -114,6 +115,7 @@ class UserOut(BaseModel):
 
 class MeOut(UserOut):
     phone: str
+    phone_verified_at: datetime | None = None
     email: str | None = None
     # Нет пароля (аккаунт через Яндекс) — важные действия подтверждаются через Яндекс.
     has_password: bool = True

@@ -19,6 +19,7 @@ import {displayName} from '../utils/profile';
 import ProfileEditor from '../components/ProfileEditor';
 import PhoneVisibilitySetting from '../components/PhoneVisibilitySetting';
 import PasswordSettings from '../components/PasswordSettings';
+import PhoneVerificationSetting from '../components/PhoneVerificationSetting';
 
 const DURATIONS: {label: string; until: () => Date | null}[] = [
   {label: '30 мин', until: () => new Date(Date.now() + 30 * 60_000)},
@@ -93,6 +94,7 @@ export default function ProfileScreen({navigation}: Props) {
       )}
 
       <PasswordSettings />
+      <PhoneVerificationSetting />
       <View style={s.card}>
         <Text style={s.title}>Статус</Text>
         {manual ? (

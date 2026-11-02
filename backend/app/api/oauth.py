@@ -22,7 +22,8 @@ from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core import yandex
+from app.core import yandex, zvonok
+from app.core.phone_verification import consume as consume_phone_verification
 from app.core.accounts import TAKEN, email_taken, phone_taken, username_taken
 from app.core.avatars import detect_image, save_avatar
 from app.core.config import settings
@@ -103,12 +104,13 @@ async def _new_flow(
 
 class ProvidersOut(BaseModel):
     yandex: bool
+    phone_verification: bool
 
 
 @router.get("/providers", response_model=ProvidersOut)
 async def providers():
     """Какие внешние входы включены — клиент показывает кнопки только для них."""
-    return ProvidersOut(yandex=yandex.enabled())
+    return ProvidersOut(yandex=yandex.enabled(), phone_verification=zvonok.required())
 
 
 @router.get("/yandex/start")
@@ -323,6 +325,7 @@ class CompleteBody(BaseModel):
     username: str
     phone: str
     phone_discoverable: bool
+    phone_verification_token: str | None = Field(default=None, max_length=128)
     first_name: str | None = None
     last_name: str | None = None
 
@@ -354,6 +357,7 @@ async def yandex_complete(body: CompleteBody, db: Db):
         raise HTTPException(status_code=400, detail=TAKEN["phone"])
     if await username_taken(db, body.username):
         raise HTTPException(status_code=400, detail=TAKEN["username"])
+    verified_at = await consume_phone_verification(db, body.phone, body.phone_verification_token)
     email = _clean(normalize_email, p.get("email"))
     if email and await email_taken(db, email):
         email = None
@@ -365,6 +369,7 @@ async def yandex_complete(body: CompleteBody, db: Db):
         last_name=body.last_name,
         phone_discoverable=body.phone_discoverable,
         password_hash=None,
+        phone_verified_at=verified_at,
     )
     db.add(user)
     try:
@@ -415,7 +420,7 @@ async def my_sign_in(current_user: CurrentUser, db: Db):
             IdentityOut(provider=i.provider, email=i.email, login=i.login, created_at=i.created_at)
             for i in rows.scalars()
         ],
-        providers=ProvidersOut(yandex=yandex.enabled()),
+        providers=ProvidersOut(yandex=yandex.enabled(), phone_verification=zvonok.required()),
     )
 
 

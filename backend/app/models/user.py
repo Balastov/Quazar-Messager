@@ -15,6 +15,7 @@ class User(Base):
     # Никнейм латиницей (app/core/profile.py); уникален без учёта регистра — индекс в main.py.
     username: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
     phone: Mapped[str] = mapped_column(String(20), unique=True, nullable=False, index=True)
+    phone_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # Необязательные: почта (в нижнем регистре, уникальна) и имя для отображения на любом языке.
     email: Mapped[str | None] = mapped_column(String(254), nullable=True)
     first_name: Mapped[str | None] = mapped_column(String(64), nullable=True)

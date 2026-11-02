@@ -50,6 +50,11 @@ services:
       YANDEX_CLIENT_ID: ${YANDEX_CLIENT_ID:-}
       YANDEX_CLIENT_SECRET: ${YANDEX_CLIENT_SECRET:-}
       PUBLIC_URL: ${PUBLIC_URL:-https://quazar-msg.ru}
+      ZVONOK_API_KEY: ${ZVONOK_API_KEY:-}
+      ZVONOK_CAMPAIGN_ID: ${ZVONOK_CAMPAIGN_ID:-}
+      ZVONOK_DAILY_LIMIT: ${ZVONOK_DAILY_LIMIT:-500}
+      # Host nginx перезаписывает заголовок; backend опубликован только на 127.0.0.1.
+      TRUST_PROXY_REAL_IP: "true"
       CALL_RING_TIMEOUT_SEC: ${CALL_RING_TIMEOUT_SEC:-45}
       # Голос на Планетах (profile voice). Пустые ключи = голос выключен.
       LIVEKIT_URL: http://livekit:7880

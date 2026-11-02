@@ -41,6 +41,7 @@ import UserAvatar from "./UserAvatar";
 import ProfileEditor from "./profile/ProfileEditor";
 import PhoneVisibilitySetting from "./profile/PhoneVisibilitySetting";
 import SignInSettings from "./profile/SignInSettings";
+import PhoneVerificationSetting from "./profile/PhoneVerificationSetting";
 import AccountProofInput from "./profile/AccountProofInput";
 import { clearReauth } from "../auth/reauth";
 import type { AccountProof } from "../crypto/keys";
@@ -149,6 +150,7 @@ export default function SettingsView() {
           <h3 className={s.sectionTitle}>Профиль</h3>
           <ProfileEditor user={user} />
           <PhoneVisibilitySetting user={user} />
+          <PhoneVerificationSetting />
           <SignInSettings />
           <h3 className={s.sectionTitle}>Аватар</h3>
           <p className={s.hint}>JPEG, PNG, WebP или GIF. Не больше 3 МБ.</p>

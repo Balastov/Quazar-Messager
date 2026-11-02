@@ -8,6 +8,7 @@ import { useUsernameCheck } from "../components/profile/useUsernameCheck";
 import PhoneVisibilityChoice from "../components/profile/PhoneVisibilityChoice";
 import s from "./AuthPage.module.css";
 import ForgotPasswordDialog from "../components/profile/ForgotPasswordDialog";
+import PhoneVerification from "../components/profile/PhoneVerification";
 
 // register — обязательное (телефон, никнейм, пароль); about — предлагаем имя и почту.
 type Screen = "welcome" | "login" | "register" | "about";
@@ -25,6 +26,8 @@ export default function AuthPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [forgotOpen, setForgotOpen] = useState(false);
+  const [phoneVerificationRequired, setPhoneVerificationRequired] = useState(false);
+  const [phoneProof, setPhoneProof] = useState<string>();
   const usernameCheck = useUsernameCheck(screen === "register" ? username : "");
 
   const setToken = useAuthStore((st) => st.setToken);
@@ -34,7 +37,7 @@ export default function AuthPage() {
   useEffect(() => {
     authApi
       .providers()
-      .then((p) => setYandex(p.yandex))
+      .then((p) => { setYandex(p.yandex); setPhoneVerificationRequired(!!p.phone_verification); })
       .catch(() => {});
   }, []);
   const yandexButton = yandex && (
@@ -86,6 +89,7 @@ export default function AuthPage() {
 
   const register = async (withAbout: boolean) => {
     setError("");
+    if (phoneVerificationRequired && !phoneProof) { setError("Подтвердите телефон звонком"); return; }
     setLoading(true);
     try {
       const data = await authApi.register({
@@ -93,6 +97,7 @@ export default function AuthPage() {
         phone: toE164Ru(phone)!,
         password,
         phone_discoverable: phoneDiscoverable!,
+        phone_verification_token: phoneProof,
         ...(withAbout ? { first_name: firstName, last_name: lastName, email } : {}),
       });
       await setToken(data.access_token);
@@ -100,6 +105,7 @@ export default function AuthPage() {
     } catch (err) {
       const text = apiErrorText(err);
       setError(text);
+      if (/Подтвердите телефон/.test(text)) { setPhoneProof(undefined); setPhoneVerificationRequired(true); }
       // Номер или никнейм успели занять — это поля первого шага.
       if (/номер|никнейм|Phone|ароль/i.test(text)) setScreen("register");
     } finally {
@@ -176,15 +182,16 @@ export default function AuthPage() {
                 maxLength={254}
                 autoComplete="email"
               />
+              {phoneVerificationRequired && <PhoneVerification phone={toE164Ru(phone)!} proof={phoneProof} onVerified={setPhoneProof} />}
               {error && <p className={s.error}>{error}</p>}
               <button
                 className={s.submit}
                 type="submit"
-                disabled={loading || !(firstName.trim() || lastName.trim() || email.trim())}
+                disabled={loading || (phoneVerificationRequired && !phoneProof) || !(firstName.trim() || lastName.trim() || email.trim())}
               >
                 {loading ? "..." : "Готово"}
               </button>
-              <button type="button" className={s.skip} disabled={loading} onClick={() => void register(false)}>
+              <button type="button" className={s.skip} disabled={loading || (phoneVerificationRequired && !phoneProof)} onClick={() => void register(false)}>
                 Пропустить
               </button>
             </form>
@@ -210,7 +217,7 @@ export default function AuthPage() {
               inputMode="numeric"
               placeholder="+7 (999) 000-00-00"
               value={phone}
-              onChange={(e) => setPhone(formatRuPhoneMask(e.target.value))}
+              onChange={(e) => { setPhone(formatRuPhoneMask(e.target.value)); setPhoneProof(undefined); }}
               required
               autoComplete="tel"
             />

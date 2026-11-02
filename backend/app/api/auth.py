@@ -6,6 +6,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.accounts import TAKEN, email_taken, phone_taken, username_taken
+from app.core.phone_verification import consume as consume_phone_verification
 from app.core.database import get_db
 from app.core.profile import normalize_username
 from app.core.security import create_access_token, hash_password, verify_password
@@ -39,9 +40,12 @@ async def register(body: UserRegister, db: Annotated[AsyncSession, Depends(get_d
     if body.email and await email_taken(db, body.email):
         raise HTTPException(status_code=400, detail=TAKEN["email"])
 
+    verified_at = await consume_phone_verification(db, body.phone, body.phone_verification_token)
+
     user = User(
         username=body.username,
         phone=body.phone,
+        phone_verified_at=verified_at,
         email=body.email,
         first_name=body.first_name,
         last_name=body.last_name,

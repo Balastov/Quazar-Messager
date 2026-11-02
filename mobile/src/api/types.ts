@@ -13,6 +13,7 @@ export interface User {
   email?: string | null;
   /** Только у себя: можно ли найти по номеру; null — ещё не выбирал (спросим окном). */
   phone_discoverable?: boolean | null;
+  phone_verified_at?: string | null;
   avatar_url: string | null;
   created_at: string;
 }

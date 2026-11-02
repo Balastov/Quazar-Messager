@@ -24,6 +24,7 @@ class User(Base):
     phone_discoverable: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     # Нет (None) — аккаунт создан через внешний вход (Яндекс) и пароля пока не задали.
     password_hash: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    password_changed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     avatar_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Личный фон приложения (/media/backgrounds/…); видит только сам пользователь.
     background_url: Mapped[str | None] = mapped_column(Text, nullable=True)

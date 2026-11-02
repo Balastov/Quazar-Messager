@@ -71,6 +71,8 @@ class AdminTicketOut(TicketOut):
     author: AdminUserOut | None
     # Сообщения человека, которых команда ещё не видела (не открывала обращение).
     unread: int = 0
+    recovery_login: str | None = None
+    password_reset_at: datetime | None = None
 
 
 class AdminTicketMessage(BaseModel):
@@ -120,6 +122,8 @@ async def _tickets_out(db: AsyncSession, tickets: list[SupportTicket]) -> list[A
             **TicketOut.model_validate(t).model_dump(),
             author=users.get(t.user_id),
             unread=unread.get(t.id, 0),
+            recovery_login=t.recovery_login,
+            password_reset_at=t.password_reset_at,
         )
         for t in tickets
     ]

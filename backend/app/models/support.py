@@ -36,6 +36,10 @@ class SupportTicket(Base):
     # idea | question | bug
     kind: Mapped[str] = mapped_column(String(16), nullable=False)
     text: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    # Только серверный маршрут восстановления может пометить обращение этим полем.
+    recovery_login: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    password_reset_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    password_reset_by_id: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     # Картинки — как в сообщении «IMG1:»: id вложения, ключ, тип и размеры. Файлы удаляются через
     # 30 дней (app.core.attachments), ссылки остаются — клиент пишет «Картинка удалена».
     images: Mapped[list] = mapped_column(JSON, nullable=False, default=list)

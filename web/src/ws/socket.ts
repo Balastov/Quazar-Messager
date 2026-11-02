@@ -28,6 +28,7 @@ class SocketManager {
   }
 
   connect(token: string) {
+    this.disconnect();
     this.token = token;
     this._open();
   }

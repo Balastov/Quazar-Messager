@@ -183,7 +183,7 @@ class YandexOAuthTest(StarsTestBase):
         async with self.Session() as db:
             await db.execute(update(User).where(User.username == "bob").values(password_hash=hash_password("oldsecret1")))
             await db.commit()
-        await self.expect_error(401, oauth.set_password, oauth.PasswordBody(new_password="newsecret1"), user="bob")
+        await self.expect_error(400, oauth.set_password, oauth.PasswordBody(new_password="newsecret1"), user="bob")
         await self.call(oauth.set_password, oauth.PasswordBody(current_password="oldsecret1", new_password="newsecret1"), user="bob")
         await self.db_call(auth_api.login, UserLogin(phone=self.users["bob"].phone, password="newsecret1"))
 

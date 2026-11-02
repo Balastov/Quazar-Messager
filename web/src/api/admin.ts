@@ -52,6 +52,8 @@ export interface AdminReport {
 }
 
 export interface AdminTicket extends Ticket {
+  recovery_login?: string | null;
+  password_reset_at?: string | null;
   author: AdminUser | null;
   /** Сообщения автора, которых команда ещё не видела. */
   unread: number;
@@ -94,6 +96,10 @@ export const adminApi = {
     http.post<AdminTicketDetail>(`/admin/tickets/${ticketId}/reply`, { text }).then((r) => r.data),
   setTicketStatus: (ticketId: string, status: TicketStatus) =>
     http.put<AdminTicketDetail>(`/admin/tickets/${ticketId}/status`, { status }).then((r) => r.data),
+  assignPassword: (ticketId: string, password: string, confirmation: string) =>
+    http.post<{ ticket: AdminTicketDetail; access_token: string | null }>(`/admin/tickets/${ticketId}/password`, {
+      new_password: password, confirm_password: confirmation,
+    }).then((r) => r.data),
   /** Зашифрованная картинка обращения (ключ — в самом обращении). */
   ticketAttachment: (ticketId: string, attachmentId: string) =>
     http

@@ -27,6 +27,10 @@ export type YandexExchange =
   | {status: 'register'; access_token: null; profile: YandexProfile};
 
 export const authApi = {
+  forgotPassword: (login: string) => http.post<{message: string}>('/auth/forgot-password', {login}).then(r => r.data),
+  changePassword: (currentPassword: string, newPassword: string, confirmation: string) =>
+    http.put<TokenResponse>('/users/me/password', {current_password: currentPassword, new_password: newPassword,
+      confirm_password: confirmation}).then(r => r.data),
   /** Какие внешние входы включены на сервере. */
   providers: () => http.get<{yandex: boolean}>('/auth/providers').then(r => r.data),
 

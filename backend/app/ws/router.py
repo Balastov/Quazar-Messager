@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
-from app.core.security import decode_token
+from app.core.security import decode_token, token_is_current
 from app.models.chat import Chat, ChatMember
 from app.models.message import Message
 from app.models.user import User
@@ -31,8 +31,8 @@ async def websocket_endpoint(websocket: WebSocket, token: str, state: str = "act
         await websocket.close(code=4001)
         return
     async with AsyncSessionLocal() as db:
-        blocked = (await db.execute(select(User.blocked_at).where(User.id == user_id))).scalar_one_or_none()
-    if blocked:
+        user = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
+    if not user or user.blocked_at or not token_is_current(token, user):
         await websocket.close(code=4001)
         return
 

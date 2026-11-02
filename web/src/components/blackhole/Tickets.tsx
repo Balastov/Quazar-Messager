@@ -17,6 +17,8 @@ import {
   type TicketKind,
 } from "../../support/ticket";
 import s from "./BlackHole.module.css";
+import { newPasswordProblem } from "../../auth/password";
+import { useAuthStore } from "../../store/auth";
 
 /** Дата и время целиком: «28.10.2026, 14:05». */
 const stamp = (iso: string) =>
@@ -105,6 +107,7 @@ export default function Tickets({ onChange }: { onChange: () => void }) {
                   {KIND_ICON[t.kind]} {KIND_LABEL[t.kind]} · №{t.number}
                 </span>
                 <TicketStatusChip status={t.status} />
+                {t.recovery_login && <span className={s.badge}>Восстановление пароля</span>}
                 {t.unread > 0 && <span className={s.ticketNew}>новое · {t.unread}</span>}
               </div>
               <span className={s.meta}>
@@ -132,6 +135,9 @@ function TicketDetail({
 }) {
   const [detail, setDetail] = useState<AdminTicketDetail | null>(null);
   const [reply, setReply] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmation, setConfirmation] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -152,6 +158,10 @@ function TicketDetail({
       })
       .catch((err) => setError(apiError(err)));
   }, [ticket.id]);
+
+  useEffect(() => {
+    if (detail?.password_reset_at) { setNewPassword(""); setConfirmation(""); setShowPassword(false); }
+  }, [detail?.password_reset_at]);
 
   // Человек дописал, пока обращение открыто, — подтягиваем.
   useEffect(() => {
@@ -198,6 +208,41 @@ function TicketDetail({
         {who(current.author)} {current.author && <span className={s.nick}>@{current.author.username}</span>}
         {current.author?.phone ? ` · ${current.author.phone}` : ""} · создано {stamp(current.created_at)}
       </span>
+
+      {current.recovery_login && <div className={s.resetPassword}>
+        <strong>Восстановление пароля</strong>
+        <p className={s.meta}>Указанный логин: {current.recovery_login}. Запрос отправлен без входа в аккаунт.</p>
+        {current.password_reset_at ? <p className={s.meta}>Восстановление завершено · {stamp(current.password_reset_at)}</p>
+          : current.status === "done" ? <p className={s.meta}>Запрос закрыт.</p>
+          : detail && <form onSubmit={(event) => {
+            event.preventDefault();
+            const problem = newPasswordProblem(newPassword, confirmation);
+            if (problem) { setError(problem); return; }
+            void run(async () => {
+              const result = await adminApi.assignPassword(ticket.id, newPassword, confirmation);
+              if (result.access_token) await useAuthStore.getState().refreshSession(result.access_token);
+              return result.ticket;
+            }).then((ok) => { if (ok) { setNewPassword(""); setConfirmation(""); setShowPassword(false); } });
+          }}>
+            <p className={s.meta}>Назначайте пароль после проверки владельца аккаунта. Передайте новый пароль пользователю вне Quazar.</p>
+            <label>Новый пароль
+              <input className={s.input} type={showPassword ? "text" : "password"} value={newPassword}
+                aria-label="Новый пароль пользователя" autoComplete="new-password" maxLength={72} required disabled={busy}
+                onChange={(e) => setNewPassword(e.target.value)} />
+            </label>
+            <label>Повторите новый пароль
+              <input className={s.input} type={showPassword ? "text" : "password"} value={confirmation}
+                aria-label="Повторите новый пароль пользователя" autoComplete="new-password" maxLength={72} required disabled={busy}
+                onChange={(e) => setConfirmation(e.target.value)} />
+            </label>
+            <label className={s.meta}><input type="checkbox" checked={showPassword} disabled={busy}
+              onChange={(e) => setShowPassword(e.target.checked)} /> Показать пароль</label>
+            {confirmation && newPassword !== confirmation && <p className={s.error} role="alert">Новые пароли не совпадают</p>}
+            <button type="submit" className={`${s.btn} ${s.btnPrimary}`} disabled={busy || !!newPasswordProblem(newPassword, confirmation)}>
+              {busy ? "Назначаем…" : "Назначить новый пароль"}
+            </button>
+          </form>}
+      </div>}
 
       <div className={s.thread}>
         {detail?.messages.map((m) => {

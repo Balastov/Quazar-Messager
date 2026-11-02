@@ -1,3 +1,9 @@
+.resetPassword { display: flex; flex-direction: column; gap: 8px; padding: 12px; margin: 8px 0;
+  border: 1px solid var(--qz-border); border-radius: 12px; background: var(--qz-bg-soft); font-size: 13px; }
+.resetPassword form { display: flex; flex-direction: column; gap: 10px; }
+.resetPassword label { display: flex; flex-direction: column; gap: 5px; }
+.resetPassword label:has(input[type="checkbox"]) { flex-direction: row; align-items: center; }
+
 .root {
   flex: 1;
   min-height: 0;

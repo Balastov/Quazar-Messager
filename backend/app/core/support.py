@@ -62,6 +62,8 @@ async def bot_user(db: AsyncSession) -> User:
 
 async def support_chat(db: AsyncSession, user: User) -> Chat:
     """Чат человека с ботом — один на человека, создаётся при первом обращении."""
+    bot = await bot_user(db)
+    await db.execute(select(User.id).where(User.id == user.id).with_for_update())
     existing = (
         await db.execute(
             select(Chat)
@@ -71,7 +73,6 @@ async def support_chat(db: AsyncSession, user: User) -> Chat:
     ).scalar_one_or_none()
     if existing:
         return existing
-    bot = await bot_user(db)
     chat = Chat(type="support", name=BOT_USERNAME)
     db.add(chat)
     await db.flush()
@@ -163,9 +164,9 @@ def _accepted_text(ticket: SupportTicket) -> str:
 
 
 async def create_ticket(
-    db: AsyncSession, user: User, kind: str, text: str, images: list[TicketImage]
+    db: AsyncSession, user: User, kind: str, text: str, images: list[TicketImage], *, recovery_login: str | None = None
 ) -> SupportTicket:
-    """Обращение из формы: карточка от имени человека и ответ бота."""
+    """Обращение из формы: карточка и ответ бота. Восстановление отправляет система."""
     from fastapi import HTTPException
 
     from app.api.messages import deliver
@@ -193,11 +194,14 @@ async def create_ticket(
         chat_id=chat.id,
         kind=kind,
         text=text,
+        recovery_login=recovery_login,
         images=[ref.model_dump() for ref in images],
     )
     db.add(ticket)
     await db.flush()
-    card = await deliver(db, chat, user.id, card_payload(ticket), card=True)
+    # Заявка с экрана входа — сообщение системы, а не подтверждённое письмо владельца.
+    sender_id = (await bot_user(db)).id if recovery_login else user.id
+    card = await deliver(db, chat, sender_id, card_payload(ticket), card=True)
     ticket.message_id = card.id
     for attachment in attachments:
         attachment.message_id = card.id

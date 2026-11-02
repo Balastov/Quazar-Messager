@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.security import decode_token
+from app.core.security import decode_token, token_is_current
 from app.models.user import User
 
 bearer = HTTPBearer()
@@ -28,6 +28,8 @@ async def get_current_user(
     if user.blocked_at:
         # 401 — клиент выйдет из аккаунта.
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Аккаунт заблокирован")
+    if not token_is_current(credentials.credentials, user):
+        raise HTTPException(status_code=401, detail="Сессия завершена. Войдите снова")
 
     return user
 
@@ -43,6 +45,6 @@ async def get_superuser(
     if not user_id:
         raise not_found
     user = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
-    if not user or user.blocked_at or not user.is_superuser:
+    if not user or user.blocked_at or not user.is_superuser or not token_is_current(credentials.credentials, user):
         raise not_found
     return user

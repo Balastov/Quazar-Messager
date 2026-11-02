@@ -19,6 +19,7 @@ interface AuthState {
   user: User | null;
   setToken: (token: string) => Promise<void>;
   setUser: (user: User) => void;
+  refreshSession: (token: string) => Promise<void>;
   logout: () => void;
 }
 
@@ -26,7 +27,8 @@ interface AuthState {
 // а не оставляем экран с неработающими запросами.
 http.interceptors.response.use(undefined, (err) => {
   const sentToken = axios.isAxiosError(err) && !!err.config?.headers?.Authorization;
-  if (sentToken && axios.isAxiosError(err) && err.response?.status === 401 && useAuthStore.getState().token) {
+  if (sentToken && axios.isAxiosError(err) && err.response?.status === 401 && useAuthStore.getState().token &&
+      err.config?.headers?.Authorization === http.defaults.headers.common["Authorization"]) {
     useAuthStore.getState().logout();
   }
   return Promise.reject(err);
@@ -41,18 +43,25 @@ function afterAuth(token: string, userId: string) {
 
 export const useAuthStore = create<AuthState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       token: null,
       user: null,
 
       setToken: async (token) => {
         setAuthToken(token);
         const user = await usersApi.me();
+        setAuthToken(token);
         set({ token, user });
         afterAuth(token, user.id);
       },
 
       setUser: (user) => set({ user }),
+      refreshSession: async (token) => {
+        if (!get().user) { await get().setToken(token); return; }
+        setAuthToken(token);
+        set((state) => ({ token, user: state.user ? { ...state.user, has_password: true } : null }));
+        socket.connect(token);
+      },
 
       logout: () => {
         setAuthToken(null);

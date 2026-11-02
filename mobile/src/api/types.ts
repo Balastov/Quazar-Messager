@@ -1,4 +1,5 @@
 export interface User {
+  has_password?: boolean;
   id: string;
   /** Никнейм латиницей — для @упоминаний и поиска. */
   username: string;

@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta, timezone
 from typing import Optional
+import math
 
 import bcrypt
 from jose import JWTError, jwt
@@ -25,6 +26,7 @@ def verify_password(password: str, hashed: str | None) -> bool:
 def create_access_token(user_id: str) -> str:
     payload = {
         "sub": user_id,
+        "iat": datetime.now(timezone.utc).timestamp(),
         "exp": datetime.now(timezone.utc) + timedelta(minutes=settings.JWT_ACCESS_EXPIRE_MINUTES),
     }
     return jwt.encode(payload, settings.JWT_SECRET, algorithm=settings.JWT_ALGORITHM)
@@ -36,3 +38,16 @@ def decode_token(token: str) -> Optional[str]:
         return payload.get("sub")
     except JWTError:
         return None
+
+
+def token_is_current(token: str, user) -> bool:
+    changed = getattr(user, "password_changed_at", None)
+    if changed is None:
+        return True
+    try:
+        claims = jwt.decode(token, settings.JWT_SECRET, algorithms=[settings.JWT_ALGORITHM])
+        issued = claims.get("iat")
+        return (isinstance(issued, (int, float)) and not isinstance(issued, bool) and math.isfinite(issued)
+                and issued >= changed.timestamp())
+    except (JWTError, TypeError, ValueError, OverflowError):
+        return False

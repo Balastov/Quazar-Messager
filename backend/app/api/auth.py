@@ -69,6 +69,13 @@ async def login(body: UserLogin, db: Annotated[AsyncSession, Depends(get_db)]):
 
     if not user or not verify_password(body.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid credentials")
+    # Пока проверяли хэш, администратор мог назначить другой пароль.
+    # Короткая блокировка после проверки не даёт выпустить новую сессию по старому хэшу.
+    verified_hash = user.password_hash
+    user = (await db.execute(select(User).where(User.id == user.id).with_for_update()
+                             .execution_options(populate_existing=True))).scalar_one_or_none()
+    if not user or user.password_hash != verified_hash:
+        raise HTTPException(status_code=401, detail="Invalid credentials")
     if user.blocked_at:
         raise HTTPException(status_code=403, detail="Аккаунт заблокирован администрацией")
 

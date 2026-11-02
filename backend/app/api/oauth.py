@@ -17,7 +17,7 @@ from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import RedirectResponse
-from pydantic import BaseModel, Field, ValidationInfo, field_validator
+from pydantic import BaseModel, Field, ValidationInfo, field_validator, model_validator
 from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -31,6 +31,7 @@ from app.core.deps import get_current_user
 from app.core.phone import normalize_ru_phone
 from app.core.profile import normalize_email, normalize_person_name, normalize_username
 from app.core.security import create_access_token, hash_password, verify_password
+from app.core import passwords, support
 from app.models.user import OAuthFlow, User, UserIdentity
 from app.schemas.user import NAME_LABELS, TokenResponse
 
@@ -440,16 +441,35 @@ class PasswordBody(BaseModel):
     # Пароля ещё нет (аккаунт через Яндекс) — код подтверждения через Яндекс (/auth/yandex/reauth).
     reauth_code: str | None = None
     new_password: str = Field(min_length=8, max_length=128)
+    confirm_password: str | None = None
+
+    @field_validator("new_password")
+    @classmethod
+    def valid_password(cls, value: str) -> str:
+        return passwords.validate_password(value)
+
+    @model_validator(mode="after")
+    def matching_confirmation(self):
+        if self.confirm_password is not None and self.new_password != self.confirm_password:
+            raise ValueError("Новые пароли не совпадают")
+        return self
 
 
-@me_router.put("/password", status_code=status.HTTP_204_NO_CONTENT)
+@me_router.put("/password", response_model=TokenResponse)
 async def set_password(body: PasswordBody, current_user: CurrentUser, db: Db):
     """Задать пароль (аккаунт через Яндекс) или сменить его (нужен текущий)."""
-    user = await db.get(User, current_user.id)
+    user = (await db.execute(select(User).where(User.id == current_user.id).with_for_update()
+                             .execution_options(populate_existing=True))).scalar_one()
     if user.password_hash:
         if not verify_password(body.current_password or "", user.password_hash):
-            raise HTTPException(status_code=401, detail="Неверный текущий пароль")
+            raise HTTPException(status_code=400, detail="Неверный текущий пароль")
     elif not await consume_reauth(db, user.id, body.reauth_code):
         raise HTTPException(status_code=403, detail="Подтвердите, что это вы, через Яндекс ID")
-    user.password_hash = hash_password(body.new_password)
+    passwords.assign_password(user, body.new_password)
+    tickets = await passwords.complete_recoveries(db, user)
     await db.commit()
+    token = create_access_token(user.id)
+    await passwords.close_sessions(user.id)
+    for ticket in tickets:
+        await support.notify_team(db, ticket)
+    return TokenResponse(access_token=token)

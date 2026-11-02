@@ -18,6 +18,7 @@ import {formatRuPhoneMask, isCompleteRuPhone, toE164Ru} from '../utils/phone';
 import {apiErrorText, USERNAME_MAX} from '../utils/profile';
 import {useUsernameCheck} from '../hooks/useUsernameCheck';
 import PhoneVisibilityChoice from '../components/PhoneVisibilityChoice';
+import ForgotPassword from '../components/ForgotPassword';
 
 // register — обязательное (телефон, никнейм, пароль); about — предлагаем имя и почту;
 // yandex — вошли через Яндекс ID впервые: выбрать никнейм и телефон.
@@ -446,6 +447,7 @@ export default function AuthScreen() {
             <Text style={s.submitText}>{isLogin ? 'Войти' : 'Далее'}</Text>
           )}
         </Pressable>
+        {isLogin && <ForgotPassword initialLogin={isCompleteRuPhone(phone) ? phone : ''} />}
         {yandexButton}
       </View>
     </KeyboardAvoidingView>

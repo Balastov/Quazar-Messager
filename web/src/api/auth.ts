@@ -52,12 +52,14 @@ export const authApi = {
   yandexReauth: () => http.post<{ url: string }>("/auth/yandex/reauth").then((r) => r.data),
   signInMethods: () => http.get<SignInMethods>("/users/me/sign-in").then((r) => r.data),
   unlink: (provider: string) => http.delete(`/users/me/identities/${provider}`),
-  setPassword: (newPassword: string, opts: { currentPassword?: string; reauthCode?: string } = {}) =>
-    http.put("/users/me/password", {
+  setPassword: (newPassword: string, opts: { currentPassword?: string; reauthCode?: string; confirmPassword?: string } = {}) =>
+    http.put<TokenResponse>("/users/me/password", {
       new_password: newPassword,
+      confirm_password: opts.confirmPassword ?? null,
       current_password: opts.currentPassword ?? null,
       reauth_code: opts.reauthCode ?? null,
-    }),
+    }).then((r) => r.data),
+  forgotPassword: (login: string) => http.post<{ message: string }>("/auth/forgot-password", { login }).then((r) => r.data),
 
   register: (body: RegisterBody) =>
     http.post<TokenResponse>("/auth/register", body).then((r) => r.data),

@@ -12,6 +12,7 @@ class SocketManager {
   private token: string | null = null;
 
   connect(token: string) {
+    this.disconnect();
     this.token = token;
     this._open();
   }
@@ -76,9 +77,10 @@ class SocketManager {
     if (!this.token) {
       return;
     }
-    this.ws = new WebSocket(`${WS_BASE_URL}/ws?token=${this.token}&state=${this.activity}`);
+    const ws = new WebSocket(`${WS_BASE_URL}/ws?token=${this.token}&state=${this.activity}`);
+    this.ws = ws;
 
-    this.ws.onmessage = e => {
+    ws.onmessage = e => {
       try {
         const data = JSON.parse(e.data as string) as WsEvent;
         this.handlers.forEach(h => h(data));
@@ -87,7 +89,8 @@ class SocketManager {
       }
     };
 
-    this.ws.onclose = () => {
+    ws.onclose = () => {
+      if (this.ws !== ws) {return;}
       if (this.token) {
         this.reconnectTimer = setTimeout(() => this._open(), 3000);
       }

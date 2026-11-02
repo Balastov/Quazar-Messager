@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { authApi, type SignInMethods } from "../../api/auth";
 import { apiErrorText } from "../../utils/profile";
 import { clearReauth, reauthCode, startReauth } from "../../auth/reauth";
+import { newPasswordProblem } from "../../auth/password";
+import { useAuthStore } from "../../store/auth";
 import s from "../SettingsView.module.css";
 
 /** «Вход в аккаунт»: пароль (задать или сменить) и Яндекс ID (привязать или отвязать). */
@@ -9,6 +11,7 @@ export default function SignInSettings() {
   const [methods, setMethods] = useState<SignInMethods | null>(null);
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
+  const [confirmation, setConfirmation] = useState("");
   const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
@@ -28,7 +31,7 @@ export default function SignInSettings() {
     setStatus(null);
     try {
       await fn();
-      await reload();
+      await reload().catch(() => {});
       if (done) setStatus(done);
     } catch (err) {
       setError(apiErrorText(err));
@@ -52,16 +55,22 @@ export default function SignInSettings() {
           className={s.rowBtns}
           onSubmit={(e) => {
             e.preventDefault();
+            const problem = newPasswordProblem(next, confirmation);
+            if (problem) { setError(problem); return; }
             void run(async () => {
-              await authApi.setPassword(
+              const response = await authApi.setPassword(
                 next,
-                methods.has_password ? { currentPassword: current } : { reauthCode: reauth ?? undefined }
+                { ...(methods.has_password ? { currentPassword: current } : { reauthCode: reauth ?? undefined }),
+                  confirmPassword: confirmation }
               );
+              if (response?.access_token) await useAuthStore.getState().refreshSession(response.access_token);
+              setMethods((value) => value ? { ...value, has_password: true } : value);
               clearReauth();
               setEditing(false);
               setCurrent("");
               setNext("");
-            }, "Пароль сохранён");
+              setConfirmation("");
+            }, "Пароль изменён");
           }}
         >
           {methods.has_password && (
@@ -69,23 +78,34 @@ export default function SignInSettings() {
               className={s.input}
               type="password"
               placeholder="Текущий пароль"
+              aria-label="Старый пароль"
               value={current}
               onChange={(e) => setCurrent(e.target.value)}
               autoComplete="current-password"
+              required
+              disabled={busy}
             />
           )}
           <input
             className={s.input}
             type="password"
             placeholder="Новый пароль, от 8 символов"
+            aria-label="Новый пароль"
             value={next}
             onChange={(e) => setNext(e.target.value)}
             autoComplete="new-password"
+            required
+            disabled={busy}
+            maxLength={72}
           />
-          <button type="submit" className={s.primary} disabled={busy || next.length < 8}>
-            Сохранить
+          <input className={s.input} type="password" placeholder="Повторите новый пароль" aria-label="Повторите новый пароль"
+            value={confirmation} onChange={(e) => setConfirmation(e.target.value)} autoComplete="new-password"
+            required disabled={busy} maxLength={72} />
+          {confirmation && next !== confirmation && <p className={s.statusErr} role="alert">Новые пароли не совпадают</p>}
+          <button type="submit" className={s.primary} disabled={busy || !!newPasswordProblem(next, confirmation) || (methods.has_password && !current)}>
+            Изменить пароль
           </button>
-          <button type="button" className={s.secondary} onClick={() => setEditing(false)}>
+          <button type="button" className={s.secondary} disabled={busy} onClick={() => { setEditing(false); setCurrent(""); setNext(""); setConfirmation(""); }}>
             Отмена
           </button>
         </form>
@@ -102,7 +122,7 @@ export default function SignInSettings() {
                   void run(() => startReauth("settings"))
             }
           >
-            {methods.has_password ? "Сменить пароль" : "Задать пароль"}
+            {methods.has_password ? "Изменить пароль" : "Задать пароль"}
           </button>
         </div>
       )}
@@ -144,7 +164,7 @@ export default function SignInSettings() {
         </>
       )}
       {status && <p className={s.hint}>✓ {status}</p>}
-      {error && <p className={s.hint} style={{ color: "var(--qz-danger)" }}>{error}</p>}
+      {error && <p className={s.hint} role="alert" style={{ color: "var(--qz-danger)" }}>{error}</p>}
     </>
   );
 }

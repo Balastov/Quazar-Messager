@@ -7,6 +7,7 @@ import { apiErrorText, USERNAME_MAX } from "../utils/profile";
 import { useUsernameCheck } from "../components/profile/useUsernameCheck";
 import PhoneVisibilityChoice from "../components/profile/PhoneVisibilityChoice";
 import s from "./AuthPage.module.css";
+import ForgotPasswordDialog from "../components/profile/ForgotPasswordDialog";
 
 // register — обязательное (телефон, никнейм, пароль); about — предлагаем имя и почту.
 type Screen = "welcome" | "login" | "register" | "about";
@@ -23,6 +24,7 @@ export default function AuthPage() {
   const [phoneDiscoverable, setPhoneDiscoverable] = useState<boolean | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [forgotOpen, setForgotOpen] = useState(false);
   const usernameCheck = useUsernameCheck(screen === "register" ? username : "");
 
   const setToken = useAuthStore((st) => st.setToken);
@@ -269,8 +271,10 @@ export default function AuthPage() {
             >
               {loading ? "..." : isLogin ? "Войти" : "Далее"}
             </button>
+            {isLogin && <button type="button" className={s.skip} disabled={loading} onClick={() => setForgotOpen(true)}>Забыл пароль</button>}
             {yandexButton}
           </form>
+          {forgotOpen && <ForgotPasswordDialog initialLogin={isCompleteRuPhone(phone) ? phone : ""} onClose={() => setForgotOpen(false)} />}
         </div>
       </div>
     </div>

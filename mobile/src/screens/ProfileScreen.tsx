@@ -18,6 +18,7 @@ import {MANUAL_LABEL, untilText, type ManualKind} from '../utils/presence';
 import {displayName} from '../utils/profile';
 import ProfileEditor from '../components/ProfileEditor';
 import PhoneVisibilitySetting from '../components/PhoneVisibilitySetting';
+import PasswordSettings from '../components/PasswordSettings';
 
 const DURATIONS: {label: string; until: () => Date | null}[] = [
   {label: '30 мин', until: () => new Date(Date.now() + 30 * 60_000)},
@@ -91,6 +92,7 @@ export default function ProfileScreen({navigation}: Props) {
         </View>
       )}
 
+      <PasswordSettings />
       <View style={s.card}>
         <Text style={s.title}>Статус</Text>
         {manual ? (

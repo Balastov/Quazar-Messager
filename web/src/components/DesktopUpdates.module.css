@@ -1,0 +1,10 @@
+.banner { position: fixed; top: calc(12px + var(--qz-safe-top)); right: 12px; z-index: 500; max-width: min(380px, calc(100vw - 24px));
+  padding: 14px; border: 1px solid var(--qz-border-strong); border-radius: 14px; background: var(--qz-bg); color: var(--qz-text); font-size: 13px; }
+.banner strong { font-size: 14px; }
+.banner p { margin-top: 6px; color: var(--qz-text-muted); line-height: 1.45; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.actions button { min-height: 34px; padding: 6px 10px; border: 1px solid var(--qz-border); border-radius: 10px; background: var(--qz-bg-soft); color: var(--qz-text); cursor: pointer; }
+.actions button:first-child { color: var(--qz-online); }
+.actions button:disabled { opacity: .5; cursor: wait; }
+.actions button:focus-visible { outline: 2px solid var(--qz-online); outline-offset: 2px; }
+.banner .error { color: var(--qz-danger); }

@@ -1,4 +1,5 @@
 import {http} from "../api/client";
+import {desktop} from "../platform/desktop";
 
 let endpoint: string | null = null;
 let owner: string | null = null;
@@ -55,6 +56,7 @@ export function acknowledgeMessage(id: string, displayed = false) {
 
 /** ready может ждать бесконечно. Уведомление должно иметь работающий запасной путь. */
 export async function notificationRegistration(): Promise<ServiceWorkerRegistration | null> {
+  if (desktop()) return null;
   if (!("serviceWorker" in navigator)) return null;
   const bound = async <T,>(promise: Promise<T> | undefined, ms: number): Promise<T | null> => {
     if (!promise) return null;

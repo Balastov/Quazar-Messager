@@ -10,6 +10,8 @@ import PhoneVisibilityChoice from "../components/profile/PhoneVisibilityChoice";
 import ForgotPasswordDialog from "../components/profile/ForgotPasswordDialog";
 import PhoneVerification from "../components/profile/PhoneVerification";
 import s from "./AuthPage.module.css";
+import { desktop } from "../platform/desktop";
+import { startDesktopYandexLogin } from "../auth/desktopYandex";
 
 export default function AuthPage() {
   const [screen, setScreen] = useState<"welcome" | "login" | "register" | "profile">("welcome");
@@ -65,7 +67,8 @@ export default function AuthPage() {
       if (/Подтвердите телефон/.test(text)) { setProof(undefined); setScreen("register"); }
     } finally { setBusy(false); }
   };
-  const yandexButton = yandex && <><div className={s.or}>или</div><a className={s.yandex} href={authApi.yandexStartUrl}>
+  const yandexButton = yandex && <><div className={s.or}>или</div><a className={s.yandex} href={authApi.yandexStartUrl}
+    onClick={event => { if (desktop()) { event.preventDefault(); void startDesktopYandexLogin().catch(err => setError(apiErrorText(err))); } }}>
     <span className={s.yandexMark} aria-hidden>Я</span>Войти с Яндекс ID</a></>;
   if (screen === "welcome") return <div className={s.root}><div className={s.card}>
     <img className={s.logoMark} src="/logo-mark.png?v=neon-q-2" alt="" />

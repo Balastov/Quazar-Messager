@@ -3,6 +3,8 @@
  * сменить ключи шифрования. Код живёт в sessionStorage, пока человек ходит в Яндекс и обратно.
  */
 import { authApi } from "../api/auth";
+import { openYandex } from "./desktopYandex";
+import { desktopYandexVerifier, forgetDesktopYandex } from "./desktopYandex";
 
 const CODE_KEY = "quazar.yandexReauth";
 const PURPOSE_KEY = "quazar.yandexReauthPurpose";
@@ -15,7 +17,9 @@ export function reauthCode(): string | null {
 }
 
 export function saveReauthCode(code: string): ReauthPurpose {
-  sessionStorage.setItem(CODE_KEY, code);
+  const verifier = desktopYandexVerifier();
+  sessionStorage.setItem(CODE_KEY, verifier ? `${code}.${verifier}` : code);
+  forgetDesktopYandex();
   return (sessionStorage.getItem(PURPOSE_KEY) as ReauthPurpose | null) ?? "settings";
 }
 
@@ -27,5 +31,5 @@ export function clearReauth(): void {
 
 export async function startReauth(purpose: ReauthPurpose): Promise<void> {
   sessionStorage.setItem(PURPOSE_KEY, purpose);
-  window.location.assign((await authApi.yandexReauth()).url);
+  await openYandex((await authApi.yandexReauth()).url);
 }

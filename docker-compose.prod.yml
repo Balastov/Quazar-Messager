@@ -72,6 +72,8 @@ services:
   web:
     build: ./web
     restart: unless-stopped
+    volumes:
+      - ./desktop-updates:/usr/share/nginx/desktop-updates:ro
     ports:
       - "127.0.0.1:3080:80"
 

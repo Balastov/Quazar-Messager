@@ -8,6 +8,8 @@ import {pushWasShown} from "./notifications/delivery";
 import { useUiStore } from "./store/ui";
 import { applyGlassTransparency } from "./styles/glass";
 import "./index.css";
+import { startDesktop } from "./platform/bootstrap";
+import DesktopUpdates from "./components/DesktopUpdates";
 
 applyGlassTransparency(useUiStore.getState().glassTransparency);
 useUiStore.subscribe((st, prev) => {
@@ -18,10 +20,12 @@ useUiStore.subscribe((st, prev) => {
 
 // Ссылка-приглашение в Звезду могла открыться до входа — запоминаем её.
 capturePendingInvite();
+startDesktop();
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <App />
+    <DesktopUpdates />
   </StrictMode>
 );
 

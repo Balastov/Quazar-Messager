@@ -35,6 +35,9 @@ deploy/livekit/livekit.yaml
 # Build / cache
 *.log
 .cache/
+desktop/renderer/
+desktop/release/
+desktop-updates/
 
 # Uploaded avatars (local / container volume)
 media/

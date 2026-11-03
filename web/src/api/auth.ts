@@ -1,5 +1,6 @@
 import { http } from "./client";
 import type { TokenResponse } from "./types";
+import { desktopYandexParams, desktopYandexVerifier } from "../auth/desktopYandex";
 
 export interface RegisterBody {
   username: string;
@@ -40,7 +41,7 @@ export const authApi = {
   /** Адрес, с которого начинается вход через Яндекс (переход всей страницей). */
   yandexStartUrl: "/api/auth/yandex/start",
   yandexExchange: (code: string) =>
-    http.post<YandexExchange>("/auth/yandex/exchange", { code }).then((r) => r.data),
+    http.post<YandexExchange>("/auth/yandex/exchange", { code, verifier: desktopYandexVerifier() }).then((r) => r.data),
   yandexComplete: (body: {
     code: string;
     username: string;
@@ -49,10 +50,10 @@ export const authApi = {
     phone_verification_token?: string;
     first_name?: string | null;
     last_name?: string | null;
-  }) => http.post<TokenResponse>("/auth/yandex/complete", body).then((r) => r.data),
-  yandexLink: (proof: { phone_proof?: string; reauth_code?: string }) => http.post<{ url: string }>("/auth/yandex/link", proof).then((r) => r.data),
+  }) => http.post<TokenResponse>("/auth/yandex/complete", { ...body, verifier: desktopYandexVerifier() }).then((r) => r.data),
+  yandexLink: async (proof: { phone_proof?: string; reauth_code?: string }) => http.post<{ url: string }>("/auth/yandex/link", proof, { params: await desktopYandexParams() }).then((r) => r.data),
   /** Подтвердить себя через Яндекс (аккаунт без пароля перед тем, как задать пароль). */
-  yandexReauth: () => http.post<{ url: string }>("/auth/yandex/reauth").then((r) => r.data),
+  yandexReauth: async () => http.post<{ url: string }>("/auth/yandex/reauth", undefined, { params: await desktopYandexParams() }).then((r) => r.data),
   signInMethods: () => http.get<SignInMethods>("/users/me/sign-in").then((r) => r.data),
   unlink: (provider: string, proof: {password?: string; phone_proof?: string; reauth_code?: string}) => http.delete(`/users/me/identities/${provider}`, {data: proof}),
   phoneOptions: (phone: string) => http.post<{password_login_allowed: boolean}>("/auth/phone-login/options", {phone}).then(r => r.data),

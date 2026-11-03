@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { publicOrigin } from "../../platform/desktop";
 import { starsApi, type BotButton, type StarBot, type StarBotSecrets, type StarDetail, type StarMessage } from "../../api/stars";
 import { formatWhen } from "../../chat/when";
 import { notifyInfo } from "../../notifications/notify";
@@ -80,7 +81,7 @@ function SecretsCard({ secrets, onClose }: { secrets: StarBotSecrets; onClose: (
   );
 }
 
-const API = `${window.location.origin}/api/bot-api`;
+const API = `${publicOrigin()}/api/bot-api`;
 
 /** Коротко, как подключить: адреса, заголовки, формат событий и ответа на нажатие. */
 function BotGuide() {

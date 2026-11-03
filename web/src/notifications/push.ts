@@ -1,4 +1,5 @@
 import { http } from "../api/client";
+import { desktop } from "../platform/desktop";
 import { browserPermission, getNotifyPrefs, subscribeNotifyPrefs } from "./prefs";
 import {notificationRegistration, setPushEndpoint} from "./delivery";
 
@@ -34,6 +35,7 @@ export function ensurePushSubscription(): Promise<boolean> {
 }
 
 async function ensure(round: number): Promise<boolean> {
+  if (desktop()) return false;
   if (!("serviceWorker" in navigator) || !("PushManager" in window) || !http.defaults.headers.common.Authorization) return false;
   // Разрешение запрашивается кнопкой пользователя, а не фоновым эффектом после входа.
   if (browserPermission() !== "granted") return false;

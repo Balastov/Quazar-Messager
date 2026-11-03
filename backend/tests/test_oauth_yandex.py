@@ -238,6 +238,44 @@ class YandexOAuthTest(StarsTestBase):
             code=back["code"], verifier=secret, username="mobile_anna", phone="+79160000001", phone_discoverable=False))
         self.assertTrue(token.access_token)
 
+    async def test_desktop_handoff_uses_its_own_scheme_and_requires_device_secret(self):
+        secret = "desktop-secret-" + "d" * 40
+        with self.assertRaises(HTTPException) as ctx:
+            await self.db_call(oauth.yandex_start, client="desktop", challenge=None)
+        self.assertEqual(ctx.exception.status_code, 422)
+        async with self.Session() as db:
+            db.add(UserIdentity(user_id=self.users["carol"].id, provider="yandex", subject=self.profile["id"]))
+            await db.commit()
+        back = await self.callback(await self.start(client="desktop", challenge=yandex.challenge(secret)))
+        self.assertEqual(back["base"], "quazar-desktop://auth/yandex")
+        await self.expect_status(410, oauth.yandex_exchange, oauth.ExchangeBody(code=back["code"]))
+        await self.expect_status(410, oauth.yandex_exchange, oauth.ExchangeBody(code=back["code"], verifier="other-device"))
+        result = await self.db_call(oauth.yandex_exchange, oauth.ExchangeBody(code=back["code"], verifier=secret))
+        self.assertEqual(result.status, "login")
+        self.assertTrue(result.access_token)
+        await self.expect_status(410, oauth.yandex_exchange, oauth.ExchangeBody(code=back["code"], verifier=secret))
+
+    async def test_desktop_link_returns_to_desktop_after_fresh_phone_proof(self):
+        result = await self.call(oauth.yandex_link_start, body=await self.fresh_proof("carol"), user="carol",
+            client="desktop", challenge=yandex.challenge("desktop-secret-" + "d" * 40))
+        state = parse_qs(urlsplit(result.url).query)["state"][0]
+        back = await self.callback(state)
+        self.assertEqual(back["base"], "quazar-desktop://auth/yandex")
+        self.assertEqual(back["linked"], "ok")
+
+    async def test_desktop_reauth_code_also_requires_the_device_secret(self):
+        secret = "desktop-secret-" + "r" * 40
+        async with self.Session() as db:
+            db.add(UserIdentity(user_id=self.users["carol"].id, provider="yandex", subject=self.profile["id"]))
+            await db.commit()
+        result = await self.call(oauth.yandex_reauth_start, user="carol", client="desktop", challenge=yandex.challenge(secret))
+        state = parse_qs(urlsplit(result.url).query)["state"][0]
+        back = await self.callback(state)
+        async with self.Session() as db:
+            self.assertFalse(await oauth.consume_reauth(db, self.users["carol"].id, back["reauth"]))
+            self.assertFalse(await oauth.consume_reauth(db, self.users["carol"].id, back["reauth"] + ".wrong"))
+            self.assertTrue(await oauth.consume_reauth(db, self.users["carol"].id, back["reauth"] + "." + secret))
+
     async def test_blocked_account_cannot_sign_in(self):
         async with self.Session() as db:
             db.add(UserIdentity(user_id=self.users["carol"].id, provider="yandex", subject="1130000012345678"))

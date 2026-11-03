@@ -1,0 +1,5 @@
+<!doctype html><html lang="ru"><head><meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src data:; object-src 'none'">
+<title>Выберите источник трансляции</title>
+<style>body{margin:20px;background:#0c0b14;color:#f4f1ff;font:14px system-ui}h1{font-size:18px}#sources{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}button{padding:10px;border:1px solid #72608a;border-radius:10px;background:#20182c;color:inherit;cursor:pointer}button:focus-visible{outline:2px solid #34d399}img{width:100%;height:120px;object-fit:contain}span{display:block;overflow-wrap:anywhere}p,label{display:block;margin:12px 0;color:#b6adc6}#error{color:#f87171}</style></head>
+<body><h1>Какой экран или окно показать?</h1><label id="audio-label" hidden><input id="audio" type="checkbox"> Передавать весь системный звук, включая другие приложения</label><p>Нажмите на источник, чтобы начать показ. Закройте это окно для отмены.</p><p id="error" role="alert"></p><div id="sources"></div><script src="source-picker.js"></script></body></html>

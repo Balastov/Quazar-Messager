@@ -1,4 +1,5 @@
 import { browserPermission, getNotifyPrefs } from "./prefs";
+import { desktop } from "../platform/desktop";
 import { playSoftChime } from "./sound";
 import { useToastStore } from "./toastStore";
 import { isDoNotDisturb } from "../store/presence";
@@ -76,6 +77,9 @@ async function showSystemNotification(opts: {
   if (opts.actions?.length) {
     options.actions = opts.actions;
   }
+  const bridge = desktop();
+  if (bridge) return bridge.showNotification({ title: opts.title, body: opts.body, tag: opts.tag,
+    silent: opts.silent ?? true, data: options.data }).catch(() => false);
 
   try {
     const reg = await notificationRegistration();
@@ -150,6 +154,7 @@ export async function notifyIncomingCall(info: {
 }
 
 export async function clearCallNotification(callId: string | null): Promise<void> {
+  if (callId && desktop()) { desktop()!.closeNotification(`quazar-call-${callId}`); return; }
   if (!callId || !("serviceWorker" in navigator)) return;
   try {
     const reg = await notificationRegistration();
@@ -225,6 +230,7 @@ export async function previewNotification(): Promise<void> {
 }
 
 export async function registerNotifyServiceWorker(): Promise<void> {
+  if (desktop()) return;
   if (!("serviceWorker" in navigator)) return;
   try {
     await navigator.serviceWorker.register("/sw.js", { scope: "/" });
@@ -268,6 +274,11 @@ export async function notifyDoor(
     data: { kind: "door", ...link },
   };
   if (opts.actions?.length) options.actions = opts.actions;
+  const bridge = desktop();
+  if (bridge) {
+    await bridge.showNotification({ title: opts.title, body: opts.body, tag: options.tag!, silent: true, data: options.data }).catch(() => false);
+    return;
+  }
   try {
     const reg = await notificationRegistration();
     if (reg?.showNotification) {

@@ -1,4 +1,5 @@
 import { http } from "./client";
+import { publicOrigin } from "../platform/desktop";
 import type { LinkPreview } from "../chat/linkPreview";
 
 export type StarKind = "gaming" | "work";
@@ -131,7 +132,7 @@ export type WebhookKind = "auto" | "github" | "gitlab" | "jira" | "grafana" | "a
 
 /** Адрес, который вставляют в настройки внешнего сервиса. */
 export function webhookUrl(hook: Pick<StarWebhook, "id" | "token">): string {
-  return `${window.location.origin}/api/hooks/${hook.id}/${hook.token}`;
+  return `${publicOrigin()}/api/hooks/${hook.id}/${hook.token}`;
 }
 
 /** Гостевая ссылка в комнату. */
@@ -146,7 +147,7 @@ export interface GuestLink {
 }
 
 export function guestLinkUrl(code: string): string {
-  return `${window.location.origin}/guest/${code}`;
+  return `${publicOrigin()}/guest/${code}`;
 }
 
 export interface StarAcks {
@@ -1027,7 +1028,7 @@ export const starsApi = {
 
 /** Ссылка-приглашение, которую можно отправить человеку. */
 export function inviteLink(code: string): string {
-  return `${window.location.origin}/invite/${code}`;
+  return `${publicOrigin()}/invite/${code}`;
 }
 
 /** Код из ссылки или сам код, если вставили только его. */

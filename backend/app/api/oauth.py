@@ -49,6 +49,7 @@ REGISTER_TTL = timedelta(minutes=30)
 # Подтверждение через Яндекс (аккаунт без пароля задаёт пароль) годится столько.
 REAUTH_TTL = timedelta(minutes=5)
 MOBILE_RETURN = "quazar://auth/yandex"
+DESKTOP_RETURN = "quazar-desktop://auth/yandex"
 
 
 def _now() -> datetime:
@@ -61,7 +62,7 @@ def _require_enabled() -> None:
 
 
 def _return_url(client: str, **fragment: str) -> str:
-    base = MOBILE_RETURN if client == "mobile" else f"{settings.PUBLIC_URL.rstrip('/')}/auth/yandex"
+    base = {"mobile": MOBILE_RETURN, "desktop": DESKTOP_RETURN}.get(client, f"{settings.PUBLIC_URL.rstrip('/')}/auth/yandex")
     return f"{base}#{urlencode(fragment)}"
 
 
@@ -70,7 +71,7 @@ _CHALLENGE = re.compile(r"^[A-Za-z0-9_-]{43}$")
 
 def _client_challenge(client: str, challenge: str | None) -> str | None:
     """Мобильному приложению обязателен хэш своего секрета (PKCE для возврата по quazar://)."""
-    if client != "mobile":
+    if client not in {"mobile", "desktop"}:
         return None
     if not challenge or not _CHALLENGE.fullmatch(challenge):
         raise HTTPException(status_code=422, detail="Нужен challenge приложения (sha256 секрета, base64url)")
@@ -117,7 +118,7 @@ async def providers():
 @router.get("/yandex/start")
 async def yandex_start(
     db: Db,
-    client: Literal["web", "mobile"] = "web",
+    client: Literal["web", "mobile", "desktop"] = "web",
     challenge: str | None = Query(None, max_length=64),
 ):
     """Начать вход: уводим в Яндекс. Мобильное приложение передаёт challenge (см. OAuthFlow)."""
@@ -131,13 +132,14 @@ class LinkStartOut(BaseModel):
 
 
 @router.post("/yandex/link", response_model=LinkStartOut)
-async def yandex_link_start(current_user: CurrentUser, db: Db, body: AccountProof, client: Literal["web", "mobile"] = "web"):
+async def yandex_link_start(current_user: CurrentUser, db: Db, body: AccountProof, client: Literal["web", "mobile", "desktop"] = "web",
+                            challenge: str | None = None):
     """Привязать Яндекс к своему аккаунту: адрес, куда перейти (переход — без заголовка авторизации)."""
     _require_enabled()
     if not current_user.phone_verified_at:
         raise HTTPException(status_code=403, detail="Сначала подтвердите телефон аккаунта")
     await require_account_proof(db, current_user, body)
-    flow = await _new_flow(db, "link_v2", client, current_user.id)
+    flow = await _new_flow(db, "link_v2", client, current_user.id, challenge=challenge)
     return LinkStartOut(url=yandex.authorize_url(flow.state, flow.verifier))
 
 
@@ -224,11 +226,12 @@ async def _link(db: AsyncSession, flow: OAuthFlow, identity: UserIdentity | None
 
 
 @router.post("/yandex/reauth", response_model=LinkStartOut)
-async def yandex_reauth_start(current_user: CurrentUser, db: Db, client: Literal["web", "mobile"] = "web"):
+async def yandex_reauth_start(current_user: CurrentUser, db: Db, client: Literal["web", "mobile", "desktop"] = "web",
+                              challenge: str | None = None):
     """Подтвердить себя через Яндекс — для аккаунтов без пароля перед важными действиями
     (задать пароль): одной украденной сессии для них мало."""
     _require_enabled()
-    flow = await _new_flow(db, "reauth", client, current_user.id)
+    flow = await _new_flow(db, "reauth", client, current_user.id, challenge=challenge)
     return LinkStartOut(url=yandex.authorize_url(flow.state, flow.verifier))
 
 
@@ -236,11 +239,16 @@ async def consume_reauth(db: AsyncSession, user_id: str, code: str | None) -> bo
     """Одноразовый код подтверждения через Яндекс для этого человека (и сразу погасить)."""
     if not code:
         return False
+    handoff, _, verifier = code.partition(".")
     flow = (
-        await db.execute(select(OAuthFlow).where(OAuthFlow.handoff == code, OAuthFlow.mode == "reauth")
+        await db.execute(select(OAuthFlow).where(OAuthFlow.handoff == handoff, OAuthFlow.mode == "reauth")
                          .with_for_update().execution_options(populate_existing=True))
     ).scalar_one_or_none()
     if not flow or flow.user_id != user_id or flow.expires_at < _now():
+        return False
+    try:
+        _check_client(flow, verifier or None)
+    except HTTPException:
         return False
     await db.delete(flow)
     return True

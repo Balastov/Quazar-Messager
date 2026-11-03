@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { authApi, type SignInMethods } from "../../api/auth";
 import { apiErrorText } from "../../utils/profile";
 import { clearReauth, reauthCode, startReauth } from "../../auth/reauth";
+import { openYandex } from "../../auth/desktopYandex";
 import { newPasswordProblem } from "../../auth/password";
 import { useAuthStore } from "../../store/auth";
 import AccountProofInput from "./AccountProofInput";
@@ -148,7 +149,7 @@ function VerifiedSignIn({ methods, reload }: { methods: SignInMethods; reload: (
     setBusy(true); setError(null);
     const body = "phoneProof" in proof ? {phone_proof: proof.phoneProof} : "reauthCode" in proof ? {reauth_code: proof.reauthCode} : {password: proof.password};
     try {
-      if (action === "link") window.location.assign((await authApi.yandexLink(body)).url);
+      if (action === "link") await openYandex((await authApi.yandexLink(body)).url);
       else { await authApi.unlink("yandex", body); await reload(); setAction(null); setProof(null); }
       clearReauth();
     } catch (err) { setError(apiErrorText(err)); }

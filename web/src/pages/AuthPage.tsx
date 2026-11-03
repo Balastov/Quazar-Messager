@@ -59,6 +59,9 @@ export default function AuthPage() {
       }
     } catch (err) {
       const text = apiErrorText(err); setError(text);
+      if (screen === "login" && legacy && text.startsWith("Телефон подтверждён.")) {
+        setLegacy(false); setPasswordAllowed(false); setPassword("");
+      }
       if (/Подтвердите телефон/.test(text)) { setProof(undefined); setScreen("register"); }
     } finally { setBusy(false); }
   };
@@ -73,6 +76,7 @@ export default function AuthPage() {
   return <div className={s.root}><div className={s.card}><div className={s.formCard}>
     <button type="button" className={s.back} onClick={() => go(screen === "profile" ? "register" : "welcome")}>← Назад</button>
     <h2 className={s.formTitle}>{screen === "login" ? "Вход" : screen === "profile" ? "Как вас представить?" : "Регистрация"}</h2>
+    {screen === "login" && !legacy && <p className={s.lead}>Введите номер телефона и нажмите «Войти звонком». Если вы уже подтвердили номер, для входа нужен новый звонок.</p>}
     {screen === "register" && <p className={s.lead}>Сначала подтвердите телефон. Пароль для регистрации не нужен.</p>}
     <form className={s.form} onSubmit={event => void submit(event)}>
       {screen === "profile" ? <>
@@ -87,7 +91,7 @@ export default function AuthPage() {
         <PhoneVisibilityChoice value={discoverable} onChange={setDiscoverable} disabled={busy} />
         <button className={s.submit} type="submit" disabled={busy || check.state !== "ok" || discoverable === null}>{busy ? "Создаём аккаунт…" : "Создать аккаунт"}</button>
       </> : <>
-        <input className={s.input} type="tel" inputMode="numeric" placeholder="+7 (999) 000-00-00" value={phone}
+        <input className={s.input} type="tel" inputMode="numeric" aria-label="Номер телефона" placeholder="+7 (999) 000-00-00" value={phone}
           onChange={event => { setPhone(formatRuPhoneMask(event.target.value)); setProof(undefined); setError(""); }} required autoComplete="tel" />
         {screen === "login" && legacy ? <>
           <input className={s.input} type="password" placeholder="Пароль" value={password} onChange={event => setPassword(event.target.value)} required autoComplete="current-password" />
@@ -95,7 +99,8 @@ export default function AuthPage() {
           <button type="button" className={s.skip} onClick={() => setForgot(true)}>Забыл пароль</button>
           <button type="button" className={s.skip} onClick={() => setLegacy(false)}>Вернуться ко входу звонком</button>
         </> : <>
-          {e164 && <PhoneVerification key={`${screen}:${e164}:${round}`} phone={e164} account={screen === "login" ? "login" : false}
+          <PhoneVerification key={`${screen}:${e164}:${round}`} phone={e164 ?? ""} account={screen === "login" ? "login" : false}
+            disabled={!e164 || busy}
             proof={screen === "register" ? proof : undefined} buttonLabel={screen === "login" ? "Войти звонком" : "Подтвердить телефон звонком"}
             onVerified={token => {
               if (screen === "register") { setProof(token); go("profile"); }
@@ -106,7 +111,8 @@ export default function AuthPage() {
                   sessionStorage.removeItem(`quazar-phone-check:login:${e164}`); setRound(value => value + 1);
                 }).finally(() => setBusy(false));
               }
-            }} />}
+            }} />
+          {!e164 && <p className={s.hint}>Введите номер полностью, чтобы продолжить.</p>}
           {screen === "register" && proof && <button className={s.submit} type="button" onClick={() => go("profile")}>Продолжить</button>}
           {screen === "login" && passwordAllowed && <button type="button" className={s.skip} onClick={() => setLegacy(true)}>Войти паролем — старый аккаунт</button>}
         </>}

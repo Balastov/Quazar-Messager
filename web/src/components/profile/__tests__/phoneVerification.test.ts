@@ -9,7 +9,7 @@ vi.mock("../../../store/auth", () => ({ useAuthStore: Object.assign(
   (selector: (state: typeof auth) => unknown) => selector(auth), { getState: () => auth },
 ) }));
 vi.mock("../../../api/phoneVerification", () => ({ phoneVerificationApi: { start: vi.fn(), status: vi.fn(), completeLogin: vi.fn() } }));
-vi.mock("../../../api/auth", () => ({ authApi: { providers: vi.fn(), register: vi.fn(), phoneOptions: vi.fn(), signInMethods: vi.fn() } }));
+vi.mock("../../../api/auth", () => ({ authApi: { providers: vi.fn(), register: vi.fn(), login: vi.fn(), phoneOptions: vi.fn(), signInMethods: vi.fn() } }));
 vi.mock("../../../api/users", () => ({ usersApi: { me: vi.fn() } }));
 vi.mock("../../../auth/reauth", () => ({ reauthCode: () => null }));
 vi.mock("../useUsernameCheck", () => ({ useUsernameCheck: () => ({ state: "ok" }) }));
@@ -143,6 +143,42 @@ it("enters a verified account by call and does not offer a password form", async
   await act(async () => vi.advanceTimersByTimeAsync(4000));
   expect(phoneVerificationApi.completeLogin).toHaveBeenCalledWith(token);
   expect(auth.setToken).toHaveBeenCalledWith("call-session");
+});
+
+it("keeps call login visible before the phone is complete and enables it only for a full number", async () => {
+  await act(async () => root.render(createElement(MemoryRouter, {future: {v7_startTransition: true, v7_relativeSplatPath: true}}, createElement(AuthPage))));
+  await act(async () => button("Войти").click());
+  expect(button("Войти звонком").disabled).toBe(true);
+  expect(host.textContent).toContain("для входа нужен новый звонок");
+  await act(async () => button("Войти звонком").click());
+  await change('input[type="tel"]', "+7 (916) 000");
+  expect(button("Войти звонком").disabled).toBe(true);
+  expect(phoneVerificationApi.start).not.toHaveBeenCalled();
+  expect(authApi.phoneOptions).not.toHaveBeenCalled();
+  await change('input[type="tel"]', "8 (916) 000-11-22");
+  expect(button("Войти звонком").disabled).toBe(false);
+  await act(async () => button("Войти звонком").click());
+  expect(phoneVerificationApi.start).toHaveBeenCalledWith(phone, "login");
+});
+
+it("returns to call login when password access was disabled after checking the login options", async () => {
+  vi.mocked(authApi.phoneOptions).mockResolvedValue({password_login_allowed: true});
+  vi.mocked(authApi.login).mockRejectedValue({isAxiosError: true, response: {status: 403, data: {
+    detail: "Телефон подтверждён. Войдите звонком или через привязанный Яндекс ID",
+  }}});
+  await act(async () => root.render(createElement(MemoryRouter, {future: {v7_startTransition: true, v7_relativeSplatPath: true}}, createElement(AuthPage))));
+  await act(async () => button("Войти").click());
+  await change('input[type="tel"]', phone);
+  await act(async () => vi.advanceTimersByTimeAsync(300));
+  await act(async () => button("Войти паролем — старый аккаунт").click());
+  await change('input[type="password"]', "old-password");
+  await act(async () => Simulate.submit(host.querySelector("form")!));
+  expect(authApi.login).toHaveBeenCalledWith(phone, "old-password");
+  expect(host.querySelector('input[type="password"]')).toBeNull();
+  expect(button("Войти звонком").disabled).toBe(false);
+  expect(host.querySelector('[role="alert"]')?.textContent).toContain("Войдите звонком");
+  expect(host.textContent).not.toContain("Войти паролем — старый аккаунт");
+  expect(phoneVerificationApi.start).not.toHaveBeenCalled();
 });
 
 it("offers password login only when the server allows it for an unverified old account", async () => {

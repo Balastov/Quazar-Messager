@@ -5,8 +5,8 @@ import { apiErrorText } from "../../utils/profile";
 import { formatRuPhoneDisplay } from "../../utils/phone";
 import s from "../SettingsView.module.css";
 
-export default function PhoneVerification({ phone, account = false, proof, onVerified, buttonLabel = "Подтвердить телефон звонком" }: {
-  phone: string; account?: PhoneMode; proof?: string; onVerified: (token: string) => void; buttonLabel?: string;
+export default function PhoneVerification({ phone, account = false, proof, onVerified, buttonLabel = "Подтвердить телефон звонком", disabled = false }: {
+  phone: string; account?: PhoneMode; proof?: string; onVerified: (token: string) => void; buttonLabel?: string; disabled?: boolean;
 }) {
   const [attempt, setAttempt] = useState<Attempt | null>(null);
   const [busy, setBusy] = useState(false);
@@ -54,7 +54,7 @@ export default function PhoneVerification({ phone, account = false, proof, onVer
     return () => { active = false; clearTimeout(timer); };
   }, [attempt?.verification_token, attempt?.state, account]);
   const start = async () => {
-    if (busy) return;
+    if (busy || disabled) return;
     const current = ++round.current;
     setBusy(true); setError(null); setAttempt(null);
     try {
@@ -75,7 +75,7 @@ export default function PhoneVerification({ phone, account = false, proof, onVer
       <p className={s.hint} role="status">Ждём звонок. После проверки страница обновится автоматически. Если у вас две SIM-карты, выберите SIM с указанным номером.</p>
     </> : <>
       {attempt && <p className={s.hint}>{attempt.state === "expired" ? "Время проверки истекло. Начните заново." : "Номер не подтверждён. Повторите проверку."}</p>}
-      <button type="button" className={s.secondary} disabled={busy} onClick={() => void start()}>
+      <button type="button" className={s.secondary} disabled={busy || disabled} onClick={() => void start()}>
         {busy ? "Подготавливаем проверку…" : buttonLabel}
       </button>
     </>}

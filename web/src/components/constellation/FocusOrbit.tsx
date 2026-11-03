@@ -50,7 +50,7 @@ export default function FocusOrbit({ detail, channel, room, readOnly, compact = 
   return (
     <section className={s.focus} aria-label="Орбита фокуса">
       <div className={s.focusHead}>
-        <svg width="42" height="42" viewBox="0 0 44 44" aria-hidden>
+        <svg width="30" height="30" viewBox="0 0 44 44" aria-hidden>
           <circle cx="22" cy="22" r="18" fill="none" stroke="currentColor" strokeOpacity="0.16" strokeWidth="3" />
           <circle cx="22" cy="22" r="18" fill="none" stroke="currentColor" strokeWidth="3"
             strokeDasharray={`${progress * 113.1} 113.1`} transform="rotate(-90 22 22)" />

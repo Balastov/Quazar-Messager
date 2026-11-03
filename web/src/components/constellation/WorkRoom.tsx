@@ -184,7 +184,7 @@ function RoomBookings({ detail, channel }: { detail: StarDetail; channel: StarCh
         </button>
       </div>
       {list.length === 0 && <span className={s.hint}>На неделю вперёд свободно</span>}
-      {list.slice(0, 6).map((b) => {
+      {list.length > 0 && <div className={w.bookingList}>{list.slice(0, 6).map((b) => {
         const mine = b.created_by === myId;
         const invited = myId ? b.attendees.includes(myId) : false;
         return (
@@ -209,7 +209,7 @@ function RoomBookings({ detail, channel }: { detail: StarDetail; channel: StarCh
             )}
           </div>
         );
-      })}
+      })}</div>}
       {error && <div className={s.error}>{error}</div>}
       {open && createPortal(<BookingDialog detail={detail} channel={channel} onClose={() => setOpen(false)} />, document.body)}
     </div>
@@ -429,9 +429,9 @@ function GuestLinks({ detail, channel }: { detail: StarDetail; channel: StarChan
           увидит. Отзовёте ссылку — гостей по ней выведет из комнаты.
         </p>
       )}
-      {links.map((link) => (
-        <div key={link.id} className={w.booking} style={{ flexWrap: "wrap" }}>
-          <span className={w.bookingTitle} style={{ flexBasis: "100%" }}>
+      {links.length > 0 && <div className={w.bookingList}>{links.map((link) => (
+        <div key={link.id} className={`${w.booking} ${w.guestLink}`}>
+          <span className={w.bookingTitle}>
             Действует до {formatWhen(link.expires_at)} · входов: {link.uses}
           </span>
           <button type="button" className={`${s.secondary} ${s.small}`} onClick={() => copy(link.code)}>
@@ -451,7 +451,7 @@ function GuestLinks({ detail, channel }: { detail: StarDetail; channel: StarChan
             Отозвать
           </button>
         </div>
-      ))}
+      ))}</div>}
       {error && <div className={s.error}>{error}</div>}
     </div>
   );

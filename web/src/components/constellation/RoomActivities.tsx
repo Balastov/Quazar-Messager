@@ -7,6 +7,7 @@ import { socket } from "../../ws/socket";
 import { apiError } from "./rules";
 import ScreenStage from "./ScreenStage";
 import FocusOrbit from "./FocusOrbit";
+import RoomTools from "./RoomTools";
 import RoomBoard from "./RoomBoard";
 import RoomVideo from "./RoomVideo";
 import ActivityFrame from "./ActivityFrame";
@@ -57,7 +58,10 @@ export default function RoomActivities({ detail, channel, sharerId, sharerName, 
   const fullscreenControls = <>{controls}{room?.ready && <FocusOrbit detail={detail} channel={channel} room={room} readOnly={readOnly} compact />}</>;
   return (
     <div className={s.activities}>
-      {room?.ready && <FocusOrbit detail={detail} channel={channel} room={room} readOnly={readOnly} />}
+      <RoomTools detail={detail} channel={channel}
+        summary={room?.ready && <FocusOrbit detail={detail} channel={channel} room={room} readOnly compact />}>
+        {room?.ready && <FocusOrbit detail={detail} channel={channel} room={room} readOnly={readOnly} />}
+      </RoomTools>
       <div className={s.tabs} role="group" aria-label="Активности комнаты">
         {([ [null, "Участники"], ["screen", "Экран"], ["board", "Доска"], ["video", "Видео"] ] as const).map(([id, label]) =>
           <button key={id ?? "people"} type="button" className={view === id ? s.activeButton : s.button}

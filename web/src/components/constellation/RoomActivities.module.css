@@ -15,14 +15,14 @@
 }
 .hint { font-size: 12px; line-height: 1.45; color: var(--qz-text-muted); margin: 0; }
 .error { color: var(--qz-danger); font-size: 13px; line-height: 1.5; margin: 4px 0; overflow-wrap: anywhere; }
-.focus { padding: 10px 12px; border-radius: 14px; border: 1px solid rgba(52, 211, 153, .23); background: rgba(52, 211, 153, .05); }
-.focusHead { display: flex; align-items: center; gap: 10px; }
+.focus { min-width: 0; padding: 8px 10px; border-radius: 10px; border: 1px solid rgba(52, 211, 153, .23); background: rgba(52, 211, 153, .05); }
+.focusHead { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 .focusHead > svg { flex-shrink: 0; color: var(--qz-online); }
 .focusTitle { display: flex; flex: 1; flex-direction: column; gap: 3px; min-width: 0; }
-.focusTitle strong { font-size: 14px; }
-.countdown { font-size: 24px; line-height: 1; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--qz-online); }
-.focusActions { padding-top: 12px; }
-.focusCompact { display: flex; justify-content: center; gap: 12px; padding: 5px 12px;
+.focusTitle strong { font-size: 13px; }
+.countdown { font-size: 20px; line-height: 1; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--qz-online); }
+.focusActions { padding-top: 8px; }
+.focusCompact { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px; padding: 4px 0;
   font-size: 12px; font-variant-numeric: tabular-nums; color: var(--qz-online); }
 .smallLabel { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--qz-text-muted); }
 .smallLabel input, .smallLabel select { max-width: 220px; min-height: 34px; border-radius: 8px;

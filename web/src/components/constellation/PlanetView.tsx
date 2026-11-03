@@ -15,7 +15,7 @@ import { Soundboard, VoiceKeysSettings } from "./VoicePanels";
 import { keyLabel } from "../../voice/keys";
 import { apiError, can, canStopScreen, outranks, ROOM_LABEL, roomDoor } from "./rules";
 import { placeNouns, roomWords } from "./words";
-import WorkRoomExtras from "./WorkRoom";
+import RoomTools from "./RoomTools";
 import { confirmKnock } from "./work";
 import s from "./Constellation.module.css";
 import { usePresence, usePresenceText } from "../../store/presence";
@@ -188,7 +188,7 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
               })}
             </div>
           )}
-          <WorkRoomExtras detail={detail} channel={channel} />
+          <RoomTools detail={detail} channel={channel} />
           {voice.error && <div className={s.error}>{voice.error}</div>}
           {inCall && <p className={s.hint}>Сначала завершите личный звонок.</p>}
           {listenOnly && (
@@ -318,7 +318,6 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
             ))}
           </div>
         )}
-        <WorkRoomExtras detail={detail} channel={channel} />
         {voice.serverMuted && (
           <p className={`${s.hint} ${s.warn}`}>
             Модератор выключил вам микрофон. Вы слышите всех, но вас пока не слышно.

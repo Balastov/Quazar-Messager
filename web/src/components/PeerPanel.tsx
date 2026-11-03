@@ -167,7 +167,6 @@ export default function PeerPanel() {
           targetId={chat.id}
           title={`Уведомления: ${peer.username}`}
           inherited={CHAT_DEFAULT}
-          mentions={chat.type === "group"}
           onClose={() => setNotifyOpen(false)}
         />
       )}

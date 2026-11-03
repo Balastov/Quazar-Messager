@@ -118,6 +118,7 @@ class SocketManager {
     };
 
     ws.onmessage = (e) => {
+      if (this.ws !== ws) return;
       try {
         const data = JSON.parse(e.data) as WsEvent;
         this.handlers.forEach((h) => h(data));

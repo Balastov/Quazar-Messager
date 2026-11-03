@@ -2,6 +2,7 @@ import { browserPermission, getNotifyPrefs } from "./prefs";
 import { playSoftChime } from "./sound";
 import { useToastStore } from "./toastStore";
 import { isDoNotDisturb } from "../store/presence";
+import {acknowledgeMessage, claimNotification, isAppFocused, notificationGeneration, notificationRegistration, wasPushShown} from "./delivery";
 
 export interface IncomingNotify {
   title: string;
@@ -9,6 +10,8 @@ export interface IncomingNotify {
   chatId: string;
   /** Не дублировать system notification, если чат уже открыт и вкладка видна. */
   isActiveChat: boolean;
+  messageId?: string;
+  recipientId?: string;
 }
 
 function truncate(text: string, max = 120): string {
@@ -41,8 +44,11 @@ async function showSystemNotification(opts: {
   callId?: string;
   callerId?: string;
   actions?: { action: string; title: string }[];
-}): Promise<void> {
-  if (browserPermission() !== "granted") return;
+  messageId?: string;
+  threadId?: string | null;
+}): Promise<boolean> {
+  if (browserPermission() !== "granted") return false;
+  const generation = notificationGeneration();
 
   const options: NotificationOptions & {
     actions?: { action: string; title: string }[];
@@ -63,6 +69,8 @@ async function showSystemNotification(opts: {
       callId: opts.callId ?? null,
       callerId: opts.callerId ?? null,
       callerName: opts.title,
+      messageId: opts.messageId,
+      threadId: opts.threadId,
     },
   };
   if (opts.actions?.length) {
@@ -70,16 +78,19 @@ async function showSystemNotification(opts: {
   }
 
   try {
-    const reg = await navigator.serviceWorker?.ready;
+    const reg = await notificationRegistration();
+    if (generation !== notificationGeneration()) return false;
+    if (wasPushShown(opts.messageId)) return true;
     if (reg?.showNotification) {
       await reg.showNotification(opts.title, options);
-      return;
+      return true;
     }
   } catch {
     // fall through to page Notification
   }
 
   try {
+    if (generation !== notificationGeneration()) return false;
     const n = new Notification(opts.title, options);
     n.onclick = () => {
       window.focus();
@@ -92,7 +103,7 @@ async function showSystemNotification(opts: {
         );
       } else if (opts.kind === "star" && opts.starId && opts.channelId) {
         window.dispatchEvent(
-          new CustomEvent("quazar-open-star", { detail: { starId: opts.starId, channelId: opts.channelId } })
+          new CustomEvent("quazar-open-star", { detail: { starId: opts.starId, channelId: opts.channelId, messageId: opts.messageId, threadId: opts.threadId } })
         );
       } else if (opts.chatId) {
         window.dispatchEvent(
@@ -100,8 +111,10 @@ async function showSystemNotification(opts: {
         );
       }
     };
+    return true;
   } catch {
     // ignore
+    return false;
   }
 }
 
@@ -139,7 +152,8 @@ export async function notifyIncomingCall(info: {
 export async function clearCallNotification(callId: string | null): Promise<void> {
   if (!callId || !("serviceWorker" in navigator)) return;
   try {
-    const reg = await navigator.serviceWorker.ready;
+    const reg = await notificationRegistration();
+    if (!reg) return;
     const notes = await reg.getNotifications({ tag: `quazar-call-${callId}` });
     notes.forEach((n) => n.close());
   } catch {
@@ -148,58 +162,47 @@ export async function clearCallNotification(callId: string | null): Promise<void
 }
 
 export async function notifyIncomingMessage(info: IncomingNotify): Promise<void> {
+  const generation = notificationGeneration();
+  if (!claimNotification(info.messageId, info.recipientId)) return;
+  if (info.messageId) acknowledgeMessage(info.messageId);
   const prefs = getNotifyPrefs();
-  if (!prefs.enabled) return;
-  // «Не беспокоить»: без всплывашек, звука и системных уведомлений (счётчик непрочитанных растёт).
-  if (isDoNotDisturb()) return;
-
-  const tabHidden = typeof document !== "undefined" && document.visibilityState === "hidden";
-  // Чат уже на экране — сообщение появится само, без toast/звука.
-  if (info.isActiveChat && !tabHidden) return;
-
-  const title = info.title;
-  const body = truncate(info.body || "Новое сообщение");
-
-  useToastStore.getState().push({
-    title,
-    body,
-    chatId: info.chatId,
-  });
-
-  if (prefs.sound) {
-    void playSoftChime();
+  if (!prefs.enabled || isDoNotDisturb()) return;
+  const foreground = isAppFocused();
+  if (info.isActiveChat && foreground) return;
+  const title = info.title, body = truncate(info.body || "Новое сообщение");
+  if (foreground) {
+    useToastStore.getState().push({title, body, chatId: info.chatId});
+    if (prefs.sound) void playSoftChime();
+    return;
   }
-
-  await showSystemNotification({
-    title,
-    body,
-    chatId: info.chatId,
-    tag: `quazar-chat-${info.chatId}`,
-  });
+  const shown = await showSystemNotification({title, body, chatId: info.chatId, messageId: info.messageId,
+    tag: info.messageId ? `quazar-message-${info.messageId}` : `quazar-chat-${info.chatId}`, silent: !prefs.sound});
+  if (generation !== notificationGeneration()) return;
+  if (shown && info.messageId) acknowledgeMessage(info.messageId, true);
+  if (!shown && prefs.sound) void playSoftChime();
 }
 
-/** Сообщение Спутника по уровню уведомлений: всплывашка, звук, а если вкладка скрыта — системное. */
+/** WebSocket и Web Push используют одинаковый тег сообщения: один видимый системный сигнал. */
 export async function notifyStarMessage(info: {
-  title: string;
-  body: string;
-  starId: string;
-  channelId: string;
+  title: string; body: string; starId: string; channelId: string; messageId?: string; threadId?: string | null;
 }): Promise<void> {
+  const generation = notificationGeneration();
+  if (!claimNotification(info.messageId)) return;
+  if (info.messageId) acknowledgeMessage(info.messageId);
   const prefs = getNotifyPrefs();
   if (!prefs.enabled || isDoNotDisturb()) return;
   const body = truncate(info.body || "Новое сообщение");
-  useToastStore.getState().push({ title: info.title, body, starId: info.starId, channelId: info.channelId });
-  if (prefs.sound) void playSoftChime();
-  if (typeof document !== "undefined" && document.visibilityState === "hidden") {
-    await showSystemNotification({
-      title: info.title,
-      body,
-      kind: "star",
-      starId: info.starId,
-      channelId: info.channelId,
-      tag: `quazar-star-${info.channelId}`,
-    });
+  if (isAppFocused()) {
+    useToastStore.getState().push({title: info.title, body, starId: info.starId, channelId: info.channelId, messageId: info.messageId, threadId: info.threadId});
+    if (prefs.sound) void playSoftChime();
+    return;
   }
+  const shown = await showSystemNotification({title: info.title, body, kind: "star", starId: info.starId,
+    channelId: info.channelId, messageId: info.messageId, threadId: info.threadId, silent: !prefs.sound,
+    tag: info.messageId ? `quazar-star-message-${info.messageId}` : `quazar-star-${info.channelId}`});
+  if (generation !== notificationGeneration()) return;
+  if (shown && info.messageId) acknowledgeMessage(info.messageId, true);
+  if (!shown && prefs.sound) void playSoftChime();
 }
 
 /** Полный тест: toast + системное уведомление + звук (даже если звук в настройках выключен). */
@@ -266,7 +269,7 @@ export async function notifyDoor(
   };
   if (opts.actions?.length) options.actions = opts.actions;
   try {
-    const reg = await navigator.serviceWorker?.ready;
+    const reg = await notificationRegistration();
     if (reg?.showNotification) {
       await reg.showNotification(opts.title, options);
       return;

@@ -3,7 +3,7 @@ import { create } from "zustand";
 import { http } from "../api/client";
 import { socket } from "../ws/socket";
 
-export type NotifyLevel = "all" | "mentions" | "none";
+export type NotifyLevel = "all" | "mentions_only" | "replies" | "mentions" | "none";
 export type NotifyScope = "chat" | "star" | "channel";
 
 export interface NotifySetting {
@@ -16,12 +16,13 @@ export interface NotifySetting {
 }
 
 export const CHAT_DEFAULT: NotifyLevel = "all";
-/** В Звёздах по умолчанию — только упоминания и ответы мне. */
-export const STAR_DEFAULT: NotifyLevel = "mentions";
+export const STAR_DEFAULT: NotifyLevel = "all";
 
 export const LEVEL_LABEL: Record<NotifyLevel, string> = {
   all: "Все сообщения",
-  mentions: "Только упоминания и ответы мне",
+  mentions_only: "Только упоминания",
+  replies: "Только ответы мне",
+  mentions: "Упоминания и ответы мне",
   none: "Ничего",
 };
 
@@ -54,8 +55,8 @@ export function channelLevel(settings: Settings, starId: string, channelId: stri
 }
 
 /** Показать ли всплывашку и звук. */
-export function wants(level: NotifyLevel, mentioned: boolean): boolean {
-  return level === "all" || (level === "mentions" && mentioned);
+export function wants(level: NotifyLevel, mentioned: boolean, replied = false): boolean {
+  return level === "all" || (level === "mentions_only" && mentioned) || (level === "replies" && replied) || (level === "mentions" && (mentioned || replied));
 }
 
 /** Варианты «выключить на…»; null — навсегда (уровень «Ничего»). */
@@ -75,7 +76,11 @@ interface NotifyState {
 }
 
 export const useNotifyStore = create<NotifyState>((set, get) => {
-  const apply = (s: NotifySetting) =>
+  let epoch = 0, revision = 0;
+  let pending: Promise<void> | null = null;
+  const changes = new Map<string, {revision: number; setting: NotifySetting}>();
+  const apply = (s: NotifySetting) => {
+    changes.set(settingKey(s.scope, s.target_id), {revision: ++revision, setting: s});
     set((st) => {
       const settings = { ...st.settings };
       const key = settingKey(s.scope, s.target_id);
@@ -83,24 +88,39 @@ export const useNotifyStore = create<NotifyState>((set, get) => {
       else settings[key] = s;
       return { settings };
     });
+  };
 
   socket.on((event) => {
     if (event.type === "notify_setting") apply(event as unknown as NotifySetting);
   });
+  socket.onStatus?.((open) => {if (open && get().loaded) void get().load().catch(() => {});});
 
   return {
     settings: {},
     loaded: false,
-    load: async () => {
-      const list = (await http.get<NotifySetting[]>("/users/me/notify")).data;
-      set({ settings: Object.fromEntries(list.map((s) => [settingKey(s.scope, s.target_id), s])), loaded: true });
+    load: () => {
+      if (pending) return pending;
+      const actor = epoch, started = revision;
+      const task = http.get<NotifySetting[]>("/users/me/notify").then(({data: list}) => {
+        if (actor !== epoch) return;
+        const settings: Settings = Object.fromEntries(list.map(s => [settingKey(s.scope, s.target_id), s]));
+        for (const [key, change] of changes) if (change.revision > started) {
+          const value = change.setting;
+          if (value.level === null && !value.muted_until) delete settings[key]; else settings[key] = value;
+        }
+        set({settings, loaded: true});
+      }).finally(() => {if (pending === task) pending = null;});
+      pending = task;
+      return task;
     },
     save: async (scope, targetId, body) => {
+      const actor = epoch;
       const out = (await http.put<NotifySetting>(`/users/me/notify/${scope}/${targetId}`, body)).data;
+      if (actor !== epoch) return;
       apply(out);
       if (!get().loaded) void get().load().catch(() => {});
     },
-    reset: () => set({ settings: {}, loaded: false }),
+    reset: () => {epoch++; pending = null; changes.clear(); set({ settings: {}, loaded: false });},
   };
 });
 
@@ -112,5 +132,5 @@ export function levelSummary(level: NotifyLevel, setting: NotifySetting | undefi
     const time = until.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
     return `Выключены до ${sameDay ? time : `${until.toLocaleDateString("ru-RU", { day: "numeric", month: "short" })} ${time}`}`;
   }
-  return level === "none" ? "Выключены" : level === "mentions" ? "Только упоминания" : "Все сообщения";
+  return level === "none" ? "Выключены" : LEVEL_LABEL[level];
 }

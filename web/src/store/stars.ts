@@ -25,6 +25,7 @@ import {
 } from "../api/stars";
 import { usersApi } from "../api/users";
 import { notifyInfo, notifyStarMessage } from "../notifications/notify";
+import {acknowledgeMessage, isAppFocused} from "../notifications/delivery";
 import { channelLevel, useNotifyStore, wants } from "../notifications/levels";
 import { memberWorkState } from "../chat/workhours";
 import type { LinkPreview } from "../chat/linkPreview";
@@ -453,13 +454,18 @@ export const useStarsStore = create<StarsState>((set, get) => {
         const { message } = event;
         const me = myId();
         const mentioned = mentionsMe(message, me);
+        const directMention = !!me && (!!message.mention_all || !!message.mentions?.includes(me));
+        const replied = !!me && (message.reply_to?.sender?.id === me || message.thread_author_id === me);
         // Ответ в ветке — только в открытую ветку; сводку под корнем обновит star_thread.
         if (message.thread_id) {
           const root = get().messages[message.channel_id]?.find((m) => m.id === message.thread_id);
           const inThread = get().thread?.rootId === message.thread_id;
           // В ветке тревожим только тех, кого упомянули или чья это ветка — даже при «Все сообщения».
-          const mine = mentioned || (!!me && root?.sender?.id === me);
-          if (message.sender?.id !== me && mine) maybeNotify(starId, message, true, inThread);
+          const replyToMe = replied || (!!me && root?.sender?.id === me);
+          const viewingThread = inThread && !get().thread?.loading && useUiStore.getState().tab === "stars" && activeChannelId() === message.channel_id && channelOnScreen(starId) && isAppFocused();
+          if (message.sender?.id !== me) {
+            maybeNotify(starId, message, directMention, replyToMe, viewingThread);
+          }
           set((s) => {
             const thread = s.thread;
             if (!thread || thread.rootId !== message.thread_id || thread.messages.some((m) => m.id === message.id)) return {};
@@ -476,7 +482,7 @@ export const useStarsStore = create<StarsState>((set, get) => {
           useUiStore.getState().tab === "stars" &&
           activeChannelId() === message.channel_id &&
           channelOnScreen(starId) &&
-          document.visibilityState === "visible";
+          isAppFocused() && !get().loadingMessages;
         if (message.sender?.id !== me && !viewing) {
           set((s) => ({
             unread: {
@@ -489,7 +495,9 @@ export const useStarsStore = create<StarsState>((set, get) => {
             },
           }));
         }
-        if (message.sender?.id !== me) maybeNotify(starId, message, mentioned, viewing);
+        if (message.sender?.id !== me) {
+          maybeNotify(starId, message, directMention, replied, viewing);
+        }
         break;
       }
       case "star_floors":
@@ -656,10 +664,16 @@ export const useStarsStore = create<StarsState>((set, get) => {
   }
 
   /** Всплывашка и звук — по моему уровню уведомлений, не на экране и не в нерабочее время. */
-  function maybeNotify(starId: string, message: StarMessage, mentioned: boolean, onScreen: boolean) {
-    if (onScreen && document.visibilityState === "visible") return;
+  async function maybeNotify(starId: string, message: StarMessage, mentioned: boolean, replied: boolean, onScreen: boolean) {
+    if (onScreen && isAppFocused()) {acknowledgeMessage(message.id); return;}
+    const actor = myId();
+    if (!actor) return;
+    if (!useNotifyStore.getState().loaded) {
+      try {await useNotifyStore.getState().load();} catch {return;}
+    }
+    if (actor !== myId()) return;
     const level = channelLevel(useNotifyStore.getState().settings, starId, message.channel_id);
-    if (!wants(level, mentioned)) return;
+    if (!wants(level, mentioned, replied)) return;
     const detail = get().details[starId];
     const me = detail?.members.find((m) => m.user.id === myId());
     if (detail && me && memberWorkState(detail, me)?.working === false) return;
@@ -670,6 +684,8 @@ export const useStarsStore = create<StarsState>((set, get) => {
       body: stripMarkup(message.text) || (message.file ? `📎 ${message.file.name}` : ""),
       starId,
       channelId: message.channel_id,
+      messageId: message.id,
+      threadId: message.thread_id,
     });
   }
 

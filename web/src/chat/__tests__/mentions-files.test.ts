@@ -15,6 +15,8 @@ describe("mentions", () => {
     expect(mentionsName("@все на планёрку", "alice")).toBe(true);
     expect(mentionsName("@все на планёрку", "alice", false)).toBe(false);
     expect(mentionsName("alice@mail.ru", "alice")).toBe(false);
+    expect(mentionsName("`@alice` и ```@все```", "alice")).toBe(false);
+    expect(mentionsName("```js\n@alice\n```\nобычный текст", "alice")).toBe(false);
   });
 
   it("suggests and inserts at the caret", () => {
@@ -53,7 +55,7 @@ describe("notify levels", () => {
   });
 
   it("resolves channel → star → default, with mute winning", () => {
-    expect(channelLevel({}, "s", "c", now)).toBe("mentions");
+    expect(channelLevel({}, "s", "c", now)).toBe("all");
     expect(channelLevel(set("star", "s", "all"), "s", "c", now)).toBe("all");
     expect(channelLevel({ ...set("star", "s", "all"), ...set("channel", "c", "none") }, "s", "c", now)).toBe("none");
     expect(channelLevel(set("star", "s", "all", "2026-10-27T13:00:00Z"), "s", "c", now)).toBe("none");
@@ -70,6 +72,16 @@ describe("notify levels", () => {
     ]);
     const muted = { scope: "chat" as const, target_id: "x", level: null, muted_until: "2026-10-27T13:30:00Z" };
     expect(levelSummary("all", muted, now)).toMatch(/^Выключены до \d\d:30$/);
-    expect(levelSummary("mentions", undefined, now)).toBe("Только упоминания");
+    expect(levelSummary("mentions", undefined, now)).toBe("Упоминания и ответы мне");
+  });
+
+  it("keeps mentions and replies separate while preserving the old combined mode", () => {
+    expect(wants("mentions_only", true, false)).toBe(true);
+    expect(wants("mentions_only", false, true)).toBe(false);
+    expect(wants("replies", true, false)).toBe(false);
+    expect(wants("replies", false, true)).toBe(true);
+    expect(wants("mentions", false, true)).toBe(true);
+    expect(wants("mentions", true, false)).toBe(true);
+    expect(wants("none", true, true)).toBe(false);
   });
 });

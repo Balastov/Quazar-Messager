@@ -24,6 +24,16 @@ function openOrFocus(url, message) {
   });
 }
 
+async function showMessageNotification(data, title, options) {
+  // Push должен всегда завершаться видимым уведомлением (в том числе в Safari).
+  // Тег сообщения совпадает с WS-уведомлением; повторная доставка не тревожит снова.
+  await self.registration.showNotification(title, options);
+  try {
+    const windows = await self.clients.matchAll({type: "window", includeUncontrolled: true});
+    if (data.message_id) windows.forEach(client => client.postMessage({type: "quazar-push-shown", messageId: data.message_id, userId: data.recipient_user_id}));
+  } catch { /* Notification was already displayed; a closed page needs no acknowledgement. */ }
+}
+
 self.addEventListener("push", (event) => {
   let data = {};
   try {
@@ -42,6 +52,7 @@ self.addEventListener("push", (event) => {
       icon: "/icons/icon-192.png?v=neon-q-2",
       badge: "/icons/icon-48.png?v=neon-q-2",
       requireInteraction: true,
+      silent: !!data.silent,
       renotify: true,
       data: {
         kind: "call",
@@ -100,10 +111,20 @@ self.addEventListener("push", (event) => {
       tag: data.tag || `quazar-star-${data.channel_id || "x"}`,
       icon: "/icons/icon-192.png?v=neon-q-2",
       badge: "/icons/icon-48.png?v=neon-q-2",
-      renotify: true,
-      data: { kind: "star", starId: data.star_id || null, channelId: data.channel_id || null },
+      renotify: false,
+      silent: !!data.silent,
+      data: { kind: "star", starId: data.star_id || null, channelId: data.channel_id || null, messageId: data.message_id || null, threadId: data.thread_id || null },
     };
-    event.waitUntil(self.registration.showNotification(data.title || "Quazar", options));
+    event.waitUntil(showMessageNotification(data, data.title || "Quazar", options));
+    return;
+  }
+
+  if (data.type === "chat_message") {
+    event.waitUntil(showMessageNotification(data, data.title || "Quazar", {
+      body: data.body || "Новое сообщение", tag: data.tag || `quazar-message-${data.message_id || data.chat_id}`,
+      icon: "/icons/icon-192.png?v=neon-q-2", badge: "/icons/icon-48.png?v=neon-q-2",
+      renotify: false, silent: !!data.silent, data: {kind: "message", chatId: data.chat_id || null},
+    }));
     return;
   }
 
@@ -169,11 +190,15 @@ self.addEventListener("notificationclick", (event) => {
 
   if (data.kind === "star" && data.starId && data.channelId) {
     const params = new URLSearchParams({ star: data.starId, channel: data.channelId });
+    if (data.messageId) params.set("message", data.messageId);
+    if (data.threadId) params.set("thread", data.threadId);
     event.waitUntil(
       openOrFocus(`/?${params.toString()}`, {
         type: "quazar-open-star",
         starId: data.starId,
         channelId: data.channelId,
+        messageId: data.messageId || null,
+        threadId: data.threadId || null,
       })
     );
     return;

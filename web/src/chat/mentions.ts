@@ -35,6 +35,8 @@ export function isAllWord(name: string): boolean {
 /** Упомянут ли человек в тексте (по имени, без учёта регистра; @все — да). */
 export function mentionsName(text: string, username: string, withAll = true): boolean {
   const me = username.toLowerCase();
+  text = text.replace(/^```[^\n]*\n?[\s\S]*?(?:\n?```[ \t]*$|$(?![\s\S]))/gm, "")
+    .replace(/```(.+?)```/g, "").replace(/(?<!`)(`+)(?!`)(.+?)(?<!`)\1(?!`)/g, "");
   return splitMentions(text).some(
     (p) => p.type === "mention" && (p.name.toLowerCase() === me || (withAll && isAllWord(p.name)))
   );

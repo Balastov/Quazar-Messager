@@ -14,12 +14,13 @@ export const messagesApi = {
       })
       .then((r) => r.data),
 
-  send: (chatId: string, payload: string, attachmentId?: string, replyToId?: string) =>
+  send: (chatId: string, payload: string, attachmentId?: string, replyToId?: string, notificationMentions?: string[]) =>
     http
       .post<Message>(base(chatId), {
         payload,
         attachment_id: attachmentId,
         reply_to_id: replyToId,
+        notification_mentions: notificationMentions,
       })
       .then((r) => r.data),
 
@@ -61,11 +62,12 @@ export interface ScheduledMessage {
 export const scheduledApi = {
   list: (chatId: string) =>
     http.get<ScheduledMessage[]>(`/chats/${chatId}/scheduled`).then((r) => r.data),
-  create: (chatId: string, payload: string, sendAt: Date, replyToId?: string) =>
+  create: (chatId: string, payload: string, sendAt: Date, replyToId?: string, notificationMentions?: string[]) =>
     http
       .post<ScheduledMessage>(`/chats/${chatId}/scheduled`, {
         payload,
         send_at: sendAt.toISOString(),
+        notification_mentions: notificationMentions,
         reply_to_id: replyToId,
       })
       .then((r) => r.data),

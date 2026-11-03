@@ -139,8 +139,11 @@ class StarFilesNotifyTest(StarsTestBase):
         await self.expect_error(404, api.list_revisions, self.star.id, self.sat.id, msg.id, user="carol")
 
     async def test_push_follows_levels_and_mentions(self):
+        # Явно выбранный старый режим сохраняет смысл «упоминания и ответы».
+        for who in ("owner", "admin", "mod", "bob"):
+            await self.call(notify_api.set_notify, "star", self.star.id, notify_api.NotifyBody(level="mentions"), user=who)
         await self.say("просто так")
-        self.assertEqual(self.pushed_to(), set())  # по умолчанию в Звёздах — только упоминания
+        self.assertEqual(self.pushed_to(), set())  # явно выбран режим упоминаний и ответов
 
         self.pushes.clear()
         await self.say("@bob срочно")
@@ -156,22 +159,22 @@ class StarFilesNotifyTest(StarsTestBase):
         await self.say("@все сбор", user="mod")
         self.assertEqual(self.pushed_to(), {self.uid("bob"), self.uid("alice")})
 
-        # Ответ мне — как упоминание; «не беспокоить» и открытое приложение — без push.
+        # Ответ мне — как упоминание; фоновое соединение не отменяет push.
         root = await self.say("вопрос", user="mod")
         self.pushes.clear()
         await self.say("ответ", reply_to_id=root.id)
         self.assertEqual(self.pushed_to(), {self.uid("mod"), self.uid("bob")})
-        # Ветка: только автор корня (и упомянутые), bob с «Все сообщения» — нет.
+        # «Все сообщения» включает ветки, а режим ответов — только адресатов ответа.
         self.pushes.clear()
         await self.say("в ветке", thread_id=root.id)
-        self.assertEqual(self.pushed_to(), {self.uid("mod")})
+        self.assertEqual(self.pushed_to(), {self.uid("mod"), self.uid("bob")})
         async with self.Session() as db:
             await db.execute(update(User).where(User.id == self.uid("mod")).values(manual_status="dnd"))
             await db.commit()
         self.pushes.clear()
         with mock.patch.dict(notify.manager.user_connections, {self.uid("bob"): {object()}}):
             await self.say("ответ 2", reply_to_id=root.id)
-        self.assertEqual(self.pushed_to(), set())
+        self.assertEqual(self.pushed_to(), {self.uid("bob")})
 
     async def test_notify_settings_api(self):
         await self.expect_error(404, notify_api.set_notify, "star", self.star.id, notify_api.NotifyBody(level="all"), user="carol")

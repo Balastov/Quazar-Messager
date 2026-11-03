@@ -1146,6 +1146,9 @@ async def _messages_out(
 ) -> list[StarMessageOut]:
     """Сообщения с цитатами ответов и реакциями — двумя запросами на всю страницу."""
     reply_ids = {m.reply_to_id for m, _ in rows if m.reply_to_id}
+    root_ids = {m.thread_id for m, _ in rows if m.thread_id}
+    root_authors = dict((await db.execute(select(StarMessage.id, StarMessage.sender_id)
+        .where(StarMessage.id.in_(root_ids)))).all()) if root_ids else {}
     replies: dict[str, StarReplyOut] = {}
     if reply_ids:
         reply_rows = await db.execute(
@@ -1221,6 +1224,7 @@ async def _messages_out(
             bot_id=m.bot_id,
             buttons=m.buttons or [],
             thread_id=m.thread_id,
+            thread_author_id=root_authors.get(m.thread_id),
             thread_count=threads.get(m.id, (0, None, []))[0],
             thread_last_at=threads.get(m.id, (0, None, []))[1],
             thread_participants=threads.get(m.id, (0, None, []))[2],
@@ -1438,18 +1442,23 @@ async def _push_message(
     also.discard(sender.id)
     targets = await notify.star_push_targets(db, star, channel, message, also)
     body = markup.plain_text(message.text or "") or (f"📎 {file.name}" if file else "")
-    notify.push_later(
-        targets,
-        {
-            "type": "star_message",
-            "title": f"{sender.display_name} · #{channel.name} · {star.name}",
-            "body": body[:200],
-            "star_id": star.id,
-            "channel_id": channel.id,
-            "message_id": message.id,
-            "tag": f"quazar-star-{channel.id}",
-        },
-    )
+    contexts = {star.id: targets}
+    star_names = {star.id: star.name}
+    audience = await shares.audience_star_ids(db, channel.id, channel.star_id)
+    if len(audience) > 1 and targets:
+        selected = {}
+        for uid, sid in (await db.execute(select(StarMember.user_id, StarMember.star_id).where(
+            StarMember.user_id.in_(targets), StarMember.star_id.in_(audience)))).all():
+            if uid not in selected or audience.index(sid) < audience.index(selected[uid]):
+                selected[uid] = sid
+        contexts = {sid: [uid for uid in targets if selected.get(uid) == sid] for sid in audience}
+        star_names = dict((await db.execute(select(Star.id, Star.name).where(Star.id.in_(audience)))).all())
+    for sid, users in contexts.items():
+        notify.push_later(users, {
+            "type": "star_message", "title": f"{sender.display_name} · #{channel.name} · {star_names.get(sid, star.name)}",
+            "body": body[:200], "star_id": sid, "channel_id": channel.id, "message_id": message.id, "thread_id": message.thread_id,
+            "tag": f"quazar-star-message-{message.id}",
+        })
 
 
 async def thread_summaries(db: AsyncSession, root_ids: list[str]) -> dict[str, tuple[int, datetime | None, list[str]]]:

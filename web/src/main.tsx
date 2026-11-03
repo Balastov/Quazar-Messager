@@ -3,6 +3,8 @@ import { createRoot } from "react-dom/client";
 import App from "./App";
 import { capturePendingInvite } from "./api/stars";
 import { registerNotifyServiceWorker } from "./notifications/notify";
+import {startPushLifecycle} from "./notifications/push";
+import {pushWasShown} from "./notifications/delivery";
 import { useUiStore } from "./store/ui";
 import { applyGlassTransparency } from "./styles/glass";
 import "./index.css";
@@ -24,6 +26,7 @@ createRoot(document.getElementById("root")!).render(
 );
 
 void registerNotifyServiceWorker();
+startPushLifecycle();
 
 type SwCallMsg = {
   type?: string;
@@ -36,6 +39,11 @@ type SwCallMsg = {
 
 function handleCallMessage(data: SwCallMsg) {
   if (!data?.type) return;
+  if (data.type === "quazar-push-shown") {
+    const note = data as {messageId?: string; userId?: string};
+    if (note.messageId) pushWasShown(note.messageId, note.userId);
+    return;
+  }
   if (data.type === "quazar-star-door") {
     window.dispatchEvent(
       new CustomEvent("quazar-star-door", { detail: (data as { link?: unknown }).link })
@@ -43,8 +51,8 @@ function handleCallMessage(data: SwCallMsg) {
     return;
   }
   if (data.type === "quazar-open-star") {
-    const link = data as { starId?: string; channelId?: string };
-    window.dispatchEvent(new CustomEvent("quazar-open-star", { detail: { starId: link.starId, channelId: link.channelId } }));
+    const link = data as { starId?: string; channelId?: string; messageId?: string; threadId?: string };
+    window.dispatchEvent(new CustomEvent("quazar-open-star", { detail: { starId: link.starId, channelId: link.channelId, messageId: link.messageId, threadId: link.threadId } }));
     return;
   }
   if (data.type === "quazar-open-chat" && data.chatId) {

@@ -19,15 +19,13 @@ interface Props {
   title: string;
   /** Что будет без своей настройки: для Спутника — «как в Звезде (…)», для остального — по умолчанию. */
   inherited: NotifyLevel;
-  /** Есть ли смысл в «только упоминания» (в личном чате — нет). */
-  mentions?: boolean;
   /** Подпись для «как уровнем выше»; нет — пункта нет (у чатов и Звёзд — это сам уровень по умолчанию). */
   inheritLabel?: string;
   onClose: () => void;
 }
 
 /** Уровень уведомлений и «выключить на время» для чата, Звезды или Спутника. */
-export default function NotifyDialog({ scope, targetId, title, inherited, mentions = true, inheritLabel, onClose }: Props) {
+export default function NotifyDialog({ scope, targetId, title, inherited, inheritLabel, onClose }: Props) {
   const setting = useNotifyStore((st) => st.settings[settingKey(scope, targetId)]);
   const save = useNotifyStore((st) => st.save);
   const [busy, setBusy] = useState(false);
@@ -48,7 +46,7 @@ export default function NotifyDialog({ scope, targetId, title, inherited, mentio
     }
   };
 
-  const levels: NotifyLevel[] = mentions ? ["all", "mentions", "none"] : ["all", "none"];
+  const levels: NotifyLevel[] = ["all", "mentions_only", "replies", "mentions", "none"];
   const current = own ?? (inheritLabel ? null : inherited);
 
   return (
@@ -77,7 +75,7 @@ export default function NotifyDialog({ scope, targetId, title, inherited, mentio
             disabled={busy}
             onClick={() => void apply({ level, muted_until: setting?.muted_until ?? null })}
           >
-            {level === "none" ? "🔕 " : level === "mentions" ? "@ " : "🔔 "}
+            {level === "none" ? "🔕 " : level === "mentions" || level === "mentions_only" ? "@ " : level === "replies" ? "↩ " : "🔔 "}
             {LEVEL_LABEL[level]}
             {current === level && <span className={s.optionHint}>сейчас</span>}
           </button>

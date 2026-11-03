@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Annotated
 
 from pydantic import BaseModel, Field
 
@@ -6,6 +7,7 @@ from pydantic import BaseModel, Field
 MAX_PAYLOAD_LENGTH = 64_000
 # Реакция в личном чате — зашифрованный эмодзи (ENC2 ≈ 200 символов).
 MAX_REACTION_PAYLOAD_LENGTH = 1024
+NotificationTarget = Annotated[str, Field(min_length=1, max_length=36)]
 
 
 class SendMessage(BaseModel):
@@ -14,6 +16,8 @@ class SendMessage(BaseModel):
     attachment_id: str | None = None
     # Ответ на сообщение этого же чата.
     reply_to_id: str | None = None
+    # Только адресаты @упоминания: текст личного сообщения остаётся зашифрованным.
+    notification_mentions: list[NotificationTarget] = Field(default_factory=list, max_length=100)
 
 
 class EditMessage(BaseModel):

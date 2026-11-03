@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, Enum, ForeignKey, String, Text, UniqueConstraint
+from sqlalchemy import DateTime, Enum, ForeignKey, JSON, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -80,6 +80,7 @@ class ScheduledMessage(Base):
         ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
     )
     payload: Mapped[str] = mapped_column(Text, nullable=False)
+    notification_mentions: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     reply_to_id: Mapped[str | None] = mapped_column(
         ForeignKey("messages.id", ondelete="SET NULL"), nullable=True
     )

@@ -19,7 +19,7 @@ from app.core.deps import get_current_user
 from app.models.chat import ChatMember
 from app.models.message import Message, MessageReminder, ScheduledMessage
 from app.models.user import User
-from app.schemas.message import MAX_PAYLOAD_LENGTH
+from app.schemas.message import MAX_PAYLOAD_LENGTH, NotificationTarget
 from app.ws.hub import manager
 
 scheduled_router = APIRouter(prefix="/chats/{chat_id}/scheduled", tags=["scheduled"])
@@ -66,6 +66,7 @@ class ScheduleBody(BaseModel):
     payload: str = Field(min_length=1, max_length=MAX_PAYLOAD_LENGTH)
     send_at: datetime
     reply_to_id: str | None = None
+    notification_mentions: list[NotificationTarget] = Field(default_factory=list, max_length=100)
 
 
 class ScheduledOut(BaseModel):
@@ -126,6 +127,7 @@ async def schedule_message(chat_id: str, body: ScheduleBody, current_user: Curre
         chat_id=chat_id,
         sender_id=current_user.id,
         payload=body.payload,
+        notification_mentions=body.notification_mentions,
         reply_to_id=body.reply_to_id,
         send_at=send_at,
     )

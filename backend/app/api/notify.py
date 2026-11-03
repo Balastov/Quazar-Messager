@@ -22,7 +22,7 @@ CurrentUser = Annotated[User, Depends(get_current_user)]
 Db = Annotated[AsyncSession, Depends(get_db)]
 
 Scope = Literal["chat", "star", "channel"]
-Level = Literal["all", "mentions", "none"]
+Level = Literal["all", "mentions_only", "replies", "mentions", "none"]
 
 
 class NotifyOut(BaseModel):
@@ -49,10 +49,14 @@ async def _assert_target(db: AsyncSession, user_id: str, scope: str, target_id: 
     elif scope == "star":
         query = select(StarMember.user_id).where(StarMember.star_id == target_id, StarMember.user_id == user_id)
     else:
+        from app.core import shares
+        channel = await db.get(StarChannel, target_id)
+        if not channel or channel.kind != "satellite":
+            raise HTTPException(status_code=404, detail="Не найдено")
+        audience = await shares.audience_star_ids(db, channel.id, channel.star_id)
         query = (
             select(StarMember.user_id)
-            .join(StarChannel, StarChannel.star_id == StarMember.star_id)
-            .where(StarChannel.id == target_id, StarChannel.kind == "satellite", StarMember.user_id == user_id)
+            .where(StarMember.star_id.in_(audience), StarMember.user_id == user_id)
         )
     if (await db.execute(query)).first() is None:
         raise HTTPException(status_code=404, detail="Не найдено")

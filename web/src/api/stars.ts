@@ -480,6 +480,7 @@ export interface StarMessage {
   id: string;
   star_id: string;
   channel_id: string;
+  thread_author_id?: string | null;
   sender: StarUser | null;
   text: string;
   created_at: string;

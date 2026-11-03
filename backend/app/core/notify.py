@@ -1,6 +1,7 @@
 """Уровни уведомлений и @упоминания.
 
-Уровень — all | mentions | none, для чата, Звезды и Спутника (Спутник → Звезда → по умолчанию).
+Уровни: all, mentions_only, replies, mentions (старое «упоминания и ответы»), none.
+Для чата, Звезды и Спутника (Спутник → Звезда → по умолчанию).
 muted_until — временная тишина. Непрочитанное считается всегда: уровень решает только, будет ли
 всплывашка, звук и push. Тот же расчёт — web/src/notifications/levels.ts.
 """
@@ -21,14 +22,16 @@ from app.core.push import send_push_to_user
 from app.models.notify import NotifySetting
 from app.models.star import Star, StarChannel, StarMember, StarMessage
 from app.models.user import User
+from app.models.chat import Chat
+from app.models.message import Message
 from app.ws.hub import manager
 
 log = logging.getLogger(__name__)
 
-LEVELS = ("all", "mentions", "none")
+LEVELS = ("all", "mentions_only", "replies", "mentions", "none")
 CHAT_DEFAULT = "all"
-# В Звёздах по умолчанию — только упоминания и ответы мне: в больших Звёздах «всё» быстро надоедает.
-STAR_DEFAULT = "mentions"
+# Старое значение mentions сохраняет смысл «упоминания и ответы», чтобы не менять личный выбор.
+STAR_DEFAULT = "all"
 # @все / @channel — всем участникам, @here / @тут — тем, кто сейчас в сети (оба пишут модераторы и выше).
 ALL_WORDS = {"все", "all", "everyone", "channel", "канал"}
 HERE_WORDS = {"here", "тут", "здесь"}
@@ -94,6 +97,10 @@ def star_level(
     return STAR_DEFAULT
 
 
+def wants(level: str, mentioned: bool, replied: bool = False) -> bool:
+    return level == "all" or (level == "mentions_only" and mentioned) or (level == "replies" and replied) or (level == "mentions" and (mentioned or replied))
+
+
 async def star_push_targets(
     db: AsyncSession, star: Star, channel: StarChannel, message: StarMessage, also_mentioned: Iterable[str] = ()
 ) -> list[str]:
@@ -134,17 +141,15 @@ async def star_push_targets(
         if s.scope == "star" and s.target_id != star_of.get(s.user_id):
             continue
         by_user.setdefault(s.user_id, {})[s.scope] = s
-    mentioned = set(message.mentions or []) | set(also_mentioned)
+    mentioned = set(message.mentions or [])
+    replied = set(also_mentioned)
     wanted = []
     for uid in member_ids:
         level = star_level(by_user.get(uid, {}).get("star"), by_user.get(uid, {}).get("channel"), now)
-        # Ответ в ветке тревожит только упомянутых и автора ветки — даже при «Все сообщения».
-        if message.thread_id and level == "all":
-            level = "mentions"
-        if level == "all" or (level == "mentions" and (message.mention_all or uid in mentioned)):
+        if wants(level, message.mention_all or uid in mentioned, uid in replied):
             wanted.append(uid)
-    # Приложение открыто — там покажет всплывашку сам клиент.
-    wanted = [uid for uid in wanted if not manager.user_connections.get(uid)]
+    # WebSocket может оставаться подключённым в свёрнутой/замороженной PWA.
+    # Доставку и устранение дублей решает service worker каждого устройства.
     if not wanted:
         return []
     statuses = (
@@ -160,11 +165,41 @@ async def star_push_targets(
 
 
 async def _push_all(user_ids: list[str], payload: dict) -> None:
-    for uid in user_ids:
+    # Даём работающей странице короткое время подтвердить обработку сообщения.
+    # Свёрнутая/закрытая PWA ничего не подтвердит и получит независимый Web Push.
+    await asyncio.sleep(1)
+    async def send(uid):
         try:
             await send_push_to_user(uid, payload)
         except Exception:  # noqa: BLE001 — один сбой не должен остановить остальных
             log.warning("star push to %s failed", uid)
+    await asyncio.gather(*(send(uid) for uid in user_ids))
+
+
+async def chat_push_targets(db, chat: Chat, message: Message, recipients: list[str], notification_mentions=(), reply_to=None):
+    """Те же личные настройки, что в клиенте. Шифротекст не разбираем и не отправляем в push."""
+    ids = [uid for uid in recipients if uid != message.sender_id]
+    if chat.type == "saved" or not ids:
+        return []
+    now = datetime.now(timezone.utc)
+    members = list((await db.execute(select(User).where(User.id.in_(ids)))).scalars())
+    settings_by_user = {s.user_id: s for s in (await db.execute(select(NotifySetting).where(
+        NotifySetting.user_id.in_(ids), NotifySetting.scope == "chat", NotifySetting.target_id == chat.id))).scalars()}
+    mentioned = set(notification_mentions or ()) & set(ids)
+    if not message.payload.startswith(("ENC1:", "ENC2:")):
+        found = find_mentions(message.payload, {user.username.lower(): user.id for user in members})
+        mentioned |= found.ids
+        if found.everyone or found.here:
+            mentioned.update(ids)
+    result = []
+    for user in members:
+        setting = settings_by_user.get(user.id)
+        if _active(setting, now) or (user.manual_status == "dnd" and (user.manual_status_until is None or user.manual_status_until > now)):
+            continue
+        level = setting.level if setting and setting.level else CHAT_DEFAULT
+        if wants(level, user.id in mentioned, bool(reply_to and reply_to.sender_id == user.id)):
+            result.append(user.id)
+    return result
 
 
 def push_later(user_ids: list[str], payload: dict) -> None:

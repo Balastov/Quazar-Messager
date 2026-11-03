@@ -62,7 +62,7 @@ async def send_due_scheduled(db: AsyncSession, now: datetime | None = None) -> i
             continue
         try:
             # deliver коммитит — заодно фиксирует удаление из очереди.
-            await deliver(db, chat, sender_id, payload, reply_to=reply_to)
+            await deliver(db, chat, sender_id, payload, reply_to=reply_to, notification_mentions=item.notification_mentions)
             sent += 1
         except HTTPException as exc:
             # Например, отправитель с тех пор заблокировал собеседника — не отправляем.

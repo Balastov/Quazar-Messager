@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import {setNotificationUser} from "../../notifications/delivery";
 import type { ScheduledStarMessage, StarDetail, StarEvent, StarMessage } from "../../api/stars";
 
 const memoryStorage = new Map<string, string>();
@@ -105,6 +106,7 @@ vi.mock("../../api/stars", async (importOriginal) => {
 
 const { useStarsStore, unreadForStar } = await import("../stars");
 const { useAuthStore } = await import("../auth");
+const { useNotifyStore: notifyStore } = await import("../../notifications/levels");
 const { useUiStore } = await import("../ui");
 const { starsApi } = await import("../../api/stars");
 
@@ -113,6 +115,9 @@ function emit(event: StarEvent) {
 }
 
 beforeEach(() => {
+  notifyStore.setState({settings: {}, loaded: true});
+  setNotificationUser(null); setNotificationUser(ME);
+  vi.spyOn(document, "hasFocus").mockReturnValue(true);
   vi.mocked(starsApi.scheduled).mockReset().mockResolvedValue([]);
   vi.mocked(starsApi.schedule).mockReset();
   vi.mocked(starsApi.cancelScheduled).mockReset().mockResolvedValue({} as never);
@@ -436,21 +441,21 @@ describe("mentions and notification levels", () => {
     await useStarsStore.getState().load();
     useUiStore.setState({ tab: "chats" });
 
-    // По умолчанию в Звёздах — только упоминания: обычное сообщение без всплывашки.
+    // По умолчанию все сообщения, включая обычный текст.
     emit({ type: "star_message", star_id: "a", message: message("a", "a-news", "p1") });
-    expect(useToastStore.getState().toasts).toHaveLength(0);
+    expect(useToastStore.getState().toasts).toHaveLength(1);
 
     emit({ type: "star_message", star_id: "a", message: { ...message("a", "a-news", "p2"), mentions: [ME] } });
     const st = useStarsStore.getState();
     expect(st.unread["a-news"]).toMatchObject({ count: 2, mentions: 1 });
     expect(mentionsForStar(st.unread, "a")).toBe(1);
-    expect(useToastStore.getState().toasts.map((t) => [t.starId, t.channelId])).toEqual([["a", "a-news"]]);
+    expect(useToastStore.getState().toasts.map((t) => [t.starId, t.channelId])).toEqual([["a", "a-news"], ["a", "a-news"]]);
 
     // В этом Спутнике — «Ничего»: даже @все молчит.
     useNotifyStore.setState({
       settings: { "channel:a-news": { scope: "channel", target_id: "a-news", level: "none", muted_until: null } },
     });
     emit({ type: "star_message", star_id: "a", message: { ...message("a", "a-news", "p3"), mention_all: true } });
-    expect(useToastStore.getState().toasts).toHaveLength(1);
+    expect(useToastStore.getState().toasts).toHaveLength(2);
   });
 });

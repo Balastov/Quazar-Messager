@@ -97,7 +97,6 @@ export default function ChatActions({ chat, className, title = "Ещё", childre
           targetId={chat.id}
           title={`Уведомления: ${chatTitle(chat, myId)}`}
           inherited={CHAT_DEFAULT}
-          mentions={chat.type === "group"}
           onClose={() => setDialog(null)}
         />
       )}

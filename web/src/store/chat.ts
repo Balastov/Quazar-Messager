@@ -39,6 +39,7 @@ import {
   type TrustStatus,
 } from "../crypto/trust";
 import { notifyIncomingMessage, notifyReminder, notifyInfo } from "../notifications/notify";
+import {acknowledgeMessage} from "../notifications/delivery";
 import { chatLevel, useNotifyStore, wants } from "../notifications/levels";
 import { mentionsName } from "../chat/mentions";
 import {
@@ -504,6 +505,7 @@ export const useChatStore = create<ChatState>((set, get) => {
             : null,
           reactions: [],
         };
+        if (myId !== useAuthStore.getState().user?.id) return;
 
         set((s) => ({
           messages: {
@@ -518,7 +520,8 @@ export const useChatStore = create<ChatState>((set, get) => {
         }
 
         if (myId && event.sender_id !== myId) {
-          const onScreen = chatOnScreen(get().activeChatId, event.chat_id);
+          if (myId !== useAuthStore.getState().user?.id) return;
+          const onScreen = chatOnScreen(get().activeChatId, event.chat_id) && !get().loadingMessages;
           if (!onScreen) {
             useUnreadStore.getState().bump(event.chat_id);
           }
@@ -537,15 +540,22 @@ export const useChatStore = create<ChatState>((set, get) => {
             displayName(chat?.members.find((m) => m.user.id === event.sender_id)?.user) ??
             "Новое сообщение";
           // Уровень уведомлений чата: в группе «только упоминания» — @имя, @все или ответ мне.
+          if (onScreen) acknowledgeMessage(msg.id);
+          if (!useNotifyStore.getState().loaded) {
+            try {await useNotifyStore.getState().load();} catch {return;}
+          }
+          if (myId !== useAuthStore.getState().user?.id) return;
           const me = useAuthStore.getState().user;
-          const mentioned =
-            msg.reply_to?.sender_id === myId || (!!me && mentionsName(decryptedPayload, me.username));
-          const notify = wants(chatLevel(useNotifyStore.getState().settings, event.chat_id), mentioned);
+          const mentioned = !!event.notification_mentions?.includes(myId) || (!!me && mentionsName(decryptedPayload, me.username));
+          const replied = msg.reply_to?.sender_id === myId;
+          const notify = wants(chatLevel(useNotifyStore.getState().settings, event.chat_id), mentioned, replied);
           if (notify) void notifyIncomingMessage({
             title: sender,
             body: messagePreview(decryptedPayload),
             chatId: event.chat_id,
             isActiveChat: onScreen,
+            messageId: msg.id,
+            recipientId: myId,
           });
         }
       }
@@ -866,7 +876,8 @@ export const useChatStore = create<ChatState>((set, get) => {
       if (!chat || !myId) return;
 
       const payload = await sealForChat(chat, myId, plaintext);
-      const msg = await messagesApi.send(chatId, payload, attachmentId, replyToId);
+      const targets = chat.type === "direct" ? chat.members.filter(member => member.user.id !== myId && mentionsName(plaintext, member.user.username)).map(member => member.user.id) : [];
+      const msg = await messagesApi.send(chatId, payload, attachmentId, replyToId, targets);
       // Мгновенный echo по WS; история читается через ENC2 self-box.
       if (payload !== plaintext) sentPlaintextById.set(msg.id, plaintext);
     },
@@ -1075,7 +1086,8 @@ export const useChatStore = create<ChatState>((set, get) => {
       if (!chat || !myId) throw new Error("Чат недоступен — откройте его заново");
       // Шифруем сейчас: сервер хранит и в срок отправит уже готовый шифротекст.
       const payload = await sealForChat(chat, myId, plaintext);
-      const item = await scheduledApi.create(chatId, payload, at, replyToId);
+      const targets = chat.type === "direct" ? chat.members.filter(member => member.user.id !== myId && mentionsName(plaintext, member.user.username)).map(member => member.user.id) : [];
+      const item = await scheduledApi.create(chatId, payload, at, replyToId, targets);
       if (myId !== useAuthStore.getState().user?.id) return;
       scheduledRequests.set(chatId, ++scheduledRevision);
       // Успешную запись в очередь не превращаем в ошибку из-за повторного GET:

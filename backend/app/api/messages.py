@@ -9,7 +9,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import attachments as attachment_files
-from app.core import revisions, support
+from app.core import revisions, support, notify
 from app.core.blocks import block_state, direct_peer
 from app.core.database import get_db
 from app.core.deps import get_current_user
@@ -140,6 +140,7 @@ async def deliver(
     reply_to: Message | None = None,
     attachment_id: str | None = None,
     card: bool = False,
+    notification_mentions: list[str] | None = None,
 ) -> Message:
     """Создать сообщение и разослать его. Общая для отправки и отложенных сообщений.
 
@@ -198,7 +199,19 @@ async def deliver(
     await db.refresh(message)
 
     recipients = [uid for uid in await _get_chat_member_ids(chat.id, db) if uid != hidden_for]
-    await manager.broadcast_to_users(user_ids=recipients, event=new_message_event(message, reply_to))
+    event = new_message_event(message, reply_to)
+    if notification_mentions is not None:
+        event["notification_mentions"] = sorted(set(notification_mentions) & set(recipients))
+    await manager.broadcast_to_users(user_ids=recipients, event=event)
+    targets = await notify.chat_push_targets(db, chat, message, recipients, notification_mentions, reply_to)
+    if targets:
+        sender = await db.get(User, sender_id)
+        notify.push_later(targets, {
+            "type": "chat_message", "title": f"{sender.display_name if sender else 'Новое сообщение'}{(' · ' + chat.name) if chat.type == 'group' and chat.name else ''}",
+            "body": "Новое сообщение", "chat_id": chat.id, "message_id": message.id,
+            "tag": f"quazar-message-{message.id}",
+            "ttl": max(1, min(86400, int((message.expires_at - _now()).total_seconds()))) if message.expires_at else 86400,
+        })
     if chat.type == "support" and from_person and not card:
         await support.on_user_message(db, chat, message, reply_to)
     return message
@@ -282,6 +295,7 @@ async def send_message(
         body.payload,
         reply_to=reply_to,
         attachment_id=body.attachment_id,
+        notification_mentions=body.notification_mentions,
     )
     return (await messages_out(db, [message]))[0]
 

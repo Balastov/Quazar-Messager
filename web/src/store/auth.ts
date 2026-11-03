@@ -4,7 +4,8 @@ import axios from "axios";
 import { http, setAuthToken } from "../api/client";
 import { usersApi } from "../api/users";
 import { socket } from "../ws/socket";
-import { ensurePushSubscription } from "../notifications/push";
+import { ensurePushSubscription, dropPushSubscription } from "../notifications/push";
+import {setNotificationUser} from "../notifications/delivery";
 import { useE2EStore } from "./e2e";
 import { useStarsStore } from "./stars";
 import { useNotifyStore } from "../notifications/levels";
@@ -37,6 +38,7 @@ http.interceptors.response.use(undefined, (err) => {
 });
 
 function afterAuth(token: string, userId: string) {
+  setNotificationUser(userId);
   socket.connect(token);
   void useE2EStore.getState().sync(userId);
   void ensurePushSubscription();
@@ -70,6 +72,8 @@ export const useAuthStore = create<AuthState>()(
       },
 
       logout: () => {
+        void dropPushSubscription();
+        setNotificationUser(null);
         setAuthToken(null);
         socket.disconnect();
         useE2EStore.getState().reset();
@@ -96,7 +100,7 @@ export const useAuthStore = create<AuthState>()(
             .catch(() => {
               state.logout();
             });
-        }
+        } else { setNotificationUser(null); void dropPushSubscription(); }
       },
     }
   )

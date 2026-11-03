@@ -102,7 +102,10 @@ async def _handle_send_message(data: dict, sender_id: str):
             return
         chat = (await db.execute(select(Chat).where(Chat.id == chat_id))).scalar_one()
         try:
-            await deliver(db, chat, sender_id, payload)
+            hints = data.get("notification_mentions", [])
+            if not isinstance(hints, list) or len(hints) > 100 or any(not isinstance(uid, str) or len(uid) > 36 for uid in hints):
+                hints = []
+            await deliver(db, chat, sender_id, payload, notification_mentions=hints)
         except HTTPException:
             return
 

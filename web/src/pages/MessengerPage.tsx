@@ -109,12 +109,17 @@ export default function MessengerPage() {
     // Открыли по уведомлению о сообщении Спутника: ?star=…&channel=…
     const channelLink = params.get("channel");
     if (!door && starId && channelLink) {
-      void useStarsStore.getState().openChannelLink(starId, channelLink);
+      const messageId = params.get("message");
+      if (messageId) void useStarsStore.getState().jumpTo({id: messageId, star_id: starId, channel_id: channelLink, thread_id: params.get("thread")});
+      else void useStarsStore.getState().openChannelLink(starId, channelLink);
       window.history.replaceState({}, "", "/");
     }
     const onOpenStar = (e: Event) => {
-      const detail = (e as CustomEvent<{ starId: string; channelId: string }>).detail;
-      if (detail?.starId && detail.channelId) void useStarsStore.getState().openChannelLink(detail.starId, detail.channelId);
+      const detail = (e as CustomEvent<{ starId: string; channelId: string; messageId?: string; threadId?: string }>).detail;
+      if (detail?.starId && detail.channelId) {
+        if (detail.messageId) void useStarsStore.getState().jumpTo({id: detail.messageId, star_id: detail.starId, channel_id: detail.channelId, thread_id: detail.threadId});
+        else void useStarsStore.getState().openChannelLink(detail.starId, detail.channelId);
+      }
     };
     window.addEventListener("quazar-open-star", onOpenStar);
     const onDoor = (e: Event) => {

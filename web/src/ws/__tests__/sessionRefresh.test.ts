@@ -25,3 +25,15 @@ it("replaces the old socket and cancels pending reconnects when a password chang
   expect(FakeSocket.instances).toHaveLength(2);
   expect(FakeSocket.instances[1].url).toContain("token=fresh-token");
 });
+
+it("ignores late frames from a socket replaced by a new session", () => {
+  vi.stubGlobal("WebSocket", FakeSocket);
+  const received = vi.fn(), off = socket.on(received);
+  socket.connect("old-session"); const old = FakeSocket.instances[0];
+  socket.connect("new-session"); const current = FakeSocket.instances[1];
+  (old.onmessage as unknown as (event: {data: string}) => void)({data: JSON.stringify({type: "pong", source: "old"})});
+  (current.onmessage as unknown as (event: {data: string}) => void)({data: JSON.stringify({type: "pong", source: "current"})});
+  expect(received).toHaveBeenCalledOnce();
+  expect(received).toHaveBeenCalledWith({type: "pong", source: "current"});
+  off();
+});

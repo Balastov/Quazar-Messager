@@ -47,6 +47,7 @@ export type WsEvent =
       timestamp: string;
       reply_to?: MessageReply | null;
       expires_at?: string | null;
+      notification_mentions?: string[];
     }
   /** edited_at null — не правка текста, а новый статус обращения на его карточке. */
   | { type: "message_edited"; chat_id: string; message_id: string; payload: string; edited_at: string | null }

@@ -409,6 +409,7 @@ class StarMessageOut(BaseModel):
     lfg: LfgOut | None = None
     # Ответ в ветке — id корня; у корня — сводка ветки.
     thread_id: str | None = None
+    thread_author_id: str | None = None
     thread_count: int = 0
     thread_last_at: datetime | None = None
     thread_participants: list[str] = []

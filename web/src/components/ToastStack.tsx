@@ -19,7 +19,8 @@ export default function ToastStack() {
           type="button"
           className={s.toast}
           onClick={() => {
-            if (toast.starId && toast.channelId) void useStarsStore.getState().openChannelLink(toast.starId, toast.channelId);
+            if (toast.starId && toast.channelId && toast.messageId) void useStarsStore.getState().jumpTo({id: toast.messageId, star_id: toast.starId, channel_id: toast.channelId, thread_id: toast.threadId});
+            else if (toast.starId && toast.channelId) void useStarsStore.getState().openChannelLink(toast.starId, toast.channelId);
             else if (toast.chatId && toast.messageId) void openMessage(toast.chatId, toast.messageId);
             else if (toast.chatId) void selectChat(toast.chatId);
             dismiss(toast.id);

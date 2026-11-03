@@ -34,6 +34,8 @@ This is not a full Signal Protocol deployment.
 
 ## Non-guarantees
 
+- Notification filtering may expose recipient IDs of explicit mentions as metadata. Direct-message plaintext is never included in server-generated Web Push payloads.
+
 - E2E does **not** fully protect against XSS on the Quazar origin.
 - Groups are **not** end-to-end encrypted.
 - Forward secrecy is limited to ephemeral sender keys per message; no Double Ratchet.

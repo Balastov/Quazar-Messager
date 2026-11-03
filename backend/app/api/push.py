@@ -29,6 +29,8 @@ class PushSubscribeIn(BaseModel):
     endpoint: str = Field(min_length=8, max_length=2048)
     keys: PushKeysIn
     user_agent: str | None = Field(default=None, max_length=512)
+    enabled: bool = True
+    sound: bool = True
 
 
 class PushUnsubscribeIn(BaseModel):
@@ -56,10 +58,13 @@ async def subscribe(
     )
     row = result.scalar_one_or_none()
     if row:
+        if row.user_id != current_user.id:
+            row.recent_message_ids = []
         row.user_id = current_user.id
         row.p256dh = body.keys.p256dh
         row.auth = body.keys.auth
         row.user_agent = body.user_agent
+        row.enabled, row.sound = body.enabled, body.sound
     else:
         db.add(
             PushSubscription(
@@ -68,9 +73,29 @@ async def subscribe(
                 p256dh=body.keys.p256dh,
                 auth=body.keys.auth,
                 user_agent=body.user_agent,
+                enabled=body.enabled,
+                sound=body.sound,
             )
         )
     await db.commit()
+    return {"ok": True}
+
+
+class PushAckIn(BaseModel):
+    endpoint: str = Field(min_length=8, max_length=2048)
+    message_ids: list[Annotated[str, Field(min_length=1, max_length=36)]] = Field(max_length=100)
+
+
+@router.post("/ack")
+async def acknowledge(body: PushAckIn, current_user: Annotated[User, Depends(get_current_user)],
+                      db: Annotated[AsyncSession, Depends(get_db)]):
+    """Конкретное устройство уже обработало сообщение; соединение само по себе не доказательство."""
+    row = (await db.execute(select(PushSubscription).where(PushSubscription.endpoint == body.endpoint,
+        PushSubscription.user_id == current_user.id).with_for_update())).scalar_one_or_none()
+    if row:
+        ids = [mid for mid in body.message_ids if 0 < len(mid) <= 36]
+        row.recent_message_ids = list(dict.fromkeys([*(row.recent_message_ids or []), *ids]))[-512:]
+        await db.commit()
     return {"ok": True}
 
 

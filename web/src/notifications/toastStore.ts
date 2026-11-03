@@ -10,6 +10,7 @@ export interface AppToast {
   /** Сообщение Спутника: нажатие открывает Звезду на этом Спутнике. */
   starId?: string;
   channelId?: string;
+  threadId?: string | null;
 }
 
 interface ToastState {

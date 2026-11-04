@@ -7,12 +7,15 @@ describe("desktop download platform", () => {
     [{ userAgent: "reduced", userAgentData: { platform: "Windows", mobile: false } }, "windows"],
     [{ userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)", platform: "MacIntel" }, "mac"],
     [{ userAgent: "reduced", userAgentData: { platform: "macOS", mobile: false } }, "mac"],
-    [{ userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)", platform: "MacIntel", maxTouchPoints: 5 }, "other"],
-    [{ userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 18)", platform: "iPhone" }, "other"],
-    [{ userAgent: "Mozilla/5.0 (Linux; Android 14)", platform: "Linux armv8l" }, "other"],
+    [{ userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)", platform: "MacIntel", maxTouchPoints: 5 }, "mobile"],
+    [{ userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 18)", platform: "iPhone" }, "mobile"],
+    [{ userAgent: "Mozilla/5.0 (Linux; Android 14)", platform: "Linux armv8l" }, "mobile"],
+    [{ userAgent: "reduced", userAgentData: { platform: "Android", mobile: false } }, "mobile"],
+    [{ userAgent: "Mozilla/5.0 (iPad; CPU OS 18_0 like Mac OS X)", platform: "iPad" }, "mobile"],
+    [{ userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64)", platform: "Win32", maxTouchPoints: 10 }, "windows"],
     [{ userAgent: "Mozilla/5.0 (X11; Linux x86_64)", platform: "Linux x86_64" }, "other"],
-    [{ userAgent: "unknown", userAgentData: { platform: "Windows", mobile: true } }, "other"],
-  ] as const)("identifies supported desktop OS without mistaking phones or iPadOS for a Mac", (browser, expected) => {
+    [{ userAgent: "unknown", userAgentData: { platform: "Windows", mobile: true } }, "mobile"],
+  ] as const)("distinguishes desktop computers from phones and tablets", (browser, expected) => {
     expect(detectDownloadOS(browser)).toBe(expected);
   });
   it("uses published anonymous installer links and keeps both Mac architectures available", () => {

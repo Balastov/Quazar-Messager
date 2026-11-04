@@ -107,8 +107,40 @@ it("does not advertise inside the desktop client", async () => {
   expect(host.textContent).toBe(""); expect(offer()).toBeNull();
 });
 
-it("does not auto-prompt on phones but lets people manually see the computer downloads", async () => {
-  vi.stubGlobal("navigator", { userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 18)", platform: "iPhone" });
+it.each([
+  { userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 18)", platform: "iPhone" },
+  { userAgent: "Mozilla/5.0 (Linux; Android 14) Mobile", platform: "Linux armv8l" },
+  { userAgent: "reduced", userAgentData: { platform: "Android", mobile: false } },
+  { userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)", platform: "MacIntel", maxTouchPoints: 5 },
+])("shows the mobile placeholder on phones and tablets without desktop prompts", async browser => {
+  vi.stubGlobal("navigator", browser);
+  await render(); await tick(60_000); expect(document.querySelector('[role="dialog"]')).toBeNull();
+  expect(host.textContent).toBe("Скачать мобильное приложение");
+  await act(async () => button("Скачать мобильное приложение").click());
+  const dialog = document.querySelector('[role="dialog"][aria-label="Мобильное приложение"]')!;
+  expect(dialog.textContent).toContain("Мобильное приложение почти готово, ожидайте уведомление");
+  expect(dialog.querySelectorAll("a")).toHaveLength(0);
+  expect(document.activeElement).toBe(button("Понятно"));
+  await act(async () => button("Понятно").click());
+  expect(document.querySelector('[role="dialog"]')).toBeNull();
+  expect(preference()).toBeNull();
+});
+
+it("preserves existing desktop preferences when dismissing the mobile notice with Escape", async () => {
+  const saved = JSON.stringify({ never: true, nextAt: 123 });
+  memory.set(DOWNLOAD_PROMPT_KEY, saved);
+  vi.stubGlobal("navigator", { userAgent: "iPhone", platform: "iPhone" });
+  await render();
+  await act(async () => button("Скачать мобильное приложение").click());
+  await act(async () => window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })));
+  expect(document.querySelector('[role="dialog"]')).toBeNull();
+  expect(memory.get(DOWNLOAD_PROMPT_KEY)).toBe(saved);
+  await act(async () => button("Скачать мобильное приложение").click());
+  expect(button("Понятно")).toBeDefined();
+});
+
+it("still offers computer downloads manually on an unsupported desktop OS", async () => {
+  vi.stubGlobal("navigator", { userAgent: "Mozilla/5.0 (X11; Linux x86_64)", platform: "Linux x86_64" });
   await render(); await tick(60_000); expect(offer()).toBeNull();
   await act(async () => button("Скачать десктоп версию").click());
   expect(document.querySelectorAll('[role="dialog"] a')).toHaveLength(3);

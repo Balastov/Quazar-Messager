@@ -1,4 +1,4 @@
-export type DownloadOS = "windows" | "mac" | "other";
+export type DownloadOS = "windows" | "mac" | "mobile" | "other";
 export interface BrowserPlatform {
   userAgent: string; platform?: string; maxTouchPoints?: number;
   userAgentData?: { platform?: string; mobile?: boolean };
@@ -16,8 +16,9 @@ export const DESKTOP_INSTALLERS = {
 export function detectDownloadOS(browser: BrowserPlatform): DownloadOS {
   const ua = browser.userAgent;
   const platform = browser.userAgentData?.platform || browser.platform || "";
-  if (browser.userAgentData?.mobile || /Android|iPhone|iPad|iPod|Windows Phone/i.test(ua) ||
-      (/Mac/i.test(platform) && (browser.maxTouchPoints ?? 0) > 1)) return "other";
+  if (browser.userAgentData?.mobile || /Android|iOS|iPhone|iPad|iPod/i.test(platform) ||
+      /Android|iPhone|iPad|iPod|Windows Phone|Tablet|Kindle|Silk|PlayBook|BlackBerry|webOS/i.test(ua) ||
+      (/Mac/i.test(platform) && (browser.maxTouchPoints ?? 0) > 1)) return "mobile";
   if (/Windows|^Win/i.test(platform) || /Windows NT/i.test(ua)) return "windows";
   if (/Mac/i.test(platform) || /Macintosh/i.test(ua)) return "mac";
   return "other";

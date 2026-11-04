@@ -31,6 +31,10 @@
 .installer span:first-of-type { flex: 1; }
 .installer:hover { color: var(--qz-online); border-color: var(--qz-online); }
 .choices .hint { font-size: 12px; }
+.mobileNotice { display:flex; flex-direction:column; align-items:center; gap:16px; padding:8px 0; text-align:center; }
+.mobileNotice p { margin:0; font-size:14px; line-height:1.5; color:var(--qz-text); }
+.mobileNotice .symbol { margin:0; }
+.mobileNotice button:focus-visible { outline:2px solid var(--qz-online); outline-offset:3px; }
 .downloadButton:focus-visible, .navButton:focus-visible, .close:focus-visible, .actions > *:focus-visible, .installer:focus-visible {
   outline: 2px solid var(--qz-online); outline-offset: 3px;
 }

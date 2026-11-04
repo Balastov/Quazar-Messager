@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { MonitorDown, X } from "lucide-react";
+import { MonitorDown, Smartphone, X } from "lucide-react";
 import { desktop } from "../platform/desktop";
 import { DESKTOP_INSTALLERS, DOWNLOAD_OFFER_DELAY, DOWNLOAD_PROMPT_KEY, detectDownloadOS,
   downloadPreference, parseDownloadPreference, type DownloadAnswer, type DownloadOS, type DownloadPreference } from "../platform/desktopDownloads";
@@ -35,7 +35,7 @@ export function DesktopDownloads({ children }: { children: ReactNode }) {
   }, [never]);
 
   useEffect(() => {
-    if (insideDesktop || os === "other" || !token || busy || mode) return;
+    if (insideDesktop || (os !== "windows" && os !== "mac") || !token || busy || mode) return;
     const readyAt = Date.now() + DOWNLOAD_OFFER_DELAY;
     let timer: ReturnType<typeof setTimeout>;
     const schedule = (delay: number) => { clearTimeout(timer); timer = setTimeout(check, delay); };
@@ -82,9 +82,20 @@ export function DesktopDownloads({ children }: { children: ReactNode }) {
         <p className={s.cooldown}>«Позже» — через неделю, «Не хочу» — через месяц.</p>
       </aside>, document.body)}
     {!insideDesktop && mode?.kind === "choose" && createPortal(
-      <DownloadChoices os={os} never={never} onNever={setNever} onDownload={() => answer("yes")} onClose={() => answer("later")} />,
+      os === "mobile" ? <MobileDownloadNotice onClose={() => setMode(null)} />
+        : <DownloadChoices os={os} never={never} onNever={setNever} onDownload={() => answer("yes")} onClose={() => answer("later")} />,
       document.body)}
   </DesktopDownloadContext.Provider>;
+}
+
+function MobileDownloadNotice({ onClose }: { onClose(): void }) {
+  return <Dialog title="Мобильное приложение" onClose={onClose}>
+    <div className={s.mobileNotice}>
+      <Smartphone size={36} className={s.symbol} aria-hidden />
+      <p>Мобильное приложение почти готово, ожидайте уведомление</p>
+      <button type="button" className={s.primary} autoFocus onClick={onClose}>Понятно</button>
+    </div>
+  </Dialog>;
 }
 
 function DownloadChoices({ os, never, onNever, onDownload, onClose }: {

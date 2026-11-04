@@ -1,10 +1,12 @@
 const { app, BrowserWindow, Menu, Tray, nativeImage, ipcMain, protocol, session, net, shell, dialog, Notification, desktopCapturer, powerMonitor } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
-const { APP_URL, SERVER_ORIGIN, isAppUrl, externalUrl, allowedNotification, authUrl, authReturn } = require('./policy.cjs');
+const { pathToFileURL } = require('node:url');
+const { APP_URL, SERVER_ORIGIN, isAppUrl, trustedMainFrame, externalUrl, allowedNotification, authUrl, authReturn } = require('./policy.cjs');
 const { createProtocolHandler } = require('./protocol.cjs');
 const { installCapture } = require('./capture.cjs');
 const { Updates } = require('./updates.cjs');
+const { Startup } = require('./startup.cjs');
 
 protocol.registerSchemesAsPrivileged([{ scheme: 'quazar-app', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true } }]);
 app.setName('Quazar');
@@ -14,10 +16,11 @@ fs.mkdirSync(profile, { recursive: true });
 app.setPath('userData', profile);
 if (process.platform === 'win32') app.setAppUserModelId('ru.quazar.messenger');
 let window = null, tray = null, quitting = false, busy = false, updates = null;
+let startupWindow = null, startup = null, starting = true;
 let pendingAuth = null, rendererReady = false;
 const notifications = new Map();
-const mainSender = event => !!window && !window.isDestroyed() && event.sender === window.webContents && event.senderFrame === event.sender.mainFrame && isAppUrl(event.senderFrame.url);
-const show = () => { if (window && !window.isDestroyed()) { if (window.isMinimized()) window.restore(); window.show(); window.focus(); } };
+const mainSender = event => !!window && !window.isDestroyed() && trustedMainFrame(event, window.webContents);
+const show = () => { const target = starting ? startupWindow : window; if (target && !target.isDestroyed()) { if (target.isMinimized()) target.restore(); target.show(); target.focus(); } };
 const send = (channel, value) => { if (window && !window.isDestroyed()) window.webContents.send(channel, value); };
 const openExternal = value => { const url = externalUrl(value); return url ? shell.openExternal(url) : Promise.resolve(); };
 
@@ -75,10 +78,13 @@ else {
 
     const { autoUpdater } = require('electron-updater');
     updates = new Updates({ updater: autoUpdater, platform: process.platform, arch: process.arch, version: app.getVersion(), packaged: app.isPackaged,
-      isBusy: () => busy, openExternal, quitAndInstall: () => { quitting = true; autoUpdater.quitAndInstall(false, true); } });
+      isBusy: () => busy, openExternal, quitAndInstall: () => { autoUpdater.quitAndInstall(true, true); } });
+    // BaseUpdater сообщает об успешном старте установки до app.quit(); ошибки не переводят окно в режим выхода.
+    require('electron').autoUpdater.on('before-quit-for-update', () => { quitting = true; });
     updates.on('state', state => send('desktop:update', state));
     const checkWithFeedback = async () => {
       show();
+      if (starting) { if (startup) await startup.start(); return; }
       const state = await updates.check();
       send('desktop:update', { ...state, requested: true });
       if (['error', 'up-to-date', 'disabled'].includes(state.status)) {
@@ -121,12 +127,28 @@ else {
       tray.on('double-click', show);
       if (process.platform === 'darwin') tray.on('click', show);
     } catch { tray = null; }
-    powerMonitor.on('resume', () => { send('desktop:navigate', { kind: 'resume' }); void updates.check(); });
-    const interval = setInterval(() => void updates.check(), 30 * 60_000); interval.unref();
-    await window.loadURL(APP_URL + '/');
-    let timeout;
-    await Promise.race([updates.check(), new Promise(resolve => { timeout = setTimeout(resolve, 4000); })]);
-    clearTimeout(timeout);
-    if (updates.state.status === 'downloaded' && !busy) await updates.install(); else show();
+    powerMonitor.on('resume', () => { if (starting) { if (startup) void startup.start(); } else { send('desktop:navigate', { kind: 'resume' }); void updates.check(); } });
+    startup = new Startup(updates);
+    const splashFile = path.join(__dirname, 'startup.html');
+    const startupSender = event => !!startupWindow && trustedMainFrame(event, startupWindow.webContents, url => url === pathToFileURL(splashFile).href);
+    const guardStartup = fn => (event, ...args) => { if (!startupSender(event)) throw new Error('Forbidden'); return fn(...args); };
+    ipcMain.handle('startup:state', guardStartup(() => startup.state));
+    ipcMain.handle('startup:retry', guardStartup(() => startup.start()));
+    ipcMain.handle('startup:continue', guardStartup(() => startup.continueWithoutCheck()));
+    ipcMain.on('startup:quit', event => { if (startupSender(event)) void quit(); });
+    startupWindow = new BrowserWindow({ width: 440, height: 390, resizable: false, maximizable: false, show: false, autoHideMenuBar: true, title: 'Quazar — обновление', backgroundColor: '#07060f',
+      webPreferences: { preload: path.join(__dirname, 'startup-preload.cjs'), sandbox: true, contextIsolation: true, nodeIntegration: false } });
+    startupWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+    startupWindow.webContents.on('will-navigate', event => event.preventDefault());
+    startupWindow.on('closed', () => { startupWindow = null; if (starting && !quitting) void quit(); });
+    startup.on('state', state => {
+      if (startupWindow && !startupWindow.isDestroyed()) startupWindow.webContents.send('startup:state-changed', state);
+      if (state.phase !== 'ready' || !starting) return;
+      starting = false; startup.dispose(); startupWindow?.close();
+      void window.loadURL(APP_URL + '/').then(() => show()).catch(error => { dialog.showErrorBox('Не удалось открыть Quazar', error.message); void quit(); });
+      const interval = setInterval(() => void updates.check(), 30 * 60_000); interval.unref();
+    });
+    await startupWindow.loadFile(splashFile); show();
+    await startup.start();
   }).catch(error => { dialog.showErrorBox('Quazar не запустился', String(error.message).slice(0, 500)); quitting = true; app.quit(); });
 }

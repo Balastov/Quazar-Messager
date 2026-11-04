@@ -5,7 +5,7 @@ export interface BrowserPlatform {
 }
 
 // Указатель на опубликованный релиз: версия сайта может быть новее десктопной сборки.
-export const DESKTOP_RELEASE = { version: "0.19.2", tag: "desktop-v0.19.2-pilot.1" };
+export const DESKTOP_RELEASE = { version: "0.20.0", tag: "desktop-v0.20.0-pilot.1" };
 const RELEASE_BASE = `https://github.com/Balastov/Quazar-Messager/releases/download/${DESKTOP_RELEASE.tag}`;
 export const DESKTOP_INSTALLERS = {
   windows: { name: "Windows x64", url: `${RELEASE_BASE}/Quazar-${DESKTOP_RELEASE.version}-win-x64.exe` },

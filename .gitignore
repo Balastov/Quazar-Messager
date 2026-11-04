@@ -38,6 +38,8 @@ deploy/livekit/livekit.yaml
 desktop/renderer/
 desktop/release/
 desktop-updates/
+.desktop-updates-staging/
+.desktop-updates-publish.lock
 
 # Uploaded avatars (local / container volume)
 media/

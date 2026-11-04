@@ -5,13 +5,28 @@ const os = require('node:os');
 const path = require('node:path');
 const assert = require('node:assert/strict');
 const http = require('node:http');
-const { APP_URL, SERVER_ORIGIN } = require('../src/policy.cjs');
+const { pathToFileURL } = require('node:url');
+const { APP_URL, SERVER_ORIGIN, trustedMainFrame } = require('../src/policy.cjs');
 const { createProtocolHandler } = require('../src/protocol.cjs');
+const version = require('../package.json').version;
 const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'quazar-smoke-'));
 app.setPath('userData', profile);
 protocol.registerSchemesAsPrivileged([{ scheme: 'quazar-app', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true } }]);
 const timeout = setTimeout(() => { console.error('Desktop smoke timed out'); app.exit(1); }, 40_000);
 app.whenReady().then(async () => {
+  const startupState = { phase: 'checking', currentVersion: version, canContinue: false };
+  const splashFile = path.resolve(__dirname, '../src/startup.html');
+  ipcMain.handle('startup:state', event => { assert.ok(trustedMainFrame(event, splash.webContents, url => url === pathToFileURL(splashFile).href)); return startupState; });
+  const splash = new BrowserWindow({ show: false, webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, preload: path.resolve(__dirname, '../src/startup-preload.cjs') } });
+  await splash.loadFile(splashFile);
+  assert.equal(await splash.webContents.executeJavaScript("typeof window.quazarStartup.state"), 'function');
+  assert.equal((await splash.webContents.executeJavaScript('window.quazarStartup.state()')).currentVersion, version);
+  splash.webContents.send('startup:state-changed', { phase: 'error', currentVersion: version, version: '9.0.0', canContinue: false, message: 'Known update failed' });
+  const blocked = await splash.webContents.executeJavaScript("new Promise(resolve => setTimeout(() => resolve(document.getElementById('continue').hidden), 100))");
+  assert.equal(blocked, true);
+  splash.webContents.send('startup:state-changed', { phase: 'error', currentVersion: version, canContinue: true, message: 'Offline' });
+  const offline = await splash.webContents.executeJavaScript("new Promise(resolve => setTimeout(() => resolve(document.getElementById('continue').hidden), 100))");
+  assert.equal(offline, false); splash.destroy();
   // Реальный сетевой транспорт Electron, но только локальный API с одноразовыми тестовыми данными.
   const server = http.createServer(async (request, response) => {
     let body = '';
@@ -30,11 +45,12 @@ app.whenReady().then(async () => {
     requests++;
     return net.fetch(backend + new URL(url).pathname, options);
   }));
-  ipcMain.handle('desktop:update-state', () => ({ status: 'disabled', currentVersion: '0.19.2', manual: false }));
+  ipcMain.handle('desktop:update-state', event => { assert.ok(trustedMainFrame(event, win.webContents)); return { status: 'disabled', currentVersion: version, manual: false }; });
   ipcMain.handle('desktop:auth-return', () => null);
   const win = new BrowserWindow({ show: false, webPreferences: { session: ses, sandbox: true, contextIsolation: true, nodeIntegration: false,
-    preload: path.resolve(__dirname, '../src/preload.cjs'), additionalArguments: ['--quazar-version=0.19.2', '--quazar-server=' + SERVER_ORIGIN] } });
+    preload: path.resolve(__dirname, '../src/preload.cjs'), additionalArguments: ['--quazar-version=' + version, '--quazar-server=' + SERVER_ORIGIN] } });
   await win.loadURL(APP_URL + '/auth');
+  assert.equal((await win.webContents.executeJavaScript('window.quazarDesktop.updateState()')).status, 'disabled');
   const state = await win.webContents.executeJavaScript(`(async () => {
     for (let i = 0; i < 100 && !document.body.textContent.includes('Создать аккаунт'); i++) await new Promise(resolve => setTimeout(resolve, 50));
     const response = await fetch('/api/auth/providers');

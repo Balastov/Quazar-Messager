@@ -28,7 +28,7 @@ export default function DesktopUpdates() {
   return <aside className={s.banner} aria-label="Обновление Quazar">
     <div role="status"><strong>{state.status === "downloading" ? `Загружаем обновление: ${state.progress ?? 0}%` : `Доступна версия ${state.version}`}</strong>
       <p>{state.manual ? "Скачайте новую сборку для Mac и замените приложение. Ваши данные сохранятся."
-        : state.status === "downloaded" ? "Обновление готово. Установите его после завершения разговора." : "Скачиваем новую версию в фоне."}</p></div>
+        : state.status === "downloaded" ? "Обновление готово. Можно установить сейчас или при следующем запуске приложения." : "Скачиваем новую версию в фоне."}</p></div>
     <div className={s.actions}>
       {(state.status === "downloaded" || state.manual) && <button type="button" disabled={busy} onClick={() => void install()}>
         {state.manual ? "Скачать для Mac" : "Установить и перезапустить"}</button>}

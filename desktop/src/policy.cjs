@@ -15,6 +15,9 @@ function externalUrl(value) {
     return ['https:', 'http:', 'mailto:', 'tel:'].includes(u.protocol) && !u.username && !u.password ? u.href : null;
   } catch { return null; }
 }
+function trustedMainFrame(event, contents, allowedUrl = isAppUrl) {
+  return !!contents && event.sender === contents && event.senderFrame === contents.mainFrame && allowedUrl(event.senderFrame.url);
+}
 function requestTarget(rawUrl, root) {
   if (!isAppUrl(rawUrl)) return null;
   const u = new URL(rawUrl);
@@ -58,4 +61,4 @@ function authReturn(value) {
     return '#' + params.toString();
   } catch { return null; }
 }
-module.exports = { APP_URL, SERVER_ORIGIN, UPDATE_URL, updateUrl, CSP, isAppUrl, externalUrl, requestTarget, allowedNotification, authUrl, authReturn };
+module.exports = { APP_URL, SERVER_ORIGIN, UPDATE_URL, updateUrl, CSP, isAppUrl, trustedMainFrame, externalUrl, requestTarget, allowedNotification, authUrl, authReturn };

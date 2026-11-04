@@ -1,6 +1,6 @@
 {
   "name": "quazar-desktop",
-  "version": "0.19.2",
+  "version": "0.20.0",
   "private": true,
   "description": "Quazar desktop client",
   "author": "Quazar",
@@ -19,30 +19,61 @@
   },
   "devDependencies": {
     "electron": "45.2.1",
-    "electron-builder": "26.18.1"
+    "electron-builder": "26.18.1",
+    "js-yaml": "4.3.2"
   },
   "build": {
     "appId": "ru.quazar.messenger",
     "productName": "Quazar",
-    "directories": { "output": "release", "buildResources": "build" },
-    "files": ["src/**/*", "renderer/**/*", "package.json"],
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "src/**/*",
+      "renderer/**/*",
+      "package.json"
+    ],
     "asar": true,
     "icon": "renderer/icons/icon-512.png",
     "artifactName": "Quazar-${version}-${os}-${arch}.${ext}",
-    "publish": [{ "provider": "generic", "url": "https://quazar-msg.ru/desktop-updates/${os}-${arch}/" }],
+    "publish": [
+      {
+        "provider": "generic",
+        "url": "https://quazar-msg.ru/desktop-updates/${os}-${arch}/"
+      }
+    ],
     "mac": {
       "category": "public.app-category.social-networking",
       "identity": "-",
       "notarize": false,
-      "target": ["dmg", "zip"],
+      "target": [
+        "dmg",
+        "zip"
+      ],
       "extendInfo": {
         "NSMicrophoneUsageDescription": "Quazar использует микрофон для звонков и общения в комнатах.",
         "NSCameraUsageDescription": "Quazar использует камеру для видеозвонков.",
         "NSAudioCaptureUsageDescription": "Quazar передаёт звук компьютера при демонстрации экрана, если вы это разрешили."
       }
     },
-    "win": { "target": ["nsis"] },
-    "nsis": { "oneClick": true, "perMachine": false, "deleteAppDataOnUninstall": false },
-    "protocols": [{ "name": "Quazar desktop", "schemes": ["quazar-desktop"] }]
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "deleteAppDataOnUninstall": false
+    },
+    "protocols": [
+      {
+        "name": "Quazar desktop",
+        "schemes": [
+          "quazar-desktop"
+        ]
+      }
+    ]
   }
 }

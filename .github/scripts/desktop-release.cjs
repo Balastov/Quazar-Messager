@@ -37,6 +37,35 @@ async function prepare() {
     hashes.push(`${hash.digest('hex')}  ${name}`);
   }
   fs.writeFileSync(path.join(root, 'SHA256SUMS.txt'), hashes.join('\n') + '\n');
+  const plan = files.map(([platform, name], index) => ({ name, path: `desktop-release-assets/quazar-desktop-${platform}/${name}`,
+    sha256: hashes[index].split(' ')[0], size: fs.statSync(path.join(root, `quazar-desktop-${platform}`, name)).size }));
+  const checksumFile = fs.readFileSync(path.join(root, 'SHA256SUMS.txt'));
+  plan.push({ name: 'SHA256SUMS.txt', path: 'desktop-release-assets/SHA256SUMS.txt', sha256: crypto.createHash('sha256').update(checksumFile).digest('hex'), size: checksumFile.length });
+  fs.writeFileSync(path.join(root, 'release-plan.json'), JSON.stringify(plan));
+  const yaml = require('../../desktop/node_modules/js-yaml');
+  const publication = { version: candidate.version, channels: {} };
+  for (const channel of ['win-x64', 'mac-arm64', 'mac-x64']) {
+    const folder = path.join(root, `quazar-desktop-${channel}`);
+    const metadata = channel === 'win-x64' ? 'latest.yml' : 'latest-mac.yml';
+    const data = yaml.load(fs.readFileSync(path.join(folder, metadata), 'utf8'));
+    if (data.version !== candidate.version || !Array.isArray(data.files) || !data.files.length) throw new Error('Invalid update feed');
+    const required = new Set([metadata]);
+    for (const file of data.files) {
+      const stem = `Quazar-${candidate.version}-${channel}`;
+      if (typeof file.url !== 'string' || ![`${stem}.exe`, `${stem}.dmg`, `${stem}.zip`].includes(file.url)) throw new Error('Unexpected update URL');
+      const content = fs.readFileSync(path.join(folder, file.url));
+      if (crypto.createHash('sha512').update(content).digest('base64') !== file.sha512 || content.length !== file.size) throw new Error('Update checksum mismatch');
+      required.add(file.url);
+      if (fs.existsSync(path.join(folder, file.url + '.blockmap'))) required.add(file.url + '.blockmap');
+    }
+    publication.channels[channel] = [];
+    for (const name of required) {
+      const content = fs.readFileSync(path.join(folder, name));
+      publication.channels[channel].push({ name, sha256: crypto.createHash('sha256').update(content).digest('hex') });
+    }
+  }
+  fs.writeFileSync(path.join(root, 'publication.json'), JSON.stringify(publication));
+  fs.copyFileSync('.github/scripts/publish-desktop-updates.py', path.join(root, 'publish-desktop-updates.py'));
   const repo = process.env.GITHUB_REPOSITORY;
   if (!/^[\w.-]+\/[\w.-]+$/.test(repo ?? '')) throw new Error('Invalid repository');
   const base = `https://github.com/${repo}/releases/download/${tag}`;
@@ -52,7 +81,9 @@ async function prepare() {
 
 Крестик скрывает окно; приложение продолжает работать в трее/строке меню. Для полного выхода выберите «Завершить Quazar».
 
-Сертификаты издателя и нотарификация пока не настроены: операционная система может показывать предупреждение при первом запуске. На Mac обновления пока устанавливаются вручную. Проверка реальных звонков и демонстрации со звуком продолжается.
+На Windows новая версия устанавливается до открытия основного окна приложения. Во время работы обновление скачивается в фоне и предлагается перезапуск; активный разговор не прерывается. На Mac приложение проверяет версию и предлагает скачать DMG для ручной установки.
+
+Сертификаты издателя и нотарификация пока не настроены: операционная система может показывать предупреждение при первом запуске. Проверка реальных звонков и демонстрации со звуком продолжается.
 
 Контрольные суммы установщиков опубликованы в SHA256SUMS.txt.
 

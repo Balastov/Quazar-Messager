@@ -2,10 +2,10 @@ const { EventEmitter } = require('node:events');
 const { updateUrl } = require('./policy.cjs');
 
 class Updates extends EventEmitter {
-  constructor({ updater, platform, arch, version, packaged, isBusy, quitAndInstall, openExternal }) {
+  constructor({ updater, platform, arch, version, packaged, isBusy, quitAndInstall, openExternal, feed }) {
     super();
     Object.assign(this, { updater, platform, arch, packaged, isBusy, quitAndInstall, openExternal });
-    this.feed = updateUrl(platform, arch);
+    this.feed = feed ?? updateUrl(platform, arch);
     this.manual = platform === 'darwin'; // Закрытый пилот: Developer ID и нотарификация отложены.
     this.state = { status: packaged ? 'idle' : 'disabled', currentVersion: version, manual: this.manual };
     this.inFlight = null;
@@ -46,8 +46,10 @@ class Updates extends EventEmitter {
       return { ok: true };
     }
     if (this.state.status !== 'downloaded' || this.manual) return { ok: false, reason: 'Обновление ещё не готово к установке.' };
-    this.quitAndInstall();
-    return { ok: true };
+    try {
+      this.quitAndInstall();
+      return this.state.status === 'error' ? { ok: false, reason: 'Не удалось запустить установщик. Повторите попытку.' } : { ok: true };
+    } catch { this.failed(); return { ok: false, reason: 'Не удалось запустить установщик. Повторите попытку.' }; }
   }
 }
 module.exports = { Updates };

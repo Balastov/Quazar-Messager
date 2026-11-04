@@ -8,7 +8,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: desktop-release-${{ github.ref }}
+  group: desktop-release
   cancel-in-progress: false
 
 jobs:
@@ -27,6 +27,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: Install update metadata validation tools
+        run: npm ci --prefix desktop --ignore-scripts --no-audit --no-fund
       - name: Validate the release tag and unchanged application sources
         run: node .github/scripts/desktop-release.cjs
       - name: Verify the successful source workflow and all three artifacts
@@ -60,7 +62,28 @@ jobs:
           github-token: ${{ github.token }}
       - name: Validate installers and generate checksums and release notes
         run: node .github/scripts/desktop-release.cjs prepare
+      - name: Validate an existing release before retrying publication
+        id: existing
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('node:fs');
+            let release;
+            try { release = (await github.rest.repos.getReleaseByTag({ ...context.repo, tag: context.ref.replace('refs/tags/', '') })).data; }
+            catch (error) { if (error.status !== 404) throw error; }
+            core.setOutput('exists', release ? 'true' : 'false');
+            if (!release) return;
+            if (release.draft || !release.prerelease) throw new Error('Expected an existing pilot release');
+            const plan = JSON.parse(fs.readFileSync('desktop-release-assets/release-plan.json', 'utf8'));
+            for (const asset of release.assets) {
+              const expected = plan.find(item => item.name === asset.name);
+              if (!expected || asset.digest !== `sha256:${expected.sha256}` || asset.size !== expected.size) throw new Error('Existing release assets differ; refusing to overwrite');
+            }
+            const missing = plan.filter(item => !release.assets.some(asset => asset.name === item.name));
+            fs.writeFileSync('desktop-release-assets/missing-assets.txt', missing.map(item => item.path).join('\n'));
+            core.setOutput('missing', String(missing.length));
       - name: Publish the installers as a GitHub pre-release
+        if: steps.existing.outputs.exists != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
@@ -75,3 +98,27 @@ jobs:
             --title "Quazar Desktop ${VERSION} — тестовая версия" \
             --notes-file desktop-release-assets/release-notes.md \
             --prerelease --latest=false --verify-tag
+      - name: Resume an interrupted asset upload
+        if: steps.existing.outputs.exists == 'true' && steps.existing.outputs.missing != '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          mapfile -t missing < desktop-release-assets/missing-assets.txt
+          gh release upload "$RELEASE_TAG" "${missing[@]}" --repo "$GITHUB_REPOSITORY"
+      - name: Publish the verified updater feeds
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          task_key="$RUNNER_TEMP/quazar-desktop-publish-key"
+          umask 077
+          printf '%s\n' "$DEPLOY_SSH_KEY" > "$task_key"
+          trap 'rm -f "$task_key"' EXIT
+          ssh_args=(-i "$task_key" -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=.github/desktop-updates.known_hosts)
+          stage="/opt/quazar/.desktop-updates-staging/$GITHUB_RUN_ID"
+          ssh "${ssh_args[@]}" "$DEPLOY_USER@$DEPLOY_HOST" "mkdir -p '$stage'"
+          scp "${ssh_args[@]}" -r desktop-release-assets/. "$DEPLOY_USER@$DEPLOY_HOST:$stage/"
+          ssh "${ssh_args[@]}" "$DEPLOY_USER@$DEPLOY_HOST" "python3 '$stage/publish-desktop-updates.py' --staging '$stage'"

@@ -33,6 +33,7 @@ fi
 
 echo "==> Rebuilding containers..."
 mkdir -p desktop-updates
+sudo python3 deploy/scripts/ensure-desktop-updates-nginx.py
 docker compose -f docker-compose.prod.yml --env-file .env.prod "${COMPOSE_PROFILES[@]}" up -d --build
 
 echo "==> Ensuring host nginx /media, /livekit/ + 12m upload limit (10 MB chat images)..."

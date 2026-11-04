@@ -6,7 +6,7 @@ on:
       release_tag:
         description: Published desktop pilot tag to synchronize
         required: true
-        default: desktop-v0.20.1-pilot.1
+        default: desktop-v0.20.3-pilot.1
         type: string
 
 permissions:

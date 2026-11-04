@@ -58,4 +58,8 @@ async function main() {
   assert.equal(result.version, '0.0.2'); assert.equal(result.profilePreserved, true);
   console.log('INSTALLED_WINDOWS_UPGRADE_OK: 0.0.1 -> 0.0.2, automatic restart and retained profile');
 }
-main().catch(error => { console.error(error); process.exitCode = 1; }).finally(() => server.close());
+main().catch(error => {
+  console.error(error);
+  console.error('::error title=Installed Windows upgrade::' + String(error.stack ?? error).replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A'));
+  process.exitCode = 1;
+}).finally(() => server.close());

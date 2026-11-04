@@ -11,12 +11,18 @@ const { createProtocolHandler } = require('../src/protocol.cjs');
 const version = require('../package.json').version;
 const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'quazar-smoke-'));
 app.setPath('userData', profile);
+app.on('window-all-closed', () => {});
 protocol.registerSchemesAsPrivileged([{ scheme: 'quazar-app', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true } }]);
 const timeout = setTimeout(() => { console.error('Desktop smoke timed out'); app.exit(1); }, 40_000);
 app.whenReady().then(async () => {
   const startupState = { phase: 'checking', currentVersion: version, canContinue: false };
   const splashFile = path.resolve(__dirname, '../src/startup.html');
-  ipcMain.handle('startup:state', event => { assert.ok(trustedMainFrame(event, splash.webContents, url => url === pathToFileURL(splashFile).href)); return startupState; });
+  ipcMain.handle('startup:state', event => {
+    const allowed = trustedMainFrame(event, splash.webContents, url => url === pathToFileURL(splashFile).href);
+    assert.ok(allowed, JSON.stringify({ sender: event.sender === splash.webContents, frame: event.senderFrame === event.sender.mainFrame,
+      url: event.senderFrame?.url, expected: pathToFileURL(splashFile).href }));
+    return startupState;
+  });
   const splash = new BrowserWindow({ show: false, webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, preload: path.resolve(__dirname, '../src/startup-preload.cjs') } });
   await splash.loadFile(splashFile);
   assert.equal(await splash.webContents.executeJavaScript("typeof window.quazarStartup.state"), 'function');
@@ -107,4 +113,8 @@ app.whenReady().then(async () => {
   clearTimeout(timeout); win.destroy();
   console.log('DESKTOP_SMOKE_OK: shared renderer, isolated preload, native GET/POST, persistent non-extractable crypto key');
   app.quit();
-}).catch(error => { console.error(error); clearTimeout(timeout); app.exit(1); });
+}).catch(error => {
+  console.error(error);
+  console.error('::error title=Desktop runtime check::' + String(error.stack ?? error).replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A'));
+  clearTimeout(timeout); app.exit(1);
+});

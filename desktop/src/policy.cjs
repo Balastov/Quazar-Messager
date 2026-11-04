@@ -61,4 +61,11 @@ function authReturn(value) {
     return '#' + params.toString();
   } catch { return null; }
 }
-module.exports = { APP_URL, SERVER_ORIGIN, UPDATE_URL, updateUrl, CSP, isAppUrl, trustedMainFrame, externalUrl, requestTarget, allowedNotification, authUrl, authReturn };
+function isUpdateLaunch(value) {
+  try {
+    const u = new URL(value);
+    return u.protocol === 'quazar-desktop:' && u.hostname === 'app' && u.pathname === '/update' &&
+      !u.username && !u.password && !u.port && !u.search && !u.hash;
+  } catch { return false; }
+}
+module.exports = { APP_URL, SERVER_ORIGIN, UPDATE_URL, updateUrl, CSP, isAppUrl, trustedMainFrame, externalUrl, requestTarget, allowedNotification, authUrl, authReturn, isUpdateLaunch };

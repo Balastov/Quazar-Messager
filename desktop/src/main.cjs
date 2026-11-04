@@ -2,11 +2,12 @@ const { app, BrowserWindow, Menu, Tray, nativeImage, ipcMain, protocol, session,
 const path = require('node:path');
 const fs = require('node:fs');
 const { pathToFileURL } = require('node:url');
-const { APP_URL, SERVER_ORIGIN, isAppUrl, trustedMainFrame, externalUrl, allowedNotification, authUrl, authReturn } = require('./policy.cjs');
+const { APP_URL, SERVER_ORIGIN, isAppUrl, trustedMainFrame, externalUrl, allowedNotification, authUrl, authReturn, isUpdateLaunch } = require('./policy.cjs');
 const { createProtocolHandler } = require('./protocol.cjs');
 const { installCapture } = require('./capture.cjs');
 const { Updates } = require('./updates.cjs');
 const { Startup } = require('./startup.cjs');
+const { DesktopLauncher } = require('./launch.cjs');
 
 protocol.registerSchemesAsPrivileged([{ scheme: 'quazar-app', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true } }]);
 app.setName('Quazar');
@@ -18,6 +19,7 @@ if (process.platform === 'win32') app.setAppUserModelId('ru.quazar.messenger');
 let window = null, tray = null, quitting = false, busy = false, updates = null;
 let startupWindow = null, startup = null, starting = true;
 let pendingAuth = null, rendererReady = false;
+let launcher = null, pendingLaunch = false;
 const notifications = new Map();
 const mainSender = event => !!window && !window.isDestroyed() && trustedMainFrame(event, window.webContents);
 const show = () => { const target = starting ? startupWindow : window; if (target && !target.isDestroyed()) { if (target.isMinimized()) target.restore(); target.show(); target.focus(); } };
@@ -40,10 +42,17 @@ else {
     if (rendererReady) send('desktop:auth-returned', fragment); else pendingAuth = fragment;
     show();
   };
-  app.on('open-url', (event, url) => { event.preventDefault(); receiveAuth(url); });
-  app.on('second-instance', (_event, argv) => { const link = argv.find(value => value.startsWith('quazar-desktop:')); if (link) receiveAuth(link); show(); });
+  const receiveLink = value => {
+    if (isUpdateLaunch(value)) {
+      if (launcher) void launcher.run(); else pendingLaunch = true;
+      show(); return;
+    }
+    receiveAuth(value);
+  };
+  app.on('open-url', (event, url) => { event.preventDefault(); receiveLink(url); });
+  app.on('second-instance', (_event, argv) => { const link = argv.find(value => value.startsWith('quazar-desktop:')); if (link) receiveLink(link); show(); });
   const initialLink = process.argv.find(value => value.startsWith('quazar-desktop:'));
-  if (initialLink) receiveAuth(initialLink);
+  if (initialLink) receiveLink(initialLink);
   app.on('activate', show);
   app.on('window-all-closed', () => {});
   app.on('before-quit', event => {
@@ -82,6 +91,10 @@ else {
     // BaseUpdater сообщает об успешном старте установки до app.quit(); ошибки не переводят окно в режим выхода.
     require('electron').autoUpdater.on('before-quit-for-update', () => { quitting = true; });
     updates.on('state', state => send('desktop:update', state));
+    launcher = new DesktopLauncher({ updates, show, isStarting: () => starting,
+      onState: state => send('desktop:update', state),
+      onBlocked: reason => { if (window && !window.isDestroyed() && !quitting) return dialog.showMessageBox(window, { type: 'info', message: reason, buttons: ['OK'] }); } });
+    if (pendingLaunch) { pendingLaunch = false; void launcher.run(); }
     const checkWithFeedback = async () => {
       show();
       if (starting) { if (startup) await startup.start(); return; }
@@ -145,7 +158,7 @@ else {
       if (startupWindow && !startupWindow.isDestroyed()) startupWindow.webContents.send('startup:state-changed', state);
       if (state.phase !== 'ready' || !starting) return;
       starting = false; startup.dispose(); startupWindow?.close();
-      void window.loadURL(APP_URL + '/').then(() => show()).catch(error => { dialog.showErrorBox('Не удалось открыть Quazar', error.message); void quit(); });
+      void window.loadURL(APP_URL + '/').then(() => { show(); void launcher.ready(); }).catch(error => { dialog.showErrorBox('Не удалось открыть Quazar', error.message); void quit(); });
       const interval = setInterval(() => void updates.check(), 30 * 60_000); interval.unref();
     });
     await startupWindow.loadFile(splashFile); show();

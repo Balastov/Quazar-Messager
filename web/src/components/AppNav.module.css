@@ -27,14 +27,6 @@
   filter: drop-shadow(0 0 12px rgba(168, 85, 247, 0.5));
 }
 
-.version {
-  color: var(--qz-online);
-  font-size: 10px;
-  font-weight: 600;
-  line-height: 14px;
-  font-variant-numeric: tabular-nums;
-}
-
 .navItems {
   display: flex;
   flex-direction: column;

@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useAuthStore } from "../store/auth";
 import StatusPicker from "./StatusPicker";
@@ -22,8 +22,9 @@ import {
 import s from "./AppNav.module.css";
 import f from "./support/Support.module.css";
 import { displayName } from "../utils/profile";
-import { version } from "../../package.json";
+import AppVersion from "./AppVersion";
 import DesktopDownloadButton from "./DesktopDownloadButton";
+import { DesktopDownloadContext } from "./DesktopDownloadContext";
 
 const ITEMS: { id: AppTab; label: string; Icon: typeof IconChat }[] = [
   { id: "contacts", label: "Контакты", Icon: IconContacts },
@@ -37,6 +38,7 @@ const ITEMS: { id: AppTab; label: string; Icon: typeof IconChat }[] = [
 const BLACK_HOLE = { id: "blackhole" as AppTab, label: "Чёрная дыра", Icon: Orbit as unknown as typeof IconChat };
 
 export default function AppNav() {
+  const downloads = useContext(DesktopDownloadContext);
   const tab = useUiStore((st) => st.tab);
   const setTab = useUiStore((st) => st.setTab);
   const mobileChatOpen = useUiStore((st) => st.mobileChatOpen);
@@ -127,10 +129,10 @@ export default function AppNav() {
       <aside className={s.side}>
         <div className={s.brand}>
           <img className={s.logo} src="/logo-mark.png?v=neon-q-2" alt="Quazar" />
-          <span className={s.version} aria-label={`Версия приложения ${version}`}>{version}</span>
+          <AppVersion />
         </div>
         <nav className={s.navItems}>{renderItems("side")}</nav>
-        <DesktopDownloadButton variant="nav" />
+        {downloads && downloads.os !== "windows" && downloads.os !== "mac" && <DesktopDownloadButton variant="nav" />}
         <button
           type="button"
           className={f.navButton}

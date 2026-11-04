@@ -1,0 +1,36 @@
+.version {
+  color: var(--qz-online);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 14px;
+  font-variant-numeric: tabular-nums;
+}
+
+.update {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 28px;
+  max-width: 100%;
+  padding: 4px 7px;
+  border: 1px solid rgba(52, 211, 153, .45);
+  border-radius: 8px;
+  background: rgba(52, 211, 153, .12);
+  color: var(--qz-online);
+  font: inherit;
+  font-size: 10px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.update:hover:not(:disabled) { background: rgba(52, 211, 153, .2); border-color: var(--qz-online); }
+.update:focus-visible { outline: 2px solid var(--qz-online); outline-offset: 2px; }
+.update:disabled { opacity: .6; cursor: wait; }
+.message { max-width: 76px; font-size: 10px; line-height: 1.35; color: var(--qz-text-muted); text-align: center; overflow-wrap: anywhere; }
+.error { color: var(--qz-danger); }
+.downloads { display: flex; flex-direction: column; gap: 14px; }
+.downloads p { margin: 0; font-size: 13px; line-height: 1.5; color: var(--qz-text-muted); }
+.installer { display: flex; justify-content: center; min-height: 40px; padding: 10px 14px; border: 1px solid rgba(52, 211, 153, .45);
+  border-radius: 10px; background: rgba(52, 211, 153, .12); color: var(--qz-online); font-size: 13px; text-align: center; text-decoration: none; }
+.installer:hover { background: rgba(52, 211, 153, .2); border-color: var(--qz-online); }
+.installer:focus-visible { outline: 2px solid var(--qz-online); outline-offset: 2px; }

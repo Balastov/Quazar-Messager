@@ -15,22 +15,37 @@ export function statusRank(status: string): number {
 export function pickAckIds(
   messages: Message[],
   myId: string,
-  status: "delivered" | "read"
+  status: "delivered" | "read",
+  group = false,
 ): string[] {
   const target = STATUS_RANK[status];
   return messages
     .filter((m) => m.sender_id && m.sender_id !== myId)
-    .filter((m) => statusRank(m.status) < target)
+    .filter((m) => group && status === "read" ? !m.read_by_me : statusRank(m.status) < target)
     .map((m) => m.id);
 }
 
 export function sendMessageStatus(messageIds: string[], status: "delivered" | "read") {
   if (!messageIds.length) return;
-  socket.send({
-    type: "message_status",
-    message_ids: messageIds,
-    status,
-  });
+  for (let index = 0; index < messageIds.length; index += 250) {
+    socket.send({ type: "message_status", message_ids: messageIds.slice(index, index + 250), status });
+  }
+}
+
+export function applyReadAck(messages: Record<string, Message[]>, messageIds: string[]): Record<string, Message[]> {
+  const ids = new Set(messageIds);
+  let changed = false;
+  const next: Record<string, Message[]> = {};
+  for (const [chatId, list] of Object.entries(messages)) {
+    let chatChanged = false;
+    const updated = list.map(message => {
+      if (!ids.has(message.id) || message.read_by_me) return message;
+      changed = chatChanged = true;
+      return { ...message, read_by_me: true };
+    });
+    next[chatId] = chatChanged ? updated : list;
+  }
+  return changed ? next : messages;
 }
 
 export function applyLocalStatus(

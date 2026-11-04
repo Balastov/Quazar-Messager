@@ -75,7 +75,7 @@ async def _attach_previews(chats: list[Chat], user_id: str, db: AsyncSession) ->
             )
         ).scalars()
     )
-    last_by_chat = {m.chat_id: out for m, out in zip(last, await messages_out(db, last))}
+    last_by_chat = {m.chat_id: out for m, out in zip(last, await messages_out(db, last, user_id))}
 
     # Личные чаты: у сообщения один получатель — его статус и есть «прочитано».
     direct_ids = [c.id for c in chats if c.type != "group"]

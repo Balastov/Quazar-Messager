@@ -2,7 +2,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel
 from sqlalchemy import delete, or_, select
 from sqlalchemy.dialects.postgresql import insert
@@ -16,7 +16,7 @@ from app.core.deps import get_current_user
 from app.core.reactions import REACTIONS
 from app.models.attachment import Attachment
 from app.models.chat import Chat, ChatMember
-from app.models.message import HiddenMessage, Message, MessageReaction, MessageRevision
+from app.models.message import HiddenMessage, Message, MessageReaction, MessageReadReceipt, MessageRevision
 from app.models.user import User
 from app.schemas.message import (
     EditMessage,
@@ -25,6 +25,8 @@ from app.schemas.message import (
     ReplyOut,
     SendMessage,
     SetReaction,
+    MessageReaderOut,
+    MessageReadersOut,
 )
 from app.ws.hub import manager
 
@@ -82,7 +84,7 @@ def _reply_out(message: Message | None) -> ReplyOut | None:
     return ReplyOut(id=message.id, sender_id=message.sender_id, payload=message.payload)
 
 
-async def messages_out(db: AsyncSession, messages: list[Message]) -> list[MessageOut]:
+async def messages_out(db: AsyncSession, messages: list[Message], viewer_id: str | None = None) -> list[MessageOut]:
     """Сообщения вместе с цитатами ответов и реакциями — двумя запросами на всю страницу."""
     reply_ids = {m.reply_to_id for m in messages if m.reply_to_id}
     replies: dict[str, Message] = {}
@@ -100,6 +102,11 @@ async def messages_out(db: AsyncSession, messages: list[Message]) -> list[Messag
         for r in rows.scalars():
             reactions[r.message_id].append(ReactionOut(user_id=r.user_id, payload=r.payload))
 
+    read_ids: set[str] = set()
+    if viewer_id and messages:
+        read_ids = set((await db.execute(select(MessageReadReceipt.message_id).where(
+            MessageReadReceipt.user_id == viewer_id, MessageReadReceipt.message_id.in_([m.id for m in messages])
+        ))).scalars())
     return [
         MessageOut(
             id=m.id,
@@ -112,6 +119,7 @@ async def messages_out(db: AsyncSession, messages: list[Message]) -> list[Messag
             expires_at=m.expires_at,
             reply_to=_reply_out(replies.get(m.reply_to_id)) if m.reply_to_id else None,
             reactions=reactions[m.id],
+            read_by_me=m.id in read_ids,
         )
         for m in messages
     ]
@@ -263,7 +271,7 @@ async def get_messages(
     query = query.order_by(Message.created_at.desc()).limit(limit)
     result = await db.execute(query)
     messages = list(reversed(result.scalars().all()))
-    return await messages_out(db, messages)
+    return await messages_out(db, messages, current_user.id)
 
 
 @router.post("", response_model=MessageOut, status_code=201)
@@ -297,7 +305,7 @@ async def send_message(
         attachment_id=body.attachment_id,
         notification_mentions=body.notification_mentions,
     )
-    return (await messages_out(db, [message]))[0]
+    return (await messages_out(db, [message], current_user.id))[0]
 
 
 @router.get("/media", response_model=list[MessageOut])
@@ -326,7 +334,7 @@ async def list_media(
         if cursor:
             query = query.where(Message.created_at < cursor)
     rows = await db.execute(query.order_by(Message.created_at.desc()).limit(limit))
-    return await messages_out(db, list(rows.scalars().all()))
+    return await messages_out(db, list(rows.scalars().all()), current_user.id)
 
 
 @router.patch("/{message_id}", response_model=MessageOut)
@@ -372,7 +380,33 @@ async def edit_message(
             "edited_at": message.edited_at.isoformat(),
         },
     )
-    return (await messages_out(db, [message]))[0]
+    return (await messages_out(db, [message], current_user.id))[0]
+
+
+@router.get("/{message_id}/readers", response_model=MessageReadersOut)
+async def message_readers(
+    chat_id: str,
+    message_id: str,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    response: Response,
+):
+    await _assert_member(chat_id, current_user.id, db)
+    message = (await db.execute(select(Message).where(
+        Message.chat_id == chat_id, Message.id == message_id, visible_to(current_user.id)
+    ))).scalar_one_or_none()
+    if not message:
+        raise HTTPException(status_code=404, detail="Сообщение не найдено")
+    if message.sender_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Кто прочитал сообщение, может видеть только его автор")
+    if (await db.execute(select(Chat.type).where(Chat.id == chat_id))).scalar_one() != "group":
+        raise HTTPException(status_code=400, detail="Список прочитавших доступен только в групповом чате")
+    rows = (await db.execute(select(User, MessageReadReceipt.read_at).join(
+        MessageReadReceipt, MessageReadReceipt.user_id == User.id
+    ).where(MessageReadReceipt.message_id == message_id, User.id != current_user.id).order_by(MessageReadReceipt.read_at, User.id))).all()
+    response.headers["Cache-Control"] = "no-store"
+    return MessageReadersOut(readers=[MessageReaderOut(id=user.id, username=user.username,
+        display_name=user.display_name, avatar_url=user.avatar_url, read_at=read_at) for user, read_at in rows])
 
 
 class RevisionOut(BaseModel):

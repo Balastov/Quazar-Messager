@@ -486,3 +486,7 @@
 .composerPreview {
   padding: 0 12px 6px;
 }
+.readStatusButton { display:inline-flex; align-items:center; justify-content:center; min-width:26px; min-height:26px; padding:2px;
+  border:none; border-radius:5px; background:transparent; font:inherit; cursor:pointer; }
+.readStatusButton:hover { background:rgba(255,255,255,.08); }
+.readStatusButton:focus-visible { outline:2px solid var(--qz-online); outline-offset:2px; }

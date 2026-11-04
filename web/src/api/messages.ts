@@ -1,9 +1,15 @@
 import { http } from "./client";
 import type { Message } from "./types";
 
+export interface MessageReader {
+  id: string; username: string; display_name: string; avatar_url: string | null; read_at: string;
+}
+
 const base = (chatId: string) => `/chats/${chatId}/messages`;
 
 export const messagesApi = {
+  readers: (chatId: string, messageId: string) =>
+    http.get<{ readers: MessageReader[] }>(`${base(chatId)}/${messageId}/readers`).then(r => r.data.readers),
   pins: (chatId: string) => http.get<Message[]>(`/chats/${chatId}/pins`).then((r) => r.data),
   pin: (chatId: string, messageId: string) => http.put(`/chats/${chatId}/pins/${messageId}`),
   unpin: (chatId: string, messageId: string) => http.delete(`/chats/${chatId}/pins/${messageId}`),

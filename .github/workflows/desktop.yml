@@ -36,7 +36,8 @@ jobs:
           cache-dependency-path: backend/requirements.txt
       - run: pip install -r requirements.txt
         working-directory: backend
-      - run: python -B -m unittest tests.test_oauth_yandex tests.test_phone_verification tests.test_profile
+      - name: Test authentication and message receipt privacy
+        run: python -B -m unittest tests.test_oauth_yandex tests.test_phone_verification tests.test_profile tests.test_group_readers tests.test_message_status tests.test_message_actions tests.test_chat_features
         working-directory: backend
         env:
           TEST_DATABASE_URL: postgresql+asyncpg://quazar:quazar-test@127.0.0.1:5432/quazar_test

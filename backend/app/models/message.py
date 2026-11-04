@@ -56,6 +56,15 @@ class MessageReaction(Base):
     )
 
 
+class MessageReadReceipt(Base):
+    """Первое подтверждение прочтения конкретным участником группового чата."""
+
+    __tablename__ = "message_read_receipts"
+    message_id: Mapped[str] = mapped_column(ForeignKey("messages.id", ondelete="CASCADE"), primary_key=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    read_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
+
+
 class HiddenMessage(Base):
     """«Удалить у меня»: сообщение остаётся у остальных, а этому участнику больше не приходит."""
 

@@ -53,3 +53,17 @@ class MessageOut(BaseModel):
     expires_at: datetime | None = None
     reply_to: ReplyOut | None = None
     reactions: list[ReactionOut] = []
+    # Только собственная отметка получателя; чужие подтверждения доступны отдельным запросом автора.
+    read_by_me: bool = False
+
+
+class MessageReaderOut(BaseModel):
+    id: str
+    username: str
+    display_name: str
+    avatar_url: str | None
+    read_at: datetime
+
+
+class MessageReadersOut(BaseModel):
+    readers: list[MessageReaderOut]

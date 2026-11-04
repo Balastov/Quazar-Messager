@@ -26,6 +26,7 @@ import { presenceTone } from "../utils/presence";
 import LinkifiedText from "./LinkifiedText";
 import FormattedText from "./messages/FormattedText";
 import EditHistory from "./messages/EditHistory";
+import ReadByDialog from "./messages/ReadByDialog";
 import { messagesApi } from "../api/messages";
 import ComposerInput, { type ComposerHandle } from "./messages/ComposerInput";
 import FormatBar, { useFormatBarOpen } from "./messages/FormatBar";
@@ -167,6 +168,7 @@ export default function MessageView({ showBack = false }: Props) {
   const [forwarding, setForwarding] = useState<Message | null>(null);
   /** Чью историю правок показать. */
   const [editsOf, setEditsOf] = useState<Message | null>(null);
+  const [readersFor, setReadersFor] = useState<string | null>(null);
   /** Окно «когда»: отложить отправку текста из поля или напомнить о сообщении. */
   const [whenFor, setWhenFor] = useState<{
     kind: "schedule"; chatId: string; text: string; draft: string; replyToId?: string;
@@ -214,6 +216,7 @@ export default function MessageView({ showBack = false }: Props) {
 
   useEffect(() => {
     setSendError(null);
+    setReadersFor(null);
   }, [activeChatId]);
 
   // Сообщение, на которое отвечаем или которое правим, удалили — убираем и полосу над вводом.
@@ -577,6 +580,7 @@ export default function MessageView({ showBack = false }: Props) {
     const own = msg.sender_id === currentUser?.id;
     const plain = isPlainText(msg.payload);
     const actions: MenuAction[] = [];
+    if (own && chat?.type === "group") actions.push({ label: "Кто прочитал", onClick: () => setReadersFor(msg.id) });
     if (!inputDisabled) actions.push({ label: "Ответить", onClick: () => startReply(msg) });
     if (own && plain && !msg.forwarded_from && !inputDisabled) actions.push({ label: "Изменить", onClick: () => startEdit(msg) });
     if (plain) {
@@ -829,6 +833,7 @@ export default function MessageView({ showBack = false }: Props) {
             onQuoteClick={(id) => revealMessage(listRef.current, id)}
             mention={mentionKind}
             onShowEdits={() => setEditsOf(msg)}
+            onShowReaders={chat?.type === "group" && msg.sender_id === currentUser?.id ? () => setReadersFor(msg.id) : undefined}
           />
         ))}
         {uploading > 0 && (
@@ -1025,6 +1030,9 @@ export default function MessageView({ showBack = false }: Props) {
         />
       )}
 
+      {readersFor && activeChatId && currentUser && chat?.type === "group" && msgs.some(msg => msg.id === readersFor && msg.sender_id === currentUser.id) && (
+        <ReadByDialog key={`${activeChatId}:${readersFor}`} chatId={activeChatId} messageId={readersFor} authorId={currentUser.id} onClose={() => setReadersFor(null)} />
+      )}
       {menu && (
         <MessageMenu
           at={menu}
@@ -1143,6 +1151,7 @@ interface ChatMessageProps {
   mention?: MentionKind;
   /** Открыть историю правок (по «изменено»). */
   onShowEdits: () => void;
+  onShowReaders?: () => void;
 }
 
 function ChatMessage({
@@ -1160,6 +1169,7 @@ function ChatMessage({
   onQuoteClick,
   mention,
   onShowEdits,
+  onShowReaders,
 }: ChatMessageProps) {
   const trigger = useMessageMenuTrigger(onOpenMenu);
   const unavailable = msg.payload.startsWith("Сообщение недоступно");
@@ -1244,7 +1254,10 @@ function ChatMessage({
           minute: "2-digit",
         })}
         {isOwn && (
-          <span className={statusClass(msg.status)} aria-label={msg.status}>
+          onShowReaders ? <button type="button" className={`${s.readStatusButton} ${statusClass(msg.status)}`} onClick={onShowReaders}
+            aria-label="Кто прочитал сообщение" title="Кто прочитал">
+            {statusIcon(msg.status)}
+          </button> : <span className={statusClass(msg.status)} aria-label={msg.status}>
             {statusIcon(msg.status)}
           </span>
         )}

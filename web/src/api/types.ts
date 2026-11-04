@@ -59,6 +59,10 @@ export type WsEvent =
   | { type: "message_reaction"; chat_id: string; message_id: string; user_id: string; payload: string | null }
   | { type: "typing"; chat_id: string; user_id: string }
   | { type: "message_status"; message_id: string; status: string; updated_by: string }
+  /** Только автору сообщения: обновить приватный список прочитавших. */
+  | { type: "message_read"; chat_id: string; message_id: string }
+  /** Только этому получателю (включая его другие устройства). */
+  | { type: "message_read_ack"; message_ids: string[] }
   | { type: "key_changed"; user_id: string; public_key: string; updated_at: string }
   /** Собеседник (или я на другом устройстве) сменил имя или никнейм. */
   | { type: "user_updated"; user: User }
@@ -221,6 +225,7 @@ export interface Message {
   sender_id: string | null;
   payload: string;
   status: "sent" | "delivered" | "read";
+  read_by_me?: boolean;
   created_at: string;
   edited_at?: string | null;
   /** Исчезающее сообщение: когда пропадёт у всех. */

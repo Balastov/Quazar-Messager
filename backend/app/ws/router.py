@@ -1,19 +1,20 @@
 import asyncio
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from sqlalchemy import or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.dialects.postgresql import insert
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.core.security import decode_token, token_is_current
 from app.models.chat import Chat, ChatMember
-from app.models.message import Message
+from app.models.message import Message, MessageReadReceipt
 from app.models.user import User
 from app.core import presence
-from app.api.messages import deliver
+from app.api.messages import deliver, visible_to
 from app.ws import calls as call_signaling
 from app.ws import typing as typing_signals
 from app.core import room_activities
@@ -146,27 +147,36 @@ async def _handle_status(data: dict, user_id: str):
         if mid not in seen:
             seen.add(mid)
             unique_ids.append(mid)
+        if len(unique_ids) >= 512:
+            break
 
     updates: list[tuple[str, str, str]] = []  # message_id, status, sender_id
     # Прочитал до: chat_id -> самое свежее из прочитанных сейчас сообщений.
     read_up_to: dict[str, datetime] = {}
+    receipt_events: list[tuple[str, dict]] = []
+    acknowledged: list[str] = []
 
     async with AsyncSessionLocal() as db:
-        result = await db.execute(select(Message).where(Message.id.in_(unique_ids)))
-        messages = list(result.scalars().all())
+        result = await db.execute(select(Message, Chat.type).join(Chat, Chat.id == Message.chat_id).join(
+            ChatMember, ChatMember.chat_id == Message.chat_id
+        ).where(ChatMember.user_id == user_id, Message.id.in_(unique_ids), visible_to(user_id))
+            .order_by(Message.id).with_for_update(of=Message))
+        rows = result.all()
+        messages = [message for message, _ in rows]
         if not messages:
             return
 
-        member_cache: dict[str, bool] = {}
+        member_cache = {message.chat_id: chat_type for message, chat_type in rows}
+        receipt_rows = []
+        now = datetime.now(timezone.utc)
         for message in messages:
             if message.sender_id == user_id:
                 continue
 
             chat_id = message.chat_id
-            if chat_id not in member_cache:
-                member_cache[chat_id] = await _is_chat_member(db, chat_id, user_id)
-            if not member_cache[chat_id]:
-                continue
+            if new_status == "read" and member_cache[chat_id] == "group":
+                receipt_rows.append({"message_id": message.id, "user_id": user_id, "read_at": now})
+                acknowledged.append(message.id)
 
             if new_status == "read" and (
                 chat_id not in read_up_to or message.created_at > read_up_to[chat_id]
@@ -181,6 +191,16 @@ async def _handle_status(data: dict, user_id: str):
             if message.sender_id:
                 updates.append((message.id, new_status, message.sender_id))
 
+        if receipt_rows:
+            inserted = (await db.execute(insert(MessageReadReceipt).values(receipt_rows).on_conflict_do_nothing(
+                index_elements=[MessageReadReceipt.message_id, MessageReadReceipt.user_id]
+            ).returning(MessageReadReceipt.message_id))).scalars().all()
+            by_id = {message.id: message for message in messages}
+            for message_id in inserted:
+                message = by_id[message_id]
+                if message.sender_id:
+                    receipt_events.append((message.sender_id, {"type": "message_read", "chat_id": message.chat_id, "message_id": message_id}))
+
         # В группах статус сообщения общий: свои непрочитанные считаются по этой отметке.
         for chat_id, ts in read_up_to.items():
             await db.execute(
@@ -193,7 +213,16 @@ async def _handle_status(data: dict, user_id: str):
                 .values(last_read_at=ts)
             )
 
-        if updates or read_up_to:
+        # Автор, вышедший из чата, не получает новые сведения об активности группы.
+        recipients = {(row[0], row[1]) for row in (await db.execute(select(ChatMember.chat_id, ChatMember.user_id).where(
+            ChatMember.chat_id.in_({m.chat_id for m in messages}),
+            ChatMember.user_id.in_({m.sender_id for m in messages if m.sender_id})
+        ))).all()}
+        status_changed = bool(updates)
+        by_id = {message.id: message for message in messages}
+        updates = [(mid, status, sender) for mid, status, sender in updates if (by_id[mid].chat_id, sender) in recipients]
+        receipt_events = [(sender, event) for sender, event in receipt_events if (event["chat_id"], sender) in recipients]
+        if status_changed or read_up_to or receipt_rows:
             await db.commit()
 
     for message_id, status, sender_id in updates:
@@ -206,3 +235,7 @@ async def _handle_status(data: dict, user_id: str):
                 "updated_by": user_id,
             },
         )
+    for sender_id, event in receipt_events:
+        await manager.send_to_user(sender_id, event)
+    if acknowledged:
+        await manager.send_to_user(user_id, {"type": "message_read_ack", "message_ids": acknowledged})

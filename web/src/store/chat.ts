@@ -45,6 +45,7 @@ import { mentionsName } from "../chat/mentions";
 import {
   applyLocalStatus,
   pickAckIds,
+  applyReadAck,
   sendMessageStatus,
   statusRank,
 } from "../ws/receipts";
@@ -85,7 +86,7 @@ function ackChatMessages(
   const myId = useAuthStore.getState().user?.id;
   if (!myId) return;
   const msgs = get().messages[chatId] ?? [];
-  const ids = pickAckIds(msgs, myId, status);
+  const ids = pickAckIds(msgs, myId, status, get().chats.some(chat => chat.id === chatId && chat.type === "group"));
   if (!ids.length) return;
   sendMessageStatus(ids, status);
   set((s) => ({ messages: applyLocalStatus(s.messages, ids, status) }));
@@ -665,6 +666,10 @@ export const useChatStore = create<ChatState>((set, get) => {
         });
       }
 
+      if (event.type === "message_read_ack") {
+        set(state => ({ messages: applyReadAck(state.messages, event.message_ids) }));
+      }
+
       if (event.type === "user_updated") {
         const auth = useAuthStore.getState();
         // У события нет почты — её сохраняем свою.
@@ -714,7 +719,7 @@ export const useChatStore = create<ChatState>((set, get) => {
   // теперь его сообщения прочитаны.
   const ackIfOnScreen = () => {
     const chatId = get().activeChatId;
-    if (!chatId || !chatOnScreen(chatId, chatId)) return;
+    if (!chatId || get().loadingMessages || !chatOnScreen(chatId, chatId)) return;
     ackChatMessages(get, set, chatId, "read");
     useUnreadStore.getState().clear(chatId);
   };
@@ -722,6 +727,7 @@ export const useChatStore = create<ChatState>((set, get) => {
     document.addEventListener("visibilitychange", ackIfOnScreen);
     window.addEventListener("focus", ackIfOnScreen);
   }
+  socket.onStatus(open => { if (open) ackIfOnScreen(); });
   useUiStore.subscribe((st, prev) => {
     if (st.tab !== prev.tab || st.mobileChatOpen !== prev.mobileChatOpen) ackIfOnScreen();
   });

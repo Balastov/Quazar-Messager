@@ -1,10 +1,13 @@
 name: Sync published desktop update feeds
 
 on:
-  push:
-    branches: [desktop/initial-clients]
-    paths: ['.github/workflows/desktop-feeds.yml']
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Published desktop pilot tag to synchronize
+        required: true
+        default: desktop-v0.20.1-pilot.1
+        type: string
 
 permissions:
   actions: read
@@ -14,5 +17,5 @@ jobs:
   sync:
     uses: ./.github/workflows/desktop-release.yml
     with:
-      release_tag: desktop-v0.20.0-pilot.1
+      release_tag: ${{ inputs.release_tag }}
     secrets: inherit

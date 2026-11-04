@@ -79,6 +79,8 @@ async function prepare() {
   fs.copyFileSync('.github/scripts/publish-desktop-updates.py', path.join(root, 'publish-desktop-updates.py'));
   const notes = `Тестовая версия Quazar Desktop ${candidate.version} для Windows и macOS.
 
+${Array.isArray(candidate.highlights) ? candidate.highlights.map(item => `- ${item}`).join('\n') + '\n' : ''}
+
 Скачивание доступно без входа в GitHub:
 
 - [Windows x64 — установщик EXE](${base}/${files[0][1]})

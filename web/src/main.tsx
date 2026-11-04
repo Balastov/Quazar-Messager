@@ -10,6 +10,7 @@ import { applyGlassTransparency } from "./styles/glass";
 import "./index.css";
 import { startDesktop } from "./platform/bootstrap";
 import DesktopUpdates from "./components/DesktopUpdates";
+import { DesktopDownloads } from "./components/DesktopDownload";
 
 applyGlassTransparency(useUiStore.getState().glassTransparency);
 useUiStore.subscribe((st, prev) => {
@@ -24,8 +25,10 @@ startDesktop();
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <App />
-    <DesktopUpdates />
+    <DesktopDownloads>
+      <App />
+      <DesktopUpdates />
+    </DesktopDownloads>
   </StrictMode>
 );
 

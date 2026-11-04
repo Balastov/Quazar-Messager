@@ -1,0 +1,37 @@
+.downloadButton, .navButton {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px; width: 100%;
+  padding: 12px 14px; border: 1px solid rgba(52, 211, 153, .45); border-radius: 14px;
+  background: rgba(52, 211, 153, .12); color: var(--qz-online); text-decoration: none; font: inherit; font-size: 14px; font-weight: 600; cursor: pointer;
+}
+.downloadButton svg, .navButton svg { flex-shrink: 0; }
+.navButton { flex-direction: column; padding: 9px 4px; gap: 5px; font-size: 10px; line-height: 1.35; text-align: center; }
+.downloadButton:hover, .navButton:hover { background: rgba(52, 211, 153, .2); border-color: var(--qz-online); }
+.offer {
+  position: fixed; right: 16px; bottom: calc(16px + var(--qz-safe-bottom)); z-index: 100;
+  width: min(350px, calc(100vw - 32px)); padding: 18px; border: 1px solid rgba(52, 211, 153, .45); border-radius: 16px;
+  background: var(--qz-bg); color: var(--qz-text); text-align: left;
+}
+.symbol { color: var(--qz-online); margin-bottom: 9px; }
+.offer h2 { margin: 0 24px 8px 0; font-size: 17px; line-height: 1.3; }
+.offer p, .choices p { margin: 0; color: var(--qz-text-muted); font-size: 13px; line-height: 1.5; }
+.close { position: absolute; top: 8px; right: 8px; display: grid; place-items: center; width: 32px; height: 32px;
+  border: none; border-radius: 8px; background: transparent; color: var(--qz-text-muted); cursor: pointer; }
+.close:hover { color: var(--qz-text); background: var(--qz-bg-soft); }
+.actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 16px 0 14px; }
+.primary, .secondary, .quiet { display: inline-flex; align-items: center; justify-content: center; min-height: 36px; padding: 7px 13px;
+  border: 1px solid var(--qz-border); border-radius: 10px; color: var(--qz-text); background: var(--qz-bg-soft); font: inherit; font-size: 13px; text-decoration: none; cursor: pointer; }
+.primary { color: var(--qz-bg); background: var(--qz-online); border-color: var(--qz-online); font-weight: 600; }
+.quiet { border-color: transparent; background: transparent; color: var(--qz-text-muted); }
+.checkbox { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--qz-text-muted); cursor: pointer; }
+.checkbox input { width: 16px; height: 16px; flex-shrink: 0; accent-color: var(--qz-online); }
+.offer .cooldown { margin-top: 8px; font-size: 11px; }
+.choices { display: flex; flex-direction: column; gap: 14px; }
+.installer { display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 12px;
+  border: 1px solid var(--qz-border); border-radius: 12px; background: var(--qz-bg-soft); color: var(--qz-text); text-decoration: none; font-size: 14px; }
+.installer span:first-of-type { flex: 1; }
+.installer:hover { color: var(--qz-online); border-color: var(--qz-online); }
+.choices .hint { font-size: 12px; }
+.downloadButton:focus-visible, .navButton:focus-visible, .close:focus-visible, .actions > *:focus-visible, .installer:focus-visible {
+  outline: 2px solid var(--qz-online); outline-offset: 3px;
+}
+@media (max-width: 767px) { .offer { bottom: calc(88px + var(--qz-safe-bottom)); } }

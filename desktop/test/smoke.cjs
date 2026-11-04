@@ -57,6 +57,7 @@ app.whenReady().then(async () => {
       node: typeof window.require, api: await response.json(), posted: await posted.json() };
   })()`);
   assert.match(state.title, /Создать аккаунт/);
+  assert.doesNotMatch(state.title, /Скачать десктоп версию/);
   assert.equal(state.secure, true);
   assert.equal(state.crypto, true);
   assert.equal(state.storage, 'object');

@@ -26,7 +26,7 @@ export default function NotifyPrompt() {
   if (!visible) return null;
 
   return (
-    <div className={s.banner}>
+    <div className={s.banner} data-notify-prompt>
       <div className={s.text}>
         <strong>Уведомления</strong>
         <span>Включите, чтобы не пропускать сообщения и звонки в фоне</span>

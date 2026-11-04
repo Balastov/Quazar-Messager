@@ -23,6 +23,7 @@ import s from "./AppNav.module.css";
 import f from "./support/Support.module.css";
 import { displayName } from "../utils/profile";
 import { version } from "../../package.json";
+import DesktopDownloadButton from "./DesktopDownloadButton";
 
 const ITEMS: { id: AppTab; label: string; Icon: typeof IconChat }[] = [
   { id: "contacts", label: "Контакты", Icon: IconContacts },
@@ -129,6 +130,7 @@ export default function AppNav() {
           <span className={s.version} aria-label={`Версия приложения ${version}`}>{version}</span>
         </div>
         <nav className={s.navItems}>{renderItems("side")}</nav>
+        <DesktopDownloadButton variant="nav" />
         <button
           type="button"
           className={f.navButton}

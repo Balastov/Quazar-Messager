@@ -12,6 +12,7 @@ import PhoneVerification from "../components/profile/PhoneVerification";
 import s from "./AuthPage.module.css";
 import { desktop } from "../platform/desktop";
 import { startDesktopYandexLogin } from "../auth/desktopYandex";
+import DesktopDownloadButton from "../components/DesktopDownloadButton";
 
 export default function AuthPage() {
   const [screen, setScreen] = useState<"welcome" | "login" | "register" | "profile">("welcome");
@@ -74,7 +75,7 @@ export default function AuthPage() {
     <img className={s.logoMark} src="/logo-mark.png?v=neon-q-2" alt="" />
     <h1 className={s.brandName}>Quazar</h1><p className={s.tagline}>Общение. Звонки. Люди. В одном пространстве.</p>
     <div className={s.actions}><button type="button" className={s.primary} onClick={() => go("login")}>Войти</button>
-      <button type="button" className={s.ghost} onClick={() => go("register")}>Создать аккаунт</button>{yandexButton}</div>
+      <button type="button" className={s.ghost} onClick={() => go("register")}>Создать аккаунт</button>{yandexButton}<DesktopDownloadButton /></div>
   </div></div>;
   return <div className={s.root}><div className={s.card}><div className={s.formCard}>
     <button type="button" className={s.back} onClick={() => go(screen === "profile" ? "register" : "welcome")}>← Назад</button>

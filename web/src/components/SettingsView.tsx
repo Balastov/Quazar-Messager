@@ -27,6 +27,7 @@ import CustomStatusEditor from "./status/CustomStatusEditor";
 import { previewsEnabled, setPreviewsEnabled } from "../chat/linkPreview";
 import { MyWorkSchedule } from "./constellation/WorkSettings";
 import { useWallpaperStore } from "../store/wallpaper";
+import DesktopDownloadButton from "./DesktopDownloadButton";
 import { prepareBackground } from "../utils/wallpaper";
 
 const STAR_SOUNDS: [StarSoundEvent, string][] = [
@@ -135,6 +136,7 @@ export default function SettingsView() {
     <div className={s.root}>
       <div className={s.inner}>
         <h2 className={s.title}>Настройки</h2>
+        <DesktopDownloadButton />
 
         <section className={s.card}>
           <div className={s.profileRow}>

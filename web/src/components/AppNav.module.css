@@ -41,6 +41,9 @@
   gap: 6px;
   width: 100%;
   flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
 }
 
 .item,

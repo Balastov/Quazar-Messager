@@ -3,6 +3,11 @@ name: Publish desktop pilot release
 on:
   push:
     tags: ['desktop-v*']
+  workflow_call:
+    inputs:
+      release_tag:
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -15,7 +20,9 @@ jobs:
   publish:
     if: github.repository == 'Balastov/Quazar-Messager'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 45
+    env:
+      RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
     permissions:
       actions: read
       contents: write
@@ -29,6 +36,8 @@ jobs:
           node-version: '22'
       - name: Install update metadata validation tools
         run: npm ci --prefix desktop --ignore-scripts --no-audit --no-fund
+      - name: Test atomic updater publication
+        run: python3 -B -m unittest discover -s .github/scripts -p 'test_*.py'
       - name: Validate the release tag and unchanged application sources
         run: node .github/scripts/desktop-release.cjs
       - name: Verify the successful source workflow and all three artifacts
@@ -69,12 +78,16 @@ jobs:
           script: |
             const fs = require('node:fs');
             let release;
-            try { release = (await github.rest.repos.getReleaseByTag({ ...context.repo, tag: context.ref.replace('refs/tags/', '') })).data; }
+            try { release = (await github.rest.repos.getReleaseByTag({ ...context.repo, tag: process.env.RELEASE_TAG })).data; }
             catch (error) { if (error.status !== 404) throw error; }
             core.setOutput('exists', release ? 'true' : 'false');
-            if (!release) return;
-            if (release.draft || !release.prerelease) throw new Error('Expected an existing pilot release');
             const plan = JSON.parse(fs.readFileSync('desktop-release-assets/release-plan.json', 'utf8'));
+            if (!release) {
+              const extra = plan.filter(item => !['SHA256SUMS.txt', ...['win-x64.exe', 'mac-arm64.dmg', 'mac-x64.dmg'].map(suffix => `Quazar-${{ steps.candidate.outputs.version }}-${suffix}`)].includes(item.name));
+              fs.writeFileSync('desktop-release-assets/missing-assets.txt', extra.map(item => item.path).join('\n'));
+              core.setOutput('missing', String(extra.length)); return;
+            }
+            if (release.draft || !release.prerelease) throw new Error('Expected an existing pilot release');
             for (const asset of release.assets) {
               const expected = plan.find(item => item.name === asset.name);
               if (!expected || asset.digest !== `sha256:${expected.sha256}` || asset.size !== expected.size) throw new Error('Existing release assets differ; refusing to overwrite');
@@ -86,7 +99,6 @@ jobs:
         if: steps.existing.outputs.exists != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.ref_name }}
           VERSION: ${{ steps.candidate.outputs.version }}
         run: |
           gh release create "$RELEASE_TAG" \
@@ -98,11 +110,10 @@ jobs:
             --title "Quazar Desktop ${VERSION} — тестовая версия" \
             --notes-file desktop-release-assets/release-notes.md \
             --prerelease --latest=false --verify-tag
-      - name: Resume an interrupted asset upload
-        if: steps.existing.outputs.exists == 'true' && steps.existing.outputs.missing != '0'
+      - name: Publish updater assets or resume an interrupted asset upload
+        if: steps.existing.outputs.missing != '0'
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.ref_name }}
         run: |
           mapfile -t missing < desktop-release-assets/missing-assets.txt
           gh release upload "$RELEASE_TAG" "${missing[@]}" --repo "$GITHUB_REPOSITORY"
@@ -117,8 +128,8 @@ jobs:
           umask 077
           printf '%s\n' "$DEPLOY_SSH_KEY" > "$task_key"
           trap 'rm -f "$task_key"' EXIT
-          ssh_args=(-i "$task_key" -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=.github/desktop-updates.known_hosts)
+          ssh_args=(-i "$task_key" -o BatchMode=yes -o ConnectTimeout=15 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 -o StrictHostKeyChecking=yes -o UserKnownHostsFile=.github/desktop-updates.known_hosts)
           stage="/opt/quazar/.desktop-updates-staging/$GITHUB_RUN_ID"
           ssh "${ssh_args[@]}" "$DEPLOY_USER@$DEPLOY_HOST" "mkdir -p '$stage'"
-          scp "${ssh_args[@]}" -r desktop-release-assets/. "$DEPLOY_USER@$DEPLOY_HOST:$stage/"
+          scp "${ssh_args[@]}" desktop-release-assets/publication.json desktop-release-assets/publish-desktop-updates.py "$DEPLOY_USER@$DEPLOY_HOST:$stage/"
           ssh "${ssh_args[@]}" "$DEPLOY_USER@$DEPLOY_HOST" "python3 '$stage/publish-desktop-updates.py' --staging '$stage'"

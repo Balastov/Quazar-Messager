@@ -7,6 +7,48 @@ import os
 from pathlib import Path
 import re
 import shutil
+from concurrent.futures import ThreadPoolExecutor
+from urllib.request import Request, urlopen
+
+
+def download(staging, manifest):
+    base = manifest.get("download_base")
+    if not base:
+        return
+    if not re.fullmatch(r"https://github\.com/Balastov/Quazar-Messager/releases/download/desktop-v" + re.escape(manifest["version"]) + r"-pilot\.\d+", base):
+        raise ValueError("Unexpected download source")
+
+    def get(item):
+        channel, entry = item
+        name, asset = entry["name"], entry["asset"]
+        allowed = rf"Quazar-{re.escape(manifest['version'])}-{re.escape(channel)}\.(?:exe|dmg|zip)(?:\.blockmap)?"
+        if not (re.fullmatch(allowed, name) or name == CHANNELS[channel]) or not (re.fullmatch(allowed, asset) or asset == f"latest-{channel}.yml"):
+            raise ValueError("Unexpected download filename")
+        folder = staging / f"quazar-desktop-{channel}"
+        if folder.is_symlink(): raise ValueError("Symlink download directory")
+        folder.mkdir(exist_ok=True)
+        target = folder / name
+        partial = target.with_name(name + ".part")
+        if target.is_symlink() or partial.is_symlink(): raise ValueError("Symlink download target")
+        if target.exists() and digest(target) == entry["sha256"]: return
+        if partial.exists() and partial.stat().st_size >= entry["size"]:
+            if partial.stat().st_size == entry["size"] and digest(partial) == entry["sha256"]:
+                os.replace(partial, target); return
+            partial.unlink()
+        offset = partial.stat().st_size if partial.exists() else 0
+        headers = {"User-Agent": "Quazar-Update-Publisher"}
+        if offset: headers["Range"] = f"bytes={offset}-"
+        with urlopen(Request(f"{base}/{asset}", headers=headers), timeout=60) as response:
+            append = offset > 0 and response.status == 206 and response.headers.get("Content-Range", "").startswith(f"bytes {offset}-")
+            if response.status not in (200, 206) or (response.status == 206 and offset and not append): raise ValueError("Unexpected download range")
+            with partial.open("ab" if append else "wb") as output:
+                shutil.copyfileobj(response, output, length=1024 * 1024)
+        if partial.stat().st_size != entry["size"] or digest(partial) != entry["sha256"]:
+            raise ValueError(f"Downloaded package integrity check failed: {name}")
+        os.replace(partial, target)
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        list(pool.map(get, [(channel, entry) for channel, entries in manifest["channels"].items() for entry in entries]))
 
 CHANNELS = {"win-x64": "latest.yml", "mac-arm64": "latest-mac.yml", "mac-x64": "latest-mac.yml"}
 
@@ -27,6 +69,7 @@ def publish(staging, root):
     version = manifest.get("version", "")
     if not re.fullmatch(r"\d+\.\d+\.\d+", version) or set(manifest.get("channels", {})) != set(CHANNELS):
         raise ValueError("Invalid update publication")
+    download(staging, manifest)
     root.mkdir(parents=True, exist_ok=True)
     with (root.parent / ".desktop-updates-publish.lock").open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)

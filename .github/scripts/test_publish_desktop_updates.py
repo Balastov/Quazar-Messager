@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
+import io
 
 spec = importlib.util.spec_from_file_location("publisher", Path(__file__).with_name("publish-desktop-updates.py"))
 publisher = importlib.util.module_from_spec(spec)
@@ -69,6 +71,42 @@ class PublicationTest(unittest.TestCase):
         del manifest["channels"]["mac-x64"]
         (stage / "publication.json").write_text(json.dumps(manifest))
         with self.assertRaises(ValueError): publisher.publish(stage, self.root)
+
+    def downloadable(self):
+        stage = self.stage("0.20.0")
+        manifest = json.loads((stage / "publication.json").read_text())
+        manifest["download_base"] = "https://github.com/Balastov/Quazar-Messager/releases/download/desktop-v0.20.0-pilot.1"
+        payloads = {}
+        for channel, entries in manifest["channels"].items():
+            for entry in entries:
+                entry["asset"] = f"latest-{channel}.yml" if entry["name"].endswith('.yml') else entry["name"]
+                file = stage / f"quazar-desktop-{channel}" / entry["name"]
+                body = file.read_bytes(); payloads[entry["asset"]] = body
+                entry["size"] = len(body); file.unlink()
+        (stage / "publication.json").write_text(json.dumps(manifest))
+        return stage, payloads
+
+    def test_downloads_and_resumes_verified_public_assets_before_publication(self):
+        stage, payloads = self.downloadable()
+        partial = stage / "quazar-desktop-win-x64" / "Quazar-0.20.0-win-x64.exe.part"
+        partial.write_bytes(b"inst")
+        def request(req, **_):
+            body = payloads[req.full_url.rsplit('/', 1)[1]]
+            offset = 4 if req.get_header('Range') else 0
+            response = io.BytesIO(body[offset:]); response.status = 206 if offset else 200
+            response.headers = {"Content-Range": f"bytes {offset}-{len(body)-1}/{len(body)}"} if offset else {}
+            return response
+        with mock.patch.object(publisher, "urlopen", side_effect=request): publisher.publish(stage, self.root)
+        self.assertEqual((self.root / 'win-x64' / 'Quazar-0.20.0-win-x64.exe').read_bytes(), b"installer")
+
+    def test_corrupt_remote_download_is_never_published(self):
+        stage, payloads = self.downloadable()
+        def request(req, **_):
+            response = io.BytesIO(b"corrupt"); response.status = 200; response.headers = {}
+            return response
+        with mock.patch.object(publisher, "urlopen", side_effect=request):
+            with self.assertRaises(ValueError): publisher.publish(stage, self.root)
+        self.assertFalse(self.root.exists())
 
 
 if __name__ == "__main__": unittest.main()

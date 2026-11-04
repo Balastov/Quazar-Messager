@@ -4,7 +4,7 @@ const crypto = require('node:crypto');
 const { execFileSync } = require('node:child_process');
 
 const candidate = JSON.parse(fs.readFileSync('.github/desktop-release.json', 'utf8'));
-const tag = process.env.GITHUB_REF_NAME ?? process.env.RELEASE_TAG ?? '';
+const tag = process.env.RELEASE_TAG ?? process.env.GITHUB_REF_NAME ?? '';
 if (!/^\d+\.\d+\.\d+$/.test(candidate.version) || !/^[a-f0-9]{40}$/.test(candidate.source_sha) || !Number.isSafeInteger(candidate.run_id)) throw new Error('Invalid desktop release candidate');
 const prefix = `desktop-v${candidate.version}-pilot.`;
 if (!tag.startsWith(prefix) || !/^[1-9]\d*$/.test(tag.slice(prefix.length))) throw new Error('Tag must be desktop-v<version>-pilot.<number>');
@@ -41,9 +41,11 @@ async function prepare() {
     sha256: hashes[index].split(' ')[0], size: fs.statSync(path.join(root, `quazar-desktop-${platform}`, name)).size }));
   const checksumFile = fs.readFileSync(path.join(root, 'SHA256SUMS.txt'));
   plan.push({ name: 'SHA256SUMS.txt', path: 'desktop-release-assets/SHA256SUMS.txt', sha256: crypto.createHash('sha256').update(checksumFile).digest('hex'), size: checksumFile.length });
-  fs.writeFileSync(path.join(root, 'release-plan.json'), JSON.stringify(plan));
   const yaml = require('../../desktop/node_modules/js-yaml');
-  const publication = { version: candidate.version, channels: {} };
+  const repo = process.env.GITHUB_REPOSITORY;
+  if (!/^[\w.-]+\/[\w.-]+$/.test(repo ?? '')) throw new Error('Invalid repository');
+  const base = `https://github.com/${repo}/releases/download/${tag}`;
+  const publication = { version: candidate.version, download_base: base, channels: {} };
   for (const channel of ['win-x64', 'mac-arm64', 'mac-x64']) {
     const folder = path.join(root, `quazar-desktop-${channel}`);
     const metadata = channel === 'win-x64' ? 'latest.yml' : 'latest-mac.yml';
@@ -61,14 +63,20 @@ async function prepare() {
     publication.channels[channel] = [];
     for (const name of required) {
       const content = fs.readFileSync(path.join(folder, name));
-      publication.channels[channel].push({ name, sha256: crypto.createHash('sha256').update(content).digest('hex') });
+      const sha256 = crypto.createHash('sha256').update(content).digest('hex');
+      const asset = name === metadata ? `latest-${channel}.yml` : name;
+      let source = path.join(folder, name);
+      if (name === metadata) {
+        const metadataRoot = path.join(root, 'updater-metadata'); fs.mkdirSync(metadataRoot, { recursive: true });
+        source = path.join(metadataRoot, asset); fs.copyFileSync(path.join(folder, name), source);
+      }
+      publication.channels[channel].push({ name, asset, sha256, size: content.length });
+      if (!plan.some(item => item.name === asset)) plan.push({ name: asset, path: path.relative(process.cwd(), source), sha256, size: content.length });
     }
   }
+  fs.writeFileSync(path.join(root, 'release-plan.json'), JSON.stringify(plan));
   fs.writeFileSync(path.join(root, 'publication.json'), JSON.stringify(publication));
   fs.copyFileSync('.github/scripts/publish-desktop-updates.py', path.join(root, 'publish-desktop-updates.py'));
-  const repo = process.env.GITHUB_REPOSITORY;
-  if (!/^[\w.-]+\/[\w.-]+$/.test(repo ?? '')) throw new Error('Invalid repository');
-  const base = `https://github.com/${repo}/releases/download/${tag}`;
   const notes = `Тестовая версия Quazar Desktop ${candidate.version} для Windows и macOS.
 
 Скачивание доступно без входа в GitHub:

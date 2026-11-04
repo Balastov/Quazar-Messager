@@ -1,0 +1,18 @@
+name: Sync published desktop update feeds
+
+on:
+  push:
+    branches: [desktop/initial-clients]
+    paths: ['.github/workflows/desktop-feeds.yml']
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  sync:
+    uses: ./.github/workflows/desktop-release.yml
+    with:
+      release_tag: desktop-v0.20.0-pilot.1
+    secrets: inherit

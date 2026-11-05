@@ -68,10 +68,15 @@ async function proof(win) {
   })()`);
 }
 async function decodeQr(win) {
+  // Xvfb must paint the actual target window, rather than an occluded surface.
+  if (process.platform === 'linux') {
+    win.showInactive(); win.moveTop();
+    await win.webContents.executeJavaScript('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
+  }
   // DOM insertion can precede Chromium's first painted frame in a hidden window.
   // Keep verifying the real screenshot until it is painted and decodable.
   return until(async () => {
-    const rect = await win.webContents.executeJavaScript("(() => { const el=document.querySelector('[aria-label=\"QR-код подключения\"]');if(!el)return null;el.scrollIntoView({block:'center'});const r=el.getBoundingClientRect();return {x:Math.floor(r.x),y:Math.floor(r.y),width:Math.ceil(r.width),height:Math.ceil(r.height)} })()");
+    const rect = await win.webContents.executeJavaScript("(() => { const el=document.querySelector('[aria-label=\"QR-код подключения\"]');if(!el)return null;el.scrollIntoView({block:'center',behavior:'instant'});const r=el.getBoundingClientRect();return {x:Math.floor(r.x),y:Math.floor(r.y),width:Math.ceil(r.width),height:Math.ceil(r.height)} })()");
     if (!rect || rect.width <= 0 || rect.height <= 0) return false;
     const img = await win.webContents.capturePage(rect);
     const size = img.getSize(), bytes = img.toBitmap();

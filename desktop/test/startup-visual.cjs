@@ -28,7 +28,10 @@ app.whenReady().then(async () => {
       backgroundThrottling: false, preload: path.resolve(__dirname, '../src/startup-preload.cjs') } });
   const errors = [];
   win.webContents.on('console-message', details => { if (/Refused to|Uncaught/.test(details.message)) errors.push(details.message); });
-  await win.loadFile(file); await pause(350);
+  await win.loadFile(file);
+  win.webContents.debugger.attach('1.3');
+  await win.webContents.debugger.sendCommand('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'no-preference' }] });
+  await pause(350);
   const inspect = () => win.webContents.executeJavaScript(`(() => {
     const main = document.querySelector('main'), image = document.querySelector('img');
     return { phase: main.dataset.phase, logo: image.complete && image.naturalWidth > 0,
@@ -60,7 +63,6 @@ app.whenReady().then(async () => {
   const offline = await set('error', { canContinue: true, message: 'Не удалось проверить обновления. Проверьте подключение к интернету.' });
   assert.equal(offline.canContinue, true); await screenshot('offline');
   await set('ready');
-  win.webContents.debugger.attach('1.3');
   await win.webContents.debugger.sendCommand('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
   await pause(100);
   assert.equal((await inspect()).animated, 0, 'Reduced motion must disable animations');

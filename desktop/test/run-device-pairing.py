@@ -63,9 +63,14 @@ with tempfile.TemporaryDirectory(prefix="quazar-device-e2e-") as folder:
                     time.sleep(.1)
             else: raise RuntimeError("Test API did not become ready")
             electron = subprocess.check_output(["node", "-e", "process.stdout.write(require('electron'))"], cwd=root / "desktop", text=True).strip()
-            result = subprocess.run([electron, "--no-sandbox", str(root / "desktop/test/device-pairing-e2e.cjs")], env=environment, timeout=140)
-            if result.returncode: raise RuntimeError("Real-renderer pairing test failed")
-    except Exception:
+            result = subprocess.run([electron, "--no-sandbox", str(root / "desktop/test/device-pairing-e2e.cjs")], env=environment, timeout=140,
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            print(result.stdout, end="")
+            if result.returncode: raise RuntimeError("Real-renderer pairing test failed:\n" + result.stdout[-4000:])
+    except Exception as error:
+        if os.environ.get("GITHUB_ACTIONS") == "true":
+            diagnostic = str(error).replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+            print("::error title=Device pairing integration::" + diagnostic, flush=True)
         destination = Path(os.environ.get("PAIR_TEST_ARTIFACTS", str(Path(tempfile.gettempdir()) / "quazar-device-e2e-last")))
         destination.mkdir(parents=True, exist_ok=True)
         for picture in (task / "browser").glob("failure-*.png"):

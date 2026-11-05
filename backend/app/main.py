@@ -16,6 +16,7 @@ from app.core import attachments, scheduler, support, voice
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal, Base, engine
 from app.core.legacy_usernames import migrate_legacy_usernames
+from app.core.legacy_avatars import migrate_legacy_avatar_urls
 from app.models import Attachment, Call, PushSubscription, Star  # noqa: F401 — register tables for create_all
 from app.api.auth import router as auth_router
 from app.api.phone_verification import router as phone_verification_router
@@ -154,6 +155,7 @@ async def lifespan(app: FastAPI):
         await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS phone_discoverable BOOLEAN"))
         # Старые ники не латиницей → латиница, прежний ник — в «Имя» (до индекса ниже).
         await migrate_legacy_usernames(conn)
+        await migrate_legacy_avatar_urls(conn)
         # Никнейм и почта уникальны без учёта регистра. Если в старых данных уже есть
         # «Alex» и «alex», индекс не создастся — тогда занятость проверяет только код.
         await conn.execute(

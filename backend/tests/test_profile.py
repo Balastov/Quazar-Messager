@@ -2,15 +2,23 @@
 
 import unittest
 import secrets
+import io
+import tempfile
+from pathlib import Path
+from unittest import mock
 from datetime import datetime, timedelta, timezone
 from app.models.phone_verification import PhoneVerification
 from app.core.phone_verification import digest
 
-from fastapi import HTTPException
+from fastapi import HTTPException, UploadFile
 from pydantic import ValidationError
 
 from app.api import auth, users
 from app.core.profile import normalize_email, normalize_person_name, normalize_username
+from app.core.avatars import MAX_AVATAR_BYTES, save_avatar
+from app.core.config import settings
+from app.core.legacy_avatars import migrate_legacy_avatar_urls
+from app.models.chat import Chat, ChatMember
 from app.models.user import User
 from app.schemas.user import MeOut, UpdateProfile, UserOut, UserRegister
 from tests.stars_base import StarsTestBase
@@ -170,6 +178,104 @@ class TestHiddenPhone(StarsTestBase):
         self.assertEqual(await self.search(self.users["carol"].phone), [])
         self.assertIsNone(MeOut.model_validate(user).phone_discoverable)
         self.assertIsNone(UserOut.model_validate(user).phone)
+
+
+PNG = b"\x89PNG\r\n\x1a\n" + b"\0" * 64
+
+
+class TestAvatarCache(unittest.TestCase):
+    def test_replacement_with_same_format_and_timestamp_has_a_new_url(self):
+        user_id = "01234567-89ab-cdef-0123-456789abcdef"
+        with tempfile.TemporaryDirectory() as media, mock.patch.object(settings, "MEDIA_ROOT", media), mock.patch("app.core.avatars.time.time", return_value=123):
+            first = save_avatar(user_id, PNG, ".png")
+            second = save_avatar(user_id, PNG + b"new picture", ".png")
+            self.assertNotEqual(first, second)
+            self.assertRegex(second, rf"^/media/avatars/{user_id}\.png\?v=[0-9a-f]{{64}}$")
+            self.assertEqual((Path(media) / "avatars" / f"{user_id}.png").read_bytes(), PNG + b"new picture")
+            self.assertEqual(len(list((Path(media) / "avatars").iterdir())), 1)
+
+
+class TestAvatarApi(StarsTestBase):
+    async def asyncSetUp(self):
+        await super().asyncSetUp()
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.media = Path(directory.name)
+        patcher = mock.patch.object(settings, "MEDIA_ROOT", directory.name)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        async with self.Session() as db:
+            alice = await db.get(User, self.users["alice"].id)
+            alice.email = "private@example.test"
+            alice.phone_discoverable = False
+            chat = Chat(type="direct")
+            db.add(chat)
+            await db.flush()
+            db.add_all([ChatMember(chat_id=chat.id, user_id=self.users[name].id) for name in ("alice", "bob")])
+            await db.commit()
+        self.events.clear()
+
+    async def call_avatar(self, fn, data=None):
+        async with self.Session() as db:
+            current = await db.get(User, self.users["alice"].id)
+            kwargs = {"file": UploadFile(file=io.BytesIO(data), filename="avatar.png")} if data is not None else {}
+            return await fn(current_user=current, db=db, **kwargs)
+
+    async def test_new_photo_reaches_own_devices_and_peer_without_private_fields(self):
+        first = await self.call_avatar(users.upload_avatar, PNG)
+        second = await self.call_avatar(users.upload_avatar, PNG + b"replacement")
+        self.assertNotEqual(first.avatar_url, second.avatar_url)
+        async with self.Session() as db:
+            stored = await db.get(User, self.users["alice"].id)
+            self.assertEqual(stored.avatar_url, second.avatar_url)
+        own = [event["user"] for uid, event in self.events if uid == self.users["alice"].id][-1]
+        peer = [event["user"] for uid, event in self.events if uid == self.users["bob"].id][-1]
+        self.assertEqual(own["avatar_url"], second.avatar_url)
+        self.assertEqual(peer["avatar_url"], second.avatar_url)
+        self.assertEqual(own["phone"], self.users["alice"].phone)
+        self.assertEqual(own["email"], "private@example.test")
+        self.assertIsNone(peer["phone"])
+        self.assertNotIn("email", peer)
+        self.assertNotIn("phone_verified_at", peer)
+        self.assertNotIn(self.users["carol"].id, [uid for uid, _ in self.events])
+
+    async def test_removal_refreshes_own_devices_and_peer(self):
+        await self.call_avatar(users.upload_avatar, PNG)
+        self.events.clear()
+        removed = await self.call_avatar(users.remove_avatar)
+        self.assertIsNone(removed.avatar_url)
+        self.assertEqual(list((self.media / "avatars").iterdir()), [])
+        self.assertEqual({uid for uid, _ in self.events}, {self.users["alice"].id, self.users["bob"].id})
+        self.assertTrue(all(event["user"]["avatar_url"] is None for _, event in self.events))
+
+    async def test_rejected_upload_preserves_previous_photo(self):
+        previous = (await self.call_avatar(users.upload_avatar, PNG)).avatar_url
+        self.events.clear()
+        for data, code in [(b"not an image", 422), (PNG + b"\0" * MAX_AVATAR_BYTES, 413)]:
+            with self.assertRaises(HTTPException) as caught:
+                await self.call_avatar(users.upload_avatar, data)
+            self.assertEqual(caught.exception.status_code, code)
+        async with self.Session() as db:
+            self.assertEqual((await db.get(User, self.users["alice"].id)).avatar_url, previous)
+        self.assertEqual((self.media / "avatars" / f"{self.users['alice'].id}.png").read_bytes(), PNG)
+        self.assertEqual(self.events, [])
+
+    async def test_legacy_urls_are_invalidated_only_once(self):
+        legacy = f"/media/avatars/{self.users['alice'].id}.png"
+        versioned = f"/media/avatars/{self.users['bob'].id}.jpg?v=existing"
+        external = "https://example.test/avatar.png"
+        async with self.Session() as db:
+            for name, url in [("alice", legacy), ("bob", versioned), ("carol", external)]:
+                (await db.get(User, self.users[name].id)).avatar_url = url
+            await db.commit()
+        for _ in range(2):
+            async with self.engine.begin() as conn:
+                await migrate_legacy_avatar_urls(conn)
+        async with self.Session() as db:
+            self.assertEqual((await db.get(User, self.users["alice"].id)).avatar_url, legacy + "?v=profile-cache-1")
+            self.assertEqual((await db.get(User, self.users["bob"].id)).avatar_url, versioned)
+            self.assertEqual((await db.get(User, self.users["carol"].id)).avatar_url, external)
+            self.assertIsNone((await db.get(User, self.users["owner"].id)).avatar_url)
 
 
 if __name__ == "__main__":

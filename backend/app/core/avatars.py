@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import re
 import time
+from hashlib import sha256
 from pathlib import Path
 
 from app.core.config import settings
@@ -57,7 +58,8 @@ def save_avatar(user_id: str, data: bytes, ext: str) -> str:
 
     path = directory / f"{user_id}{ext}"
     path.write_bytes(data)
-    return avatar_public_url(user_id, ext)
+    # A different image must have a different URL even for replacements in the same second.
+    return f"{avatar_public_url(user_id, ext)}?v={sha256(data).hexdigest()}"
 
 
 def delete_avatar_files(user_id: str) -> None:

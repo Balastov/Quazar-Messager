@@ -151,12 +151,21 @@ async def update_me(
         raise HTTPException(status_code=400, detail="Никнейм или почта уже заняты") from None
     await db.refresh(current_user)
 
-    partner_ids = await get_direct_chat_partner_ids(current_user.id, db)
-    await manager.broadcast_to_users(
-        [*partner_ids, current_user.id],
-        {"type": "user_updated", "user": UserOut.model_validate(current_user).model_dump(mode="json")},
-    )
+    await _broadcast_user_updated(current_user, db)
     return current_user
+
+
+async def _broadcast_user_updated(user: User, db: AsyncSession) -> None:
+    partner_ids = await get_direct_chat_partner_ids(user.id, db)
+    await manager.broadcast_to_users(
+        partner_ids,
+        {"type": "user_updated", "user": UserOut.model_validate(user).model_dump(mode="json")},
+    )
+    # Own devices keep the real phone/email; peers receive only the public profile.
+    await manager.send_to_user(
+        user.id,
+        {"type": "user_updated", "user": MeOut.model_validate(user).model_dump(mode="json")},
+    )
 
 
 @router.post("/me/avatar", response_model=MeOut)
@@ -188,6 +197,7 @@ async def upload_avatar(
     current_user.avatar_url = url
     await db.commit()
     await db.refresh(current_user)
+    await _broadcast_user_updated(current_user, db)
     return current_user
 
 
@@ -248,6 +258,7 @@ async def remove_avatar(
     current_user.avatar_url = None
     await db.commit()
     await db.refresh(current_user)
+    await _broadcast_user_updated(current_user, db)
     return current_user
 
 

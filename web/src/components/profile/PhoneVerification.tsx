@@ -4,6 +4,7 @@ import { useAuthStore } from "../../store/auth";
 import { apiErrorText } from "../../utils/profile";
 import { formatRuPhoneDisplay } from "../../utils/phone";
 import s from "../SettingsView.module.css";
+import layout from "./PhoneVerification.module.css";
 
 export default function PhoneVerification({ phone, account = false, proof, onVerified, buttonLabel = "Подтвердить телефон звонком", disabled = false }: {
   phone: string; account?: PhoneMode; proof?: string; onVerified: (token: string) => void; buttonLabel?: string; disabled?: boolean;
@@ -68,11 +69,11 @@ export default function PhoneVerification({ phone, account = false, proof, onVer
     } finally { if (current === round.current) setBusy(false); }
   };
   if (proof || attempt?.state === "verified") return <p className={s.statusOk} role="status">✓ {account === "reauth" ? "Действие подтверждено" : "Телефон подтверждён"}</p>;
-  return <div role="group" aria-label="Подтверждение телефона">
+  return <div className={layout.root} role="group" aria-label="Подтверждение телефона">
     {attempt?.state === "pending" ? <>
       <p className={s.hint}>Позвоните с {formatRuPhoneDisplay(phone)} на проверочный номер. Разговаривать и вводить код не нужно.</p>
-      {attempt.call_phone && <p><a className={s.primary} href={`tel:${attempt.call_phone}`}>Позвонить: {formatRuPhoneDisplay(attempt.call_phone)}</a></p>}
       <p className={s.hint} role="status">Ждём звонок. После проверки страница обновится автоматически. Если у вас две SIM-карты, выберите SIM с указанным номером.</p>
+      {attempt.call_phone && <a className={`${s.primary} ${layout.callNumber}`} href={`tel:${attempt.call_phone}`}>Позвонить: {formatRuPhoneDisplay(attempt.call_phone)}</a>}
     </> : <>
       {attempt && <p className={s.hint}>{attempt.state === "expired" ? "Время проверки истекло. Начните заново." : "Номер не подтверждён. Повторите проверку."}</p>}
       <button type="button" className={s.secondary} disabled={busy || disabled} onClick={() => void start()}>

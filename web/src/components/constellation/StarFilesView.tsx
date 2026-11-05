@@ -7,7 +7,7 @@ import { downloadStarFile } from "./StarFileView";
 import { apiError } from "./rules";
 import s from "./Constellation.module.css";
 import w from "./Work.module.css";
-import { displayName } from "../../utils/profile";
+import { useStarDisplayName } from "./StarProfiles";
 
 type Kind = "all" | "images" | "docs";
 
@@ -29,6 +29,7 @@ export default function StarFilesView({
   /** Во вкладке Спутника: «К сообщению» вместо «В Спутник». */
   onOpenMessage?: (file: StarFileItem) => void;
 }) {
+  const displayName = useStarDisplayName(detail);
   const [query, setQuery] = useState("");
   const [debounced, setDebounced] = useState("");
   const [kind, setKind] = useState<Kind>("all");

@@ -4,6 +4,7 @@ import { isAllWord } from "../../chat/mentions";
 import type { MentionKind } from "../LinkifiedText";
 import type { MentionOption } from "../messages/MentionSuggest";
 import { isStaff } from "../../store/stars";
+import { displayName } from "../../utils/profile";
 
 function people(n: number): string {
   const mod10 = n % 10;
@@ -55,9 +56,11 @@ export function useStarMentions(detail: StarDetail, myId: string | undefined) {
     [detail.members, myId]
   );
   const options = useMemo(
-    () => starMentionOptions(detail),
+    () => [...starMentionOptions(detail), ...detail.members.filter(member => member.user.id !== myId && member.user.pseudonym).map(member => ({
+      name: member.user.username, label: displayName(member.user), hint: `@${member.user.username}`,
+    }))],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [detail.members, detail.tags, detail.my_role]
+    [detail.members, detail.tags, detail.my_role, myId]
   );
   const kind = useMemo(
     () => starMentionKind(detail, myId),

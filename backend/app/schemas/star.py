@@ -47,6 +47,16 @@ class UpdateMemberRole(BaseModel):
     role: AssignableRole
 
 
+class UpdateMemberPseudonym(BaseModel):
+    pseudonym: str | None = Field(max_length=1024)
+
+    @field_validator("pseudonym")
+    @classmethod
+    def _pseudonym(cls, value: str | None) -> str | None:
+        from app.core.pseudonyms import normalize_pseudonym
+        return normalize_pseudonym(value)
+
+
 class UpdateRolePermissions(BaseModel):
     moderator: list[str]
     member: list[str]
@@ -183,6 +193,10 @@ class StarUserOut(BaseModel):
     username: str
     # «Имя Фамилия» или никнейм, если имя не указано.
     display_name: str = ""
+    account_display_name: str = ""
+    pseudonym: str | None = None
+    pseudonym_star_id: str | None = None
+    pseudonym_version: int = 0
     avatar_url: str | None
 
 

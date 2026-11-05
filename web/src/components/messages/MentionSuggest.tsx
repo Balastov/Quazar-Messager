@@ -6,6 +6,7 @@ import w from "../constellation/Work.module.css";
 export interface MentionOption {
   name: string;
   hint: string;
+  label?: string;
 }
 
 interface Options {
@@ -32,8 +33,12 @@ export function useMentionSuggest({ text, setText, inputRef, names, allowAll = f
   const query = mentionQuery(text, caret);
   const hints = new Map(options.map((o) => [o.name, o.hint]));
   if (allowAll) hints.set("все", "всем участникам");
-  const candidates = [...names, ...hints.keys()];
-  const items = query && hiddenFor !== text ? suggestNames(candidates, query.query) : [];
+  const labels = new Map(options.filter(option => option.label).map(option => [option.name, option.label!]));
+  const candidates = [...new Set([...names, ...hints.keys()])];
+  const items = query && hiddenFor !== text ? [...new Set([
+    ...suggestNames(candidates, query.query),
+    ...options.filter(option => option.label?.toLowerCase().includes(query.query.toLowerCase())).map(option => option.name),
+  ])].slice(0, 6) : [];
 
   useEffect(() => setActive(0), [query?.query]);
 
@@ -88,7 +93,7 @@ export function useMentionSuggest({ text, setText, inputRef, names, allowAll = f
             pick(name);
           }}
         >
-          @{name}
+          {labels.get(name) ?? `@${name}`}
           {hints.has(name) && <span className={w.suggestHint}>{hints.get(name)}</span>}
         </button>
       ))}

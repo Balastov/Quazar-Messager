@@ -7,10 +7,11 @@ import { formatWhen } from "../../chat/when";
 import UserAvatar from "../UserAvatar";
 import { apiError } from "./rules";
 import g from "./Gaming.module.css";
-import { displayName } from "../../utils/profile";
+import { useStarDisplayName } from "./StarProfiles";
 
 /** Сбор группы: кто записался, сколько мест, когда; в начале — временная Планета для всех. */
 export default function LfgCard({ message, detail }: { message: StarMessage; detail: StarDetail }) {
+  const displayName = useStarDisplayName(detail);
   const lfg = message.lfg!;
   const myId = useAuthStore((st) => st.user?.id);
   const lfgAction = useStarsStore((st) => st.lfgAction);

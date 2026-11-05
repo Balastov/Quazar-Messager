@@ -679,6 +679,9 @@
   color: var(--qz-text-muted);
 }
 
+.dialogActions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
+.pseudonymForm { display: flex; flex-direction: column; gap: 14px; }
+
 .hint {
   margin: 0;
   font-size: 13px;

@@ -10,7 +10,7 @@ import {
 import { fileIcon } from "../../attachments/file";
 import { formatWhen } from "../../chat/when";
 import { isStaff } from "../../store/stars";
-import { displayName } from "../../utils/profile";
+import { useStarDisplayName } from "./StarProfiles";
 import MessageMenu, { type MenuAction } from "../messages/MessageMenu";
 import Dialog from "./Dialog";
 import { downloadStarFile } from "./StarFileView";
@@ -325,6 +325,7 @@ export function PinnedList({
   onOpen: (message: StarMessage) => void;
   onUnpin?: (message: StarMessage) => void;
 }) {
+  const displayName = useStarDisplayName();
   if (!pins) return <div className={s.empty}>Загрузка…</div>;
   if (!pins.length) {
     return <div className={s.empty}>Закреплённых нет. Модераторы закрепляют важное через меню сообщения.</div>;

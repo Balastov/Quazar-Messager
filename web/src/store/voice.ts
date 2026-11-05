@@ -599,6 +599,7 @@ export const useVoiceStore = create<VoiceState>((set, get) => {
         syncPeers();
       })
       .on(RoomEvent.ActiveSpeakersChanged, syncPeers)
+      .on(RoomEvent.ParticipantNameChanged, syncPeers)
       .on(RoomEvent.TrackMuted, syncPeers)
       .on(RoomEvent.TrackUnmuted, syncPeers)
       .on(RoomEvent.LocalTrackPublished, syncPeers)

@@ -132,5 +132,5 @@ async def handle_pointer(data: dict, user_id: str) -> None:
             return
         await broadcast(body.channel_id, {
             "type": "room_pointer", **body.model_dump(), "user_id": user_id,
-            "name": user.display_name, "created_at": now().isoformat(),
+            "name": member.pseudonym or user.display_name, "created_at": now().isoformat(),
         })

@@ -59,4 +59,4 @@ async def search_messages(
     if before:
         query = query.where(StarMessage.created_at < before)
     rows = await db.execute(query.order_by(StarMessage.created_at.desc()).limit(limit))
-    return _as_star(await _messages_out(db, list(rows.tuples()), current_user.id), star_id)
+    return _as_star(await _messages_out(db, list(rows.tuples()), current_user.id, star_id=star_id), star_id)

@@ -65,7 +65,7 @@ import {
   revealMessage,
   useMessageMenuTrigger,
 } from "../messages/parts";
-import { displayName } from "../../utils/profile";
+import { useStarDisplayName } from "./StarProfiles";
 import type { LinkPreview } from "../../chat/linkPreview";
 import { notifyInfo } from "../../notifications/notify";
 import ScheduleButton from "../chat/ScheduleButton";
@@ -90,6 +90,7 @@ interface Props {
 }
 
 export default function SatelliteView({ detail, channel, onBack, onEdit }: Props) {
+  const displayName = useStarDisplayName(detail);
   const myId = useAuthStore((st) => st.user?.id);
   const messages = useStarsStore((st) => st.messages[channel.id] ?? EMPTY);
   const hasMore = useStarsStore((st) => st.hasMore[channel.id] ?? false);
@@ -887,6 +888,7 @@ export function SatelliteMessage({
   /** Подсветка @имён. */
   mention?: MentionKind;
 }) {
+  const displayName = useStarDisplayName(detail);
   const trigger = useMessageMenuTrigger(onOpenMenu);
   const stickersByKey = useStickersStore((st) => st.byKey);
   const [showEdits, setShowEdits] = useState(false);

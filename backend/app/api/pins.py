@@ -133,7 +133,7 @@ async def list_star_pins(star_id: str, channel_id: str, current_user: CurrentUse
         .where(StarPin.channel_id == channel_id)
         .order_by(StarPin.created_at.desc())
     )
-    return _as_star(await _messages_out(db, list(rows.tuples()), current_user.id), star_id)
+    return _as_star(await _messages_out(db, list(rows.tuples()), current_user.id, star_id=star_id), star_id)
 
 
 @router.put("/stars/{star_id}/channels/{channel_id}/pins/{message_id}", status_code=status.HTTP_204_NO_CONTENT)

@@ -5,7 +5,7 @@ import { formatWhen } from "../../chat/when";
 import { useStarsStore } from "../../store/stars";
 import { apiError } from "./rules";
 import s from "../messages/SearchBar.module.css";
-import { displayName } from "../../utils/profile";
+import { useStarDisplayName } from "./StarProfiles";
 import { stripMarkup } from "../../chat/markdown";
 
 /** Поиск по Спутникам Звезды (на сервере): текст сообщений и названия файлов. */
@@ -19,6 +19,7 @@ export default function StarSearchPanel({
   channelId: string;
   onClose: () => void;
 }) {
+  const displayName = useStarDisplayName(detail);
   const jumpTo = useStarsStore((st) => st.jumpTo);
   const [query, setQuery] = useState("");
   const [everywhere, setEverywhere] = useState(false);

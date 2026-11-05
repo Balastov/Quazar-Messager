@@ -129,11 +129,13 @@ def _who_answers(channel: StarChannel) -> str:
     return "Звать и впускать сюда может главный (и те, у кого есть право впускать)"
 
 
-async def _names(db: AsyncSession, user_ids: set[str]) -> dict[str, str]:
+async def _names(db: AsyncSession, user_ids: set[str], star_id: str) -> dict[str, str]:
     if not user_ids:
         return {}
     users = (await db.execute(select(User).where(User.id.in_(user_ids)))).scalars().all()
-    return {u.id: u.display_name for u in users}
+    aliases = dict((await db.execute(select(StarMember.user_id, StarMember.pseudonym).where(
+        StarMember.star_id == star_id, StarMember.user_id.in_(user_ids)))).all())
+    return {u.id: aliases.get(u.id) or u.display_name for u in users}
 
 
 async def _answerers(db: AsyncSession, star: Star, channel: StarChannel) -> list[str]:
@@ -158,7 +160,7 @@ async def _notify(
 
 
 async def _knock_event(db: AsyncSession, knock: doors.Knock, star: Star, channel: StarChannel) -> dict:
-    names = await _names(db, {knock.user_id})
+    names = await _names(db, {knock.user_id}, star.id)
     return {
         "type": "planet_knock",
         "star_id": star.id,
@@ -249,14 +251,14 @@ async def invite_to_planet(star_id: str, channel_id: str, body: InviteBody, curr
             "star_id": star_id,
             "channel_id": channel_id,
             "from_user_id": current_user.id,
-            "from_name": current_user.display_name,
+            "from_name": me.pseudonym or current_user.display_name,
             "room_name": channel.name,
             "star_name": star.name,
             "expires_in": doors.INVITE_TTL_SEC,
         },
         push={
             "door": "invite",
-            "title": f"{current_user.display_name} зовёт вас",
+            "title": f"{me.pseudonym or current_user.display_name} зовёт вас",
             "body": f"в «{channel.name}» · {star.name}",
             # Кнопка уведомления: «Войти в …» / «Отправиться на планету …».
             "action_title": enter_words(star, channel.name)["enter"],
@@ -292,7 +294,7 @@ async def knock_on_planet(star_id: str, channel_id: str, current_user: CurrentUs
             await _knock_event(db, knock, star, channel),
             push={
                 "door": "knock",
-                "title": f"{current_user.display_name} стучится",
+                "title": f"{me.pseudonym or current_user.display_name} стучится",
                 "body": f"в «{channel.name}» · {star.name}",
                 "star_id": star_id,
                 "channel_id": channel_id,
@@ -349,7 +351,7 @@ async def answer_knock(star_id: str, knock_id: str, body: AnswerBody, current_us
         "action": body.action,
         "room_name": channel.name,
         "star_name": star.name,
-        "by_name": current_user.display_name,
+        "by_name": me.pseudonym or current_user.display_name,
     }
     push = {"star_id": star_id, "channel_id": channel.id, "knock_id": knock.id, "door": body.action}
 

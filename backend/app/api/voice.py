@@ -8,7 +8,7 @@ from pydantic import BaseModel
 
 from app.api.doors import enters_freely, is_closed
 from app.api.stars import _channel, _load_membership, _target_member
-from app.core import doors, livekit, voice
+from app.core import doors, livekit, voice, pseudonyms
 from app.core import stars as rules
 from app.core.config import settings
 from app.core.database import get_db
@@ -88,7 +88,7 @@ async def join_planet(star_id: str, channel_id: str, current_user: CurrentUser, 
     token = livekit.participant_token(
         room=room,
         identity=current_user.id,
-        name=current_user.display_name,
+        name=me.pseudonym or current_user.display_name,
         metadata={"star_id": star_id, "channel_id": channel_id},
         # «Только слушать» или тайм-аут — без микрофона.
         sources=() if channel.listen_only or timed_out else (livekit.SOURCE_MICROPHONE,),
@@ -149,7 +149,7 @@ async def start_screen(star_id: str, channel_id: str, current_user: CurrentUser,
         started = await voice.start_screen(star_id, channel_id, current_user.id)
     except voice.ScreenBusy as busy:
         busy_user = await db.get(User, busy.user_id)
-        name = busy_user.display_name if busy_user else None
+        name = await pseudonyms.name_in_star(db, star_id, busy_user)
         raise HTTPException(
             status_code=409, detail=f"Сейчас экран показывает {name or 'другой участник'}"
         ) from None

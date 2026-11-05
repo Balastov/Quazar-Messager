@@ -19,6 +19,7 @@ import MembersPanel from "./MembersPanel";
 import ThreadPanel from "./ThreadPanel";
 import w from "./Work.module.css";
 import { useUiStore } from "../../store/ui";
+import { StarProfiles } from "./StarProfiles";
 
 type ChannelDialogState = { kind: ChannelKind; channel?: StarChannel; floorId?: string } | null;
 
@@ -150,7 +151,7 @@ export default function ConstellationView() {
   };
 
   return (
-    <div className={s.root}>
+    <StarProfiles detail={detail}><div className={s.root}>
       <nav className={s.rail} aria-label="Звёзды">
         {stars.map((star) => {
           const count = unreadForStar(unread, star.id);
@@ -327,6 +328,6 @@ export default function ConstellationView() {
           </button>
         </div>
       )}
-    </div>
+    </div></StarProfiles>
   );
 }

@@ -184,6 +184,8 @@ async def lifespan(app: FastAPI):
             )
         )
         await conn.execute(text("ALTER TABLE stars ADD COLUMN IF NOT EXISTS avatar_url TEXT"))
+        await conn.execute(text("ALTER TABLE star_members ADD COLUMN IF NOT EXISTS pseudonym TEXT"))
+        await conn.execute(text("ALTER TABLE star_members ADD COLUMN IF NOT EXISTS pseudonym_version INTEGER NOT NULL DEFAULT 0"))
         # Фоны: личный, Звезды, чата.
         await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS background_url TEXT"))
         await conn.execute(text("ALTER TABLE stars ADD COLUMN IF NOT EXISTS background_url TEXT"))

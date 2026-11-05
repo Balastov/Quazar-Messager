@@ -11,6 +11,7 @@ from pydantic import ValidationError
 from app.api import star_community as community
 from app.api import stars as api
 from app.core import notify, presence
+from app.models.notify import NotifySetting
 from app.schemas.star import SendStarMessage
 from tests.stars_base import StarsTestBase
 
@@ -63,6 +64,11 @@ class StarGroupsTest(StarsTestBase):
         return tag
 
     async def test_group_mention_reaches_holders(self):
+        # This scenario tests the mentions filter; the current default is all messages.
+        async with self.Session() as db:
+            db.add_all([NotifySetting(user_id=self.uid(name), scope="star", target_id=self.star.id, level="mentions_only")
+                for name in ("owner", "admin", "mod", "alice", "bob")])
+            await db.commit()
         tag = await self.group("backend", "bob", "admin", "alice")
         self.assertEqual(tag.handle, "backend")
         msg = await self.say("@Backend посмотрите релиз")

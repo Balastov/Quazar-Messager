@@ -30,6 +30,7 @@ from app.core.deps import get_current_user
 from app.models.star import Star, StarAudit, StarChannel, StarMember, StarMemberTag, StarTag
 from app.models.user import User
 from app.schemas.star import StarTagOut, StarUserOut
+from app.core import pseudonyms
 
 router = APIRouter(prefix="/stars", tags=["stars"])
 
@@ -369,7 +370,7 @@ async def list_audit(
     users = {
         u.id: u for u in (await db.execute(select(User).where(User.id.in_(user_ids)))).scalars().all()
     } if user_ids else {}
-    return [
+    return await pseudonyms.in_star(db, star_id, [
         AuditOut(
             id=r.id,
             actor=_user_out(users[r.actor_id]) if r.actor_id in users else None,
@@ -380,4 +381,4 @@ async def list_audit(
             created_at=r.created_at,
         )
         for r in rows
-    ]
+    ])

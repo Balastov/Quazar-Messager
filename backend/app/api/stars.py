@@ -4,6 +4,7 @@
 """
 
 import secrets
+import logging
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from typing import Annotated
@@ -27,6 +28,7 @@ from app.core import doors
 from app.core import bots, markup, notify, presence, revisions, shares, star_assets, star_audit, star_files, workflows
 from app.core import floors as floors_svc
 from app.core import voice
+from app.core import pseudonyms, livekit
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.core.stars import Perm
@@ -74,6 +76,7 @@ from app.schemas.star import (
     TransferStar,
     UpdateChannel,
     UpdateMemberRole,
+    UpdateMemberPseudonym,
     UpdateRolePermissions,
     UpdateStar,
 )
@@ -97,9 +100,11 @@ def _forbid(detail: str = "Недостаточно прав") -> HTTPException:
     return HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=detail)
 
 
-def _user_out(user: User) -> StarUserOut:
+def _user_out(user: User, pseudonym: str | None = None, star_id: str | None = None, pseudonym_version: int = 0) -> StarUserOut:
     return StarUserOut(
-        id=user.id, username=user.username, display_name=user.display_name, avatar_url=user.avatar_url
+        id=user.id, username=user.username, display_name=pseudonym or user.display_name,
+        account_display_name=user.display_name, avatar_url=user.avatar_url,
+        pseudonym=pseudonym, pseudonym_star_id=star_id, pseudonym_version=pseudonym_version,
     )
 
 
@@ -201,7 +206,7 @@ async def _broadcast(db: AsyncSession, star_id: str, event: dict, *, also: tuple
     star_ids = await shares.audience_star_ids(db, channel_id, star_id) if channel_id else [star_id]
     if len(star_ids) == 1:
         user_ids = set(await _member_ids(db, star_id)) | set(also)
-        await manager.broadcast_to_users(list(user_ids), {"star_id": star_id, **event})
+        await manager.broadcast_to_users(list(user_ids), await pseudonyms.in_star(db, star_id, {"star_id": star_id, **event}))
         return
     known = set(star_ids)
     sent: set[str] = set()
@@ -212,7 +217,8 @@ async def _broadcast(db: AsyncSession, star_id: str, event: dict, *, also: tuple
         if not user_ids:
             continue
         sent |= user_ids
-        await manager.broadcast_to_users(list(user_ids), shares.for_star({"star_id": star_id, **event}, known, sid))
+        await manager.broadcast_to_users(list(user_ids), await pseudonyms.in_star(db, sid,
+            shares.for_star({"star_id": star_id, **event}, known, sid)))
 
 
 def _staff_here(me: StarMember, channel: StarChannel) -> bool:
@@ -257,7 +263,7 @@ async def _members_out(db: AsyncSession, star_id: str) -> list[StarMemberOut]:
     schedules = await _work_hours_on(db, star_id)
     members = [
         StarMemberOut(
-            user=_user_out(user),
+            user=_user_out(user, m.pseudonym, m.star_id, m.pseudonym_version),
             role=m.role,
             joined_at=m.joined_at,
             tag_ids=tags.get(user.id, []),
@@ -274,7 +280,7 @@ async def _member_out(db: AsyncSession, member: StarMember) -> StarMemberOut:
     user = (await db.execute(select(User).where(User.id == member.user_id))).scalar_one()
     tags = await _member_tag_ids(db, member.star_id, member.user_id)
     return StarMemberOut(
-        user=_user_out(user),
+        user=_user_out(user, member.pseudonym, member.star_id, member.pseudonym_version),
         role=member.role,
         joined_at=member.joined_at,
         tag_ids=tags.get(member.user_id, []),
@@ -703,6 +709,36 @@ async def update_member_role(
     await db.commit()
     out = await broadcast_member(db, target)
     await star_audit.record(db, star_id, current_user.id, "role", user_id, before=previous, after=body.role)
+    return out
+
+
+@router.patch("/{star_id}/members/{user_id}/pseudonym", response_model=StarMemberOut)
+async def update_member_pseudonym(
+    star_id: str, user_id: str, body: UpdateMemberPseudonym, current_user: CurrentUser, db: Db
+):
+    await _load_membership(db, star_id, current_user.id)
+    locked = (await db.execute(select(StarMember).where(
+        StarMember.star_id == star_id, StarMember.user_id.in_({current_user.id, user_id})
+    ).order_by(StarMember.user_id).with_for_update().execution_options(populate_existing=True))).scalars().all()
+    members = {member.user_id: member for member in locked}
+    actor, target = members.get(current_user.id), members.get(user_id)
+    if actor is None or target is None:
+        raise HTTPException(status_code=404, detail="Участник не найден")
+    if not pseudonyms.can_change_pseudonym(actor.user_id, actor.role, target.user_id, target.role):
+        raise _forbid("Можно менять свой псевдоним; владелец и админы могут менять псевдонимы участников без административной роли")
+    previous = target.pseudonym
+    if previous != body.pseudonym:
+        target.pseudonym = body.pseudonym
+        target.pseudonym_version += 1
+        await db.commit()
+        await star_audit.record(db, star_id, current_user.id, "pseudonym", user_id, before=previous, after=body.pseudonym)
+    out = await broadcast_member(db, target)
+    if previous != body.pseudonym:
+        for channel_id in voice.channels_with_user(star_id, user_id):
+            try:
+                await livekit.room_service.update_name(voice.room_name(channel_id), user_id, out.user.pseudonym or out.user.display_name)
+            except livekit.LiveKitError:
+                logging.getLogger(__name__).warning("Could not refresh a participant name in LiveKit")
     return out
 
 
@@ -1142,7 +1178,7 @@ async def _satellite(db: AsyncSession, star_id: str, channel_id: str) -> StarCha
 
 
 async def _messages_out(
-    db: AsyncSession, rows: list[tuple[StarMessage, User | None]], viewer_id: str | None = None
+    db: AsyncSession, rows: list[tuple[StarMessage, User | None]], viewer_id: str | None = None, *, star_id: str | None = None
 ) -> list[StarMessageOut]:
     """Сообщения с цитатами ответов и реакциями — двумя запросами на всю страницу."""
     reply_ids = {m.reply_to_id for m, _ in rows if m.reply_to_id}
@@ -1205,7 +1241,7 @@ async def _messages_out(
                 ).scalars().all()
             )
 
-    return [
+    outs = [
         StarMessageOut(
             id=m.id,
             star_id=m.star_id,
@@ -1238,6 +1274,9 @@ async def _messages_out(
         )
         for m, u in rows
     ]
+    for sid in ({star_id} if star_id else {m.star_id for m, _ in rows}):
+        await pseudonyms.in_star(db, sid, outs if star_id else [out for out in outs if out.star_id == sid])
+    return outs
 
 
 async def _star_message(db: AsyncSession, star_id: str, channel_id: str, message_id: str) -> StarMessage:
@@ -1276,7 +1315,7 @@ async def list_messages(
         if cursor:
             query = query.where(StarMessage.created_at < cursor)
     rows = (await db.execute(query.order_by(StarMessage.created_at.desc()).limit(limit))).all()
-    return _as_star(await _messages_out(db, [(m, u) for m, u in reversed(rows)], current_user.id), star_id)
+    return _as_star(await _messages_out(db, [(m, u) for m, u in reversed(rows)], current_user.id, star_id=star_id), star_id)
 
 
 @router.post(
@@ -1331,7 +1370,7 @@ async def send_message(
     await _push_message(db, star, channel, message, current_user, reply_to, file)
     bots.dispatch_later(await bot_targets(db, channel), out.model_dump(mode="json"))
     out.star_id = star_id
-    return out
+    return await pseudonyms.in_star(db, star_id, out)
 
 
 async def bot_targets(
@@ -1454,8 +1493,9 @@ async def _push_message(
         contexts = {sid: [uid for uid in targets if selected.get(uid) == sid] for sid in audience}
         star_names = dict((await db.execute(select(Star.id, Star.name).where(Star.id.in_(audience)))).all())
     for sid, users in contexts.items():
+        sender_profile = await pseudonyms.in_star(db, sid, _user_out(sender))
         notify.push_later(users, {
-            "type": "star_message", "title": f"{sender.display_name} · #{channel.name} · {star_names.get(sid, star.name)}",
+            "type": "star_message", "title": f"{sender_profile.pseudonym or sender.display_name} · #{channel.name} · {star_names.get(sid, star.name)}",
             "body": body[:200], "star_id": sid, "channel_id": channel.id, "message_id": message.id, "thread_id": message.thread_id,
             "tag": f"quazar-star-message-{message.id}",
         })
@@ -1538,7 +1578,7 @@ async def edit_message(
             "mention_all": message.mention_all,
         },
     )
-    return _as_star(await _messages_out(db, [(message, current_user)]), star_id)[0]
+    return _as_star(await _messages_out(db, [(message, current_user)], star_id=star_id), star_id)[0]
 
 
 class StarRevisionOut(BaseModel):

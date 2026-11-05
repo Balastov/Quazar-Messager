@@ -4,7 +4,7 @@ import { starsApi, type StarChannel, type StarDetail, type StarNote, type StarNo
 import { diffStats, lineDiff } from "../../chat/diff";
 import { formatWhen } from "../../chat/when";
 import { useStarsStore } from "../../store/stars";
-import { displayName } from "../../utils/profile";
+import { useStarDisplayName } from "./StarProfiles";
 import type { MentionKind } from "../LinkifiedText";
 import ComposerInput, { type ComposerHandle } from "../messages/ComposerInput";
 import FormatBar from "../messages/FormatBar";
@@ -46,6 +46,7 @@ export default function NotesView({
   emoji: Record<string, string>;
   mention: MentionKind;
 }) {
+  const displayName = useStarDisplayName(detail);
   const [note, setNote] = useState<StarNote | null>(null);
   const [mode, setMode] = useState<Mode>("view");
   const [draft, setDraft] = useState("");
@@ -285,6 +286,7 @@ function History({
   onBack: () => void;
   onRestore: (text: string) => void;
 }) {
+  const displayName = useStarDisplayName(detail);
   const [list, setList] = useState<StarNoteRevision[] | null>(null);
   const [picked, setPicked] = useState<number | null>(null);
   const [texts, setTexts] = useState<Record<number, string>>({});

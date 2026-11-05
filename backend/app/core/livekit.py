@@ -159,6 +159,9 @@ class RoomService:
     async def remove_participant(self, room: str, identity: str) -> None:
         await self._call("RemoveParticipant", {"room": room, "identity": identity}, room=room)
 
+    async def update_name(self, room: str, identity: str, name: str) -> None:
+        await self._call("UpdateParticipant", {"room": room, "identity": identity, "name": name}, room=room)
+
     async def update_publish_sources(self, room: str, identity: str, sources: list[str]) -> None:
         """Что участнику можно публиковать. Отозванные источники LiveKit снимает с публикации."""
         await self._call(

@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.stars import _broadcast, _forbid, _load_membership, _satellite, _staff_here, _user_out, assert_can_post
 from app.core.database import get_db
 from app.core.deps import get_current_user
+from app.core import pseudonyms
 from app.models.star import StarChannelNote, StarChannelNoteRevision
 from app.models.user import User
 from app.schemas.star import StarUserOut
@@ -64,16 +65,16 @@ def _can_edit(channel, me) -> bool:
     return not channel.announcement or _staff_here(me, channel)
 
 
-async def _users(db: AsyncSession, ids: set[str | None]) -> dict[str, StarUserOut]:
+async def _users(db: AsyncSession, ids: set[str | None], star_id: str) -> dict[str, StarUserOut]:
     ids = {i for i in ids if i}
     if not ids:
         return {}
-    return {u.id: _user_out(u) for u in (await db.execute(select(User).where(User.id.in_(ids)))).scalars()}
+    return await pseudonyms.in_star(db, star_id, {u.id: _user_out(u) for u in (await db.execute(select(User).where(User.id.in_(ids)))).scalars()})
 
 
 async def _note_out(db: AsyncSession, channel, me) -> NoteOut:
     note = await db.get(StarChannelNote, channel.id)
-    users = await _users(db, {note.updated_by if note else None})
+    users = await _users(db, {note.updated_by if note else None}, me.star_id)
     return NoteOut(
         channel_id=channel.id,
         text=note.text if note else "",
@@ -168,7 +169,7 @@ async def list_revisions(star_id: str, channel_id: str, current_user: CurrentUse
             .order_by(StarChannelNoteRevision.version.desc())
         )
     ).scalars().all()
-    users = await _users(db, {r.author_id for r in rows})
+    users = await _users(db, {r.author_id for r in rows}, star_id)
     return [
         RevisionOut(version=r.version, author=users.get(r.author_id or ""), created_at=r.created_at, length=len(r.text))
         for r in rows
@@ -188,7 +189,7 @@ async def get_revision(star_id: str, channel_id: str, version: int, current_user
     ).scalar_one_or_none()
     if not rev:
         raise HTTPException(status_code=404, detail="Такой версии нет — старые версии со временем удаляются")
-    users = await _users(db, {rev.author_id})
+    users = await _users(db, {rev.author_id}, star_id)
     return RevisionTextOut(
         version=rev.version, author=users.get(rev.author_id or ""), created_at=rev.created_at,
         length=len(rev.text), text=rev.text,

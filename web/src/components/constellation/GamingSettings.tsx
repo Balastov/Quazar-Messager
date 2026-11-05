@@ -5,6 +5,7 @@ import { formatWhen } from "../../chat/when";
 import { apiError } from "./rules";
 import { TagChip } from "./MyTags";
 import { auditText } from "./audit";
+import { useStarDisplayName } from "./StarProfiles";
 import { BUILTIN_SOUNDS } from "./soundboard";
 import s from "./Constellation.module.css";
 import g from "./Gaming.module.css";
@@ -330,6 +331,7 @@ function AssetSection({ detail, kind, items }: { detail: StarDetail; kind: Asset
 
 /** Журнал: кто кого выгнал, заглушил, кому сменил роль, что настроил. */
 export function AuditTab({ detail }: { detail: StarDetail }) {
+  const displayName = useStarDisplayName(detail);
   const [entries, setEntries] = useState<AuditEntry[]>([]);
   const [done, setDone] = useState(false);
   const { busy, run, status } = useRun();
@@ -354,7 +356,7 @@ export function AuditTab({ detail }: { detail: StarDetail }) {
       {entries.map((e) => (
         <div key={e.id} className={g.auditRow}>
           <span className={g.auditWhen}>{formatWhen(e.created_at)}</span>
-          <span>{auditText(e)}</span>
+          <span>{auditText(e, displayName)}</span>
         </div>
       ))}
       {status}

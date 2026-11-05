@@ -33,6 +33,7 @@ from app.core.stars import Perm
 from app.models.star import Star, StarBooking, StarChannel, StarMember, StarMessage, StarMessageAck
 from app.models.user import User
 from app.schemas.star import StarMessageOut, StarUserOut
+from app.core import pseudonyms
 from app.ws.hub import manager
 
 log = logging.getLogger(__name__)
@@ -80,7 +81,7 @@ async def thread_messages(
         )
     ).all()
     sender = (await db.execute(select(User).where(User.id == root.sender_id))).scalar_one_or_none()
-    return _as_star(await _messages_out(db, [(root, sender), *[(m, u) for m, u in reversed(rows)]], current_user.id), star_id)
+    return _as_star(await _messages_out(db, [(root, sender), *[(m, u) for m, u in reversed(rows)]], current_user.id, star_id=star_id), star_id)
 
 
 # --- Объявления: «Ознакомлен(а)» -------------------------------------------------
@@ -137,10 +138,10 @@ async def acks(star_id: str, message_id: str, current_user: CurrentUser, db: Db)
             select(User).join(StarMember, StarMember.user_id == User.id).where(StarMember.star_id == star_id)
         )
     ).scalars().all()
-    return AcksOut(
+    return await pseudonyms.in_star(db, star_id, AcksOut(
         acked=[_user_out(u) for u in users if u.id in acked_ids],
         pending=[_user_out(u) for u in users if u.id not in acked_ids and u.id != message.sender_id],
-    )
+    ))
 
 
 # --- Рабочее время ------------------------------------------------------------------
@@ -315,9 +316,10 @@ async def create_booking(star_id: str, channel_id: str, body: BookingBody, curre
     ).first()
     if clash:
         booking, owner = clash
+        owner_name = await pseudonyms.name_in_star(db, star_id, owner)
         raise HTTPException(
             status_code=409,
-            detail=f"Комната занята: «{booking.title}» ({owner.display_name if owner else 'кто-то'}) "
+            detail=f"Комната занята: «{booking.title}» ({owner_name or 'кто-то'}) "
             f"с {_local(star, booking.starts_at)} до {_local(star, booking.ends_at)}",
         )
     booking = StarBooking(

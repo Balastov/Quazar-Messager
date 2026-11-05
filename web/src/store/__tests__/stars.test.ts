@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {setNotificationUser} from "../../notifications/delivery";
-import type { ScheduledStarMessage, StarDetail, StarEvent, StarMessage } from "../../api/stars";
+import type { ScheduledStarMessage, StarDetail, StarEvent, StarMember, StarMessage } from "../../api/stars";
 
 const memoryStorage = new Map<string, string>();
 vi.stubGlobal("localStorage", {
@@ -90,6 +90,7 @@ vi.mock("../../api/stars", async (importOriginal) => {
       },
       messages: async (starId: string, channelId: string) => [message(starId, channelId, "m0")],
       scheduled: vi.fn(),
+      setPseudonym: vi.fn(),
       schedule: vi.fn(),
       cancelScheduled: vi.fn(),
       thread: async (starId: string, channelId: string, rootId: string) => [
@@ -319,6 +320,28 @@ describe("stars store", () => {
     emit({ type: "star_updated", star_id: "a", name: "Альфа", owner_id: ME, avatar_url: null, background_url: null });
     st = useStarsStore.getState();
     expect(st.stars.find((s) => s.id === "a")?.avatar_url).toBeNull();
+  });
+
+  it("keeps the latest pseudonym in its own Star across stale events and responses", async () => {
+    await useStarsStore.getState().load();
+    await useStarsStore.getState().selectStar("b");
+    const member: StarMember = { role: "member", joined_at: "2026-11-05T00:00:00Z", user: {
+      id: "person", username: "account", display_name: "Имя аккаунта", avatar_url: null,
+      pseudonym: "Луна", pseudonym_star_id: "a", pseudonym_version: 2,
+    } };
+    vi.mocked(starsApi.setPseudonym).mockResolvedValue(member);
+    await useStarsStore.getState().setMemberPseudonym("a", "person", "Луна");
+    expect(starsApi.setPseudonym).toHaveBeenCalledWith("a", "person", "Луна");
+    expect(useStarsStore.getState().details.b.members.some(item => item.user.id === "person")).toBe(false);
+    const stale = { ...member, user: { ...member.user, pseudonym: "Прошлое", pseudonym_version: 1 } };
+    emit({ type: "star_member_upsert", star_id: "a", member: stale });
+    details.a.members.push(stale);
+    await useStarsStore.getState().refreshStar("a");
+    expect(useStarsStore.getState().details.a.members.find(item => item.user.id === "person")?.user.pseudonym).toBe("Луна");
+    vi.mocked(starsApi.setPseudonym).mockResolvedValue({ ...member, user: { ...member.user, pseudonym: null, pseudonym_version: 3 } });
+    await useStarsStore.getState().setMemberPseudonym("a", "person", null);
+    expect(useStarsStore.getState().details.a.members.find(item => item.user.id === "person")?.user.pseudonym).toBeNull();
+    expect(useAuthStore.getState().user?.username).toBe("я");
   });
 
   it("switches away from a deleted channel", async () => {

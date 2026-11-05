@@ -5,9 +5,9 @@ import { displayName } from "../../utils/profile";
 
 const TIMEOUT_LABEL: Record<number, string> = { 5: "5 минут", 60: "1 час", 1440: "1 день", 10080: "1 неделю" };
 
-export function auditText(e: AuditEntry): string {
-  const who = displayName(e.actor) ?? "Кто-то";
-  const whom = displayName(e.target) ?? "участника";
+export function auditText(e: AuditEntry, nameOf: typeof displayName = displayName): string {
+  const who = nameOf(e.actor) ?? "Кто-то";
+  const whom = nameOf(e.target) ?? "участника";
   const d = e.details as Record<string, unknown>;
   const channel = typeof d.name === "string" ? `«${d.name}»` : "";
   switch (e.action) {
@@ -19,6 +19,8 @@ export function auditText(e: AuditEntry): string {
       return `${who} разблокировал(а) ${whom}`;
     case "role":
       return `${who} сменил(а) роль ${whom}: ${ROLE_LABEL[d.before as keyof typeof ROLE_LABEL] ?? d.before} → ${ROLE_LABEL[d.after as keyof typeof ROLE_LABEL] ?? d.after}`;
+    case "pseudonym":
+      return d.after ? `${who} сменил(а) псевдоним ${whom}: «${d.after}»` : `${who} убрал(а) псевдоним ${whom}`;
     case "timeout":
       return d.minutes
         ? `${who} дал(а) ${whom} тайм-аут на ${TIMEOUT_LABEL[d.minutes as number] ?? `${d.minutes} мин`}`

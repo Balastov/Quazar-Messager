@@ -59,6 +59,18 @@ function sortMembers(members: StarMember[]): StarMember[] {
   return [...members].sort((a, b) => compareUsers(a.user, b.user));
 }
 
+function latestPseudonym(previous: StarMember | undefined, incoming: StarMember): StarMember {
+  if ((previous?.user.pseudonym_version ?? 0) <= (incoming.user.pseudonym_version ?? 0)) return incoming;
+  return { ...incoming, user: { ...incoming.user, pseudonym: previous!.user.pseudonym,
+    pseudonym_star_id: previous!.user.pseudonym_star_id, pseudonym_version: previous!.user.pseudonym_version,
+    display_name: previous!.user.pseudonym || incoming.user.account_display_name || previous!.user.account_display_name || previous!.user.display_name } };
+}
+
+function updatedMembers(previous: StarMember[] | undefined, incoming: StarMember[]): StarMember[] {
+  const old = new Map((previous ?? []).map(member => [member.user.id, member]));
+  return sortMembers(incoming.map(member => latestPseudonym(old.get(member.user.id), member)));
+}
+
 function summaryOf(detail: StarDetail): StarSummary {
   const { id, name, kind, owner_id, avatar_url, background_url, created_at, member_count, my_role } =
     detail;
@@ -229,6 +241,7 @@ interface StarsState {
   transferStar: (userId: string) => Promise<void>;
   leaveStar: () => Promise<void>;
   setRole: (userId: string, role: Exclude<StarRole, "owner">) => Promise<void>;
+  setMemberPseudonym: (starId: string, userId: string, pseudonym: string | null) => Promise<void>;
   kick: (userId: string) => Promise<void>;
   ban: (userId: string) => Promise<void>;
   setPermissions: (perms: RolePermissions) => Promise<void>;
@@ -286,7 +299,7 @@ export const useStarsStore = create<StarsState>((set, get) => {
     if (!detail) return;
     const next = patch(detail);
     set((s) => ({
-      details: { ...s.details, [starId]: { ...next, members: sortMembers(next.members) } },
+      details: { ...s.details, [starId]: { ...next, members: updatedMembers(detail.members, next.members) } },
       stars: s.stars.map((st) => (st.id === starId ? summaryOf(next) : st)),
     }));
   }
@@ -297,7 +310,7 @@ export const useStarsStore = create<StarsState>((set, get) => {
       stars: s.stars.some((st) => st.id === detail.id)
         ? s.stars.map((st) => (st.id === detail.id ? summaryOf(detail) : st))
         : [...s.stars, summaryOf(detail)],
-      details: { ...s.details, [detail.id]: { ...detail, members: sortMembers(detail.members) } },
+      details: { ...s.details, [detail.id]: { ...detail, members: updatedMembers(s.details[detail.id]?.members, detail.members) } },
     }));
   }
 
@@ -368,6 +381,7 @@ export const useStarsStore = create<StarsState>((set, get) => {
       }
       case "star_member_upsert": {
         const isMe = event.member.user.id === myId();
+        const roleChanged = get().details[starId]?.my_role !== event.member.role;
         patchDetail(starId, (d) => {
           const others = d.members.filter((m) => m.user.id !== event.member.user.id);
           const members = sortMembers([...others, event.member]);
@@ -384,7 +398,7 @@ export const useStarsStore = create<StarsState>((set, get) => {
           break;
         }
         // Моя роль изменилась — права пересчитает сервер.
-        if (isMe) {
+        if (isMe && roleChanged) {
           void get().refreshStar(starId);
           void get().refreshLimits();
         }
@@ -1227,6 +1241,11 @@ export const useStarsStore = create<StarsState>((set, get) => {
       const starId = get().activeStarId;
       if (!starId) return;
       const member = await starsApi.setRole(starId, userId, role);
+      handleEvent({ type: "star_member_upsert", star_id: starId, member });
+    },
+
+    setMemberPseudonym: async (starId, userId, pseudonym) => {
+      const member = await starsApi.setPseudonym(starId, userId, pseudonym);
       handleEvent({ type: "star_member_upsert", star_id: starId, member });
     },
 

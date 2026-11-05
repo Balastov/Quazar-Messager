@@ -12,7 +12,7 @@ from sqlalchemy import func, select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.stars import _load_membership, _satellite, _user_out, assert_can_post
-from app.core import star_files
+from app.core import star_files, pseudonyms
 from app.core.config import settings
 from app.core import shares
 from app.core.database import get_db
@@ -139,7 +139,7 @@ async def list_files(
     if before:
         query = query.where(StarFile.created_at < before)
     rows = (await db.execute(query.order_by(StarFile.created_at.desc()).limit(limit))).all()
-    return StarFilesOut(
+    return await pseudonyms.in_star(db, star_id, StarFilesOut(
         files=[
             StarFileListItem(
                 id=f.id,
@@ -155,7 +155,7 @@ async def list_files(
         ],
         used_bytes=await _used(db, star_id),
         quota_bytes=_quota(),
-    )
+    ))
 
 
 @router.get("/{star_id}/files/{file_id}")

@@ -10,6 +10,7 @@ ACTIONS = (
     "ban",
     "unban",
     "role",
+    "pseudonym",
     "timeout",
     "message_delete",
     "channel_create",

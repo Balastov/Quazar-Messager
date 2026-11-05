@@ -6,6 +6,7 @@ import {
   type StarBan,
   type StarDetail,
   type StarInvite,
+  type StarMember,
   type StarPerm,
 } from "../../api/stars";
 import { useAuthStore } from "../../store/auth";
@@ -36,6 +37,7 @@ import s from "./Constellation.module.css";
 import ss from "./StarSettings.module.css";
 import { usePresenceText } from "../../store/presence";
 import { displayName } from "../../utils/profile";
+import PseudonymDialog, { canEditPseudonym } from "./PseudonymDialog";
 
 export type SettingsTab =
   | "general"
@@ -354,6 +356,7 @@ function GeneralTab({ detail, onClose }: { detail: StarDetail; onClose: () => vo
 }
 
 function MembersTab({ detail }: { detail: StarDetail }) {
+  const [pseudonymFor, setPseudonymFor] = useState<StarMember | null>(null);
   const myId = useAuthStore((st) => st.user?.id);
   const setRole = useStarsStore((st) => st.setRole);
   const kick = useStarsStore((st) => st.kick);
@@ -380,6 +383,8 @@ function MembersTab({ detail }: { detail: StarDetail }) {
                 <MemberStatus userId={m.user.id} />
               </span>
             </div>
+            {canEditPseudonym(myId, detail.my_role, m) && <button type="button" className={`${s.secondary} ${s.small}`}
+              onClick={() => setPseudonymFor(m)}>Псевдоним</button>}
             {roles.length > 0 && (
               <select
                 className={s.select}
@@ -437,6 +442,7 @@ function MembersTab({ detail }: { detail: StarDetail }) {
           </div>
         );
       })}
+      {pseudonymFor && <PseudonymDialog detail={detail} member={pseudonymFor} onClose={() => setPseudonymFor(null)} />}
       {status}
     </div>
   );

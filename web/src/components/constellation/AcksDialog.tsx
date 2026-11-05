@@ -5,10 +5,12 @@ import Dialog from "./Dialog";
 import { apiError } from "./rules";
 import s from "./Constellation.module.css";
 import w from "./Work.module.css";
-import { compareUsers, displayName } from "../../utils/profile";
+import { compareNames } from "../../utils/profile";
+import { useStarDisplayName } from "./StarProfiles";
 
 /** Кто ознакомился с объявлением и кто ещё нет — автору и админам. */
 export default function AcksDialog({ message, onClose }: { message: StarMessage; onClose: () => void }) {
+  const displayName = useStarDisplayName();
   const [acks, setAcks] = useState<StarAcks | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -26,7 +28,7 @@ export default function AcksDialog({ message, onClose }: { message: StarMessage;
       </h4>
       {people.length ? (
         <div className={w.peopleList}>
-          {[...people].sort(compareUsers).map((u) => (
+          {[...people].sort((a, b) => compareNames(displayName(a), displayName(b))).map((u) => (
             <div key={u.id} className={w.person}>
               <UserAvatar username={displayName(u)} avatarUrl={u.avatar_url} size="sm" />
               {displayName(u)}

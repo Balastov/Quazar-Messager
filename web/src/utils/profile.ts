@@ -8,14 +8,20 @@ const RESERVED = new Set([
   "moderator", "root", "me", "saved",
 ]);
 
-type Named = { username: string; display_name?: string | null };
+export type Named = { id?: string | null; username: string; display_name?: string | null; account_display_name?: string | null; pseudonym?: string | null; pseudonym_star_id?: string | null };
+
+const graphemes = typeof Intl.Segmenter === "function" ? new Intl.Segmenter(undefined, { granularity: "grapheme" }) : null;
+export function profileInitial(name: string): string {
+  const first = graphemes ? graphemes.segment(name)[Symbol.iterator]().next().value?.segment : Array.from(name)[0];
+  return (first || "?").toUpperCase();
+}
 
 /** «Имя Фамилия», если указаны, иначе никнейм. Нет пользователя — undefined (для «?? запасное»). */
 export function displayName(u: Named): string;
 export function displayName(u: Named | null | undefined): string | undefined;
 export function displayName(u: Named | null | undefined): string | undefined {
   if (!u) return undefined;
-  return u.display_name?.trim() || u.username;
+  return u.pseudonym?.trim() || u.display_name?.trim() || u.username;
 }
 
 const nameCollator = new Intl.Collator("ru", { sensitivity: "accent", numeric: true });

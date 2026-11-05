@@ -63,6 +63,8 @@ class StarMember(Base):
     )
     # "owner" | "admin" | "moderator" | "member"
     role: Mapped[str] = mapped_column(String(16), nullable=False, default="member")
+    pseudonym: Mapped[str | None] = mapped_column(Text, nullable=True)
+    pseudonym_version: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     joined_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     # Тайм-аут: до этого момента не пишет, не ставит реакции и молчит на Планетах.
     timeout_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

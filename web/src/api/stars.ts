@@ -21,6 +21,10 @@ export interface StarUser {
   id: string;
   username: string;
   display_name?: string;
+  pseudonym?: string | null;
+  account_display_name?: string;
+  pseudonym_star_id?: string | null;
+  pseudonym_version?: number;
   avatar_url: string | null;
 }
 
@@ -714,6 +718,8 @@ export const starsApi = {
 
   setRole: (starId: string, userId: string, role: Exclude<StarRole, "owner">) =>
     http.patch<StarMember>(`${base(starId)}/members/${userId}`, { role }).then((r) => r.data),
+  setPseudonym: (starId: string, userId: string, pseudonym: string | null) =>
+    http.patch<StarMember>(`${base(starId)}/members/${userId}/pseudonym`, { pseudonym }).then(r => r.data),
   kick: (starId: string, userId: string) => http.post(`${base(starId)}/members/${userId}/kick`),
   ban: (starId: string, userId: string) => http.post(`${base(starId)}/members/${userId}/ban`),
   bans: (starId: string) => http.get<StarBan[]>(`${base(starId)}/bans`).then((r) => r.data),

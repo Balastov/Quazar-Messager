@@ -1,6 +1,7 @@
 import { usePresence, usePresenceStore } from "../store/presence";
 import { activeManual, MANUAL_LABEL } from "../utils/presence";
 import s from "./UserAvatar.module.css";
+import { profileInitial } from "../utils/profile";
 
 interface Props {
   username: string;
@@ -16,7 +17,7 @@ export default function UserAvatar({ username, avatarUrl, size = "md", className
   usePresenceStore((st) => st.minute); // истёк таймер ручного статуса — перерисуемся
   const manual = activeManual(presence);
   const status = presence?.status;
-  const letter = (username?.[0] ?? "?").toUpperCase();
+  const letter = profileInitial(username ?? "");
   const sizeClass = size === "sm" ? s.sm : size === "lg" ? s.lg : s.md;
   const classes = [s.root, sizeClass, className].filter(Boolean).join(" ");
 

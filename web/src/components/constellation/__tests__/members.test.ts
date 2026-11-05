@@ -19,6 +19,14 @@ const st = (patch: Partial<PresenceStatus>): PresenceStatus => ({
 });
 
 describe("groupMembers", () => {
+  it("sorts Star pseudonyms ahead of account names", () => {
+    const members = [
+      { ...m("one"), user: { ...m("one").user, display_name: "Анна", pseudonym: "Zorro" } },
+      { ...m("two"), user: { ...m("two").user, display_name: "Zed", pseudonym: "Яна" } },
+      { ...m("three"), user: { ...m("three").user, display_name: "Alice", pseudonym: "Аня" } },
+    ];
+    expect(groupMembers(members, {}, undefined, now)[0].rows.map(row => row.member.user.id)).toEqual(["three", "two", "one"]);
+  });
   it("groups by status and sorts names, me always online", () => {
     const groups = groupMembers(
       [m("яна"), m("борис", "admin"), m("алла"), m("влад", "owner"), m("я"), m("гоша")],

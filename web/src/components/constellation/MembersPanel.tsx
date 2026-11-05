@@ -27,6 +27,7 @@ const TIMEOUTS: { minutes: number; label: string }[] = [
 import { placeNouns } from "./words";
 import s from "./Constellation.module.css";
 import { displayName } from "../../utils/profile";
+import PseudonymDialog, { canEditPseudonym } from "./PseudonymDialog";
 
 interface Props {
   detail: StarDetail;
@@ -43,6 +44,7 @@ export default function MembersPanel({ detail, onClose, fullscreen = false }: Pr
   const openDirectChat = useChatStore((st) => st.openDirectChat);
   const [menu, setMenu] = useState<{ member: StarMember; x: number; y: number } | null>(null);
   const [tagsFor, setTagsFor] = useState<StarMember | null>(null);
+  const [pseudonymFor, setPseudonymFor] = useState<StarMember | null>(null);
   const [error, setError] = useState<string | null>(null);
   const closeMenu = useCallback(() => setMenu(null), []);
   const isAdmin = detail.my_role === "owner" || detail.my_role === "admin";
@@ -50,6 +52,7 @@ export default function MembersPanel({ detail, onClose, fullscreen = false }: Pr
 
   const memberActions = (member: StarMember): MenuAction[] => {
     const actions: MenuAction[] = [];
+    if (canEditPseudonym(myId, detail.my_role, member)) actions.push({ label: "Изменить псевдоним…", onClick: () => setPseudonymFor(member) });
     if (can(detail, "kick") && outranks(detail.my_role, member.role)) {
       const timedOut = member.timeout_until && Date.parse(member.timeout_until) > Date.now();
       if (timedOut) {
@@ -108,6 +111,8 @@ export default function MembersPanel({ detail, onClose, fullscreen = false }: Pr
       <div className={s.membersList}>
         <div style={{ padding: "4px 12px 8px" }}>
           <MyTags detail={detail} />
+          {detail.members.find(member => member.user.id === myId) && <button type="button" className={s.secondary}
+            onClick={() => setPseudonymFor(detail.members.find(member => member.user.id === myId)!)}>Мой псевдоним</button>}
         </div>
         {error && <div className={s.error} style={{ padding: "0 12px 8px" }}>{error}</div>}
         {groups.map((group) => (
@@ -226,6 +231,7 @@ export default function MembersPanel({ detail, onClose, fullscreen = false }: Pr
           <MemberTags detail={detail} userId={tagsFor.user.id} onError={setError} />
         </Dialog>
       )}
+      {pseudonymFor && <PseudonymDialog detail={detail} member={pseudonymFor} onClose={() => setPseudonymFor(null)} />}
     </aside>
   );
 }

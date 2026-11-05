@@ -31,6 +31,7 @@ const lowlevel = (nacl as unknown as { lowlevel: NaclLowlevel }).lowlevel;
 interface StoredIdentity {
   id: typeof RECORD_ID;
   publicKeyB64: string;
+  accountId?: string;
   /** 32-byte seed; required for new keys / backup. */
   seed?: ArrayBuffer;
   /** Legacy phase-1 non-exportable key (no seed). */
@@ -46,10 +47,12 @@ export interface LocalIdentity {
   publicKey: string;
   privateKey: CryptoKey | null;
   seed: Uint8Array | null;
+  accountId?: string;
 }
 
 function toLocalIdentity(stored: Omit<StoredIdentity, "id">): LocalIdentity {
   return {
+    ...(stored.accountId ? { accountId: stored.accountId } : {}),
     publicKey: stored.publicKeyB64,
     privateKey: stored.privateKey ?? null,
     seed: stored.seed ? new Uint8Array(stored.seed) : null,
@@ -84,7 +87,7 @@ async function loadStoredIdentity(): Promise<StoredIdentity | null> {
  * Записывает новую identity. Предыдущая (если ключ другой) уходит в архив,
  * чтобы история, зашифрованная на неё, оставалась читаемой на этом устройстве.
  */
-async function replaceIdentity(next: StoredIdentity): Promise<void> {
+async function replaceIdentity(next: StoredIdentity, imported: Omit<StoredIdentity, "id">[] = [], expected?: string): Promise<void> {
   const db = await openDb();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE, "readwrite");
@@ -92,8 +95,11 @@ async function replaceIdentity(next: StoredIdentity): Promise<void> {
     const currentReq = store.get(RECORD_ID);
     currentReq.onsuccess = () => {
       const current = currentReq.result as StoredIdentity | undefined;
+      if (expected && current?.publicKeyB64 !== expected) { tx.abort(); return; }
+      if (!next.accountId && current?.publicKeyB64 === next.publicKeyB64 && current.accountId) next = { ...next, accountId: current.accountId };
       store.put(next);
-      if (!current || current.publicKeyB64 === next.publicKeyB64) return;
+      const changed = !!current && (current.publicKeyB64 !== next.publicKeyB64 || current.accountId !== next.accountId);
+      if (!changed && !imported.length) return;
 
       const legacyReq = store.get(LEGACY_RECORD_ID);
       legacyReq.onsuccess = () => {
@@ -101,9 +107,13 @@ async function replaceIdentity(next: StoredIdentity): Promise<void> {
           id: LEGACY_RECORD_ID,
           keys: [],
         };
-        if (!legacy.keys.some((k) => k.publicKeyB64 === current.publicKeyB64)) {
+        const additions = [...imported];
+        if (changed && current) {
           const { id: _id, ...archived } = current;
-          legacy.keys.push(archived);
+          additions.push(archived);
+        }
+        for (const key of additions) {
+          if (!legacy.keys.some(k => k.publicKeyB64 === key.publicKeyB64 && k.accountId === key.accountId)) legacy.keys.push(key);
         }
         store.put(legacy);
       };
@@ -126,22 +136,23 @@ export function derivePublicKeyFromSeed(seed: Uint8Array): string {
 }
 
 /** Делает seed текущей identity этого устройства. */
-export async function saveIdentitySeed(seed: Uint8Array): Promise<string> {
+export async function saveIdentitySeed(seed: Uint8Array, accountId?: string): Promise<string> {
   const publicKeyB64 = derivePublicKeyFromSeed(seed);
   await replaceIdentity({
     id: RECORD_ID,
     publicKeyB64,
     seed: seedToBuffer(seed),
+    ...(accountId ? { accountId } : {}),
   });
   return publicKeyB64;
 }
 
-export async function generateIdentityKeyPair(): Promise<{
+export async function generateIdentityKeyPair(accountId?: string): Promise<{
   publicKey: string;
   seed: Uint8Array;
 }> {
   const seed = nacl.randomBytes(32);
-  const publicKey = await saveIdentitySeed(seed);
+  const publicKey = await saveIdentitySeed(seed, accountId);
   return { publicKey, seed };
 }
 
@@ -173,6 +184,19 @@ export async function getIdentitySeed(): Promise<Uint8Array | null> {
   const stored = await loadStoredIdentity();
   if (!stored?.seed) return null;
   return new Uint8Array(stored.seed);
+}
+
+/** Tag only an identity verified against this account's server key. */
+export async function bindIdentityToAccount(accountId: string, expectedPublicKey: string): Promise<void> {
+  const stored = await loadStoredIdentity();
+  if (!stored || stored.publicKeyB64 !== expectedPublicKey) throw new Error("Ключ устройства изменился");
+  if (stored.accountId !== accountId) await replaceIdentity({ ...stored, accountId }, [], expectedPublicKey);
+}
+
+/** One IndexedDB transaction imports the current identity and attributable historical keys. */
+export async function importDeviceIdentities(accountId: string, seed: Uint8Array, archived: Uint8Array[]): Promise<void> {
+  const keys = archived.map(value => ({ publicKeyB64: derivePublicKeyFromSeed(value), seed: seedToBuffer(value), accountId }));
+  await replaceIdentity({ id: RECORD_ID, publicKeyB64: derivePublicKeyFromSeed(seed), seed: seedToBuffer(seed), accountId }, keys);
 }
 
 export async function clearIdentityKeys(): Promise<void> {

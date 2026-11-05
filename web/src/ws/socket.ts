@@ -129,9 +129,16 @@ class SocketManager {
       }
     };
 
-    ws.onclose = () => {
+    ws.onclose = (event) => {
       if (this.ws !== ws) return;
       this.statusHandlers.forEach((h) => h(false));
+      if (event?.code === 4001) {
+        const token = this.token;
+        this.ws = null;
+        if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+        if (token) window.dispatchEvent(new CustomEvent("quazar-session-check", { detail: { token } }));
+        return;
+      }
       if (this.token) {
         if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
         this.reconnectTimer = setTimeout(() => this._open(), this.fastReconnect ? 1000 : 3000);

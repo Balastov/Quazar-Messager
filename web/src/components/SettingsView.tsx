@@ -28,6 +28,7 @@ import { previewsEnabled, setPreviewsEnabled } from "../chat/linkPreview";
 import { MyWorkSchedule } from "./constellation/WorkSettings";
 import { useWallpaperStore } from "../store/wallpaper";
 import DesktopDownloadButton from "./DesktopDownloadButton";
+import DeviceSessions from "./devices/DeviceSessions";
 import { prepareBackground } from "../utils/wallpaper";
 
 const STAR_SOUNDS: [StarSoundEvent, string][] = [
@@ -200,6 +201,7 @@ export default function SettingsView() {
           />
         </section>
 
+        <DeviceSessions />
         <section className={s.card}>
           <h3 className={s.sectionTitle}>Обратная связь</h3>
           <p className={s.hint}>
@@ -691,7 +693,7 @@ export default function SettingsView() {
                 setRotateProof(null);
                 setProofRound((n) => n + 1);
                 setStatus(
-                  "Ключи обновлены. Создайте новую резервную копию — без неё другие устройства не смогут читать новые сообщения."
+                  "Ключи обновлены. Создайте новую резервную копию. На остальных устройствах восстановите новые ключи из неё или войдите заново через QR-код."
                 );
               })
             }

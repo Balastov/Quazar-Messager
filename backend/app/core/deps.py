@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.security import decode_token, token_is_current
 from app.models.user import User
+from app.core import device_sessions
 
 bearer = HTTPBearer()
 _optional_bearer = HTTPBearer(auto_error=False)
@@ -16,6 +17,7 @@ _optional_bearer = HTTPBearer(auto_error=False)
 async def get_current_user(
     credentials: Annotated[HTTPAuthorizationCredentials, Depends(bearer)],
     db: Annotated[AsyncSession, Depends(get_db)],
+    request: Request = None,
 ) -> User:
     user_id = decode_token(credentials.credentials)
     if not user_id:
@@ -30,13 +32,16 @@ async def get_current_user(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Аккаунт заблокирован")
     if not token_is_current(credentials.credentials, user):
         raise HTTPException(status_code=401, detail="Сессия завершена. Войдите снова")
-
+    session = await device_sessions.ensure(db, credentials.credentials, user, request.headers.get("user-agent", "") if request else "")
+    if request is not None:
+        request.state.device_session_id = session.id
     return user
 
 
 async def get_superuser(
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_optional_bearer)],
     db: Annotated[AsyncSession, Depends(get_db)],
+    request: Request = None,
 ) -> User:
     """Владелец ресурса. Всем остальным, в том числе без входа, — тот же 404, что у несуществующего
     адреса: по ответам о разделе не узнать."""
@@ -47,4 +52,10 @@ async def get_superuser(
     user = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
     if not user or user.blocked_at or not user.is_superuser or not token_is_current(credentials.credentials, user):
         raise not_found
+    try:
+        session = await device_sessions.ensure(db, credentials.credentials, user, request.headers.get("user-agent", "") if request else "")
+        if request is not None:
+            request.state.device_session_id = session.id
+    except HTTPException:
+        raise not_found from None
     return user

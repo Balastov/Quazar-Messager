@@ -2,7 +2,8 @@
  * Управление E2E ключами (web).
  *
  * У аккаунта один identity-ключ на все устройства. Создаётся он только на первом
- * устройстве; остальные получают его из зашифрованной паролем резервной копии.
+ * устройстве; остальные получают его при защищённом подключении устройства
+ * или из зашифрованной паролем резервной копии.
  * Устройство никогда не перезаписывает ключ на сервере молча — только явная ротация.
  */
 import axios from "axios";
@@ -15,6 +16,7 @@ import {
   loadIdentityKeyPair,
   loadLegacyIdentities,
   saveIdentitySeed,
+  bindIdentityToAccount,
   type LocalIdentity,
 } from "./webcrypto";
 
@@ -141,6 +143,7 @@ export async function syncIdentityWithServer(userId: string): Promise<IdentitySy
   if (serverKey) {
     const hasServerBackup = (await fetchKeyBackup()) !== null;
     if (local?.publicKey === serverKey) {
+      await bindIdentityToAccount(userId, serverKey);
       return { status: "ready", publicKey: serverKey, hasServerBackup };
     }
     return {
@@ -154,7 +157,7 @@ export async function syncIdentityWithServer(userId: string): Promise<IdentitySy
 
   // У аккаунта ещё нет ключа: создаём новый (локальный мог остаться от другого аккаунта
   // в этом браузере — он уйдёт в архив).
-  const { publicKey } = await generateIdentityKeyPair();
+  const { publicKey } = await generateIdentityKeyPair(userId);
   try {
     await uploadPublicKey(publicKey);
   } catch (err) {
@@ -186,7 +189,7 @@ export async function restoreFromBackup(
     throw new StaleBackupError(blob, publicKey, serverKey);
   }
 
-  await saveIdentitySeed(seed);
+  await saveIdentitySeed(seed, userId);
   if (!serverKey) {
     await uploadPublicKey(publicKey);
   }
@@ -214,7 +217,7 @@ export async function adoptBackupAsAccountKey(
 ): Promise<string> {
   const { publicKey, seed } = await decryptBackup(blob, backupPassword);
   await http.post("/users/me/key/rotate", { ...proofBody(proof), public_key: publicKey });
-  await saveIdentitySeed(seed);
+  await saveIdentitySeed(seed, userId);
   // Ротация удаляет копию на сервере; эта копия как раз для нового ключа аккаунта.
   await uploadKeyBackup(blob);
   invalidateKeyCache(userId);
@@ -246,7 +249,7 @@ export async function rotateKeys(userId: string, proof: AccountProof): Promise<s
   const seed = nacl.randomBytes(32);
   const publicKey = derivePublicKeyFromSeed(seed);
   await http.post("/users/me/key/rotate", { ...proofBody(proof), public_key: publicKey });
-  await saveIdentitySeed(seed);
+  await saveIdentitySeed(seed, userId);
   invalidateKeyCache(userId);
   clearBackupDone();
   return publicKey;

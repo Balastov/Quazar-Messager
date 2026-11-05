@@ -20,7 +20,7 @@ interface AuthState {
   user: User | null;
   phonePromptPending: boolean;
   dismissPhonePrompt: () => void;
-  setToken: (token: string) => Promise<void>;
+  setToken: (token: string, beforeSession?: (user: User) => Promise<void>) => Promise<void>;
   setUser: (user: User) => void;
   refreshSession: (token: string) => Promise<void>;
   logout: () => void;
@@ -45,6 +45,16 @@ function afterAuth(token: string, userId: string) {
   void useWallpaperStore.getState().load();
 }
 
+function persistedToken(): string | null {
+  try { return JSON.parse(localStorage.getItem("quazar-auth") ?? "null")?.state?.token ?? null; }
+  catch { return null; }
+}
+
+async function loginLock<T>(work: () => Promise<T>): Promise<T> {
+  return navigator.locks?.request ? navigator.locks.request("quazar-account-login", work) : work();
+}
+let authRevision = 0;
+
 export const useAuthStore = create<AuthState>()(
   persist(
     (set, get) => ({
@@ -53,16 +63,30 @@ export const useAuthStore = create<AuthState>()(
       phonePromptPending: false,
       dismissPhonePrompt: () => set({ phonePromptPending: false }),
 
-      setToken: async (token) => {
-        setAuthToken(token);
-        const user = await usersApi.me();
-        setAuthToken(token);
-        set({ token, user, phonePromptPending: !user.phone_verified_at });
-        afterAuth(token, user.id);
+      setToken: async (token, beforeSession) => {
+        const initial = persistedToken();
+        await loginLock(async () => {
+          const revision = authRevision;
+          if (persistedToken() !== initial) throw new Error("В другой вкладке изменился аккаунт. Обновите страницу");
+          setAuthToken(token);
+          try {
+            const user = await usersApi.me();
+            if (revision !== authRevision || persistedToken() !== initial) throw new Error("Вход отменён или аккаунт изменился");
+            if (beforeSession) await beforeSession(user);
+            if (revision !== authRevision || persistedToken() !== initial) throw new Error("Вход отменён или аккаунт изменился");
+            setAuthToken(token);
+            set({ token, user, phonePromptPending: !user.phone_verified_at });
+            afterAuth(token, user.id);
+          } catch (error) {
+            if (http.defaults.headers.common["Authorization"] === `Bearer ${token}`) setAuthToken(get().token);
+            throw error;
+          }
+        });
       },
 
-      setUser: (user) => set({ user }),
+      setUser: (user) => { if (get().token && get().user?.id === user.id) set({ user }); },
       refreshSession: async (token) => {
+        authRevision++;
         if (!get().user) { await get().setToken(token); return; }
         setAuthToken(token);
         set({ token });
@@ -72,10 +96,14 @@ export const useAuthStore = create<AuthState>()(
       },
 
       logout: () => {
+        authRevision++;
+        const token = get().token;
+        if (token) void http.delete("/auth/devices/current", { headers: { Authorization: `Bearer ${token}` } }).catch(() => {});
         void dropPushSubscription();
         setNotificationUser(null);
         setAuthToken(null);
         socket.disconnect();
+        void import("./call").then(({ useCallStore }) => useCallStore.getState().hangup()).catch(() => {});
         useE2EStore.getState().reset();
         void useVoiceStore.getState().leave();
         useDoorsStore.getState().reset();
@@ -90,18 +118,39 @@ export const useAuthStore = create<AuthState>()(
       name: "quazar-auth",
       onRehydrateStorage: () => (state) => {
         if (state?.token) {
-          setAuthToken(state.token);
+          const token = state.token;
+          setAuthToken(token);
           usersApi
             .me()
             .then((user) => {
+              if (useAuthStore.getState().token !== token) return;
               useAuthStore.setState({ user });
-              afterAuth(state.token!, user.id);
+              afterAuth(token, user.id);
             })
             .catch(() => {
-              state.logout();
+              if (useAuthStore.getState().token === token) state.logout();
             });
         } else { setNotificationUser(null); void dropPushSubscription(); }
       },
     }
   )
 );
+
+let sessionCheck: ReturnType<typeof setTimeout> | undefined;
+if (typeof window !== "undefined") {
+  window.addEventListener("quazar-session-check", event => {
+    const token = (event as CustomEvent<{ token: string }>).detail?.token;
+    clearTimeout(sessionCheck);
+    sessionCheck = setTimeout(() => {
+      if (!token || useAuthStore.getState().token !== token) return;
+      void usersApi.me().then(() => {
+        if (useAuthStore.getState().token === token) socket.connect(token);
+      }).catch(() => {});
+    }, 5000);
+  });
+  window.addEventListener("storage", event => {
+    if (event.key !== "quazar-auth") return;
+    const token = useAuthStore.getState().token;
+    if (token && persistedToken() !== token) window.location.reload();
+  });
+}

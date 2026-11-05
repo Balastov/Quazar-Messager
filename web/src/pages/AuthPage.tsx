@@ -13,9 +13,10 @@ import s from "./AuthPage.module.css";
 import { desktop } from "../platform/desktop";
 import { startDesktopYandexLogin } from "../auth/desktopYandex";
 import DesktopDownloadButton from "../components/DesktopDownloadButton";
+import DeviceReceiver from "../components/devices/DeviceReceiver";
 
 export default function AuthPage() {
-  const [screen, setScreen] = useState<"welcome" | "login" | "register" | "profile">("welcome");
+  const [screen, setScreen] = useState<"welcome" | "login" | "register" | "profile" | "device">("welcome");
   const [phone, setPhone] = useState("+7");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -71,16 +72,23 @@ export default function AuthPage() {
   const yandexButton = yandex && <><div className={s.or}>или</div><a className={s.yandex} href={authApi.yandexStartUrl}
     onClick={event => { if (desktop()) { event.preventDefault(); void startDesktopYandexLogin().catch(err => setError(apiErrorText(err))); } }}>
     <span className={s.yandexMark} aria-hidden>Я</span>Войти с Яндекс ID</a></>;
+  if (screen === "device") return <div className={s.root}><div className={s.card}><div className={s.formCard}>
+    <button type="button" className={s.back} onClick={() => go("welcome")}>← Назад</button>
+    <h2 className={s.formTitle}>Вход с другого устройства</h2>
+    <DeviceReceiver onDone={() => navigate("/", { replace: true })} />
+  </div></div></div>;
   if (screen === "welcome") return <div className={s.root}><div className={s.card}>
     <img className={s.logoMark} src="/logo-mark.png?v=neon-q-2" alt="" />
     <h1 className={s.brandName}>Quazar</h1><p className={s.tagline}>Общение. Звонки. Люди. В одном пространстве.</p>
     <div className={s.actions}><button type="button" className={s.primary} onClick={() => go("login")}>Войти</button>
+      <button type="button" className={s.ghost} onClick={() => go("device")}>Войти по QR-коду</button>
       <button type="button" className={s.ghost} onClick={() => go("register")}>Создать аккаунт</button>{yandexButton}<DesktopDownloadButton /></div>
   </div></div>;
   return <div className={s.root}><div className={s.card}><div className={s.formCard}>
     <button type="button" className={s.back} onClick={() => go(screen === "profile" ? "register" : "welcome")}>← Назад</button>
     <h2 className={s.formTitle}>{screen === "login" ? "Вход" : screen === "profile" ? "Как вас представить?" : "Регистрация"}</h2>
     {screen === "login" && !legacy && <p className={s.lead}>Введите номер телефона и нажмите «Войти звонком». Если вы уже подтвердили номер, для входа нужен новый звонок.</p>}
+    {screen === "login" && !legacy && <button type="button" className={s.ghost} onClick={() => go("device")}>Войти по QR-коду</button>}
     {screen === "register" && <p className={s.lead}>Сначала подтвердите телефон. Пароль для регистрации не нужен.</p>}
     <form className={s.form} onSubmit={event => void submit(event)}>
       {screen === "profile" ? <>

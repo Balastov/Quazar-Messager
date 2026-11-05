@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
   push:
     branches: [main, 'desktop/**']
-    paths: ['web/**', 'desktop/**', '.github/workflows/desktop.yml']
+    paths: ['web/**', 'desktop/**', 'backend/**', '.github/workflows/desktop.yml']
   pull_request:
-    paths: ['web/**', 'desktop/**', '.github/workflows/desktop.yml']
+    paths: ['web/**', 'desktop/**', 'backend/**', '.github/workflows/desktop.yml']
 
 permissions:
   contents: read
@@ -37,7 +37,7 @@ jobs:
       - run: pip install -r requirements.txt
         working-directory: backend
       - name: Test authentication and message receipt privacy
-        run: python -B -m unittest tests.test_oauth_yandex tests.test_phone_verification tests.test_profile tests.test_group_readers tests.test_message_status tests.test_message_actions tests.test_chat_features tests.test_news tests.test_pseudonyms
+        run: python -B -m unittest tests.test_oauth_yandex tests.test_phone_verification tests.test_device_pairing tests.test_profile tests.test_group_readers tests.test_message_status tests.test_message_actions tests.test_chat_features tests.test_news tests.test_pseudonyms
         working-directory: backend
         env:
           TEST_DATABASE_URL: postgresql+asyncpg://quazar:quazar-test@127.0.0.1:5432/quazar_test
@@ -69,8 +69,54 @@ jobs:
         working-directory: desktop
       - run: python3 -B -m unittest discover -s .github/scripts -p 'test_*.py'
 
+  device-pairing:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: quazar
+          POSTGRES_PASSWORD: quazar-test
+          POSTGRES_DB: quazar_test
+        ports: ['5432:5432']
+        options: --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            web/package-lock.json
+            desktop/package-lock.json
+      - run: pip install -r backend/requirements.txt
+      - run: npm ci
+        working-directory: web
+      - run: npm ci
+        working-directory: desktop
+      - run: npm run build
+        working-directory: web
+      - name: Test QR login, encrypted keys and device revocation in Chromium
+        run: xvfb-run -a python -B desktop/test/run-device-pairing.py
+        env:
+          TEST_DATABASE_URL: postgresql+asyncpg://quazar:quazar-test@127.0.0.1:5432/quazar_test
+          PAIR_TEST_ARTIFACTS: ${{ runner.temp }}/device-pairing
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: device-pairing-diagnostics
+          path: ${{ runner.temp }}/device-pairing
+          if-no-files-found: ignore
+          retention-days: 7
+
   build:
-    needs: [test, auth]
+    needs: [test, auth, device-pairing]
     strategy:
       fail-fast: false
       matrix:

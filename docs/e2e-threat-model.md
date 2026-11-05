@@ -39,7 +39,7 @@ This is not a full Signal Protocol deployment.
 - E2E does **not** fully protect against XSS on the Quazar origin.
 - Groups are **not** end-to-end encrypted.
 - Forward secrecy is limited to ephemeral sender keys per message; no Double Ratchet.
-- Multi-device sync is only via backup restore (not linked devices).
+- Linked devices can receive the current identity and eligible archived identities through an explicitly approved encrypted pairing. See [DEVICE-PAIRING.md](DEVICE-PAIRING.md). Revoking a session blocks future server access; it does not erase already downloaded messages or private keys.
 
 ## Operational requirements
 

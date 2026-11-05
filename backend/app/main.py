@@ -19,6 +19,7 @@ from app.core.legacy_usernames import migrate_legacy_usernames
 from app.core.legacy_avatars import migrate_legacy_avatar_urls
 from app.models import Attachment, Call, PushSubscription, Star  # noqa: F401 — register tables for create_all
 from app.api.auth import router as auth_router
+from app.api.device_pairing import router as device_pairing_router
 from app.api.phone_verification import router as phone_verification_router
 from app.api.phone_reminders import router as phone_reminders_router
 from app.api.password_recovery import router as password_recovery_router, admin_router as password_recovery_admin_router
@@ -364,6 +365,7 @@ app.add_middleware(
 app.add_middleware(SecurityHeadersMiddleware)
 
 app.include_router(auth_router)
+app.include_router(device_pairing_router)
 app.include_router(phone_verification_router)
 app.include_router(phone_reminders_router)
 app.include_router(password_recovery_router)

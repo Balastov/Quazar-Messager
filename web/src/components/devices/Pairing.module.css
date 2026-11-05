@@ -1,0 +1,24 @@
+.stack { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.center { align-items: center; text-align: center; }
+.hint { margin: 0; color: var(--qz-text-muted); font-size: 13px; line-height: 1.5; }
+.error { margin: 0; color: var(--qz-danger); font-size: 13px; line-height: 1.45; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.primary, .secondary { min-height: 38px; padding: 9px 13px; border-radius: 10px; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+.primary { background: var(--qz-online); color: var(--qz-bg); border: 1px solid var(--qz-online); }
+.secondary { background: var(--qz-bg-soft); color: var(--qz-text); border: 1px solid var(--qz-border); }
+.primary:disabled, .secondary:disabled { opacity: .5; cursor: not-allowed; }
+.primary:focus-visible, .secondary:focus-visible, .input:focus-visible { outline: 2px solid var(--qz-online); outline-offset: 2px; }
+.input { width: 100%; min-width: 0; border: 1px solid var(--qz-border); border-radius: 10px; padding: 11px 12px; background: var(--qz-bg-soft); color: var(--qz-text); font: inherit; }
+.qr { width: min(260px, 100%); padding: 8px; border-radius: 14px; background: #fff; }
+.qr svg { display: block; width: 100%; height: auto; }
+.code { display: flex; flex-wrap: wrap; justify-content: center; gap: 7px; font: 600 20px/1.5 ui-monospace, monospace; color: var(--qz-online); }
+.code span { padding: 3px 7px; border: 1px solid var(--qz-border); border-radius: 7px; }
+.check { display: flex; gap: 9px; align-items: flex-start; font-size: 13px; line-height: 1.45; cursor: pointer; }
+.check input { flex-shrink: 0; margin-top: 3px; accent-color: var(--qz-online); }
+.account { padding: 12px; border: 1px solid var(--qz-border); border-radius: 10px; background: var(--qz-bg-soft); overflow-wrap: anywhere; }
+.video { width: 100%; max-height: 280px; object-fit: cover; border-radius: 12px; background: #000; }
+.device { display: flex; gap: 12px; align-items: center; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid var(--qz-border); }
+.deviceInfo { display: flex; flex-direction: column; gap: 4px; min-width: 0; overflow-wrap: anywhere; }
+.device strong { font-size: 14px; }
+.current { color: var(--qz-online); font-size: 12px; }
+@media (max-width: 400px) { .device { flex-wrap: wrap; } .actions > button { flex: 1; } }

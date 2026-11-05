@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 import math
+import secrets
 
 import bcrypt
 from jose import JWTError, jwt
@@ -23,13 +24,24 @@ def verify_password(password: str, hashed: str | None) -> bool:
         return False
 
 
-def create_access_token(user_id: str) -> str:
+def create_access_token(user_id: str, session_id: str | None = None, *, issued_at: datetime | None = None,
+                        expires_at: datetime | None = None, jti: str | None = None) -> str:
     payload = {
         "sub": user_id,
-        "iat": datetime.now(timezone.utc).timestamp(),
-        "exp": datetime.now(timezone.utc) + timedelta(minutes=settings.JWT_ACCESS_EXPIRE_MINUTES),
+        "iat": (issued_at or datetime.now(timezone.utc)).timestamp(),
+        "exp": expires_at or datetime.now(timezone.utc) + timedelta(minutes=settings.JWT_ACCESS_EXPIRE_MINUTES),
+        "jti": jti or secrets.token_urlsafe(24),
     }
+    if session_id:
+        payload["sid"] = session_id
     return jwt.encode(payload, settings.JWT_SECRET, algorithm=settings.JWT_ALGORITHM)
+
+
+def token_claims(token: str) -> dict | None:
+    try:
+        return jwt.decode(token, settings.JWT_SECRET, algorithms=[settings.JWT_ALGORITHM])
+    except JWTError:
+        return None
 
 
 def decode_token(token: str) -> Optional[str]:

@@ -13,7 +13,7 @@ from app.core.security import decode_token, token_is_current
 from app.models.chat import Chat, ChatMember
 from app.models.message import Message, MessageReadReceipt
 from app.models.user import User
-from app.core import presence
+from app.core import presence, device_sessions
 from app.api.messages import deliver, visible_to
 from app.ws import calls as call_signaling
 from app.ws import typing as typing_signals
@@ -33,9 +33,15 @@ async def websocket_endpoint(websocket: WebSocket, token: str, state: str = "act
         return
     async with AsyncSessionLocal() as db:
         user = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
-    if not user or user.blocked_at or not token_is_current(token, user):
-        await websocket.close(code=4001)
-        return
+        if not user or user.blocked_at or not token_is_current(token, user):
+            await websocket.close(code=4001)
+            return
+        try:
+            session = await device_sessions.ensure(db, token, user, websocket.headers.get("user-agent", "") if hasattr(websocket, "headers") else "")
+        except HTTPException:
+            await websocket.close(code=4001)
+            return
+        websocket._quazar_session_id = session.id
 
     await manager.connect(websocket, user_id)
     # state=idle — подключились в фоне (свёрнутый телефон): не мигаем «в сети».
@@ -47,13 +53,26 @@ async def websocket_endpoint(websocket: WebSocket, token: str, state: str = "act
             timeout = (
                 settings.CALL_HEARTBEAT_TIMEOUT_SEC
                 if heartbeats and call_signaling.ws_in_active_call(user_id, websocket)
-                else None
+                else 30
             )
             try:
                 raw = await asyncio.wait_for(websocket.receive_text(), timeout)
             except asyncio.TimeoutError:
-                await websocket.close(code=4008)
-                break
+                if heartbeats and call_signaling.ws_in_active_call(user_id, websocket):
+                    await websocket.close(code=4008)
+                    break
+                raw = None
+            async with AsyncSessionLocal() as db:
+                current = await db.get(User, user_id)
+                try:
+                    if not current or current.blocked_at:
+                        raise HTTPException(status_code=401)
+                    await device_sessions.ensure(db, token, current)
+                except HTTPException:
+                    await websocket.close(code=4001)
+                    break
+            if raw is None:
+                continue
             try:
                 data = json.loads(raw)
             except json.JSONDecodeError:

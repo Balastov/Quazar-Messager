@@ -68,12 +68,17 @@ async function proof(win) {
   })()`);
 }
 async function decodeQr(win) {
-  const rect = await until(() => win.webContents.executeJavaScript("(() => { const el=document.querySelector('[aria-label=\"QR-код подключения\"]');if(!el)return null;const r=el.getBoundingClientRect();return {x:Math.floor(r.x),y:Math.floor(r.y),width:Math.ceil(r.width),height:Math.ceil(r.height)} })()"), 'QR rendering');
-  const img = await win.webContents.capturePage(rect);
-  const size = img.getSize(), bytes = img.toBitmap();
-  const scale = Math.sqrt(bytes.length / (size.width * size.height * 4));
-  const result = jsQR(new Uint8ClampedArray(bytes.buffer, bytes.byteOffset, bytes.length), Math.round(size.width * scale), Math.round(size.height * scale));
-  assert.ok(result, 'Rendered QR must decode'); return result.data;
+  // DOM insertion can precede Chromium's first painted frame in a hidden window.
+  // Keep verifying the real screenshot until it is painted and decodable.
+  return until(async () => {
+    const rect = await win.webContents.executeJavaScript("(() => { const el=document.querySelector('[aria-label=\"QR-код подключения\"]');if(!el)return null;el.scrollIntoView({block:'center'});const r=el.getBoundingClientRect();return {x:Math.floor(r.x),y:Math.floor(r.y),width:Math.ceil(r.width),height:Math.ceil(r.height)} })()");
+    if (!rect || rect.width <= 0 || rect.height <= 0) return false;
+    const img = await win.webContents.capturePage(rect);
+    const size = img.getSize(), bytes = img.toBitmap();
+    const scale = Math.sqrt(bytes.length / (size.width * size.height * 4));
+    const result = jsQR(new Uint8ClampedArray(bytes.buffer, bytes.byteOffset, bytes.length), Math.round(size.width * scale), Math.round(size.height * scale));
+    return result?.data || false;
+  }, 'rendered QR must decode');
 }
 async function signedOut(win) {
   return until(() => win.webContents.executeJavaScript("!JSON.parse(localStorage.getItem('quazar-auth') || 'null')?.state?.token"), 'session revoked', 15_000);

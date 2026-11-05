@@ -9,7 +9,7 @@ from jose import jwt
 from sqlalchemy import func, select
 
 from app.api import auth, oauth, password_recovery as recovery, support as support_api, users
-from app.core import support
+from app.core import support, news
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.security import create_access_token, hash_password, token_is_current, verify_password
@@ -126,6 +126,25 @@ class PasswordRecoveryTest(StarsTestBase):
         logged_in = await self.client.post("/auth/login", json={"phone": self.alice.phone, "password": password})
         self.assertEqual(logged_in.status_code, 200)
         self.assertEqual((await self.client.get("/users/me", headers=self.bearer(logged_in.json()["access_token"]))).status_code, 200)
+
+    async def test_recovery_confirmation_uses_support_bot_when_news_bot_was_created_first(self):
+        async with self.Session() as db:
+            await db.delete(await support.bot_user(db))
+            await db.commit()
+            news_bot = await news.bot_user(db)
+            support_bot = await support.bot_user(db)
+            self.assertNotEqual(news_bot.id, support_bot.id)
+            support_id = support_bot.id
+        await self.request_recovery()
+        (ticket,) = await self.tickets()
+        result = await self.assign(ticket.id)
+        self.assertEqual(result.status_code, 200, result.text)
+        async with self.Session() as db:
+            confirmation = (await db.execute(select(Message).where(
+                Message.chat_id == ticket.chat_id,
+                Message.payload.startswith("Администратор назначил новый пароль"),
+            ))).scalar_one()
+            self.assertEqual(confirmation.sender_id, support_id)
 
     async def test_finished_request_cannot_reset_password_a_second_time(self):
         await self.request_recovery()

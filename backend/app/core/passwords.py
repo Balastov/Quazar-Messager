@@ -43,7 +43,7 @@ async def complete_recoveries(db, user, admin=None, *, phone_verified=False):
     ).with_for_update())).scalars().all()
     if not tickets:
         return []
-    bot = (await db.execute(select(User).where(User.is_official.is_(True)).limit(1))).scalar_one_or_none()
+    bot = (await db.execute(select(User).where(User.phone == support.BOT_PHONE, User.is_official.is_(True)))).scalar_one_or_none()
     if not bot:
         raise HTTPException(status_code=503, detail="Служба поддержки сейчас недоступна")
     text = ("Администратор назначил новый пароль для входа. Получите его у администратора вне Quazar."

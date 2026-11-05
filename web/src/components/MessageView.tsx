@@ -190,7 +190,8 @@ export default function MessageView({ showBack = false }: Props) {
   const isSaved = chat?.type === "saved";
   // Чат с Quazar_Admin_bot: обращения и ответы команды, без E2E.
   const isSupport = chat?.type === "support";
-  const inputDisabled = (isDirect || isSaved) && e2eReady === false;
+  const isNews = chat?.type === "news";
+  const inputDisabled = isNews || ((isDirect || isSaved) && e2eReady === false);
   const lastId = msgs.length ? msgs[msgs.length - 1].id : null;
 
   useEffect(() => {
@@ -636,6 +637,7 @@ export default function MessageView({ showBack = false }: Props) {
   const subtitle = (() => {
     if (isSaved) return "Видите только вы · E2E";
     if (isSupport) return "Официальный аккаунт Квазара · без E2E";
+    if (isNews) return "Новости и обновления Quazar";
     if (!isDirect) {
       return onlineInGroup > 0 ? `Группа · ${onlineInGroup} в сети · без E2E` : "Группа · без E2E";
     }
@@ -688,15 +690,15 @@ export default function MessageView({ showBack = false }: Props) {
         )}
         {isSaved ? (
           <SavedAvatar size="sm" />
-        ) : isSupport ? (
-          <SupportAvatar size="sm" />
+        ) : isSupport || isNews ? (
+          <SupportAvatar size="sm" kind={isNews ? "news" : "support"} />
         ) : (
           <UserAvatar username={peer.username || "?"} avatarUrl={peer.avatar_url} size="sm" userId={peer.id} />
         )}
         <div className={s.headerInfo}>
           <span className={s.name}>
             {peer.username} {isDirect && <CustomStatusBadge userId={presencePeerId} />}
-            {isSupport && <OfficialBadge />}
+            {(isSupport || isNews) && <OfficialBadge />}
           </span>
           <span className={s.sub}>
             {typingText ? (
@@ -732,7 +734,7 @@ export default function MessageView({ showBack = false }: Props) {
           >
             <IconSearch size={18} />
           </button>
-          {!isSaved && !isSupport && (
+          {!isSaved && !isSupport && !isNews && (
             <>
               <button
                 type="button"
@@ -821,7 +823,7 @@ export default function MessageView({ showBack = false }: Props) {
             key={msg.id}
             msg={msg}
             isOwn={msg.sender_id === currentUser?.id}
-            showAuthor={!isDirect && !isSupport}
+            showAuthor={!isDirect && !isSupport && !isNews}
             myId={currentUser?.id}
             nameOf={nameOf}
             stickersLoaded={stickersLoaded}
@@ -850,7 +852,9 @@ export default function MessageView({ showBack = false }: Props) {
         <div ref={bottomRef} />
       </div>
 
-      {peerBlocked ? (
+      {isNews ? (
+        <div className={f.banner} role="status">Здесь Quazar_news_bot рассказывает об обновлениях. Чат доступен только для чтения.</div>
+      ) : peerBlocked ? (
         <div className={c.blockedBar}>
           Вы заблокировали {peer.username}
           <button

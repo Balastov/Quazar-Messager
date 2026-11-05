@@ -10,6 +10,9 @@ git fetch origin main
 git checkout main
 git reset --hard origin/main
 
+echo "==> Validating user-facing release notes..."
+python3 deploy/scripts/validate-release-notes.py
+
 COMPOSE_PROFILES=()
 if [[ -f .env.prod ]] \
   && grep -qE '^WEBRTC_TURN_CREDENTIAL=.+' .env.prod \
@@ -111,6 +114,26 @@ else:
     print("nginx already OK")
 PY
 fi
+
+echo "==> Waiting for the deployed API and web..."
+ready=false
+for attempt in {1..30}; do
+  if curl -fsS --max-time 5 http://127.0.0.1:8002/openapi.json >/dev/null \
+    && curl -fsS --max-time 5 http://127.0.0.1:3080/ >/dev/null; then
+    ready=true
+    break
+  fi
+  sleep 2
+done
+if [[ "$ready" != true ]]; then
+  echo "Deployment did not become ready; release news will not be queued." >&2
+  exit 1
+fi
+
+echo "==> Queueing release news..."
+release_version=$(python3 -c 'import json; print(json.load(open("web/package.json"))["version"])')
+docker compose -f docker-compose.prod.yml --env-file .env.prod exec -T backend \
+  python -m app.release_news --expected-version "$release_version" < deploy/release-notes.json
 
 echo "==> Status:"
 docker compose -f docker-compose.prod.yml --env-file .env.prod "${COMPOSE_PROFILES[@]}" ps

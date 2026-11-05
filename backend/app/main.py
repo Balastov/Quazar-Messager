@@ -12,7 +12,7 @@ from sqlalchemy import text
 from app.core.avatars import avatars_dir
 from app.core.backgrounds import backgrounds_dir
 from app.core.star_assets import stars_media_dir
-from app.core import attachments, scheduler, support, voice
+from app.core import attachments, news, scheduler, support, voice
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal, Base, engine
 from app.core.legacy_usernames import migrate_legacy_usernames
@@ -332,8 +332,10 @@ async def lifespan(app: FastAPI):
     # Обратная связь: чат с Quazar_Admin_bot — новый тип чата (отдельная транзакция, как у saved).
     async with engine.begin() as conn:
         await conn.execute(text("ALTER TYPE chat_type ADD VALUE IF NOT EXISTS 'support'"))
+        await conn.execute(text("ALTER TYPE chat_type ADD VALUE IF NOT EXISTS 'news'"))
     async with AsyncSessionLocal() as db:
         await support.bot_user(db)
+        await news.bot_user(db)
     # Кто сейчас на Планетах — восстанавливаем из LiveKit после перезапуска (в фоне).
     app.state.voice_resync = asyncio.create_task(voice.resync())
     # Неотправленные картинки и файлы удалённых чатов — раз в час.

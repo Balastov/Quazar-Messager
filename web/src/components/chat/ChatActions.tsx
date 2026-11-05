@@ -61,12 +61,12 @@ export default function ChatActions({ chat, className, title = "Ещё", childre
   }
   if (chat.type === "direct") actions.push({ label: "Проверка шифрования", onClick: () => setShowE2ePanel(true) });
   // Переписка с поддержкой не исчезает: по ней команда разбирает обращения.
-  if (chat.type !== "support") {
+  if (chat.type !== "support" && chat.type !== "news") {
     actions.push({
       label: chat.ttl_seconds ? `Исчезающие: ${ttlLabel(chat.ttl_seconds)}` : "Исчезающие сообщения",
       onClick: () => setDialog("ttl"),
     });
-  } else {
+  } else if (chat.type === "support") {
     actions.push({ label: "Новое обращение", onClick: () => useUiStore.getState().setFeedbackOpen(true) });
   }
   if (peer) {

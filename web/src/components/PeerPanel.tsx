@@ -69,13 +69,13 @@ export default function PeerPanel() {
       <div className={s.profile}>
         {chat.type === "saved" ? (
           <SavedAvatar size="lg" />
-        ) : chat.type === "support" ? (
-          <SupportAvatar size="lg" />
+        ) : chat.type === "support" || chat.type === "news" ? (
+          <SupportAvatar size="lg" kind={chat.type === "news" ? "news" : "support"} />
         ) : (
           <UserAvatar username={peer.username} avatarUrl={peer.avatar_url} size="lg" userId={peer.id} />
         )}
         <div className={s.name}>
-          {peer.username} {chat.type === "support" && <OfficialBadge size={18} />}
+          {peer.username} {(chat.type === "support" || chat.type === "news") && <OfficialBadge size={18} />}
         </div>
         {peer.nick && <div className={s.nick}>@{peer.nick}</div>}
         <div
@@ -89,7 +89,7 @@ export default function PeerPanel() {
             ? "Группа"
             : chat.type === "saved"
               ? "Заметки и пересланное — видите только вы"
-              : chat.type === "support"
+              : chat.type === "support" || chat.type === "news"
                 ? "Официальный аккаунт Квазара"
                 : blocked
                 ? "Заблокирован(а)"
@@ -103,7 +103,7 @@ export default function PeerPanel() {
           <IconChat size={18} />
           Чат
         </button>
-        {chat.type !== "saved" && chat.type !== "support" && (
+        {chat.type !== "saved" && chat.type !== "support" && chat.type !== "news" && (
           <>
             <button
               type="button"
@@ -141,7 +141,8 @@ export default function PeerPanel() {
         <section className={s.section}>
           <div className={s.sectionTitle}>О себе</div>
           <p className={s.about}>
-            {chat.type === "support"
+            {chat.type === "news" ? "Новости об обновлениях Quazar: что изменилось и что теперь можно делать."
+              : chat.type === "support"
               ? "Команда Квазара: предложения, вопросы и ошибки. Обращение — через «Обратную связь», ответ придёт сюда."
               : "Пользователь Quazar"}
           </p>

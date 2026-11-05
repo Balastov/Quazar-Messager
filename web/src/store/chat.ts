@@ -248,7 +248,7 @@ async function loadAccountKeys() {
 /** Текст для отправки в чат: в личном — зашифрованный E2E для собеседника и для себя (ENC2). */
 async function sealForChat(chat: Chat, myId: string, plaintext: string): Promise<string> {
   // Группы и чат поддержки — без E2E (поддержку читает команда Квазара).
-  if (chat.type === "group" || chat.type === "support") return plaintext;
+  if (chat.type === "group" || chat.type === "support" || chat.type === "news") return plaintext;
 
   let myPublicKey: string;
   try {
@@ -508,22 +508,30 @@ export const useChatStore = create<ChatState>((set, get) => {
         };
         if (myId !== useAuthStore.getState().user?.id) return;
 
-        set((s) => ({
-          messages: {
-            ...s.messages,
-            [event.chat_id]: [...(s.messages[event.chat_id] ?? []), msg],
-          },
-          chats: touchChat(s.chats, event.chat_id, event.timestamp),
-        }));
+        let inserted = false;
+        set((s) => {
+          if (s.messages[event.chat_id]?.some(item => item.id === msg.id)) return s;
+          inserted = true;
+          return {
+            messages: { ...s.messages, [event.chat_id]: [...(s.messages[event.chat_id] ?? []), msg] },
+            chats: touchChat(s.chats, event.chat_id, event.timestamp),
+          };
+        });
+        if (!inserted) return;
 
+        let refreshedUnread = false;
         if (!get().chats.find((c) => c.id === event.chat_id)) {
-          await get().loadChats();
+          try {
+            await get().loadChats();
+            // The server count already includes this first message in a new chat.
+            refreshedUnread = get().chats.some(c => c.id === event.chat_id);
+          } catch { /* Keep the received message and update the badge locally. */ }
         }
 
         if (myId && event.sender_id !== myId) {
           if (myId !== useAuthStore.getState().user?.id) return;
           const onScreen = chatOnScreen(get().activeChatId, event.chat_id) && !get().loadingMessages;
-          if (!onScreen) {
+          if (!onScreen && !refreshedUnread) {
             useUnreadStore.getState().bump(event.chat_id);
           }
 
@@ -881,6 +889,7 @@ export const useChatStore = create<ChatState>((set, get) => {
       const myId = useAuthStore.getState().user?.id;
       if (!chat || !myId) return;
 
+      if (chat.type === "news") throw new Error("Новостной чат доступен только для чтения");
       const payload = await sealForChat(chat, myId, plaintext);
       const targets = chat.type === "direct" ? chat.members.filter(member => member.user.id !== myId && mentionsName(plaintext, member.user.username)).map(member => member.user.id) : [];
       const msg = await messagesApi.send(chatId, payload, attachmentId, replyToId, targets);

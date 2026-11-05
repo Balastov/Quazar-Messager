@@ -19,7 +19,7 @@ _USERNAME = re.compile(r"^[A-Za-z][A-Za-z0-9_.]*$")
 # @все и служебные имена: такой ник ломал бы упоминания или выдавал себя за сервис.
 RESERVED_USERNAMES = {
     "all", "everyone", "here", "admin", "administrator", "support", "system", "quazar",
-    "moderator", "root", "me", "saved",
+    "moderator", "root", "me", "saved", "quazar_news_bot",
 }
 
 _email = TypeAdapter(EmailStr)

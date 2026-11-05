@@ -44,7 +44,7 @@ def _now() -> datetime:
 async def bot_user(db: AsyncSession) -> User:
     """Quazar_Admin_bot; создаётся при первом обращении (и при старте сервера)."""
     bot = (
-        await db.execute(select(User).where(User.is_official.is_(True)).order_by(User.created_at).limit(1))
+        await db.execute(select(User).where(User.phone == BOT_PHONE, User.is_official.is_(True)))
     ).scalar_one_or_none()
     if bot:
         return bot

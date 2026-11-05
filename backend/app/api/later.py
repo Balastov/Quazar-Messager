@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.blocks import block_state, direct_peer
 from app.core.database import get_db
 from app.core.deps import get_current_user
-from app.models.chat import ChatMember
+from app.models.chat import Chat, ChatMember
 from app.models.message import Message, MessageReminder, ScheduledMessage
 from app.models.user import User
 from app.schemas.message import MAX_PAYLOAD_LENGTH, NotificationTarget
@@ -99,6 +99,8 @@ async def list_scheduled(chat_id: str, current_user: CurrentUser, db: Db):
 @scheduled_router.post("", response_model=ScheduledOut, status_code=status.HTTP_201_CREATED)
 async def schedule_message(chat_id: str, body: ScheduleBody, current_user: CurrentUser, db: Db):
     await _assert_member(db, chat_id, current_user.id)
+    if (await db.get(Chat, chat_id)).type == "news":
+        raise HTTPException(status_code=403, detail="Новостной чат доступен только для чтения")
     send_at = _check_time(body.send_at)
     peer = await direct_peer(db, chat_id, current_user.id)
     if peer and (await block_state(db, current_user.id, peer))[0]:

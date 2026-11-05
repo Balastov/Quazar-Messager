@@ -190,7 +190,7 @@ export interface ChatMember {
 export interface Chat {
   id: string;
   /** saved — «Записная книжка», чат с самим собой; support — с Quazar_Admin_bot, без E2E. */
-  type: "direct" | "group" | "saved" | "support";
+  type: "direct" | "group" | "saved" | "support" | "news";
   name: string | null;
   created_at: string;
   /** Последнее сообщение / звонок / создание чата. */

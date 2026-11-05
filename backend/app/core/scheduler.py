@@ -208,6 +208,7 @@ async def run_due_workflows(db: AsyncSession, now: datetime | None = None) -> in
 
 async def run_forever(session_factory: async_sessionmaker) -> None:
     from app.core.room_activities import tick as room_activities_tick
+    from app.core.news import send_pending as send_release_news
     while True:
         for job in (
             room_activities_tick,
@@ -219,6 +220,7 @@ async def run_forever(session_factory: async_sessionmaker) -> None:
             sweep_temporary_planets,
             booking_tick,
             run_due_workflows,
+            send_release_news,
         ):
             try:
                 async with session_factory() as db:

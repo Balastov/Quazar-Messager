@@ -1,4 +1,5 @@
 from app.models.chat import Chat, ChatMember
+from app.models.news import NewsDelivery, NewsInbox, NewsRelease
 from app.models.room_activity import RoomActivity, RoomVideo
 from app.models.message import (
     HiddenMessage,
@@ -43,6 +44,9 @@ from app.models.star import (
 )
 
 __all__ = [
+    "NewsRelease",
+    "NewsDelivery",
+    "NewsInbox",
     "PhoneVerification",
     "RoomActivity",
     "RoomVideo",

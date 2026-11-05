@@ -373,15 +373,15 @@ export default function ContactsPane() {
               className={chat.id === activeChatId ? s.itemActive : s.item}
               onClick={() => void openChat(chat.id)}
             >
-              {chat.type === "support" ? (
-                <SupportAvatar />
+              {chat.type === "support" || chat.type === "news" ? (
+                <SupportAvatar kind={chat.type === "news" ? "news" : "support"} />
               ) : (
                 <UserAvatar username={displayName(peer)} avatarUrl={peer.avatar_url} userId={peer.id} />
               )}
               <div className={s.meta}>
                 <div className={s.nameRow}>
                   <span className={hasUnread ? s.nameUnread : s.name}>{displayName(peer)}</span>
-                  {chat.type === "support" && <OfficialBadge />}
+                  {(chat.type === "support" || chat.type === "news") && <OfficialBadge />}
                   {chat.type === "direct" && <CustomStatusBadge userId={peer.id} compact />}
                   {quiet && (
                     <span title="Уведомления выключены" aria-label="Уведомления выключены">

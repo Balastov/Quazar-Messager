@@ -25,7 +25,7 @@ export default function ForwardDialog({ message, onClose }: { message: Message; 
   const list = useMemo(() => {
     const q = query.trim().toLowerCase();
     return chats
-      .filter((ch) => ch.type !== "saved")
+      .filter((ch) => ch.type !== "saved" && ch.type !== "news")
       .filter((ch) => !q || chatTitle(ch, myId).toLowerCase().includes(q));
   }, [chats, query, myId]);
 

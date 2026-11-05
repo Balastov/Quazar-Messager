@@ -48,7 +48,7 @@ class SetChatTtl(BaseModel):
 class ChatOut(BaseModel):
     id: str
     # saved — «Записная книжка», чат с самим собой; support — с Quazar_Admin_bot.
-    type: Literal["direct", "group", "saved", "support"]
+    type: Literal["direct", "group", "saved", "support", "news"]
     name: str | None
     created_at: datetime
     # Последнее сообщение / звонок / создание — для сортировки списка.

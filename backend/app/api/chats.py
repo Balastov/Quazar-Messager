@@ -330,8 +330,8 @@ async def set_chat_ttl(
     """Исчезающие сообщения. В личном чате включает любой из двоих, в группе — владелец и админы.
     Действует на сообщения, отправленные после включения."""
     chat = await _member_chat(chat_id, current_user, db)
-    if chat.type == "support":
-        raise HTTPException(status_code=422, detail="Переписка с поддержкой не исчезает")
+    if chat.type in ("support", "news"):
+        raise HTTPException(status_code=422, detail="В служебных чатах сообщения не исчезают")
     if chat.type == "group":
         role = (
             await db.execute(

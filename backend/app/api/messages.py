@@ -159,6 +159,8 @@ async def deliver(
     - Чат поддержки: только открытый текст (его читает команда), карточку обращения (card)
       создаёт сам сервер. Боту сообщение доставлено сразу.
     """
+    if chat.type == "news":
+        raise HTTPException(status_code=403, detail="В этом чате публикуются новости Quazar. Ответы не принимаются.")
     if chat.type == "saved" and not payload.startswith(E2E_PREFIXES):
         raise HTTPException(status_code=422, detail="В «Записной книжке» сообщения только зашифрованные")
     from_person = True
@@ -206,23 +208,33 @@ async def deliver(
     await db.commit()
     await db.refresh(message)
 
+    await publish_message(db, chat, message, reply_to=reply_to, notification_mentions=notification_mentions, hidden_for=hidden_for)
+    if chat.type == "support" and from_person and not card:
+        await support.on_user_message(db, chat, message, reply_to)
+    return message
+
+
+async def publish_message(
+    db: AsyncSession, chat: Chat, message: Message, *, reply_to: Message | None = None,
+    notification_mentions: list[str] | None = None, hidden_for: str | None = None,
+) -> None:
+    """Publish an already committed message through the usual WebSocket/push filters."""
     recipients = [uid for uid in await _get_chat_member_ids(chat.id, db) if uid != hidden_for]
+    if chat.type == "news":
+        recipients = list((await db.execute(select(User.id).where(User.id.in_(recipients), User.blocked_at.is_(None)))).scalars())
     event = new_message_event(message, reply_to)
     if notification_mentions is not None:
         event["notification_mentions"] = sorted(set(notification_mentions) & set(recipients))
     await manager.broadcast_to_users(user_ids=recipients, event=event)
     targets = await notify.chat_push_targets(db, chat, message, recipients, notification_mentions, reply_to)
     if targets:
-        sender = await db.get(User, sender_id)
+        sender = await db.get(User, message.sender_id)
         notify.push_later(targets, {
             "type": "chat_message", "title": f"{sender.display_name if sender else 'Новое сообщение'}{(' · ' + chat.name) if chat.type == 'group' and chat.name else ''}",
             "body": "Новое сообщение", "chat_id": chat.id, "message_id": message.id,
             "tag": f"quazar-message-{message.id}",
             "ttl": max(1, min(86400, int((message.expires_at - _now()).total_seconds()))) if message.expires_at else 86400,
         })
-    if chat.type == "support" and from_person and not card:
-        await support.on_user_message(db, chat, message, reply_to)
-    return message
 
 
 def _check_support_payload(payload: str, *, card: bool = False) -> None:

@@ -14,6 +14,7 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.models.attachment import Attachment
+from app.models.chat import Chat
 from app.models.user import User
 
 router = APIRouter(prefix="/chats/{chat_id}/attachments", tags=["attachments"])
@@ -32,6 +33,8 @@ async def upload_attachment(
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     await _assert_member(chat_id, current_user.id, db)
+    if (await db.get(Chat, chat_id)).type == "news":
+        raise HTTPException(status_code=403, detail="Новостной чат доступен только для чтения")
 
     declared = request.headers.get("content-length")
     if declared and declared.isdigit() and int(declared) > attachments.MAX_ATTACHMENT_BYTES:

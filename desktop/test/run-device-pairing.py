@@ -62,7 +62,11 @@ with tempfile.TemporaryDirectory(prefix="quazar-device-e2e-") as folder:
                 except Exception:
                     time.sleep(.1)
             else: raise RuntimeError("Test API did not become ready")
-            electron = subprocess.check_output(["node", "-e", "process.stdout.write(require('electron'))"], cwd=root / "desktop", text=True).strip()
+            # A fresh Electron install can print download progress on stdout.
+            # Read only our marked path, not the entire install output as a filename.
+            electron_output = subprocess.check_output(["node", "-e", "const executable=require('electron'); process.stdout.write('\\nQUAZAR_ELECTRON_PATH='+executable+'\\n')"], cwd=root / "desktop", text=True)
+            electron = next(line.removeprefix("QUAZAR_ELECTRON_PATH=") for line in electron_output.splitlines() if line.startswith("QUAZAR_ELECTRON_PATH="))
+            if not Path(electron).is_file(): raise RuntimeError("Electron executable was not installed")
             result = subprocess.run([electron, "--no-sandbox", str(root / "desktop/test/device-pairing-e2e.cjs")], env=environment, timeout=140,
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
             print(result.stdout, end="")

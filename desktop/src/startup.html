@@ -1,8 +1,34 @@
-<!doctype html><html lang="ru"><head><meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; object-src 'none'">
-<title>Quazar — обновление</title><link rel="stylesheet" href="startup.css"></head>
-<body><main><img src="../renderer/icons/icon-192.png" alt="" width="64" height="64"><h1>Quazar</h1>
-<div role="status" aria-live="polite"><h2 id="heading">Проверяем обновления…</h2><p id="message">Это займёт немного времени.</p></div>
-<progress id="progress" aria-label="Загрузка обновления"></progress><p id="version"></p>
-<div id="actions"><button id="retry" hidden>Повторить</button><button id="continue" hidden>Продолжить без проверки</button><button id="quit">Завершить</button></div>
-</main><script src="startup.js"></script></body></html>
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; object-src 'none'; base-uri 'none'">
+  <title>Quazar — запуск</title>
+  <link rel="stylesheet" href="startup.css">
+</head>
+<body>
+  <main data-phase="checking">
+    <div class="space" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+    <header><span class="eyebrow">QUAZAR / DESKTOP</span><button id="quit" class="close" aria-label="Завершить Quazar" title="Завершить Quazar">×</button></header>
+    <div class="brand">
+      <div class="universe" aria-hidden="true">
+        <div class="halo"></div>
+        <div class="orbit-plane"><div class="orbit"><span></span></div></div>
+        <div class="orbit-plane second"><div class="orbit"><span></span></div></div>
+        <img src="../renderer/logo-mark.png" alt="" width="156" height="156" draggable="false">
+      </div>
+      <h1>QUAZAR</h1>
+      <p class="tagline">На одной орбите.</p>
+    </div>
+    <section class="status" aria-live="polite" aria-atomic="true" role="status">
+      <div class="status-heading"><span class="signal" aria-hidden="true"></span><h2 id="heading">Проверяем обновления…</h2><span id="percentage" aria-hidden="true"></span></div>
+      <p id="message">Готовимся к встрече.</p>
+    </section>
+    <progress id="progress" aria-label="Подготовка приложения"></progress>
+    <div id="actions"><button id="retry" hidden>Повторить</button><button id="continue" hidden>Продолжить без проверки</button></div>
+    <footer><span id="version"></span><span class="footer-note">Ваше пространство общения</span></footer>
+  </main>
+  <script src="startup.js"></script>
+</body>
+</html>

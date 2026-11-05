@@ -8,6 +8,7 @@ const http = require('node:http');
 const { pathToFileURL } = require('node:url');
 const { APP_URL, SERVER_ORIGIN, trustedMainFrame } = require('../src/policy.cjs');
 const { createProtocolHandler } = require('../src/protocol.cjs');
+const { waitForMainWindow } = require('../src/startup-window.cjs');
 const version = require('../package.json').version;
 const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'quazar-smoke-'));
 app.setPath('userData', profile);
@@ -55,7 +56,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('desktop:auth-return', () => null);
   const win = new BrowserWindow({ show: false, webPreferences: { session: ses, sandbox: true, contextIsolation: true, nodeIntegration: false,
     preload: path.resolve(__dirname, '../src/preload.cjs'), additionalArguments: ['--quazar-version=' + version, '--quazar-server=' + SERVER_ORIGIN] } });
-  await win.loadURL(APP_URL + '/auth');
+  assert.equal(await waitForMainWindow(win, APP_URL + '/auth'), true);
   assert.equal((await win.webContents.executeJavaScript('window.quazarDesktop.updateState()')).status, 'disabled');
   const state = await win.webContents.executeJavaScript(`(async () => {
     for (let i = 0; i < 100 && !document.body.textContent.includes('Создать аккаунт'); i++) await new Promise(resolve => setTimeout(resolve, 50));

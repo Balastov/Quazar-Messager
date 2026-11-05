@@ -7,6 +7,7 @@ const { createProtocolHandler } = require('./protocol.cjs');
 const { installCapture } = require('./capture.cjs');
 const { Updates } = require('./updates.cjs');
 const { Startup } = require('./startup.cjs');
+const { waitForMainWindow } = require('./startup-window.cjs');
 const { DesktopLauncher } = require('./launch.cjs');
 
 protocol.registerSchemesAsPrivileged([{ scheme: 'quazar-app', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true } }]);
@@ -17,7 +18,7 @@ fs.mkdirSync(profile, { recursive: true });
 app.setPath('userData', profile);
 if (process.platform === 'win32') app.setAppUserModelId('ru.quazar.messenger');
 let window = null, tray = null, quitting = false, busy = false, updates = null;
-let startupWindow = null, startup = null, starting = true;
+let startupWindow = null, startup = null, starting = true, opening = false;
 let pendingAuth = null, rendererReady = false;
 let launcher = null, pendingLaunch = false;
 const notifications = new Map();
@@ -149,17 +150,22 @@ else {
     ipcMain.handle('startup:retry', guardStartup(() => startup.start()));
     ipcMain.handle('startup:continue', guardStartup(() => startup.continueWithoutCheck()));
     ipcMain.on('startup:quit', event => { if (startupSender(event)) void quit(); });
-    startupWindow = new BrowserWindow({ width: 440, height: 390, resizable: false, maximizable: false, show: false, autoHideMenuBar: true, title: 'Quazar — обновление', backgroundColor: '#07060f',
+    startupWindow = new BrowserWindow({ width: 480, height: 540, frame: false, resizable: false, maximizable: false, fullscreenable: false, show: false, autoHideMenuBar: true, title: 'Quazar — запуск', backgroundColor: '#090811',
       webPreferences: { preload: path.join(__dirname, 'startup-preload.cjs'), sandbox: true, contextIsolation: true, nodeIntegration: false } });
     startupWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
     startupWindow.webContents.on('will-navigate', event => event.preventDefault());
     startupWindow.on('closed', () => { startupWindow = null; if (starting && !quitting) void quit(); });
     startup.on('state', state => {
       if (startupWindow && !startupWindow.isDestroyed()) startupWindow.webContents.send('startup:state-changed', state);
-      if (state.phase !== 'ready' || !starting) return;
-      starting = false; startup.dispose(); startupWindow?.close();
-      void window.loadURL(APP_URL + '/').then(() => { show(); void launcher.ready(); }).catch(error => { dialog.showErrorBox('Не удалось открыть Quazar', error.message); void quit(); });
-      const interval = setInterval(() => void updates.check(), 30 * 60_000); interval.unref();
+      if (state.phase !== 'ready' || !starting || opening) return;
+      opening = true; startup.dispose();
+      void waitForMainWindow(window, APP_URL + '/').then(ready => {
+        if (!ready || quitting) return;
+        starting = false;
+        show(); startupWindow?.close();
+        void launcher.ready();
+        const interval = setInterval(() => void updates.check(), 30 * 60_000); interval.unref();
+      }).catch(error => { if (!quitting) { dialog.showErrorBox('Не удалось открыть Quazar', error.message); void quit(); } });
     });
     await startupWindow.loadFile(splashFile); show();
     await startup.start();

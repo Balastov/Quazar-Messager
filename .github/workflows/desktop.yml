@@ -151,6 +151,8 @@ jobs:
         working-directory: desktop
       - run: npx electron test/smoke.cjs
         working-directory: desktop
+      - run: npx electron test/startup-visual.cjs
+        working-directory: desktop
       - run: npx electron-builder --${{ matrix.platform }} --${{ matrix.arch }} --publish never
         working-directory: desktop
       - name: Verify a real installed Windows upgrade and retained profile

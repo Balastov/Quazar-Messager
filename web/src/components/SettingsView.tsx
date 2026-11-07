@@ -10,7 +10,7 @@ import {
   type NotifyPrefs,
 } from "../notifications/prefs";
 import { playSoftChime } from "../notifications/sound";
-import { previewNotification, requestNotifyPermission } from "../notifications/notify";
+import { requestNotifyPermission } from "../notifications/notify";
 import { ensurePushSubscription } from "../notifications/push";
 import { downloadBackupFile, BackupError } from "../crypto/backup";
 import { fetchKeyBackup } from "../crypto/keys";
@@ -49,7 +49,7 @@ import { clearReauth } from "../auth/reauth";
 import type { AccountProof } from "../crypto/keys";
 import { displayName } from "../utils/profile";
 import { formatRuPhoneDisplay } from "../utils/phone";
-import MicCheck from "./MicCheck";
+import ConnectionDiagnostics from "./ConnectionDiagnostics";
 import AudioDevices from "./AudioDevices";
 import { IconLogout } from "./icons";
 import s from "./SettingsView.module.css";
@@ -406,28 +406,7 @@ export default function SettingsView() {
               Разрешить уведомления
             </button>
           )}
-          {prefs.enabled && (
-            <button
-              type="button"
-              className={s.secondary}
-              onClick={() =>
-                void (async () => {
-                  setError(null);
-                  await previewNotification();
-                  if (browserPermission() !== "granted") {
-                    setError(
-                      "Системное уведомление не показано — разрешите уведомления в браузере."
-                    );
-                  } else {
-                    setStatus("Тестовое уведомление отправлено (toast + звук + баннер)");
-                  }
-                  setPermission(browserPermission());
-                })()
-              }
-            >
-              Проверить уведомление
-            </button>
-          )}
+          <ConnectionDiagnostics />
         </section>
 
         <section className={s.card}>
@@ -569,7 +548,6 @@ export default function SettingsView() {
             переключать прямо во время звонка.
           </p>
           <AudioDevices />
-          <MicCheck buttonClass={s.secondary} hintClass={s.hint} />
         </section>
 
         <section className={s.card}>

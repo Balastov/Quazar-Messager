@@ -576,6 +576,16 @@
   border-color: var(--qz-border-strong);
 }
 
+.composer .composerSend { padding: 0 16px; flex-shrink: 0; touch-action: manipulation; -webkit-touch-callout: none; user-select: none; }
+
+@media (max-width: 767px), (hover: none) and (pointer: coarse) {
+  .composer { gap: 4px; padding: 8px 8px calc(8px + var(--qz-safe-bottom)); flex-shrink: 0; }
+  .composer > button { width: 36px; min-width: 36px; height: 40px; min-height: 40px; padding: 0; }
+  .composer > .composerSend { display: inline-flex; align-items: center; justify-content: center; width: 40px; min-width: 40px; padding: 0; }
+  .composer > .composerSmile { width: 32px; min-width: 32px; }
+  .composerInput { padding: 8px 10px; border-radius: 20px; font-size: 16px; line-height: 1.375; }
+}
+
 .planet {
   margin: auto;
   max-width: 380px;

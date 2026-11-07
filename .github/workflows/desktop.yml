@@ -37,7 +37,7 @@ jobs:
       - run: pip install -r requirements.txt
         working-directory: backend
       - name: Test authentication and message receipt privacy
-        run: python -B -m unittest tests.test_oauth_yandex tests.test_phone_verification tests.test_password_recovery tests.test_device_pairing tests.test_profile tests.test_group_readers tests.test_message_status tests.test_message_actions tests.test_chat_features tests.test_news tests.test_pseudonyms
+        run: python -B -m unittest tests.test_oauth_yandex tests.test_phone_verification tests.test_password_recovery tests.test_device_pairing tests.test_connection_check tests.test_notification_delivery tests.test_profile tests.test_group_readers tests.test_message_status tests.test_message_actions tests.test_chat_features tests.test_news tests.test_pseudonyms
         working-directory: backend
         env:
           TEST_DATABASE_URL: postgresql+asyncpg://quazar:quazar-test@127.0.0.1:5432/quazar_test
@@ -105,6 +105,12 @@ jobs:
       - name: Test QR login, encrypted keys and device revocation in Chromium
         run: xvfb-run -a python -B desktop/test/run-device-pairing.py
         env:
+          TEST_DATABASE_URL: postgresql+asyncpg://quazar:quazar-test@127.0.0.1:5432/quazar_test
+          PAIR_TEST_ARTIFACTS: ${{ runner.temp }}/device-pairing
+      - name: Test local drafts and connection diagnostics in Chromium
+        run: xvfb-run -a python -B desktop/test/run-device-pairing.py
+        env:
+          BROWSER_TEST_CASE: drafts-connection
           TEST_DATABASE_URL: postgresql+asyncpg://quazar:quazar-test@127.0.0.1:5432/quazar_test
           PAIR_TEST_ARTIFACTS: ${{ runner.temp }}/device-pairing
       - uses: actions/upload-artifact@v4

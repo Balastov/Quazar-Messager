@@ -213,6 +213,7 @@ export default function NotesView({
               value={draft}
               onValueChange={setDraft}
               submitOnEnter={false}
+              limitToViewport={false}
               maxHeight={100_000}
               maxLength={100_000}
               aria-label="Текст заметок"

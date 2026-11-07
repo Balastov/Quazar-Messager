@@ -41,10 +41,14 @@ import StarSearchPanel from "./StarSearchPanel";
 import BotAvatar from "./BotAvatar";
 import { useComposerPreview } from "../../chat/useComposerPreview";
 import ComposerInput, { type ComposerHandle } from "../messages/ComposerInput";
+import { useCompactComposer } from "../../chat/useCompactComposer";
+import { useScheduledSend } from "../../chat/useScheduledSend";
+import { useComposerDraft } from "../../chat/useComposerDraft";
+import DraftNotice from "../messages/DraftNotice";
 import FormatBar, { useFormatBarOpen } from "../messages/FormatBar";
 import { IconSearch } from "../icons";
 import UserAvatar from "../UserAvatar";
-import { IconBack, IconFormat, IconGear, IconSatellite, IconSend } from "../icons";
+import { IconBack, IconFormat, IconGear, IconSatellite, IconSend, IconSmile } from "../icons";
 import { apiError, can, formatTime, outranks } from "./rules";
 import s from "./Constellation.module.css";
 import m from "../messages/Messages.module.css";
@@ -68,7 +72,6 @@ import {
 import { useStarDisplayName } from "./StarProfiles";
 import type { LinkPreview } from "../../chat/linkPreview";
 import { notifyInfo } from "../../notifications/notify";
-import ScheduleButton from "../chat/ScheduleButton";
 import WhenDialog from "../chat/WhenDialog";
 import StarScheduledBar from "./StarScheduledBar";
 import StarFilesView from "./StarFilesView";
@@ -90,6 +93,7 @@ interface Props {
 }
 
 export default function SatelliteView({ detail, channel, onBack, onEdit }: Props) {
+  const compactComposer = useCompactComposer();
   const displayName = useStarDisplayName(detail);
   const myId = useAuthStore((st) => st.user?.id);
   const messages = useStarsStore((st) => st.messages[channel.id] ?? EMPTY);
@@ -158,11 +162,13 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
     void loadAssets(detail.id).catch(() => {});
   }, [detail.id, loadAssets]);
 
-  const [text, setText] = useState("");
+  const [editing, setEditing] = useState<StarMessage | null>(null);
+  const draft = useComposerDraft(myId, ["star", detail.id, channel.id], editing?.id ?? null);
+  const { text, setText } = draft;
+  const scopeRef = useRef(draft.key); scopeRef.current = draft.key;
   const [error, setError] = useState<string | null>(null);
   const [menu, setMenu] = useState<{ msg: StarMessage; x: number; y: number } | null>(null);
   const [replyTo, setReplyTo] = useState<StarMessage | null>(null);
-  const [editing, setEditing] = useState<StarMessage | null>(null);
   const [scheduledDraft, setScheduledDraft] = useState<{
     starId: string; channelId: string; text: string; draft: string;
     reply_to_id?: string; ack_required: boolean; link_preview?: LinkPreview;
@@ -200,19 +206,18 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
     return !senderRole || outranks(detail.my_role, senderRole);
   };
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     stickToBottom.current = true;
     setError(null);
     setMenu(null);
     setReplyTo(null);
     setEditing(null);
-    setText("");
     setPickerOpen(false);
     setAskAck(false);
     setScheduledDraft(null);
     setTab("messages");
     setBookmarkDialog(null);
-  }, [channel.id]);
+  }, [channel.id, detail.id, myId]);
 
   useEffect(() => {
     if (!pins) void loadPins(detail.id, channel.id).catch(() => {});
@@ -262,7 +267,7 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
   const startEdit = (msg: StarMessage) => {
     setReplyTo(null);
     setEditing(msg);
-    setText(msg.text);
+    draft.setEditText(msg.text);
     inputRef.current?.focus();
   };
 
@@ -280,14 +285,12 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
 
     if (editing) {
       const target = editing;
-      setEditing(null);
-      setText("");
-      if (value === target.text) return;
+      if (value === target.text) { setEditing(null); draft.setEditText(""); return; }
       try {
-        await editMessage(target, value);
+        const saved = await draft.saveEdit(() => editMessage(target, value));
+        if (saved) { setEditing(null); draft.setEditText(""); }
       } catch (err) {
-        setEditing(target);
-        setText(value);
+        if (scopeRef.current !== draft.key || useAuthStore.getState().user?.id !== myId) return;
         setError(apiError(err, "Не удалось исправить сообщение"));
       }
       return;
@@ -296,18 +299,16 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
     const reply = replyTo;
     const withAck = announcement && askAck;
     const preview = composerPreview.preview;
-    setText("");
-    setReplyTo(null);
-    setAskAck(false);
-    composerPreview.reset();
     stickToBottom.current = true;
     resetTypingThrottle(satelliteTypingKey(channel.id));
     try {
-      await sendMessage(value, reply?.id, withAck, preview);
+      const cleared = await draft.send(() => sendMessage(value, reply?.id, withAck, preview));
+      if (cleared && scopeRef.current === draft.key && useAuthStore.getState().user?.id === myId) {
+        setReplyTo(current => current?.id === reply?.id ? null : current);
+        setAskAck(false); composerPreview.reset();
+      }
     } catch (err) {
-      setText(value);
-      setReplyTo(reply);
-      setAskAck(withAck);
+      if (scopeRef.current !== draft.key || useAuthStore.getState().user?.id !== myId) return;
       setError(apiError(err, "Не удалось отправить сообщение"));
     }
   };
@@ -321,6 +322,7 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
       link_preview: composerPreview.preview ?? undefined,
     });
   };
+  const sendTrigger = useScheduledSend(openSchedule, `${detail.id}:${channel.id}`);
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (mention.onKeyDown(e)) return;
@@ -655,6 +657,7 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
       )}
       {composer ?? (
       <div className={g.composerWrap}>
+      <DraftNotice error={draft.error && !editing} text={text} />
       {slowMode > 0 && <div className={g.slowHint}>🐢 Медленный режим: одно сообщение в {slowMode} с</div>}
       {announcement && !editing && (
         <label className={w.askAck}>
@@ -673,25 +676,26 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
           assets={assets}
           onSticker={(value) => void sendQuick(value)}
           onEmoji={(code) => {
-            setText((t) => `${t}${t && !t.endsWith(" ") ? " " : ""}${code} `);
-            inputRef.current?.focus();
+            composerHandle.current?.insertText(code);
           }}
           onClose={() => setPickerOpen(false)}
         />
       )}
-      {formatOpen && <FormatBar onFormat={(kind) => composerHandle.current?.format(kind)} />}
+      {formatOpen && <FormatBar disabled={!draft.ready} onFormat={(kind) => composerHandle.current?.format(kind)} />}
       <form className={s.composer} onSubmit={(e) => void submit(e)}>
         <button
           type="button"
           className={g.composerExtra}
-          aria-label="Файл, опрос или сбор группы"
-          title="Файл, опрос или сбор группы"
-          disabled={!!editing}
+          aria-label={compactComposer ? "Действия с сообщением" : "Файл, опрос или сбор группы"}
+          aria-haspopup="menu"
+          aria-expanded={!!plusMenu}
+          title={compactComposer ? "Действия с сообщением" : "Файл, опрос или сбор группы"}
+          disabled={!draft.ready || (!!editing && !compactComposer)}
           onClick={(e) => {
             const r = e.currentTarget.getBoundingClientRect();
             setPlusMenu({ x: r.left, y: r.top - 140 });
             // Свежий список форм — сценарии могли добавить, пока Спутник открыт.
-            void starsApi.forms(detail.id).then(setForms).catch(() => {});
+            if (!editing) void starsApi.forms(detail.id).then(setForms).catch(() => {});
           }}
         >
           +
@@ -700,6 +704,7 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
           ref={inputRef}
           handleRef={composerHandle}
           className={s.composerInput}
+          disabled={!draft.ready}
           value={text}
           onValueChange={(value) => {
             setText(value);
@@ -718,35 +723,37 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
           maxLength={4000}
           aria-label="Сообщение"
         />
-        <button
+        {!compactComposer && <button
           type="button"
           className={formatOpen ? `${g.composerExtra} ${g.composerExtraOn}` : g.composerExtra}
           aria-label="Форматирование"
           aria-pressed={formatOpen}
           title="Форматирование"
+          disabled={!draft.ready}
           onMouseDown={(e) => e.preventDefault()}
           onClick={toggleFormat}
         >
           <IconFormat size={18} />
-        </button>
+        </button>}
         <button
           type="button"
-          className={g.composerExtra}
-          aria-label="Стикеры и эмодзи"
-          title="Стикеры и эмодзи"
+          className={`${g.composerExtra} ${s.composerSmile}`}
+          aria-label="Смайлы и стикеры"
+          aria-haspopup="dialog"
+          aria-expanded={pickerOpen}
+          title="Смайлы и стикеры"
           data-sticker-toggle
-          disabled={!!editing}
+          disabled={!draft.ready || !!editing}
           onClick={() => setPickerOpen((o) => !o)}
         >
-          🙂
+          <IconSmile size={20} />
         </button>
-        {!editing && !!text.trim() && <ScheduleButton onClick={openSchedule} />}
         <button
           type="submit"
-          className={s.primary}
-          disabled={!text.trim()}
+          className={`${s.primary} ${s.composerSend}`}
+          disabled={!text.trim() || !draft.ready || draft.sending}
           aria-label={editing ? "Сохранить" : "Отправить"}
-          style={{ padding: "0 16px" }}
+          {...(editing ? {} : sendTrigger)}
         >
           {editing ? "✓" : <IconSend size={18} />}
         </button>
@@ -789,16 +796,21 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
           at={plusMenu}
           reaction={null}
           actions={[
-            { label: "📎 Файл (до 50 МБ)", onClick: () => fileInputRef.current?.click() },
-            // Опросы и сборы живут внутри одной Звезды — в общем Спутнике их нет.
-            ...(shared
-              ? []
-              : [
-                  { label: "📊 Опрос", onClick: () => setDialog("poll") },
-                  { label: "🎮 Сбор группы", onClick: () => setDialog("lfg") },
-                ]),
-            // Формы сценариев Звезды: карточка уйдёт в Спутник, указанный в сценарии.
-            ...forms.map((form) => ({ label: `📝 ${form.name}`, onClick: () => setOpenForm(form) })),
+            ...(editing ? [] : [
+              { label: "📎 Файл (до 50 МБ)", onClick: () => fileInputRef.current?.click() },
+              // Опросы и сборы живут внутри одной Звезды — в общем Спутнике их нет.
+              ...(shared
+                ? []
+                : [
+                    { label: "📊 Опрос", onClick: () => setDialog("poll") },
+                    { label: "🎮 Сбор группы", onClick: () => setDialog("lfg") },
+                  ]),
+              // Формы сценариев Звезды: карточка уйдёт в Спутник, указанный в сценарии.
+              ...forms.map((form) => ({ label: `📝 ${form.name}`, onClick: () => setOpenForm(form) })),
+            ]),
+            ...(compactComposer ? [
+              { label: formatOpen ? "Скрыть форматирование" : "Форматирование", onClick: toggleFormat },
+            ] : []),
           ]}
           onClose={() => setPlusMenu(null)}
         />

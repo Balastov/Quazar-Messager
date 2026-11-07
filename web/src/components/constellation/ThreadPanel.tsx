@@ -7,6 +7,9 @@ import MessageMenu, { type MenuAction } from "../messages/MessageMenu";
 import { ComposerContext, revealMessage } from "../messages/parts";
 import { IconBack, IconFormat, IconSend } from "../icons";
 import ComposerInput, { type ComposerHandle } from "../messages/ComposerInput";
+import { useCompactComposer } from "../../chat/useCompactComposer";
+import { useComposerDraft } from "../../chat/useComposerDraft";
+import DraftNotice from "../messages/DraftNotice";
 import FormatBar, { useFormatBarOpen } from "../messages/FormatBar";
 import { SatelliteMessage, editable, repliesLabel } from "./SatelliteView";
 import { useMentionSuggest } from "../messages/MentionSuggest";
@@ -29,6 +32,8 @@ interface Props {
 
 /** Ветка обсуждения под сообщением Спутника: корень сверху, ответы ниже, своё поле ввода. */
 export default function ThreadPanel({ detail, fullscreen = false }: Props) {
+  const compactComposer = useCompactComposer();
+  const [toolsAt, setToolsAt] = useState<{ x: number; y: number } | null>(null);
   const myId = useAuthStore((st) => st.user?.id);
   const thread = useStarsStore((st) => st.thread);
   const closeThread = useStarsStore((st) => st.closeThread);
@@ -38,8 +43,11 @@ export default function ThreadPanel({ detail, fullscreen = false }: Props) {
   const deleteMessage = useStarsStore((st) => st.deleteMessage);
   const react = useStarsStore((st) => st.react);
   const assets = useStarsStore((st) => st.assets[detail.id] ?? NO_ASSETS);
-  const [text, setText] = useState("");
   const [editing, setEditing] = useState<StarMessage | null>(null);
+  const draft = useComposerDraft(myId, thread ? ["thread", detail.id, thread.channelId, thread.rootId] : null, editing?.id ?? null);
+  const { text, setText } = draft;
+  const scopeRef = useRef(draft.key); scopeRef.current = draft.key;
+  useLayoutEffect(() => { setEditing(null); setError(null); }, [draft.key]);
   const [error, setError] = useState<string | null>(null);
   const [menu, setMenu] = useState<{ msg: StarMessage; x: number; y: number } | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -102,7 +110,7 @@ export default function ThreadPanel({ detail, fullscreen = false }: Props) {
         label: "Изменить",
         onClick: () => {
           setEditing(msg);
-          setText(msg.text);
+          draft.setEditText(msg.text);
           inputRef.current?.focus();
         },
       });
@@ -126,24 +134,22 @@ export default function ThreadPanel({ detail, fullscreen = false }: Props) {
     const value = text.trim();
     if (!value) return;
     setError(null);
-    setText("");
     if (editing) {
       const target = editing;
-      setEditing(null);
-      if (value === target.text) return;
+      if (value === target.text) { setEditing(null); draft.setEditText(""); return; }
       try {
-        await editMessage(target, value);
+        const saved = await draft.saveEdit(() => editMessage(target, value));
+        if (saved) { setEditing(null); draft.setEditText(""); }
       } catch (err) {
-        setEditing(target);
-        setText(value);
+        if (scopeRef.current !== draft.key || useAuthStore.getState().user?.id !== myId) return;
         setError(apiError(err, "Не удалось исправить"));
       }
       return;
     }
     try {
-      await sendThreadReply(value);
+      await draft.send(() => sendThreadReply(value));
     } catch (err) {
-      setText(value);
+      if (scopeRef.current !== draft.key || useAuthStore.getState().user?.id !== myId) return;
       setError(apiError(err, "Не удалось ответить"));
     }
   };
@@ -232,18 +238,25 @@ export default function ThreadPanel({ detail, fullscreen = false }: Props) {
         <div className={g.notice}>{blocked}</div>
       ) : (
         <>
-        {formatOpen && <FormatBar onFormat={(kind) => composerHandle.current?.format(kind)} />}
+        <DraftNotice error={draft.error && !editing} text={text} />
+        {formatOpen && <FormatBar disabled={!draft.ready} onFormat={(kind) => composerHandle.current?.format(kind)} />}
         <form className={s.composer} onSubmit={(e) => void submit(e)} style={{ position: "relative" }}>
           {mention.popup}
           <button
             type="button"
             className={g.composerExtra}
-            aria-label="Отправить файл в ветку"
-            title="Файл"
-            disabled={!!editing || !!uploading}
-            onClick={() => fileRef.current?.click()}
+            aria-label={compactComposer ? "Действия с сообщением" : "Отправить файл в ветку"}
+            aria-haspopup={compactComposer ? "menu" : undefined}
+            aria-expanded={compactComposer ? !!toolsAt : undefined}
+            title={compactComposer ? "Действия с сообщением" : "Файл"}
+            disabled={!draft.ready || (!compactComposer && (!!editing || !!uploading))}
+            onClick={event => {
+              if (!compactComposer) { fileRef.current?.click(); return; }
+              const rect = event.currentTarget.getBoundingClientRect();
+              setToolsAt({ x: rect.left, y: rect.top - 100 });
+            }}
           >
-            📎
+            {compactComposer ? "+" : "📎"}
           </button>
           <input
             ref={fileRef}
@@ -260,6 +273,7 @@ export default function ThreadPanel({ detail, fullscreen = false }: Props) {
             ref={inputRef}
             handleRef={composerHandle}
             className={s.composerInput}
+            disabled={!draft.ready}
             value={text}
             onValueChange={(value) => {
               setText(value);
@@ -277,23 +291,28 @@ export default function ThreadPanel({ detail, fullscreen = false }: Props) {
             maxLength={4000}
             aria-label="Ответ в ветке"
           />
-          <button
+          {!compactComposer && <button
             type="button"
             className={formatOpen ? `${g.composerExtra} ${g.composerExtraOn}` : g.composerExtra}
             aria-label="Форматирование"
             aria-pressed={formatOpen}
             title="Форматирование"
+            disabled={!draft.ready}
             onMouseDown={(e) => e.preventDefault()}
             onClick={toggleFormat}
           >
             <IconFormat size={18} />
-          </button>
-          <button type="submit" className={s.primary} disabled={!text.trim()} aria-label="Отправить" style={{ padding: "0 16px" }}>
+          </button>}
+          <button type="submit" className={`${s.primary} ${s.composerSend}`} disabled={!text.trim() || !draft.ready || draft.sending} aria-label="Отправить">
             {editing ? "✓" : <IconSend size={18} />}
           </button>
         </form>
         </>
       )}
+      {toolsAt && <MessageMenu at={toolsAt} reaction={null} actions={[
+        ...(!editing && !uploading ? [{ label: "📎 Файл (до 50 МБ)", onClick: () => fileRef.current?.click() }] : []),
+        { label: formatOpen ? "Скрыть форматирование" : "Форматирование", onClick: toggleFormat },
+      ]} onClose={() => setToolsAt(null)} />}
       {menu && (
         <MessageMenu
           at={menu}

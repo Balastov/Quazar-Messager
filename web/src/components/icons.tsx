@@ -110,6 +110,13 @@ export const IconSend = (p: IconProps) => (
   </Svg>
 );
 
+export const IconSmile = (p: IconProps) => (
+  <Svg {...p}>
+    <circle cx="12" cy="12" r="9" />
+    <path d="M8 14a4.5 4.5 0 0 0 8 0M8.5 9h.01M15.5 9h.01" />
+  </Svg>
+);
+
 export const IconSticker = (p: IconProps) => (
   <Svg {...p}>
     <path d="M21 12.5V8a5 5 0 0 0-5-5H8a5 5 0 0 0-5 5v8a5 5 0 0 0 5 5h4.5" />

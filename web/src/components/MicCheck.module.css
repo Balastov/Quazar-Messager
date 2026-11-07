@@ -11,6 +11,7 @@
   font-size: 13px;
   color: var(--qz-text-muted);
 }
+.meter progress { width: 100%; height: 10px; accent-color: var(--qz-online); }
 
 .bar {
   height: 10px;

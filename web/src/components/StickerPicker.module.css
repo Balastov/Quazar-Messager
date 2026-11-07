@@ -32,6 +32,14 @@
   flex-shrink: 0;
 }
 
+.mainTabs { padding-bottom: 10px; border-bottom: 1px solid var(--qz-border); }
+.body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.emojiGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(38px, 1fr)); gap: 3px; padding: 8px; overflow-y: auto; min-height: 0; }
+.emojiCell { display: flex; align-items: center; justify-content: center; min-height: 40px; padding: 4px; border: 0; border-radius: 9px; background: transparent; font-size: 25px; cursor: pointer; }
+.emojiCell:hover, .emojiCell:focus-visible { background: rgba(255, 255, 255, .08); outline: 2px solid var(--qz-online); outline-offset: -2px; }
+.emojiCell img { width: 28px; height: 28px; object-fit: contain; }
+.starSticker { max-width: 100%; max-height: 76px; object-fit: contain; }
+
 .tab,
 .tabActive {
   border: 1px solid var(--qz-border);

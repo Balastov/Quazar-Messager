@@ -34,6 +34,13 @@ export function ensurePushSubscription(): Promise<boolean> {
   return task;
 }
 
+export async function diagnosticPushEndpoint(): Promise<string | null> {
+  let ready = await ensurePushSubscription();
+  // A preference change can queue one more registration behind an in-flight one.
+  while (inFlight) ready = await inFlight;
+  return ready ? activeSubscription?.endpoint ?? null : null;
+}
+
 async function ensure(round: number): Promise<boolean> {
   if (desktop()) return false;
   if (!("serviceWorker" in navigator) || !("PushManager" in window) || !http.defaults.headers.common.Authorization) return false;

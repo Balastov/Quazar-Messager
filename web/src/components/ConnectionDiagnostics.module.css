@@ -1,0 +1,8 @@
+.root { margin-top: 12px; }
+.panel { display: flex; flex-direction: column; gap: 18px; margin-top: 16px; }
+.test { padding-top: 14px; border-top: 1px solid var(--qz-border); display: flex; flex-direction: column; gap: 9px; }
+.test h4 { margin: 0; font-size: 14px; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.status { margin: 0; font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+.ok { color: var(--qz-online); }
+.warn { color: #fbbf24; }

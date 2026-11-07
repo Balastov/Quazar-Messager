@@ -1,5 +1,6 @@
 from app.models.chat import Chat, ChatMember
 from app.models.device import DevicePairing, DevicePairLimit, DeviceSession
+from app.models.connection_check import ConnectionCheck
 from app.models.news import NewsDelivery, NewsInbox, NewsRelease
 from app.models.room_activity import RoomActivity, RoomVideo
 from app.models.message import (

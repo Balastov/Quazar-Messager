@@ -428,7 +428,9 @@
 
 .textInput {
   display: block;
-  width: 100%;
+  flex: 1;
+  width: 0;
+  min-width: 0;
   margin: 0;
   padding: 10px 0;
   border: none;
@@ -448,6 +450,17 @@
 .field .formatToggle {
   margin-right: 2px;
 }
+
+@media (max-width: 767px), (hover: none) and (pointer: coarse) {
+  .composer { gap: 4px; padding: 8px 8px calc(8px + var(--qz-safe-bottom)); }
+  .attachBtn { width: 36px; height: 40px; padding: 0; }
+  .micBtn, .sendBtn { width: 40px; height: 40px; padding: 0; }
+  .field { min-height: 40px; padding: 0 10px; border-radius: 20px; }
+  .textInput { padding: 8px 0; }
+  .field .stickerBtn, .field .stickerBtnActive { width: 32px; height: 32px; padding: 0; margin-right: -6px; margin-bottom: 3px; }
+}
+
+.sendBtn { touch-action: manipulation; -webkit-touch-callout: none; user-select: none; }
 
 .micBtn,
 .sendBtn {

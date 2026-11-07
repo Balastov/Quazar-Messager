@@ -35,6 +35,7 @@ export interface IceServer {
 
 // WebSocket events
 export type WsEvent =
+  | { type: "connection_test"; test_id: string; receipt_secret: string; title: string; body: string; recipient_user_id: string }
   | RoomActivityEvent
   | StarEvent
   | {

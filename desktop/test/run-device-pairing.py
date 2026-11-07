@@ -16,6 +16,9 @@ from urllib.parse import urlsplit, urlunsplit
 import asyncpg
 
 root = Path(__file__).resolve().parents[2]
+cases = {"pairing": ("tests.device_pairing_browser:app", "device-pairing-e2e.cjs"),
+         "drafts-connection": ("tests.drafts_connection_browser:app", "drafts-connection-e2e.cjs")}
+fixture, test_script = cases[os.environ.get("BROWSER_TEST_CASE", "pairing")]
 dsn = os.environ.get("TEST_DATABASE_URL", "postgresql+asyncpg://quazar@127.0.0.1:55439/quazar")
 url = urlsplit(dsn.replace("postgresql+asyncpg:", "postgresql:"))
 if url.hostname not in {"127.0.0.1", "localhost", "::1"}:
@@ -49,7 +52,7 @@ with tempfile.TemporaryDirectory(prefix="quazar-device-e2e-") as folder:
     server = None
     try:
         with (task / "server.log").open("w") as output:
-            server = subprocess.Popen([sys.executable, "-B", "-m", "uvicorn", "tests.device_pairing_browser:app", "--host", "127.0.0.1", "--port", str(port), "--log-level", "warning", "--no-access-log"], cwd=root / "backend", env=environment, stdout=output, stderr=subprocess.STDOUT)
+            server = subprocess.Popen([sys.executable, "-B", "-m", "uvicorn", fixture, "--host", "127.0.0.1", "--port", str(port), "--log-level", "warning", "--no-access-log"], cwd=root / "backend", env=environment, stdout=output, stderr=subprocess.STDOUT)
             for _ in range(150):
                 if Path(environment["PAIR_TEST_BOOTSTRAP"]).exists(): break
                 if server.poll() is not None: raise RuntimeError("Test API did not start")
@@ -67,7 +70,7 @@ with tempfile.TemporaryDirectory(prefix="quazar-device-e2e-") as folder:
             electron_output = subprocess.check_output(["node", "-e", "const executable=require('electron'); process.stdout.write('\\nQUAZAR_ELECTRON_PATH='+executable+'\\n')"], cwd=root / "desktop", text=True)
             electron = next(line.removeprefix("QUAZAR_ELECTRON_PATH=") for line in electron_output.splitlines() if line.startswith("QUAZAR_ELECTRON_PATH="))
             if not Path(electron).is_file(): raise RuntimeError("Electron executable was not installed")
-            result = subprocess.run([electron, "--no-sandbox", str(root / "desktop/test/device-pairing-e2e.cjs")], env=environment, timeout=140,
+            result = subprocess.run([electron, "--no-sandbox", str(root / "desktop/test" / test_script)], env=environment, timeout=160,
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
             print(result.stdout, end="")
             if result.returncode: raise RuntimeError("Real-renderer pairing test failed:\n" + result.stdout[-4000:])

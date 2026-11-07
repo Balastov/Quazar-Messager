@@ -42,6 +42,24 @@ self.addEventListener("push", (event) => {
     data = {};
   }
 
+  if (data.type === "connection_test") {
+    event.waitUntil((async () => {
+      await self.registration.showNotification(data.title || "Quazar — проверка связи", {
+        body: data.body || "Тестовое уведомление с сервера", tag: `quazar-test-${data.test_id}`,
+        icon: "/icons/icon-192.png?v=neon-q-2", badge: "/icons/icon-48.png?v=neon-q-2",
+        silent: false, data: { kind: "diagnostic" },
+      });
+      if (!/^[0-9a-f-]{36}$/i.test(data.test_id || "") || !/^[A-Za-z0-9_-]{43}$/.test(data.receipt_secret || "")) return;
+      try {
+        await fetch(`/api/push/diagnostics/${encodeURIComponent(data.test_id)}/receipt`, {
+          method: "POST", credentials: "omit", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ secret: data.receipt_secret }),
+        });
+      } catch { /* The visible notification still works while the server is unreachable. */ }
+    })());
+    return;
+  }
+
   if (data.type === "incoming_call") {
     const name = data.caller_name || "Собеседник";
     const isVideo = !!(data.media && data.media.video);
@@ -143,6 +161,11 @@ self.addEventListener("notificationclick", (event) => {
   event.notification.close();
   const data = event.notification.data || {};
   const action = event.action;
+
+  if (data.kind === "diagnostic") {
+    event.waitUntil(openOrFocus("/", null));
+    return;
+  }
 
   if (data.kind === "call") {
     const callId = data.callId;

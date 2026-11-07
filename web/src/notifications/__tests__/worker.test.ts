@@ -47,3 +47,23 @@ it("preserves the message and thread destination when a star notification is cli
   await Promise.all(pending);
   expect(w.post).toHaveBeenCalledWith({type: "quazar-open-star", starId: "guest-star", channelId: "shared", messageId: "reply", threadId: "root"});
 });
+
+it("acknowledges a diagnostic only after handing the notification to the system", async () => {
+  const send = vi.fn().mockResolvedValue({ ok: true }); vi.stubGlobal("fetch", send);
+  try {
+    const w = worker(), id = "12345678-1234-4321-8123-123456789abc", secret = "s".repeat(43);
+    await w.push({ type: "connection_test", test_id: id, receipt_secret: secret, title: "Проверка связи", body: "Тест" });
+    expect(w.show).toHaveBeenCalledWith("Проверка связи", expect.objectContaining({ data: { kind: "diagnostic" } }));
+    expect(w.show.mock.invocationCallOrder[0]).toBeLessThan(send.mock.invocationCallOrder[0]);
+    expect(send).toHaveBeenCalledWith(`/api/push/diagnostics/${id}/receipt`, expect.objectContaining({ method: "POST", credentials: "omit", body: JSON.stringify({ secret }) }));
+    expect(w.show.mock.calls[0][1].data).not.toHaveProperty("receipt_secret");
+  } finally { vi.unstubAllGlobals(); }
+});
+it("does not report a diagnostic as displayed if showNotification fails", async () => {
+  const send = vi.fn(); vi.stubGlobal("fetch", send);
+  try {
+    const w = worker(); w.show.mockRejectedValue(new Error("permission denied"));
+    await expect(w.push({ type: "connection_test", test_id: "12345678-1234-4321-8123-123456789abc", receipt_secret: "s".repeat(43) })).rejects.toThrow();
+    expect(send).not.toHaveBeenCalled();
+  } finally { vi.unstubAllGlobals(); }
+});

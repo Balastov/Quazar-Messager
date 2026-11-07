@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { isUnreadable, openRevisionPayloads, SAVED_CHAT_TITLE, useChatStore } from "../store/chat";
 import { useAuthStore } from "../store/auth";
 import { useUiStore } from "../store/ui";
@@ -16,7 +16,7 @@ import {
   IconPlus,
   IconSearch,
   IconSend,
-  IconSticker,
+  IconSmile,
   IconVideo,
 } from "./icons";
 import s from "./MessageView.module.css";
@@ -29,6 +29,10 @@ import EditHistory from "./messages/EditHistory";
 import ReadByDialog from "./messages/ReadByDialog";
 import { messagesApi } from "../api/messages";
 import ComposerInput, { type ComposerHandle } from "./messages/ComposerInput";
+import { useCompactComposer } from "../chat/useCompactComposer";
+import { useScheduledSend } from "../chat/useScheduledSend";
+import { useComposerDraft } from "../chat/useComposerDraft";
+import DraftNotice from "./messages/DraftNotice";
 import FormatBar, { useFormatBarOpen } from "./messages/FormatBar";
 import Sticker from "./Sticker";
 import StickerPicker from "./StickerPicker";
@@ -64,7 +68,6 @@ import ForwardDialog from "./chat/ForwardDialog";
 import ScheduledBar from "./chat/ScheduledBar";
 import SavedAvatar from "./chat/SavedAvatar";
 import WhenDialog from "./chat/WhenDialog";
-import ScheduleButton from "./chat/ScheduleButton";
 import c from "./chat/Chat.module.css";
 import { formatWhen } from "../chat/when";
 import { timeLeft, ttlLabel } from "../chat/ttl";
@@ -112,6 +115,7 @@ function reactionsOf(msg: Message) {
 }
 
 export default function MessageView({ showBack = false }: Props) {
+  const compactComposer = useCompactComposer();
   const {
     activeChatId,
     chats,
@@ -145,7 +149,9 @@ export default function MessageView({ showBack = false }: Props) {
   const startAudioCall = useCallStore((st) => st.startAudioCall);
   const startVideoCall = useCallStore((st) => st.startVideoCall);
   const callPhase = useCallStore((st) => st.phase);
-  const [text, setText] = useState("");
+  const [editing, setEditing] = useState<Message | null>(null);
+  const draft = useComposerDraft(currentUser?.id, activeChatId ? ["chat", activeChatId] : null, editing?.id ?? null);
+  const { text, setText } = draft;
   const [sendError, setSendError] = useState<string | null>(null);
   const [stickersOpen, setStickersOpen] = useState(false);
   const [uploading, setUploading] = useState(0);
@@ -161,7 +167,6 @@ export default function MessageView({ showBack = false }: Props) {
   const [backgroundOpen, setBackgroundOpen] = useState(false);
   const [menu, setMenu] = useState<{ msg: Message; x: number; y: number } | null>(null);
   const [replyTo, setReplyTo] = useState<Message | null>(null);
-  const [editing, setEditing] = useState<Message | null>(null);
   const recorderRef = useRef<VoiceRecorder | null>(null);
   const [recording, setRecording] = useState<{ elapsed: number; levels: number[] } | null>(null);
   const [sendingVoice, setSendingVoice] = useState(false);
@@ -173,7 +178,6 @@ export default function MessageView({ showBack = false }: Props) {
   const [whenFor, setWhenFor] = useState<{
     kind: "schedule"; chatId: string; text: string; draft: string; replyToId?: string;
   } | { kind: "remind"; msg: Message } | null>(null);
-  const [sendMenu, setSendMenu] = useState<{ x: number; y: number } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const composerHandle = useRef<ComposerHandle>(null);
@@ -191,24 +195,23 @@ export default function MessageView({ showBack = false }: Props) {
   // Чат с Quazar_Admin_bot: обращения и ответы команды, без E2E.
   const isSupport = chat?.type === "support";
   const isNews = chat?.type === "news";
-  const inputDisabled = isNews || ((isDirect || isSaved) && e2eReady === false);
+  const inputDisabled = isNews || !draft.ready || ((isDirect || isSaved) && e2eReady === false);
   const lastId = msgs.length ? msgs[msgs.length - 1].id : null;
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     setStickersOpen(false);
     setBackgroundOpen(false);
     setMenu(null);
     setReplyTo(null);
     setEditing(null);
     setWhenFor(null);
-    setSendMenu(null);
     // Ушли из чата посреди записи — запись пропадает, микрофон гаснет.
     return () => {
       recorderRef.current?.cancel();
       recorderRef.current = null;
       setRecording(null);
     };
-  }, [activeChatId]);
+  }, [activeChatId, currentUser?.id]);
 
   // Вниз — только когда пришло новое сообщение (а не при удалении или реакции).
   useEffect(() => {
@@ -239,9 +242,6 @@ export default function MessageView({ showBack = false }: Props) {
       : null;
   const peerPresenceRaw = usePresence(presencePeerId);
   const peerBlocked = useIsBlocked(presencePeerId);
-  const closeSendMenu = useCallback(() => setSendMenu(null), []);
-  // Правая кнопка или долгое нажатие на «Отправить» — «Отправить позже».
-  const sendTrigger = useMessageMenuTrigger((x, y) => setSendMenu({ x, y }));
 
   const openSchedule = () => {
     const value = text.trim();
@@ -253,6 +253,7 @@ export default function MessageView({ showBack = false }: Props) {
       draft: text, replyToId: replyTo?.id,
     });
   };
+  const sendTrigger = useScheduledSend(openSchedule, activeChatId);
 
   // Открыли чат из напоминания — прокручиваем к сообщению, когда оно в ленте.
   useEffect(() => {
@@ -365,7 +366,7 @@ export default function MessageView({ showBack = false }: Props) {
   const startEdit = (msg: Message) => {
     setReplyTo(null);
     setEditing(msg);
-    setText(msg.payload);
+    draft.setEditText(msg.payload);
     setStickersOpen(false);
     inputRef.current?.focus();
   };
@@ -384,31 +385,29 @@ export default function MessageView({ showBack = false }: Props) {
 
     if (editing) {
       const target = editing;
-      setEditing(null);
-      setText("");
-      if (payload === target.payload) return;
+      if (payload === target.payload) { setEditing(null); draft.setEditText(""); return; }
       try {
-        await editMessage(activeChatId, target.id, payload);
+        const saved = await draft.saveEdit(() => editMessage(activeChatId, target.id, payload));
+        if (saved) { setEditing(null); draft.setEditText(""); }
       } catch (err) {
+        if (useChatStore.getState().activeChatId !== activeChatId || useAuthStore.getState().user?.id !== currentUser?.id) return;
         reportError(err, "Не удалось исправить сообщение");
-        setEditing(target);
-        setText(payload);
       }
       return;
     }
 
     const reply = replyTo;
     const preview = composerPreview.preview;
-    setText("");
-    setReplyTo(null);
-    composerPreview.reset();
     resetTypingThrottle(chatTypingKey(activeChatId));
     try {
-      await sendMessage(activeChatId, preview ? encodeWithPreview(payload, preview) : payload, undefined, reply?.id);
+      const cleared = await draft.send(() => sendMessage(activeChatId, preview ? encodeWithPreview(payload, preview) : payload, undefined, reply?.id));
+      if (cleared && useChatStore.getState().activeChatId === activeChatId && useAuthStore.getState().user?.id === currentUser?.id) {
+        setReplyTo(current => current?.id === reply?.id ? null : current);
+        composerPreview.reset();
+      }
     } catch (err) {
+      if (useChatStore.getState().activeChatId !== activeChatId || useAuthStore.getState().user?.id !== currentUser?.id) return;
       reportError(err, "Не удалось отправить сообщение");
-      setText(payload);
-      setReplyTo(reply);
     }
   };
 
@@ -867,10 +866,12 @@ export default function MessageView({ showBack = false }: Props) {
         </div>
       ) : (
       <div className={s.composerWrap}>
+      <DraftNotice error={draft.error && !editing} text={text} />
       <ScheduledBar chatId={activeChatId} />
       {stickersOpen && (
         <StickerPicker
           onPick={(packId, st) => void handleSticker(packId, st)}
+          onEmoji={emoji => composerHandle.current?.insertText(emoji)}
           onClose={() => setStickersOpen(false)}
         />
       )}
@@ -914,13 +915,15 @@ export default function MessageView({ showBack = false }: Props) {
         <button
           type="button"
           className={s.attachBtn}
-          title="Фото или файл"
-          aria-label="Прикрепить"
+          title={compactComposer ? "Действия с сообщением" : "Фото или файл"}
+          aria-label={compactComposer ? "Действия с сообщением" : "Прикрепить"}
+          aria-haspopup="menu"
+          aria-expanded={!!attachMenu}
           onClick={(e) => {
             const r = e.currentTarget.getBoundingClientRect();
             setAttachMenu({ x: r.left, y: r.top - 100 });
           }}
-          disabled={inputDisabled || !!editing}
+          disabled={inputDisabled || (!!editing && !compactComposer)}
         >
           <IconPlus size={20} />
         </button>
@@ -954,7 +957,7 @@ export default function MessageView({ showBack = false }: Props) {
             className={s.textInput}
             placeholder={
               inputDisabled
-                ? "Ожидание ключей шифрования..."
+                ? !draft.ready ? "Восстанавливаем черновик…" : "Ожидание ключей шифрования..."
                 : isSupport
                   ? "Дописать к обращению или задать вопрос..."
                   : "Написать сообщение..."
@@ -967,7 +970,7 @@ export default function MessageView({ showBack = false }: Props) {
             disabled={inputDisabled}
             aria-label="Сообщение"
           />
-          <button
+          {!compactComposer && <button
             type="button"
             className={`${formatOpen ? s.stickerBtnActive : s.stickerBtn} ${s.formatToggle}`}
             onMouseDown={(e) => e.preventDefault()}
@@ -978,28 +981,27 @@ export default function MessageView({ showBack = false }: Props) {
             title="Форматирование"
           >
             <IconFormat size={18} />
-          </button>
+          </button>}
           <button
             type="button"
             className={stickersOpen ? s.stickerBtnActive : s.stickerBtn}
             onClick={() => setStickersOpen((open) => !open)}
             disabled={inputDisabled || !!editing}
-            aria-label="Стикеры"
+            aria-label="Смайлы и стикеры"
+            aria-haspopup="dialog"
             aria-expanded={stickersOpen}
-            title="Стикеры"
+            title="Смайлы и стикеры"
             data-sticker-toggle
           >
-            <IconSticker size={20} />
+            <IconSmile size={20} />
           </button>
         </div>
-        {!editing && !!text.trim() && <ScheduleButton disabled={inputDisabled} onClick={openSchedule} />}
         {text.trim() ? (
           <button
             className={s.sendBtn}
             type="submit"
-            disabled={!text.trim() || inputDisabled}
+            disabled={!text.trim() || inputDisabled || draft.sending}
             aria-label={editing ? "Сохранить" : "Отправить"}
-            title={editing ? undefined : "Правая кнопка — отправить позже"}
             {...(editing ? {} : sendTrigger)}
           >
             {editing ? "✓" : <IconSend size={18} />}
@@ -1058,26 +1060,15 @@ export default function MessageView({ showBack = false }: Props) {
           at={attachMenu}
           reaction={null}
           actions={[
-            { label: "🖼 Фото", onClick: () => fileInputRef.current?.click() },
-            { label: "📎 Файл (до 50 МБ)", onClick: () => docInputRef.current?.click() },
+            ...(!editing ? [
+              { label: "🖼 Фото", onClick: () => fileInputRef.current?.click() },
+              { label: "📎 Файл (до 50 МБ)", onClick: () => docInputRef.current?.click() },
+            ] : []),
+            ...(compactComposer ? [
+              { label: formatOpen ? "Скрыть форматирование" : "Форматирование", onClick: toggleFormat },
+            ] : []),
           ]}
           onClose={() => setAttachMenu(null)}
-        />
-      )}
-
-      {sendMenu && (
-        <MessageMenu
-          at={sendMenu}
-          reaction={null}
-          actions={[
-            {
-              label: "Отправить позже…",
-              onClick: () => {
-                openSchedule();
-              },
-            },
-          ]}
-          onClose={closeSendMenu}
         />
       )}
 

@@ -208,6 +208,10 @@ async def lifespan(app: FastAPI):
                 "NOT NULL DEFAULT 'open'"
             )
         )
+        # Доступ к этажам: существующие этажи остаются открытыми всем.
+        await conn.execute(
+            text("ALTER TABLE star_floors ADD COLUMN IF NOT EXISTS access VARCHAR(8) NOT NULL DEFAULT 'all'")
+        )
         await conn.execute(
             text(
                 "ALTER TABLE star_channels ADD COLUMN IF NOT EXISTS listen_only BOOLEAN "

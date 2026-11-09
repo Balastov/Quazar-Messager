@@ -375,12 +375,23 @@ export interface RolePermissions {
   member: StarPerm[];
 }
 
+/** Кому открыт этаж по умолчанию: всем участникам или никому (исключения — отдельно). */
+export type FloorAccess = "all" | "none";
+
 export interface StarFloor {
   id: string;
   name: string;
   position: number;
   /** Растёт при каждом сохранении плана. */
   version: number;
+  access?: FloorAccess;
+}
+
+/** Кому открыт этаж: доступ по умолчанию и участники с доступом (кроме тех, кому открыто всё). */
+export interface FloorAccessSettings {
+  floor_id: string;
+  access: FloorAccess;
+  user_ids: string[];
 }
 
 export interface LayoutRoom {
@@ -577,6 +588,8 @@ export type StarEvent =
   | { type: "star_message"; star_id: string; message: StarMessage }
   | { type: "star_scheduled_changed"; star_id: string; channel_id: string; error?: string }
   | { type: "star_floors"; star_id: string; floors: StarFloor[] }
+  /** Мой доступ к этажам изменился — Звезду нужно перечитать. */
+  | { type: "star_floor_access"; star_id: string }
   | {
       type: "planet_invite";
       star_id: string;
@@ -992,8 +1005,14 @@ export const starsApi = {
   unreact: (starId: string, channelId: string, messageId: string) =>
     http.delete(`${base(starId)}/channels/${channelId}/messages/${messageId}/reaction`),
 
-  createFloor: (starId: string, name: string) =>
-    http.post<StarFloor>(`${base(starId)}/floors`, { name }).then((r) => r.data),
+  createFloor: (starId: string, name: string, access: FloorAccess) =>
+    http.post<StarFloor>(`${base(starId)}/floors`, { name, access }).then((r) => r.data),
+  floorAccess: (starId: string, floorId: string) =>
+    http.get<FloorAccessSettings>(`${base(starId)}/floors/${floorId}/access`).then((r) => r.data),
+  setFloorAccess: (starId: string, floorId: string, access: FloorAccess, userIds: string[]) =>
+    http
+      .put<FloorAccessSettings>(`${base(starId)}/floors/${floorId}/access`, { access, user_ids: userIds })
+      .then((r) => r.data),
   renameFloor: (starId: string, floorId: string, name: string) =>
     http.patch<StarFloor>(`${base(starId)}/floors/${floorId}`, { name }).then((r) => r.data),
   deleteFloor: (starId: string, floorId: string) => http.delete(`${base(starId)}/floors/${floorId}`),

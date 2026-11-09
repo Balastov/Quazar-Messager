@@ -3,6 +3,7 @@ import axios from "axios";
 import {
   starsApi,
   type ChannelKind,
+  type FloorAccess,
   type LayoutRoom,
   type RolePermissions,
   type RoomAccess,
@@ -227,7 +228,7 @@ interface StarsState {
       floor_id?: string;
     }
   ) => Promise<void>;
-  createFloor: (name: string) => Promise<string | null>;
+  createFloor: (name: string, access: FloorAccess) => Promise<string | null>;
   renameFloor: (floorId: string, name: string) => Promise<void>;
   deleteFloor: (floorId: string) => Promise<void>;
   saveLayout: (floorId: string, version: number, rooms: LayoutRoom[]) => Promise<void>;
@@ -519,6 +520,10 @@ export const useStarsStore = create<StarsState>((set, get) => {
           ...d,
           floors: [...event.floors].sort((a, b) => a.position - b.position),
         }));
+        break;
+      case "star_floor_access":
+        // Открыли или закрыли этаж — его комнаты и кто в них сидит приходят только целиком.
+        void get().refreshStar(starId);
         break;
       case "star_layout":
         patchDetail(starId, (d) => {
@@ -1158,10 +1163,10 @@ export const useStarsStore = create<StarsState>((set, get) => {
       handleEvent({ type: "star_channel_deleted", star_id: starId, channel_id: channelId });
     },
 
-    createFloor: async (name) => {
+    createFloor: async (name, access) => {
       const starId = get().activeStarId;
       if (!starId) return null;
-      const floor = await starsApi.createFloor(starId, name);
+      const floor = await starsApi.createFloor(starId, name, access);
       patchDetail(starId, (d) =>
         d.floors.some((f) => f.id === floor.id) ? d : { ...d, floors: [...d.floors, floor] }
       );

@@ -84,7 +84,24 @@ class StarFloor(Base):
     position: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     # Растёт при каждом сохранении плана — ловим одновременные правки двух людей.
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # Доступ участников по умолчанию: "all" (всем) | "none" (никому). Исключения — StarFloorAccess.
+    # Владелец, админы и те, кто редактирует карту, видят все этажи.
+    access: Mapped[str] = mapped_column(String(8), nullable=False, default="all", server_default="all")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class StarFloorAccess(Base):
+    """Исключение из доступа этажа по умолчанию для одного участника: allowed — пускать или нет."""
+
+    __tablename__ = "star_floor_access"
+
+    floor_id: Mapped[str] = mapped_column(
+        ForeignKey("star_floors.id", ondelete="CASCADE"), primary_key=True
+    )
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True, index=True
+    )
+    allowed: Mapped[bool] = mapped_column(Boolean, nullable=False)
 
 
 class StarChannel(Base):

@@ -18,7 +18,16 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.stars import _broadcast, _channel, _channel_event, _load_membership, _target_member, floors_event
+from app.api.stars import (
+    _broadcast,
+    _channel,
+    _channel_event,
+    _forbid,
+    _load_membership,
+    _target_member,
+    assert_room_access,
+    floors_event,
+)
 from app.core import doors, voice
 from app.core import floors as floors_svc
 from app.core import stars as rules
@@ -140,8 +149,10 @@ async def _names(db: AsyncSession, user_ids: set[str], star_id: str) -> dict[str
 
 async def _answerers(db: AsyncSession, star: Star, channel: StarChannel) -> list[str]:
     """Кто может впускать в эту комнату."""
-    members = (await db.execute(select(StarMember).where(StarMember.star_id == star.id))).scalars().all()
-    return [m.user_id for m in members if can_answer(star, m, channel)]
+    members = list((await db.execute(select(StarMember).where(StarMember.star_id == star.id))).scalars())
+    hidden = await floors_svc.hidden_by_member(db, star, members)
+    floor_id = floors_svc.room_floor_id(channel)
+    return [m.user_id for m in members if can_answer(star, m, channel) and floor_id not in hidden[m.user_id]]
 
 
 async def _notify(
@@ -239,7 +250,9 @@ async def invite_to_planet(star_id: str, channel_id: str, body: InviteBody, curr
         raise HTTPException(status_code=409, detail="Позвать можно только в комнату, где вы сейчас находитесь")
     if is_closed(channel) and not can_answer(star, me, channel):
         raise HTTPException(status_code=403, detail=_who_answers(channel))
-    await _target_member(db, star_id, body.user_id)
+    target = await _target_member(db, star_id, body.user_id)
+    if not await floors_svc.can_use_room(db, star, target, channel):
+        raise _forbid("У этого участника нет доступа к этажу этой комнаты")
     if body.user_id in inside:
         raise HTTPException(status_code=409, detail="Этот участник уже в комнате")
 
@@ -276,6 +289,7 @@ async def invite_to_planet(star_id: str, channel_id: str, body: InviteBody, curr
 async def knock_on_planet(star_id: str, channel_id: str, current_user: CurrentUser, db: Db):
     star, me = await _load_membership(db, star_id, current_user.id)
     channel = await _channel(db, star_id, channel_id)
+    await assert_room_access(db, star, me, channel)
     words = enter_words(star, channel.name)
     if channel.kind != "planet" or not is_closed(channel):
         raise HTTPException(status_code=400, detail=words["open"])

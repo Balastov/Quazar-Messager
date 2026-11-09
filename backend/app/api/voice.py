@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 
 from app.api.doors import enters_freely, is_closed
-from app.api.stars import _channel, _load_membership, _target_member
+from app.api.stars import _channel, _load_membership, _target_member, assert_room_access
 from app.core import doors, livekit, voice, pseudonyms
 from app.core import stars as rules
 from app.core.config import settings
@@ -50,6 +50,7 @@ async def _planet(db: AsyncSession, star_id: str, channel_id: str):
 async def join_planet(star_id: str, channel_id: str, current_user: CurrentUser, db: Db):
     star, me = await _load_membership(db, star_id, current_user.id)
     channel = await _planet(db, star_id, channel_id)
+    await assert_room_access(db, star, me, channel)
     if not livekit.configured():
         raise _unavailable()
 

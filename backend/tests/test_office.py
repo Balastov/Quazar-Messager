@@ -76,7 +76,7 @@ class OfficeApiTest(StarsTestBase):
     async def test_gaming_star_has_no_map(self):
         gaming = await self.make_star("gaming", name="Игры")
         self.assertEqual(gaming.floors, [])
-        await self.expect_error(400, office_api.create_floor, gaming.id, CreateFloor(name="2"), user="owner")
+        await self.expect_error(400, office_api.create_floor, gaming.id, CreateFloor(name="2", access="all"), user="owner")
 
     async def test_star_from_before_the_map_gets_a_floor(self):
         async with self.Session() as db:
@@ -94,7 +94,7 @@ class OfficeApiTest(StarsTestBase):
         self.assertTrue(all(c.floor_id == detail.floors[0].id and c.map_x is not None for c in self.planets(detail)))
 
     async def test_new_room_lands_on_a_free_spot_of_the_chosen_floor(self):
-        second = await self.call(office_api.create_floor, self.star.id, CreateFloor(name="2 этаж"), user="admin")
+        second = await self.call(office_api.create_floor, self.star.id, CreateFloor(name="2 этаж", access="all"), user="admin")
         kitchen = await self.call(
             api.create_channel,
             self.star.id,
@@ -151,7 +151,7 @@ class OfficeApiTest(StarsTestBase):
         await self.call(office_api.save_layout, self.star.id, floor.id, body, user="mod")
 
     async def test_move_room_to_another_floor(self):
-        second = await self.call(office_api.create_floor, self.star.id, CreateFloor(name="2 этаж"), user="owner")
+        second = await self.call(office_api.create_floor, self.star.id, CreateFloor(name="2 этаж", access="all"), user="owner")
         room = self.planets(await self.call(api.get_star, self.star.id, user="owner"))[0]
         moved = await self.call(api.update_channel, self.star.id, room.id, UpdateChannel(floor_id=second.id), user="admin")
         self.assertEqual(moved.floor_id, second.id)
@@ -159,7 +159,7 @@ class OfficeApiTest(StarsTestBase):
 
     async def test_delete_floor_moves_rooms_and_keeps_last_floor(self):
         first = (await self.call(api.get_star, self.star.id, user="owner")).floors[0]
-        second = await self.call(office_api.create_floor, self.star.id, CreateFloor(name="2 этаж"), user="owner")
+        second = await self.call(office_api.create_floor, self.star.id, CreateFloor(name="2 этаж", access="all"), user="owner")
         room = self.planets(await self.call(api.get_star, self.star.id, user="owner"))[0]
         await self.call(api.update_channel, self.star.id, room.id, UpdateChannel(floor_id=second.id), user="owner")
 

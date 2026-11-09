@@ -104,8 +104,25 @@ class UpdateChannel(_Named):
         return v
 
 
+FloorAccess = Literal["all", "none"]
+
+
 class CreateFloor(_Named):
     name: str = Field(min_length=1, max_length=48)
+    # Обязательно: новый этаж доступен всем участникам или никому (кроме управляющих картой).
+    access: FloorAccess
+
+
+class SetFloorAccess(BaseModel):
+    access: FloorAccess
+    # Участники с доступом. Владелец, админы и редакторы карты видят этаж всегда.
+    user_ids: list[str] = Field(default_factory=list, max_length=500)
+
+
+class FloorAccessOut(BaseModel):
+    floor_id: str
+    access: FloorAccess
+    user_ids: list[str]
 
 
 class UpdateFloor(_Named):
@@ -274,6 +291,7 @@ class StarFloorOut(BaseModel):
     name: str
     position: int
     version: int
+    access: FloorAccess = "all"
 
     model_config = {"from_attributes": True}
 

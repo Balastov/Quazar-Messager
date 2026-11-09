@@ -199,10 +199,51 @@ def _event_channel_id(event: dict) -> str | None:
     return None
 
 
+async def _floor_scoped(db: AsyncSession, star_id: str, event: dict, channel_id: str | None, also: tuple[str, ...]) -> bool:
+    """Рабочая Звезда: этажи, их планы и комнаты видят только те, у кого есть доступ к этажу.
+
+    True — событие уже разослано. Кто не видит комнату, вместо её правки получает удаление:
+    так комната, перенесённая на закрытый этаж, пропадает у них сразу.
+    """
+    kind = event.get("type")
+    if kind == "star_floors":
+        star = await db.get(Star, star_id)
+        if not star or star.kind != "work":
+            return False
+        groups: dict[frozenset[str], list[str]] = defaultdict(list)
+        for uid, hidden in (await floors_svc.hidden_by_member(db, star)).items():
+            groups[frozenset(hidden)].append(uid)
+        for hidden, uids in groups.items():
+            scoped = {**event, "floors": [f for f in event["floors"] if f["id"] not in hidden]}
+            await manager.broadcast_to_users(uids, await pseudonyms.in_star(db, star_id, {"star_id": star_id, **scoped}))
+        return True
+    if kind == "star_layout":
+        star = await db.get(Star, star_id)
+        audience = await floors_svc.floor_audience(db, star, event["floor"]["id"]) if star else None
+    elif channel_id:
+        audience = await floors_svc.room_audience(db, channel_id)
+    else:
+        return False
+    if audience is None:
+        return False
+    await manager.broadcast_to_users(
+        list(audience | set(also)), await pseudonyms.in_star(db, star_id, {"star_id": star_id, **event})
+    )
+    if kind == "star_channel_upsert":
+        outside = set(await _member_ids(db, star_id)) - audience - set(also)
+        if outside:
+            await manager.broadcast_to_users(
+                list(outside), {"type": "star_channel_deleted", "star_id": star_id, "channel_id": channel_id}
+            )
+    return True
+
+
 async def _broadcast(db: AsyncSession, star_id: str, event: dict, *, also: tuple[str, ...] = ()) -> None:
     """Участникам Звезды. Событие общего Спутника — участникам всех подключённых Звёзд,
     каждому со star_id его Звезды; кто состоит в нескольких — получает один раз."""
     channel_id = _event_channel_id(event)
+    if await _floor_scoped(db, star_id, event, channel_id, also):
+        return
     star_ids = await shares.audience_star_ids(db, channel_id, star_id) if channel_id else [star_id]
     if len(star_ids) == 1:
         user_ids = set(await _member_ids(db, star_id)) | set(also)
@@ -341,6 +382,14 @@ async def _detail(db: AsyncSession, star: Star, me: StarMember) -> StarDetailOut
     floors = await floors_svc.ensure_floors(db, star)
     members = await _members_out(db, star.id)
     channels = await channels_out(db, star.id)
+    # Закрытые для меня этажи: ни этажа, ни его комнат, ни того, кто в них сидит.
+    hidden = await floors_svc.hidden_floor_ids(db, star, me)
+    if hidden:
+        floors = [f for f in floors if f.id not in hidden]
+        concealed = {c.id for c in channels if floors_svc.room_floor_id(c) in hidden}
+        channels = [c for c in channels if c.id not in concealed]
+    else:
+        concealed = set()
     tags = (
         await db.execute(select(StarTag).where(StarTag.star_id == star.id).order_by(StarTag.position, StarTag.created_at))
     ).scalars().all()
@@ -350,8 +399,8 @@ async def _detail(db: AsyncSession, star: Star, me: StarMember) -> StarDetailOut
         role_permissions=rules.normalize_role_permissions(star.role_permissions),
         channels=channels,
         members=members,
-        voice=voice.star_presence(star.id),
-        voice_since=voice.star_active_since(star.id),
+        voice={k: v for k, v in voice.star_presence(star.id).items() if k not in concealed},
+        voice_since={k: v for k, v in voice.star_active_since(star.id).items() if k not in concealed},
         floors=[StarFloorOut.model_validate(f) for f in floors],
         rules_text=star.rules_text,
         rules_accepted=_rules_ok(star, me),
@@ -407,6 +456,26 @@ def _rules_ok(star: Star, me: StarMember) -> bool:
     return not star.rules_text or rules.is_staff(me.role) or me.rules_accepted_at is not None
 
 
+async def assert_room_access(db: AsyncSession, star: Star, me: StarMember, channel: StarChannel) -> None:
+    """Комната на этаже, к которому у участника нет доступа."""
+    if not await floors_svc.can_use_room(db, star, me, channel):
+        raise _forbid("У вас нет доступа к этому этажу")
+
+
+async def enforce_floor_access(db: AsyncSession, star: Star, user_ids: set[str] | None = None) -> None:
+    """Потерявшие доступ к этажу выходят из его комнат."""
+    if star.kind != "work":
+        return
+    rooms = {c.id: c for c in await _channels(db, star.id) if c.kind == "planet"}
+    for uid, hidden in (await floors_svc.hidden_by_member(db, star)).items():
+        if not hidden or (user_ids is not None and uid not in user_ids):
+            continue
+        for channel_id in voice.channels_with_user(star.id, uid):
+            room = rooms.get(channel_id)
+            if room and floors_svc.room_floor_id(room) in hidden:
+                await voice.remove_from_planet(star.id, channel_id, uid)
+
+
 def assert_can_post(star: Star, me: StarMember) -> None:
     """Писать в Спутники и ставить реакции: не в тайм-ауте и с принятыми правилами."""
     until = _active_timeout(me)
@@ -428,6 +497,7 @@ async def _remove_member(db: AsyncSession, star_id: str, user_id: str, reason: s
     await db.execute(
         delete(StarMember).where(StarMember.star_id == star_id, StarMember.user_id == user_id)
     )
+    await floors_svc.forget_member(db, star_id, user_id)
     await db.commit()
     await _broadcast(db, star_id, {"type": "star_member_removed", "user_id": user_id, "reason": reason})
     await manager.send_to_user(user_id, {"type": "star_removed", "star_id": star_id, "reason": reason})
@@ -708,6 +778,9 @@ async def update_member_role(
     target.role = body.role
     await db.commit()
     out = await broadcast_member(db, target)
+    # Без права на карту — снова только свои этажи.
+    star = await db.get(Star, star_id)
+    await enforce_floor_access(db, star, {user_id})
     await star_audit.record(db, star_id, current_user.id, "role", user_id, before=previous, after=body.role)
     return out
 
@@ -800,6 +873,7 @@ async def update_permissions(
     await db.commit()
     normalized = rules.normalize_role_permissions(star.role_permissions)
     await _broadcast(db, star_id, {"type": "star_permissions", "role_permissions": normalized})
+    await enforce_floor_access(db, star)
     await star_audit.record(db, star_id, current_user.id, "permissions")
     return normalized
 
@@ -990,7 +1064,7 @@ def _channel_event(channel: StarChannel) -> dict:
 
 @router.post("/{star_id}/channels", response_model=StarChannelOut, status_code=status.HTTP_201_CREATED)
 async def create_channel(star_id: str, body: CreateChannel, current_user: CurrentUser, db: Db):
-    star, _ = await _require_perm(db, star_id, current_user, Perm.MANAGE_CHANNELS)
+    star, me = await _require_perm(db, star_id, current_user, Perm.MANAGE_CHANNELS)
     # Блокируем Звезду: два одновременных запроса не превысят лимит каналов.
     await db.execute(select(Star.id).where(Star.id == star_id).with_for_update())
 
@@ -1032,7 +1106,13 @@ async def create_channel(star_id: str, body: CreateChannel, current_user: Curren
     floor = None
     if body.kind == "planet" and star.kind == "work":
         floors = await floors_svc.ensure_floors(db, star)
-        target = next((f for f in floors if f.id == body.floor_id), floors[0])
+        hidden = await floors_svc.hidden_floor_ids(db, star, me)
+        if body.floor_id in hidden:
+            raise _forbid("У вас нет доступа к этому этажу")
+        visible = [f for f in floors if f.id not in hidden]
+        if not visible:
+            raise _forbid("У вас нет доступа ни к одному этажу")
+        target = next((f for f in visible if f.id == body.floor_id), visible[0])
         floor = await floors_svc.lock_floor(db, star_id, target.id)
         await floors_svc.place_room(db, channel, floor)
 
@@ -1050,6 +1130,7 @@ async def update_channel(
 ):
     star, me = await _require_perm(db, star_id, current_user, Perm.MANAGE_CHANNELS)
     channel = await _channel(db, star_id, channel_id)
+    await assert_room_access(db, star, me, channel)
     if body.name is not None:
         channel.name = body.name
     if channel.kind == "planet":
@@ -1100,6 +1181,7 @@ async def update_channel(
         await voice.set_listen_only(star_id, channel_id, channel.listen_only)
     if moved:
         await _broadcast(db, star_id, floors_event(await floors_svc.list_floors(db, star_id)))
+        await enforce_floor_access(db, star)
     await star_audit.record(
         db, star_id, current_user.id, "channel_update", channel.id,
         name=channel.name, changes=sorted(body.model_dump(exclude_none=True)),
@@ -1109,8 +1191,9 @@ async def update_channel(
 
 @router.delete("/{star_id}/channels/{channel_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_channel(star_id: str, channel_id: str, current_user: CurrentUser, db: Db):
-    await _require_perm(db, star_id, current_user, Perm.MANAGE_CHANNELS)
+    star, me = await _require_perm(db, star_id, current_user, Perm.MANAGE_CHANNELS)
     channel = await _channel(db, star_id, channel_id)
+    await assert_room_access(db, star, me, channel)
     is_planet = channel.kind == "planet"
     floor = await floors_svc.lock_floor(db, star_id, channel.floor_id) if channel.floor_id else None
     if floor:

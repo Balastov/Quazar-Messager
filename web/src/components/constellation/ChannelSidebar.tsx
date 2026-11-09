@@ -189,7 +189,7 @@ export default function ChannelSidebar({
           <div className={s.floorHeader}>
             {single ? (
               <span className={s.floorTitle}>
-                <span className={s.floorName}>{floor.name}</span>
+                <span className={s.floorName}>{floor.access === "none" ? "🔒 " : ""}{floor.name}</span>
               </span>
             ) : (
               <button
@@ -202,7 +202,7 @@ export default function ChannelSidebar({
                 <span className={open ? `${s.floorChevron} ${s.floorChevronOpen}` : s.floorChevron} aria-hidden>
                   ›
                 </span>
-                <span className={s.floorName}>{floor.name}</span>
+                <span className={s.floorName}>{floor.access === "none" ? "🔒 " : ""}{floor.name}</span>
                 {!open && unreadCount > 0 && <span className={s.floorUnread} aria-label="Есть непрочитанные" />}
               </button>
             )}

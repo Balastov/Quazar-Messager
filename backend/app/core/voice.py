@@ -25,7 +25,7 @@ from datetime import datetime, timezone
 
 from sqlalchemy import select
 
-from app.core import doors, livekit
+from app.core import doors, floors, livekit
 from app.core.database import AsyncSessionLocal
 from app.models.star import StarChannel, StarMember
 from app.ws.hub import manager
@@ -161,6 +161,10 @@ async def broadcast(star_id: str, channel_id: str) -> None:
                 await db.execute(select(StarMember.user_id).where(StarMember.star_id == star_id))
             ).all()
         ]
+        # Кто сидит в комнате закрытого этажа, видят только те, у кого к нему есть доступ.
+        audience = await floors.room_audience(db, channel_id)
+        if audience is not None:
+            member_ids = [uid for uid in member_ids if uid in audience]
     await manager.broadcast_to_users(
         member_ids,
         {

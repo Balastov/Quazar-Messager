@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import type { StarChannel, StarDetail } from "../../api/stars";
 import { useAuthStore } from "../../store/auth";
 import { useDoorsStore } from "../../store/doors";
@@ -22,6 +23,7 @@ import s from "./Constellation.module.css";
 import w from "./Work.module.css";
 import { currentBooking, doorSign, hhmm, useBookings } from "./work";
 import { compareNames, displayName } from "../../utils/profile";
+import { CreateFloorDialog, FloorAccessDialog } from "./FloorDialog";
 
 interface Props {
   detail: StarDetail;
@@ -46,7 +48,6 @@ const ZOOMS = [0.6, 0.8, 1, 1.25, 1.5];
 export default function OfficeMap({ detail, onBack, onOpenPlanet, onAddRoom }: Props) {
   const myId = useAuthStore((st) => st.user?.id);
   const voice = useVoiceStore();
-  const createFloor = useStarsStore((st) => st.createFloor);
   const renameFloor = useStarsStore((st) => st.renameFloor);
   const deleteFloor = useStarsStore((st) => st.deleteFloor);
   const saveLayout = useStarsStore((st) => st.saveLayout);
@@ -70,6 +71,7 @@ export default function OfficeMap({ detail, onBack, onOpenPlanet, onAddRoom }: P
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [stale, setStale] = useState(false);
+  const [floorDialog, setFloorDialog] = useState<"create" | "access" | null>(null);
 
   const canEdit = can(detail, "edit_map");
   const canAddRooms = can(detail, "manage_channels");
@@ -179,16 +181,6 @@ export default function OfficeMap({ detail, onBack, onOpenPlanet, onAddRoom }: P
     void useDoorsStore.getState().enterRoom(detail, c);
   };
 
-  const addFloor = async () => {
-    const name = window.prompt("Название этажа", `${floors.length + 1} этаж`)?.trim();
-    if (!name) return;
-    try {
-      const id = await createFloor(name);
-      if (id) setFloorId(id);
-    } catch (err) {
-      setError(apiError(err));
-    }
-  };
 
   const editFloorName = async () => {
     if (!floor) return;
@@ -242,9 +234,27 @@ export default function OfficeMap({ detail, onBack, onOpenPlanet, onAddRoom }: P
               onClick={() => !editing && setFloorId(f.id)}
               disabled={editing && f.id !== floor?.id}
             >
+              {f.access === "none" && (
+                <span aria-label="Закрыт для участников" title="Доступ только выбранным участникам">
+                  🔒{" "}
+                </span>
+              )}
               {f.name}
               {canEdit && !editing && f.id === floor?.id && (
                 <>
+                  <span
+                    role="button"
+                    tabIndex={0}
+                    className={s.floorTabTool}
+                    title="Кому доступен этаж"
+                    aria-label="Кому доступен этаж"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setFloorDialog("access");
+                    }}
+                  >
+                    👥
+                  </span>
                   <span
                     role="button"
                     tabIndex={0}
@@ -276,7 +286,7 @@ export default function OfficeMap({ detail, onBack, onOpenPlanet, onAddRoom }: P
             </button>
           ))}
           {canEdit && !editing && (
-            <button type="button" className={s.floorTab} onClick={() => void addFloor()}>
+            <button type="button" className={s.floorTab} onClick={() => setFloorDialog("create")}>
               + Этаж
             </button>
           )}
@@ -468,6 +478,22 @@ export default function OfficeMap({ detail, onBack, onOpenPlanet, onAddRoom }: P
           )}
         </div>
       </div>
+      {/* В body: панели карты со «стеклом» создают свой слой и прятали бы окно под собой. */}
+      {floorDialog === "create" &&
+        createPortal(
+          <CreateFloorDialog
+            defaultName={`${floors.length + 1} этаж`}
+            onClose={() => setFloorDialog(null)}
+            onCreated={setFloorId}
+          />,
+          document.body
+        )}
+      {floorDialog === "access" &&
+        floor &&
+        createPortal(
+          <FloorAccessDialog detail={detail} floor={floor} onClose={() => setFloorDialog(null)} />,
+          document.body
+        )}
     </div>
   );
 }

@@ -23,8 +23,10 @@ from app.api.stars import (
     _satellite,
     _star_message,
     _user_out,
+    assert_room_access,
     broadcast_member,
 )
+from app.core import floors as floors_svc
 from app.core import presence, star_audit, work_hours
 from app.core.database import get_db
 from app.core.deps import get_current_user
@@ -263,8 +265,10 @@ async def list_bookings(
     start: datetime | None = Query(None, alias="from"),
     end: datetime | None = Query(None, alias="to"),
 ):
-    """Брони всех комнат Звезды в интервале (по умолчанию — с текущего момента на неделю вперёд)."""
-    await _load_membership(db, star_id, current_user.id)
+    """Брони всех комнат Звезды в интервале (по умолчанию — с текущего момента на неделю вперёд).
+    Брони комнат закрытых для меня этажей не показываем."""
+    star, me = await _load_membership(db, star_id, current_user.id)
+    hidden = await floors_svc.hidden_floor_ids(db, star, me)
     start = start or _now()
     end = end or start + timedelta(days=7)
     rows = await db.execute(
@@ -272,7 +276,11 @@ async def list_bookings(
         .where(StarBooking.star_id == star_id, StarBooking.ends_at > start, StarBooking.starts_at < end)
         .order_by(StarBooking.starts_at)
     )
-    return list(rows.scalars().all())
+    bookings = list(rows.scalars().all())
+    if not hidden:
+        return bookings
+    rooms = {c.id: c for c in (await db.execute(select(StarChannel).where(StarChannel.star_id == star_id))).scalars()}
+    return [b for b in bookings if b.channel_id not in rooms or floors_svc.room_floor_id(rooms[b.channel_id]) not in hidden]
 
 
 @router.post("/{star_id}/channels/{channel_id}/bookings", response_model=BookingOut, status_code=status.HTTP_201_CREATED)
@@ -283,6 +291,7 @@ async def create_booking(star_id: str, channel_id: str, body: BookingBody, curre
         raise HTTPException(status_code=400, detail="Бронировать можно комнаты рабочей Звезды")
     if channel.access == "personal":
         raise HTTPException(status_code=400, detail="Личный кабинет не бронируют — повесьте табличку на дверь")
+    await assert_room_access(db, star, me, channel)
     if me.timeout_until and me.timeout_until > _now():
         raise _forbid("Вы в тайм-ауте")
     for at in (body.starts_at, body.ends_at):

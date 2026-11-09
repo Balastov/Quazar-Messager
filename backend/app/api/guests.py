@@ -17,7 +17,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.doors import INVITE, PERSONAL, can_admit, door
-from app.api.stars import _channel, _load_membership
+from app.api.stars import _channel, _load_membership, assert_room_access
+from app.core import floors as floors_svc
 from app.core import livekit, voice
 from app.core import stars as rules
 from app.core.config import settings
@@ -75,6 +76,7 @@ async def create_guest_link(star_id: str, channel_id: str, body: CreateGuestLink
     channel = await _channel(db, star_id, channel_id)
     if star.kind != "work" or channel.kind != "planet" or channel.room_kind == "lobby":
         raise HTTPException(status_code=400, detail="Гостей зовут в комнаты рабочей Звезды")
+    await assert_room_access(db, star, me, channel)
     if not can_invite_guests(star, me, channel):
         raise HTTPException(status_code=403, detail="Звать гостей сюда может тот, кто впускает в эту комнату")
     link = StarGuestLink(
@@ -94,7 +96,7 @@ async def list_guest_links(star_id: str, channel_id: str, current_user: CurrentU
     """Действующие ссылки в комнату — тем, кто может звать гостей."""
     star, me = await _load_membership(db, star_id, current_user.id)
     channel = await _channel(db, star_id, channel_id)
-    if not can_invite_guests(star, me, channel):
+    if not can_invite_guests(star, me, channel) or not await floors_svc.can_use_room(db, star, me, channel):
         return []
     rows = await db.execute(
         select(StarGuestLink)

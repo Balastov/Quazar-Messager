@@ -6,16 +6,25 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.stars import _broadcast, _channel_event, _forbid, _load_membership, floors_event
+from app.api.stars import _broadcast, _channel_event, _forbid, _load_membership, enforce_floor_access, floors_event
 from app.core import floors as floors_svc
 from app.core import office
 from app.core import stars as rules
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.core.stars import Perm
-from app.models.star import Star, StarFloor
+from app.models.star import Star, StarFloor, StarMember
 from app.models.user import User
-from app.schemas.star import CreateFloor, LayoutOut, SaveLayout, StarFloorOut, UpdateFloor
+from app.schemas.star import (
+    CreateFloor,
+    FloorAccessOut,
+    LayoutOut,
+    SaveLayout,
+    SetFloorAccess,
+    StarFloorOut,
+    UpdateFloor,
+)
+from app.ws.hub import manager
 
 router = APIRouter(prefix="/stars", tags=["office"])
 
@@ -49,7 +58,7 @@ async def create_floor(star_id: str, body: CreateFloor, current_user: CurrentUse
     ).scalar_one()
     if count >= office.MAX_FLOORS:
         raise HTTPException(status_code=409, detail=f"Этажей может быть не больше {office.MAX_FLOORS}")
-    floor = await floors_svc.create_floor(db, star_id, body.name)
+    floor = await floors_svc.create_floor(db, star_id, body.name, body.access)
     await db.commit()
     await _broadcast(db, star_id, floors_event(await floors_svc.list_floors(db, star_id)))
     return floor
@@ -68,7 +77,7 @@ async def rename_floor(star_id: str, floor_id: str, body: UpdateFloor, current_u
 @router.delete("/{star_id}/floors/{floor_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_floor(star_id: str, floor_id: str, current_user: CurrentUser, db: Db):
     """Комнаты удаляемого этажа переезжают на первый из оставшихся."""
-    await _map_editor(db, star_id, current_user)
+    star = await _map_editor(db, star_id, current_user)
     floor = await _floor(db, star_id, floor_id)
     others = [f for f in await floors_svc.list_floors(db, star_id) if f.id != floor_id]
     if not others:
@@ -84,6 +93,36 @@ async def delete_floor(star_id: str, floor_id: str, current_user: CurrentUser, d
     for channel in moved:
         await _broadcast(db, star_id, _channel_event(channel))
     await _broadcast(db, star_id, floors_event(await floors_svc.list_floors(db, star_id)))
+    await enforce_floor_access(db, star)
+
+
+@router.get("/{star_id}/floors/{floor_id}/access", response_model=FloorAccessOut)
+async def get_floor_access(star_id: str, floor_id: str, current_user: CurrentUser, db: Db):
+    """Кому открыт этаж. Владелец, админы и редакторы карты в список не входят — им открыто всё."""
+    star = await _map_editor(db, star_id, current_user)
+    floor = await _floor(db, star_id, floor_id)
+    return FloorAccessOut(floor_id=floor.id, access=floor.access, user_ids=await floors_svc.floor_user_ids(db, star, floor))
+
+
+@router.put("/{star_id}/floors/{floor_id}/access", response_model=FloorAccessOut)
+async def set_floor_access(star_id: str, floor_id: str, body: SetFloorAccess, current_user: CurrentUser, db: Db):
+    star = await _map_editor(db, star_id, current_user)
+    floor = await _floor(db, star_id, floor_id)
+    members = set((await db.execute(select(StarMember.user_id).where(StarMember.star_id == star_id))).scalars())
+    if unknown := set(body.user_ids) - members:
+        raise HTTPException(status_code=422, detail=f"Не участники Звезды: {len(unknown)}")
+    before = await floors_svc.floor_audience(db, star, floor.id)
+    await floors_svc.set_floor_access(db, star, floor, body.access, set(body.user_ids))
+    await db.commit()
+    after = await floors_svc.floor_audience(db, star, floor.id)
+
+    # Потерявшие доступ выходят из комнат этажа; у кого доступ поменялся — перечитают Звезду.
+    changed = before ^ after
+    await enforce_floor_access(db, star, changed)
+    await _broadcast(db, star_id, floors_event(await floors_svc.list_floors(db, star_id)))
+    if changed:
+        await manager.broadcast_to_users(list(changed), {"type": "star_floor_access", "star_id": star_id})
+    return FloorAccessOut(floor_id=floor.id, access=floor.access, user_ids=await floors_svc.floor_user_ids(db, star, floor))
 
 
 @router.put("/{star_id}/floors/{floor_id}/layout", response_model=LayoutOut)

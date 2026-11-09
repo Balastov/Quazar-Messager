@@ -19,7 +19,7 @@ export const FLOOR_ACCESS_LABEL: Record<FloorAccess, string> = {
 
 const FLOOR_ACCESS_HINT: Record<FloorAccess, string> = {
   all: "Этаж и его Комнаты видят все участники Звезды, в том числе новые.",
-  none: "Этаж видят только владелец, админы и те, кто редактирует карту. Участников можно добавить в настройках доступа.",
+  none: "Этаж видят только владелец, админы, те, кто редактирует карту, и участники, которым вы откроете доступ.",
 };
 
 function AccessChoice({
@@ -56,14 +56,14 @@ function AccessChoice({
 }
 
 /** Новый этаж: название и обязательный выбор — открыт всем или никому. */
-export function CreateFloorDialog({
+export function CreateFloorForm({
   defaultName,
-  onClose,
   onCreated,
+  onCancel,
 }: {
   defaultName: string;
-  onClose: () => void;
   onCreated: (floorId: string) => void;
+  onCancel?: () => void;
 }) {
   const createFloor = useStarsStore((st) => st.createFloor);
   const [name, setName] = useState(defaultName);
@@ -80,7 +80,6 @@ export function CreateFloorDialog({
     try {
       const id = await createFloor(trimmed, access);
       if (id) onCreated(id);
-      onClose();
     } catch (err) {
       setError(apiError(err));
       setBusy(false);
@@ -88,45 +87,71 @@ export function CreateFloorDialog({
   };
 
   return (
-    <Dialog title="Новый этаж" onClose={onClose}>
-      <form className={s.list} onSubmit={(e) => void submit(e)}>
-        <label className={s.label}>
-          Название
-          <input
-            className={s.input}
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            maxLength={48}
-            autoFocus
-            disabled={busy}
-          />
-        </label>
-        <AccessChoice value={access} onChange={setAccess} disabled={busy} />
-        {!access && <span className={s.hint}>Выберите, кому будет доступен этаж.</span>}
-        {error && <div className={s.error}>{error}</div>}
-        <button type="submit" className={s.primary} disabled={busy || !name.trim() || !access}>
-          {busy ? "Создаём…" : "Создать этаж"}
+    <form className={s.list} onSubmit={(e) => void submit(e)}>
+      <label className={s.label}>
+        Название
+        <input
+          className={s.input}
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          maxLength={48}
+          autoFocus
+          disabled={busy}
+        />
+      </label>
+      <AccessChoice value={access} onChange={setAccess} disabled={busy} />
+      {!access && <span className={s.hint}>Выберите, кому будет доступен этаж.</span>}
+      {error && <div className={s.error}>{error}</div>}
+      <button type="submit" className={s.primary} disabled={busy || !name.trim() || !access}>
+        {busy ? "Создаём…" : "Создать этаж"}
+      </button>
+      {onCancel && (
+        <button type="button" className={s.secondary} onClick={onCancel} disabled={busy}>
+          Отмена
         </button>
-      </form>
+      )}
+    </form>
+  );
+}
+
+export function CreateFloorDialog({
+  defaultName,
+  onClose,
+  onCreated,
+}: {
+  defaultName: string;
+  onClose: () => void;
+  onCreated: (floorId: string) => void;
+}) {
+  return (
+    <Dialog title="Новый этаж" onClose={onClose}>
+      <CreateFloorForm
+        defaultName={defaultName}
+        onCreated={(id) => {
+          onCreated(id);
+          onClose();
+        }}
+      />
     </Dialog>
   );
 }
 
 /** Кому открыт этаж: доступ по умолчанию и отметки отдельных участников. */
-export function FloorAccessDialog({
+export function FloorAccessForm({
   detail,
   floor,
-  onClose,
+  onSaved,
 }: {
   detail: StarDetail;
   floor: StarFloor;
-  onClose: () => void;
+  onSaved?: () => void;
 }) {
   const [access, setAccess] = useState<FloorAccess | null>(null);
   const [allowed, setAllowed] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [done, setDone] = useState(false);
 
   const members = useMemo(
     () => [...detail.members].sort((a, b) => compareUsers(a.user, b.user)),
@@ -137,6 +162,9 @@ export function FloorAccessDialog({
 
   useEffect(() => {
     let alive = true;
+    setLoading(true);
+    setError(null);
+    setDone(false);
     starsApi
       .floorAccess(detail.id, floor.id)
       .then((out) => {
@@ -154,16 +182,19 @@ export function FloorAccessDialog({
   // Сменили доступ по умолчанию — отметки начинаются с него, исключения снимаются.
   const chooseDefault = (next: FloorAccess) => {
     setAccess(next);
+    setDone(false);
     setAllowed(next === "all" ? new Set(configurable.map((m) => m.user.id)) : new Set());
   };
 
-  const toggle = (userId: string) =>
+  const toggle = (userId: string) => {
+    setDone(false);
     setAllowed((prev) => {
       const next = new Set(prev);
       if (next.has(userId)) next.delete(userId);
       else next.add(userId);
       return next;
     });
+  };
 
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -172,9 +203,11 @@ export function FloorAccessDialog({
     setError(null);
     try {
       await starsApi.setFloorAccess(detail.id, floor.id, access, [...allowed]);
-      onClose();
+      setDone(true);
+      onSaved?.();
     } catch (err) {
       setError(apiError(err));
+    } finally {
       setBusy(false);
     }
   };
@@ -182,50 +215,65 @@ export function FloorAccessDialog({
   const exceptions = configurable.filter((m) => allowed.has(m.user.id) !== (access === "all")).length;
 
   return (
+    <form className={s.list} onSubmit={(e) => void save(e)}>
+      {loading ? (
+        <span className={s.hint}>Загружаем…</span>
+      ) : (
+        <>
+          <AccessChoice value={access} onChange={chooseDefault} disabled={busy} />
+          <div className={s.label}>
+            Участники с доступом
+            <span className={s.checkHint}>
+              Без доступа участник не видит этаж и его Комнаты, не входит и не стучится в них.
+              Гостевые ссылки работают как раньше — только в свою Комнату.
+            </span>
+          </div>
+          {configurable.length === 0 && <span className={s.hint}>Все участники видят этот этаж по своей роли.</span>}
+          {configurable.map((m) => (
+            <label key={m.user.id} className={s.checkRow}>
+              <input
+                type="checkbox"
+                checked={allowed.has(m.user.id)}
+                onChange={() => toggle(m.user.id)}
+                disabled={busy}
+              />
+              <span>{displayName(m.user)}</span>
+            </label>
+          ))}
+          {always.length > 0 && (
+            <span className={s.hint}>
+              Всегда видят все этажи: {always.map((m) => displayName(m.user)).join(", ")}.
+            </span>
+          )}
+          {exceptions > 0 && (
+            <span className={s.hint}>
+              {access === "all" ? "Закрыт для" : "Открыт для"}: {exceptions}{" "}
+              {exceptions === 1 ? "участника" : "участников"}.
+            </span>
+          )}
+        </>
+      )}
+      {error && <div className={s.error}>{error}</div>}
+      {done && !onSaved && <span className={s.hint}>Сохранено.</span>}
+      <button type="submit" className={s.primary} disabled={busy || loading || !access}>
+        {busy ? "Сохраняем…" : "Сохранить"}
+      </button>
+    </form>
+  );
+}
+
+export function FloorAccessDialog({
+  detail,
+  floor,
+  onClose,
+}: {
+  detail: StarDetail;
+  floor: StarFloor;
+  onClose: () => void;
+}) {
+  return (
     <Dialog title={`Доступ: ${floor.name}`} onClose={onClose}>
-      <form className={s.list} onSubmit={(e) => void save(e)}>
-        {loading ? (
-          <span className={s.hint}>Загружаем…</span>
-        ) : (
-          <>
-            <AccessChoice value={access} onChange={chooseDefault} disabled={busy} />
-            <div className={s.label}>
-              Участники с доступом
-              <span className={s.checkHint}>
-                Без доступа участник не видит этаж и его Комнаты, не входит и не стучится в них.
-                Гостевые ссылки работают как раньше — только в свою Комнату.
-              </span>
-            </div>
-            {configurable.length === 0 && <span className={s.hint}>Все участники видят этот этаж по своей роли.</span>}
-            {configurable.map((m) => (
-              <label key={m.user.id} className={s.checkRow}>
-                <input
-                  type="checkbox"
-                  checked={allowed.has(m.user.id)}
-                  onChange={() => toggle(m.user.id)}
-                  disabled={busy}
-                />
-                <span>{displayName(m.user)}</span>
-              </label>
-            ))}
-            {always.length > 0 && (
-              <span className={s.hint}>
-                Всегда видят все этажи: {always.map((m) => displayName(m.user)).join(", ")}.
-              </span>
-            )}
-            {exceptions > 0 && (
-              <span className={s.hint}>
-                {access === "all" ? "Закрыт для" : "Открыт для"}: {exceptions}{" "}
-                {exceptions === 1 ? "участника" : "участников"}.
-              </span>
-            )}
-          </>
-        )}
-        {error && <div className={s.error}>{error}</div>}
-        <button type="submit" className={s.primary} disabled={busy || loading || !access}>
-          {busy ? "Сохраняем…" : "Сохранить"}
-        </button>
-      </form>
+      <FloorAccessForm detail={detail} floor={floor} onSaved={onClose} />
     </Dialog>
   );
 }

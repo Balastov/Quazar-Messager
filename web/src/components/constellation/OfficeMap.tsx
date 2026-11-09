@@ -461,6 +461,11 @@ export default function OfficeMap({ detail, onBack, onOpenPlanet, onAddRoom }: P
               Изменить план
             </button>
           )}
+          {canEdit && !editing && floor && (
+            <button type="button" className={s.secondary} onClick={() => setFloorDialog("access")}>
+              👥 Доступ к этажу
+            </button>
+          )}
           {canAddRooms && floor && !editing && (
             <button type="button" className={s.secondary} onClick={() => onAddRoom(floor.id)}>
               + Комната

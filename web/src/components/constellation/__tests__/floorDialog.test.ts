@@ -72,3 +72,20 @@ it("edits per-member access and leaves role-based access out of the list", async
   expect(save).toHaveBeenCalledWith("star", "f2", "all", expect.arrayContaining(["alice", "mod"]));
   expect(save.mock.calls[0][3]).not.toContain("bob");
 });
+
+it("lists floors in Star settings, edits access inline and creates a floor there", async () => {
+  const { FloorsTab } = await import("../FloorsSettings");
+  vi.spyOn(starsApi, "floorAccess").mockResolvedValue({ floor_id: "f1", access: "all", user_ids: ["alice", "bob", "mod"] });
+  const floors = [{ id: "f1", name: "1 этаж", position: 0, version: 0, access: "all" }, floor];
+  await act(async () => root.render(createElement(FloorsTab, { detail: { ...detail, floors } as StarDetail })));
+  expect(button("🔒 Бухгалтерия")).toBeTruthy();
+  expect(radio("all").checked).toBe(true);
+  expect(box("alice").checked).toBe(true);
+
+  await act(async () => Simulate.click(button("🔒 Бухгалтерия")));
+  expect(starsApi.floorAccess).toHaveBeenLastCalledWith("star", "f2");
+
+  await act(async () => Simulate.click(button("+ Этаж")));
+  expect((host.querySelector("input:not([type])") as HTMLInputElement).value).toBe("3 этаж");
+  expect(button("Создать этаж").disabled).toBe(true);
+});

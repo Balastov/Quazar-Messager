@@ -17,6 +17,7 @@ import { prepareBackground } from "../../utils/wallpaper";
 import Dialog from "./Dialog";
 import { AssetsTab, AuditTab, CommunityTab, TagsTab } from "./GamingSettings";
 import { WorkHoursTab } from "./WorkSettings";
+import { FloorsTab } from "./FloorsSettings";
 import { IntegrationsTab } from "./Integrations";
 import { BotsTab } from "./Bots";
 import { WorkflowsTab } from "./Workflows";
@@ -50,6 +51,7 @@ export type SettingsTab =
   | "assets"
   | "audit"
   | "work"
+  | "floors"
   | "integrations"
   | "bots"
   | "workflows"
@@ -87,6 +89,7 @@ export default function StarSettings({ detail, initialTab = "general", onClose }
       title: "Работа",
       tabs: [
         { id: "work", label: "Рабочее время", show: isAdmin && detail.kind === "work" },
+        { id: "floors", label: "Доступ к этажам", show: detail.kind === "work" && can(detail, "edit_map") },
         { id: "integrations", label: "Интеграции", show: can(detail, "manage_channels") },
         { id: "bots", label: "Боты", show: can(detail, "manage_channels") },
         { id: "workflows", label: "Сценарии", show: can(detail, "manage_channels") },
@@ -146,6 +149,7 @@ export default function StarSettings({ detail, initialTab = "general", onClose }
       {tab === "assets" && <AssetsTab detail={detail} />}
       {tab === "audit" && <AuditTab detail={detail} />}
       {tab === "work" && <WorkHoursTab detail={detail} />}
+      {tab === "floors" && <FloorsTab detail={detail} />}
       {tab === "integrations" && <IntegrationsTab detail={detail} />}
       {tab === "bots" && <BotsTab detail={detail} />}
       {tab === "workflows" && <WorkflowsTab detail={detail} />}

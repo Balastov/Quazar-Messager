@@ -223,6 +223,11 @@ async def publish_message(
     if chat.type == "news":
         recipients = list((await db.execute(select(User.id).where(User.id.in_(recipients), User.blocked_at.is_(None)))).scalars())
     event = new_message_event(message, reply_to)
+    if chat.type == "group":
+        if message.mention_user_ids is None:
+            message.mention_user_ids = await notify.group_mention_ids(db, chat.id, message.payload, message.sender_id)
+            await db.commit()
+        notification_mentions = message.mention_user_ids
     if notification_mentions is not None:
         event["notification_mentions"] = sorted(set(notification_mentions) & set(recipients))
     await manager.broadcast_to_users(user_ids=recipients, event=event)
@@ -379,6 +384,8 @@ async def edit_message(
             db, MessageRevision, message.id, message.edited_at or message.created_at, payload=message.payload
         )
     message.payload = body.payload
+    if chat.type == "group":
+        message.mention_user_ids = await notify.group_mention_ids(db, chat.id, message.payload, message.sender_id)
     message.edited_at = datetime.now(timezone.utc)
     await db.commit()
 

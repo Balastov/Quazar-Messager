@@ -1,3 +1,4 @@
+import UnreadBadge from "../chat/UnreadBadge";
 import { useState } from "react";
 import type { ChannelKind, StarChannel, StarDetail } from "../../api/stars";
 import { useDoorsStore } from "../../store/doors";
@@ -143,17 +144,7 @@ export default function ChannelSidebar({
               )}
             </span>
           )}
-          {mentionCount > 0 ? (
-            <span className={s.countBadge} title={`Упоминаний: ${mentionCount}`}>
-              @{mentionCount > 9 ? "9+" : mentionCount}
-            </span>
-          ) : (
-            count > 0 && (
-              <span className={quiet ? `${s.countBadge} ${s.countBadgeQuiet}` : s.countBadge}>
-                {count > 99 ? "99+" : count}
-              </span>
-            )
-          )}
+          <UnreadBadge count={count} mentions={mentionCount} quiet={quiet} />
         </button>
         {inside.length > 0 && (
           <div className={s.presence}>

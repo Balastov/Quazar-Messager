@@ -415,6 +415,15 @@ const EXPIRY_TICK_MS = 5000;
 
 export const useChatStore = create<ChatState>((set, get) => {
   let scheduledRevision = 0;
+  let summaryTimer: ReturnType<typeof setTimeout> | null = null;
+  const refreshSummaries = () => {
+    if (summaryTimer) clearTimeout(summaryTimer);
+    const userId = useAuthStore.getState().user?.id;
+    summaryTimer = setTimeout(() => {
+      summaryTimer = null;
+      if (userId && useAuthStore.getState().user?.id === userId) void get().loadChats().catch(() => {});
+    }, 150);
+  };
   const scheduledRequests = new Map<string, number>();
   if (typeof window !== "undefined") {
     window.setInterval(() => {
@@ -531,8 +540,11 @@ export const useChatStore = create<ChatState>((set, get) => {
         if (myId && event.sender_id !== myId) {
           if (myId !== useAuthStore.getState().user?.id) return;
           const onScreen = chatOnScreen(get().activeChatId, event.chat_id) && !get().loadingMessages;
+          const me = useAuthStore.getState().user;
+          const mentionBody = /^(?:ENC1|ENC2|IMG1|FIL1|VOC1|STK1|TKT1):/.test(decryptedPayload) ? "" : decryptedPayload;
+          const mentioned = !!event.notification_mentions?.includes(myId) || (!!me && mentionsName(mentionBody, me.username));
           if (!onScreen && !refreshedUnread) {
-            useUnreadStore.getState().bump(event.chat_id);
+            useUnreadStore.getState().bump(event.chat_id, get().chats.find(chat => chat.id === event.chat_id)?.type === "group" && mentioned);
           }
 
           const ackStatus = onScreen ? ("read" as const) : ("delivered" as const);
@@ -554,8 +566,6 @@ export const useChatStore = create<ChatState>((set, get) => {
             try {await useNotifyStore.getState().load();} catch {return;}
           }
           if (myId !== useAuthStore.getState().user?.id) return;
-          const me = useAuthStore.getState().user;
-          const mentioned = !!event.notification_mentions?.includes(myId) || (!!me && mentionsName(decryptedPayload, me.username));
           const replied = msg.reply_to?.sender_id === myId;
           const notify = wants(chatLevel(useNotifyStore.getState().settings, event.chat_id), mentioned, replied);
           if (notify) void notifyIncomingMessage({
@@ -575,6 +585,7 @@ export const useChatStore = create<ChatState>((set, get) => {
       }
 
       if (event.type === "message_edited") {
+        refreshSummaries();
         const opened = unwrapForward(await tryDecrypt(event.payload, await loadDecryptionKeys()));
         const payload = opened.payload;
         updateMessages(event.chat_id, (msgs) =>
@@ -589,6 +600,7 @@ export const useChatStore = create<ChatState>((set, get) => {
       }
 
       if (event.type === "message_deleted") {
+        refreshSummaries();
         removeMessage(event.chat_id, event.message_id);
         set((s) =>
           s.pins[event.chat_id]
@@ -676,6 +688,7 @@ export const useChatStore = create<ChatState>((set, get) => {
 
       if (event.type === "message_read_ack") {
         set(state => ({ messages: applyReadAck(state.messages, event.message_ids) }));
+        refreshSummaries();
       }
 
       if (event.type === "user_updated") {
@@ -817,12 +830,15 @@ export const useChatStore = create<ChatState>((set, get) => {
       set({ chats: sortByActivity(chats) });
       // Непрочитанные — как на сервере; чат, который сейчас перед глазами, — прочитан.
       const activeChatId = get().activeChatId;
+      const seen = (id: string) => !get().loadingMessages && chatOnScreen(activeChatId, id);
       useUnreadStore.getState().replace(
         Object.fromEntries(
           chats
-            .filter((c) => (c.unread_count ?? 0) > 0 && !chatOnScreen(activeChatId, c.id))
+            .filter((c) => (c.unread_count ?? 0) > 0 && !seen(c.id))
             .map((c) => [c.id, c.unread_count ?? 0])
-        )
+        ),
+        Object.fromEntries(chats.filter(c => c.type === "group" && (c.unread_mentions ?? 0) > 0 && !seen(c.id))
+          .map(c => [c.id, c.unread_mentions ?? 0]))
       );
       await refreshBackgrounds(chats);
     },
@@ -850,8 +866,6 @@ export const useChatStore = create<ChatState>((set, get) => {
         e2eReady = !!keys;
         e2eError = keys ? null : NO_DEVICE_KEY_ERROR;
       }
-
-      useUnreadStore.getState().clear(chatId);
 
       set({
         activeChatId: chatId,
@@ -881,6 +895,7 @@ export const useChatStore = create<ChatState>((set, get) => {
       ackChatMessages(get, set, chatId, "delivered");
       if (chatOnScreen(get().activeChatId, chatId)) {
         ackChatMessages(get, set, chatId, "read");
+        useUnreadStore.getState().clear(chatId);
       }
     },
 

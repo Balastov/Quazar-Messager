@@ -62,5 +62,6 @@ class ChatOut(BaseModel):
     # сообщений собеседников я ещё не прочитал.
     last_message: MessageOut | None = None
     unread_count: int = 0
+    unread_mentions: int = 0
 
     model_config = {"from_attributes": True}

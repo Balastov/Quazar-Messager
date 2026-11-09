@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import json
 import re
 from collections.abc import Iterable
 from dataclasses import dataclass, field
@@ -79,6 +80,33 @@ def parse_mentions(text: str, usernames: dict[str, str]) -> tuple[set[str], bool
     """@имя → id участников и было ли @все (или @here) — без групп."""
     found = find_mentions(text, usernames)
     return found.ids, found.everyone or found.here
+
+
+def chat_mention_text(payload: str) -> str:
+    """Only the displayed body, never forwarding names, link metadata or attachment keys."""
+    if payload.startswith("FWD1:"):
+        try:
+            value = json.loads(payload[5:])
+            if isinstance(value.get("from"), str) and isinstance(value.get("body"), str) and value["body"] and not value["body"].startswith("FWD1:"):
+                payload = value["body"]
+        except (ValueError, TypeError, AttributeError): pass
+    if payload.startswith("LNK1:"):
+        try:
+            value = json.loads(payload[5:]); preview = value.get("preview", {})
+            if (isinstance(value.get("body"), str) and not value["body"].startswith("LNK1:") and isinstance(preview, dict)
+                and isinstance(preview.get("title"), str) and preview["title"] and isinstance(preview.get("url"), str)
+                and preview["url"].startswith(("http://", "https://"))): payload = value["body"]
+        except (ValueError, TypeError, AttributeError): pass
+    if payload.startswith(("ENC1:", "ENC2:", "IMG1:", "FIL1:", "VOC1:", "STK1:", "TKT1:")): return ""
+    return payload
+
+
+async def group_mention_ids(db, chat_id: str, payload: str, sender_id: str | None) -> list[str]:
+    from app.models.chat import ChatMember
+    rows = (await db.execute(select(User.id, User.username).join(ChatMember, ChatMember.user_id == User.id)
+        .where(ChatMember.chat_id == chat_id, User.id != sender_id))).all()
+    found = find_mentions(chat_mention_text(payload), {name.lower(): uid for uid, name in rows})
+    return sorted({uid for uid, _ in rows} if found.everyone or found.here else found.ids)
 
 
 def _active(setting: NotifySetting | None, now: datetime) -> bool:
@@ -187,7 +215,7 @@ async def chat_push_targets(db, chat: Chat, message: Message, recipients: list[s
         NotifySetting.user_id.in_(ids), NotifySetting.scope == "chat", NotifySetting.target_id == chat.id))).scalars()}
     mentioned = set(notification_mentions or ()) & set(ids)
     if not message.payload.startswith(("ENC1:", "ENC2:")):
-        found = find_mentions(message.payload, {user.username.lower(): user.id for user in members})
+        found = find_mentions(chat_mention_text(message.payload), {user.username.lower(): user.id for user in members})
         mentioned |= found.ids
         if found.everyone or found.here:
             mentioned.update(ids)

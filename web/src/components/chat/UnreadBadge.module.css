@@ -1,0 +1,2 @@
+.badge { flex-shrink: 0; min-width: 22px; height: 22px; padding: 0 7px; border-radius: 999px; background: var(--qz-online); color: #06281c; font-size: 11px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; gap: 4px; white-space: nowrap; box-shadow: 0 0 12px rgba(52,211,153,.45); }
+.quiet { opacity: .45; }

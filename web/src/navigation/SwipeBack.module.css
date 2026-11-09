@@ -1,0 +1,2 @@
+.surface { overscroll-behavior-x: contain; }
+.surface[data-swiping="true"] { will-change: transform; }

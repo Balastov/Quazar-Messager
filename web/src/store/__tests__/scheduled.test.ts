@@ -152,3 +152,27 @@ describe("scheduled direct messages", () => {
     expect(useChatStore.getState().scheduled["direct-1"].map((x) => x.text)).toEqual(["Позже"]);
   });
 });
+
+describe("group unread mentions", () => {
+  it("counts an unread group mention once and keeps total unread independently", async () => {
+    useUnreadStore.getState().replace({});
+    useAuthStore.setState({ user: { ...useAuthStore.getState().user!, username: "tester" } });
+    useChatStore.setState({ chats: [{ id: "group", type: "group", members: [{ user: { id: "me", username: "tester" }, role: "member" }, { user: { id: "peer", username: "friend" }, role: "member" }] }] as Chat[] });
+    const event: WsEvent = { type: "new_message", message_id: "group-at", chat_id: "group", sender_id: "peer", payload: "Привет @tester", notification_mentions: ["me"], status: "sent", timestamp: new Date().toISOString() };
+    eventHandlers.forEach(handler => handler(event)); eventHandlers.forEach(handler => handler(event));
+    await vi.waitFor(() => expect(useUnreadStore.getState().counts.group).toBe(1));
+    expect(useUnreadStore.getState().mentions.group).toBe(1);
+    eventHandlers.forEach(handler => handler({ ...event, message_id: "group-plain", payload: "Обычное сообщение", notification_mentions: [] }));
+    await vi.waitFor(() => expect(useUnreadStore.getState().counts.group).toBe(2));
+    expect(useUnreadStore.getState().mentions.group).toBe(1);
+    eventHandlers.forEach(handler => handler({ ...event, message_id: "group-file", payload: 'FIL1:{"name":"@tester.txt"}', notification_mentions: [] }));
+    await vi.waitFor(() => expect(useUnreadStore.getState().counts.group).toBe(3));
+    expect(useUnreadStore.getState().mentions.group).toBe(1);
+    useUnreadStore.getState().clear("group"); expect(useUnreadStore.getState().mentions.group).toBeUndefined();
+  });
+  it("restores offline mentions from the server count", async () => {
+    vi.mocked(chatsApi.list).mockResolvedValue([{ id: "offline-group", type: "group", members: [], unread_count: 7, unread_mentions: 2 }] as unknown as Chat[]);
+    await useChatStore.getState().loadChats();
+    expect(useUnreadStore.getState().counts["offline-group"]).toBe(7); expect(useUnreadStore.getState().mentions["offline-group"]).toBe(2);
+  });
+});

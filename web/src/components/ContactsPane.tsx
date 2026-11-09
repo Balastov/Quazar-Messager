@@ -31,6 +31,8 @@ import SavedAvatar from "./chat/SavedAvatar";
 import SupportAvatar from "./support/SupportAvatar";
 import OfficialBadge from "./support/OfficialBadge";
 import { displayName } from "../utils/profile";
+import { listTimestamp } from "../chat/listTimestamp";
+import UnreadBadge from "./chat/UnreadBadge";
 
 /** Строка под именем чата: последнее сообщение, а пока кто-то набирает — «печатает…». */
 function PreviewLine({ chat, className, children }: { chat: Chat; className: string; children: string }) {
@@ -56,6 +58,7 @@ export default function ContactsPane() {
   const favoriteChatIds = useUiStore((st) => st.favoriteChatIds);
   const toggleFavorite = useUiStore((st) => st.toggleFavorite);
   const unreadCounts = useUnreadStore((st) => st.counts);
+  const unreadMentions = useUnreadStore((st) => st.mentions);
   const notifySettings = useNotifyStore((st) => st.settings);
   // Найденные в телефонной книге (синхронизирует мобильное приложение).
   const phonebook = useContactsStore((st) => st.contacts);
@@ -66,6 +69,19 @@ export default function ContactsPane() {
   const [results, setResults] = useState<User[]>([]);
   const [searching, setSearching] = useState(false);
   const [pickerHint, setPickerHint] = useState<string | null>(null);
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout>;
+    const refresh = () => {
+      const current = new Date(); setNow(current); clearTimeout(timer);
+      const tomorrow = new Date(current.getFullYear(), current.getMonth(), current.getDate() + 1);
+      timer = setTimeout(refresh, tomorrow.getTime() - current.getTime() + 25);
+    };
+    refresh(); window.addEventListener("focus", refresh);
+    const visible = () => { if (document.visibilityState === "visible") refresh(); };
+    document.addEventListener("visibilitychange", visible);
+    return () => { clearTimeout(timer); window.removeEventListener("focus", refresh); document.removeEventListener("visibilitychange", visible); };
+  }, []);
   const contactPickerOk = isContactPickerSupported();
 
   useEffect(() => {
@@ -112,7 +128,10 @@ export default function ContactsPane() {
   // Последнее сообщение: из открытой ленты, а если чат ещё не открывали — из списка чатов.
   const lastMessage = (chat: Chat) => {
     const list = messages[chat.id];
-    return (list?.length ? list[list.length - 1] : chat.last_message) ?? null;
+    const cached = list?.length ? list[list.length - 1] : null;
+    const server = chat.last_message;
+    if (!cached) return server ?? null;
+    return server && Date.parse(server.created_at) > Date.parse(cached.created_at) ? server : cached;
   };
 
   const lastPreview = (chat: Chat) => {
@@ -123,8 +142,8 @@ export default function ContactsPane() {
   };
 
   const lastTime = (chat: Chat) => {
-    const ts = lastMessage(chat)?.created_at ?? chat.created_at;
-    return new Date(ts).toLocaleTimeString("ru", { hour: "2-digit", minute: "2-digit" });
+    const ts = lastMessage(chat)?.created_at;
+    return ts ? listTimestamp(ts, now) : "";
   };
 
   const savedChat = chats.find((c) => c.type === "saved");
@@ -398,9 +417,7 @@ export default function ContactsPane() {
                   {lastTime(chat)}
                 </span>
                 {hasUnread ? (
-                  <span className={s.badge} style={quiet ? { opacity: 0.45 } : undefined}>
-                    {unread > 99 ? "99+" : unread}
-                  </span>
+                  <UnreadBadge count={unread} mentions={unreadMentions[chat.id] ?? 0} quiet={quiet} />
                 ) : (
                   <span
                     className={fav ? `${s.starBtn} ${s.starBtnOn}` : s.starBtn}

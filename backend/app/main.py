@@ -315,6 +315,7 @@ async def lifespan(app: FastAPI):
         await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS sessions_revoked_at TIMESTAMP WITH TIME ZONE"))
         await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS phone_reminder_week_at TIMESTAMP WITH TIME ZONE"))
         await conn.execute(text("ALTER TABLE scheduled_messages ADD COLUMN IF NOT EXISTS notification_mentions JSON"))
+        await conn.execute(text("ALTER TABLE messages ADD COLUMN IF NOT EXISTS mention_user_ids JSONB"))
         await conn.execute(text("ALTER TABLE push_subscriptions ADD COLUMN IF NOT EXISTS enabled BOOLEAN NOT NULL DEFAULT true"))
         await conn.execute(text("ALTER TABLE push_subscriptions ADD COLUMN IF NOT EXISTS sound BOOLEAN NOT NULL DEFAULT true"))
         await conn.execute(text("ALTER TABLE push_subscriptions ADD COLUMN IF NOT EXISTS recent_message_ids JSON"))

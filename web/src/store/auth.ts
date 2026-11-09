@@ -14,6 +14,7 @@ import { useVoiceStore } from "./voice";
 import { useDoorsStore } from "./doors";
 import { useWallpaperStore } from "./wallpaper";
 import type { User } from "../api/types";
+import { useUnreadStore } from "./unread";
 
 interface AuthState {
   token: string | null;
@@ -109,6 +110,7 @@ export const useAuthStore = create<AuthState>()(
         useDoorsStore.getState().reset();
         useStarsStore.getState().reset();
         useNotifyStore.getState().reset();
+        useUnreadStore.getState().replace({});
         useAdminStore.getState().reset();
         useWallpaperStore.getState().reset();
         set({ token: null, user: null, phonePromptPending: false });

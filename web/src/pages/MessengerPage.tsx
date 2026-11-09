@@ -37,6 +37,7 @@ import s from "./MessengerPage.module.css";
 import PhoneVisibilityGate from "../components/profile/PhoneVisibilityGate";
 import PhoneVerificationPrompt from "../components/profile/PhoneVerificationPrompt";
 import FeedbackDialog from "../components/support/FeedbackDialog";
+import SwipeBack from "../navigation/SwipeBack";
 
 type CallEventDetail = {
   callId?: string | null;
@@ -275,9 +276,9 @@ export default function MessengerPage() {
       </div>
 
       {showMobileChat && (
-        <div className={s.mobileChat}>
+        <SwipeBack className={s.mobileChat} screenId={activeChatId} onBack={() => setMobileChatOpen(false)}>
           <MessageView showBack />
-        </div>
+        </SwipeBack>
       )}
 
       {!showMobileChat && <NotifyPrompt />}

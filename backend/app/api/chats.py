@@ -7,6 +7,7 @@ from sqlalchemy.orm import selectinload
 
 from app.api.messages import messages_out, visible_to
 from app.core.database import get_db
+from app.core import notify
 from app.core.deps import get_current_user
 from app.models.attachment import Attachment
 from app.models.call import Call
@@ -95,6 +96,7 @@ async def _attach_previews(chats: list[Chat], user_id: str, db: AsyncSession) ->
     ) if direct_ids else {}
     # Группы: статус общий на всех, поэтому считаем от моей отметки «прочитано до».
     group_ids = [c.id for c in chats if c.type == "group"]
+    mentions = {}
     if group_ids:
         unread.update(
             (
@@ -114,9 +116,25 @@ async def _attach_previews(chats: list[Chat], user_id: str, db: AsyncSession) ->
                 )
             ).all()
         )
+        conditions = (
+            Message.chat_id.in_(group_ids), Message.sender_id != user_id,
+            Message.created_at > func.coalesce(ChatMember.last_read_at, ChatMember.joined_at), visible_to(user_id),
+        )
+        mentions = dict((await db.execute(select(Message.chat_id, func.count()).join(ChatMember,
+            and_(ChatMember.chat_id == Message.chat_id, ChatMember.user_id == user_id))
+            .where(*conditions, Message.mention_user_ids.contains([user_id])).group_by(Message.chat_id))).all())
+        # Historical messages have no saved targets. Parse only this user's unread bodies.
+        username = (await db.execute(select(User.username).where(User.id == user_id))).scalar_one()
+        legacy = (await db.execute(select(Message.chat_id, Message.payload).join(ChatMember,
+            and_(ChatMember.chat_id == Message.chat_id, ChatMember.user_id == user_id))
+            .where(*conditions, Message.mention_user_ids.is_(None)))).all()
+        for chat_id, payload in legacy:
+            found = notify.find_mentions(notify.chat_mention_text(payload), {username.lower(): user_id})
+            if user_id in found.ids or found.everyone or found.here: mentions[chat_id] = mentions.get(chat_id, 0) + 1
     for chat in chats:
         chat.last_message = last_by_chat.get(chat.id)
         chat.unread_count = unread.get(chat.id, 0)
+        chat.unread_mentions = mentions.get(chat.id, 0)
 
 
 async def _load_chat(chat_id: str, db: AsyncSession) -> Chat:

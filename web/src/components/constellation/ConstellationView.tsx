@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import type { ChannelKind, StarChannel } from "../../api/stars";
 import { useDoorsStore } from "../../store/doors";
 import { mentionsForStar, unreadForStar, useStarsStore } from "../../store/stars";
+import UnreadBadge from "../chat/UnreadBadge";
+import SwipeBack from "../../navigation/SwipeBack";
 import StarFilesView from "./StarFilesView";
 import { IconConstellation } from "../icons";
 import ChannelDialog from "./ChannelDialog";
@@ -34,6 +36,8 @@ export default function ConstellationView() {
   const joinDialog = useStarsStore((st) => st.joinDialog);
   const mobileChannelOpen = useStarsStore((st) => st.mobileChannelOpen);
   const threadOpen = useStarsStore((st) => st.thread !== null && st.thread.starId === st.activeStarId);
+  const threadId = useStarsStore((st) => st.thread?.rootId);
+  const closeThread = useStarsStore((st) => st.closeThread);
   const load = useStarsStore((st) => st.load);
   const selectStar = useStarsStore((st) => st.selectStar);
   const selectChannel = useStarsStore((st) => st.selectChannel);
@@ -171,11 +175,7 @@ export default function ConstellationView() {
               aria-current={active}
             >
               <StarAvatar name={star.name} url={star.avatar_url} />
-              {count > 0 && (
-                <span className={s.badge} title={mentions ? `Упоминаний: ${mentions}` : undefined}>
-                  {mentions ? `@${mentions > 9 ? "9+" : mentions}` : count > 99 ? "99+" : count}
-                </span>
-              )}
+              <UnreadBadge count={count} mentions={mentions} className={s.badge} />
             </button>
           );
         })}
@@ -258,20 +258,20 @@ export default function ConstellationView() {
             </div>
           )}
           {mobileChannelOpen && (
-            <section className={s.mobileContent}>
+            <SwipeBack className={s.mobileContent} screenId={channelId} onBack={() => setMobileChannelOpen(false)}>
               {renderContent(() => setMobileChannelOpen(false))}
-            </section>
+            </SwipeBack>
           )}
           {/* После экрана канала — чтобы оказаться поверх него. */}
           {threadOpen && (
-            <section className={s.mobileContent}>
+            <SwipeBack className={s.mobileContent} screenId={threadId} onBack={closeThread}>
               <ThreadPanel detail={detail} fullscreen />
-            </section>
+            </SwipeBack>
           )}
           {mobileMembers && (
-            <section className={s.mobileContent}>
+            <SwipeBack className={s.mobileContent} screenId={detail.id} onBack={() => setMobileMembers(false)}>
               <MembersPanel detail={detail} onClose={() => setMobileMembers(false)} fullscreen />
-            </section>
+            </SwipeBack>
           )}
         </>
       ) : (

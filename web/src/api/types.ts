@@ -205,6 +205,7 @@ export interface Chat {
   last_message?: Message | null;
   /** Только в списке чатов: сколько сообщений собеседников я ещё не прочитал. */
   unread_count?: number;
+  unread_mentions?: number;
 }
 
 /** Цитата в ответе. В сторе payload уже расшифрован. */

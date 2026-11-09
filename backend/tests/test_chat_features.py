@@ -198,6 +198,41 @@ class ChatFeaturesTest(unittest.IsolatedAsyncioTestCase):
 
     # --- «Избранное» ---
 
+    async def test_group_mentions_survive_reload_and_nickname_changes_without_replacing_total_count(self):
+        first = await self.send("Привет @bob", chat=self.group, notification_mentions=[self.uid("eve")])
+        await self.send("Обычное сообщение", chat=self.group)
+        await self.send("Привет @eve", chat=self.group)
+        last = await self.send("Привет @all", chat=self.group)
+        await self.send("`@bob` — пример кода", chat=self.group)
+        import json
+        await self.send("LNK1:" + json.dumps({"body": "Просто ссылка", "preview": {"url": "https://example.com", "title": "@bob"}}), chat=self.group)
+        row = await self.chat_row("bob", self.group)
+        self.assertEqual((row.unread_count, row.unread_mentions), (6, 2))
+        async with self.Session() as db:
+            user = await db.get(User, self.uid("bob")); user.username = "new_bob"; await db.commit()
+            self.assertEqual((await db.get(Message, first.id)).mention_user_ids, [self.uid("bob")])
+        self.assertEqual((await self.chat_row("bob", self.group)).unread_mentions, 2)
+        await self.read("bob", last)
+        row = await self.chat_row("bob", self.group)
+        self.assertEqual((row.unread_count, row.unread_mentions), (2, 0))
+        self.assertEqual((await self.chat_row("eve", self.group)).unread_mentions, 2)
+
+    async def test_group_mention_badge_updates_after_an_unread_message_is_edited(self):
+        from app.schemas.message import EditMessage
+        message = await self.send("@bob посмотри", chat=self.group)
+        self.assertEqual((await self.chat_row("bob", self.group)).unread_mentions, 1)
+        await self.call(api.edit_message, self.group.id, message.id, EditMessage(payload="Без упоминаний"), user="alice")
+        row = await self.chat_row("bob", self.group)
+        self.assertEqual((row.unread_count, row.unread_mentions), (1, 0))
+
+    async def test_legacy_group_messages_are_counted_without_saved_mention_metadata(self):
+        async with self.Session() as db:
+            db.add(Message(chat_id=self.group.id, sender_id=self.uid("alice"), payload="Старое @bob", mention_user_ids=None))
+            db.add(Message(chat_id=self.group.id, sender_id=self.uid("alice"), payload="Старое обычное", mention_user_ids=None))
+            await db.commit()
+        row = await self.chat_row("bob", self.group)
+        self.assertEqual((row.unread_count, row.unread_mentions), (2, 1))
+
     async def test_saved_chat_is_one_per_person_and_only_encrypted(self):
         first = await self.call(chats_api.open_saved_chat, user="alice")
         again = await self.call(chats_api.open_saved_chat, user="alice")

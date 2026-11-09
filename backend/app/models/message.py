@@ -3,12 +3,15 @@ from datetime import datetime, timezone
 
 from sqlalchemy import DateTime, Enum, ForeignKey, JSON, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.dialects.postgresql import JSONB
 
 from app.core.database import Base
 
 
 class Message(Base):
     __tablename__ = "messages"
+    # Groups are plaintext; retain identity-based mention targets across nickname changes.
+    mention_user_ids: Mapped[list[str] | None] = mapped_column(JSONB(none_as_null=True), nullable=True)
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     chat_id: Mapped[str] = mapped_column(ForeignKey("chats.id", ondelete="CASCADE"), nullable=False, index=True)

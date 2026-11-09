@@ -7,13 +7,14 @@ export interface DeviceSession {
   id: string; name: string; current: boolean; created_at: string; last_seen_at: string; expires_at: string;
 }
 export interface PairView {
-  id: string; kind: "request" | "invite"; state: "offered" | "pending" | "claimed" | "approved" | "consumed" | "rejected" | "expired";
+  id: string; kind: "request" | "invite" | "keys"; state: "offered" | "pending" | "claimed" | "approved" | "consumed" | "rejected" | "expired";
   receiver_public_key: string | null; approver_public_key: string | null; account_public_key: string | null;
   account: { id: string; username: string; display_name: string; avatar_url: string | null } | null;
   device_name: string; created_at: string; expires_at: string; transferred_keys: boolean;
 }
 export interface EncryptedDeviceKeys { nonce: string; ciphertext: string }
 export interface ReceiverRequest { public_key: string; receiver_secret: string; device_name: string }
+export interface KeyConsumption { request: PairView; encrypted_keys: EncryptedDeviceKeys | null }
 export interface PairConsumption { request: PairView; access_token: string; encrypted_keys: EncryptedDeviceKeys | null }
 
 const base = "/auth/device-pairing";
@@ -22,6 +23,9 @@ export const devicesApi = {
   revoke: (id: string) => http.delete(`/auth/devices/${id}`),
   revokeOthers: () => http.delete<{ access_token: string }>("/auth/devices/others").then(r => r.data),
   create: (body: ReceiverRequest) => anonymous.post<{ request: PairView; code: string }>(`${base}/requests`, body).then(r => r.data),
+  /** Это устройство уже вошло, но без ключа переписки: просим его у другого своего устройства. */
+  requestKeys: (body: ReceiverRequest) => http.post<{ request: PairView; code: string }>(`${base}/key-requests`, body).then(r => r.data),
+  consumeKeys: (id: string, receiver_secret: string) => http.post<KeyConsumption>(`${base}/key-requests/${id}/consume`, { receiver_secret }).then(r => r.data),
   invite: (public_key: string) => http.post<{ request: PairView; invite_secret: string }>(`${base}/invitations`, { public_key }).then(r => r.data),
   accept: (id: string, body: ReceiverRequest & { invite_secret: string; expected_key: string }) => anonymous.post<PairView>(`${base}/invitations/${id}/accept`, body).then(r => r.data),
   claim: (body: { public_key: string; code?: string; request_id?: string; expected_key?: string }) => http.post<PairView>(`${base}/claim`, body).then(r => r.data),

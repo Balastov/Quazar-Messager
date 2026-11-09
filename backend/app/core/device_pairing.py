@@ -18,6 +18,8 @@ from app.models.device import DevicePairing, DevicePairLimit, DeviceSession
 from app.models.user import User
 
 TTL = timedelta(minutes=2)
+# Ключи просит устройство, где уже вошли: второе устройство ещё нужно найти и открыть.
+KEYS_TTL = timedelta(minutes=5)
 APPROVED_TTL = timedelta(minutes=1)
 CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 
@@ -104,6 +106,21 @@ async def start_request(db: AsyncSession, public_key: str, secret: str, name: st
     return row, code
 
 
+async def start_key_request(db: AsyncSession, user_id: str, session_id: str, public_key: str, secret: str,
+                            name: str) -> tuple[DevicePairing, str]:
+    """Устройство, где уже вошли, просит ключ переписки у другого своего устройства — без нового входа."""
+    user, session = await source(db, user_id, session_id)
+    if not user.public_key:
+        raise HTTPException(status_code=409, detail="У аккаунта ещё нет ключа шифрования")
+    code = "".join(secrets.choice(CODE_ALPHABET) for _ in range(8))
+    row = DevicePairing(kind="keys", state="pending", code_hash=sessions.digest(code), user_id=user.id,
+        target_session_id=session.id, receiver_public_key=public_key, receiver_secret_hash=sessions.digest(secret),
+        device_name=name, expires_at=now() + KEYS_TTL)
+    db.add(row)
+    await db.commit()
+    return row, code
+
+
 async def create_invite(db: AsyncSession, user_id: str, session_id: str, public_key: str) -> tuple[DevicePairing, str]:
     user, session = await source(db, user_id, session_id)
     secret = secrets.token_urlsafe(32)
@@ -145,9 +162,14 @@ async def claim(db: AsyncSession, user_id: str, session_id: str, public_key: str
     if not pair_id:
         raise HTTPException(status_code=404, detail="Код не найден или истёк")
     row = await get_pair(db, pair_id, lock=True)
+    if row.kind == "keys" and row.user_id != user_id:
+        # Чужой запрос ключей не должен даже подтверждаться как существующий.
+        raise HTTPException(status_code=404, detail="Код не найден или истёк")
     active(row)
-    if row.kind != "request" or row.state not in ("pending", "claimed"):
+    if row.kind not in ("request", "keys") or row.state not in ("pending", "claimed"):
         raise HTTPException(status_code=409, detail="Запрос уже обработан")
+    if row.kind == "keys" and row.target_session_id == session_id:
+        raise HTTPException(status_code=409, detail="Этот код нужно ввести на другом устройстве, где переписка уже читается")
     if row.state == "claimed":
         if row.user_id == user_id and row.approver_session_id == session_id and row.approver_public_key == public_key:
             return row
@@ -174,6 +196,8 @@ async def approve(db: AsyncSession, pair_id: str, user_id: str, session_id: str,
     user = await bound_source(db, row)
     if not hmac.compare_digest(code_binding, binding(row)):
         raise HTTPException(status_code=409, detail="Код сравнения не совпадает. Начните заново")
+    if row.kind == "keys" and encrypted_keys is None:
+        raise HTTPException(status_code=422, detail="На этом устройстве нет ключа переписки — передать нечего")
     if user.public_key and encrypted_keys is None and not allow_without_keys:
         raise HTTPException(status_code=422, detail="Подтвердите вход без переноса ключей переписки")
     if not user.public_key and encrypted_keys is not None:
@@ -187,6 +211,9 @@ async def approve(db: AsyncSession, pair_id: str, user_id: str, session_id: str,
 async def consume(db: AsyncSession, pair_id: str, secret: str) -> tuple[DevicePairing, str]:
     row = await get_pair(db, pair_id, lock=True)
     receiver(row, secret)
+    if row.kind == "keys":
+        # Запрос ключей не выдаёт новую сессию: устройство уже вошло.
+        raise HTTPException(status_code=404, detail="Запрос подключения не найден")
     active(row)
     if row.state not in ("approved", "consumed"):
         raise HTTPException(status_code=409, detail="Подтвердите вход на авторизованном устройстве")
@@ -202,6 +229,21 @@ async def consume(db: AsyncSession, pair_id: str, secret: str) -> tuple[DevicePa
     row.target_session_id, row.consumed_at, row.state = target.id, now(), "consumed"
     await db.commit()
     return row, token
+
+
+async def consume_keys(db: AsyncSession, pair_id: str, secret: str, user_id: str, session_id: str) -> DevicePairing:
+    row = await get_pair(db, pair_id, lock=True)
+    receiver(row, secret)
+    if row.kind != "keys" or row.user_id != user_id or row.target_session_id != session_id:
+        raise HTTPException(status_code=404, detail="Запрос ключей не найден")
+    active(row)
+    if row.state not in ("approved", "consumed") or not row.encrypted_keys:
+        raise HTTPException(status_code=409, detail="Подтвердите передачу ключей на другом устройстве")
+    await bound_source(db, row)
+    if row.state == "approved":
+        row.consumed_at, row.state = now(), "consumed"
+        await db.commit()
+    return row
 
 
 async def cleanup(db: AsyncSession) -> int:

@@ -113,6 +113,12 @@ jobs:
           BROWSER_TEST_CASE: drafts-connection
           TEST_DATABASE_URL: postgresql+asyncpg://quazar:quazar-test@127.0.0.1:5432/quazar_test
           PAIR_TEST_ARTIFACTS: ${{ runner.temp }}/device-pairing
+      - name: Test passing chat keys to an already signed-in device
+        run: xvfb-run -a python -B desktop/test/run-device-pairing.py
+        env:
+          BROWSER_TEST_CASE: key-transfer
+          TEST_DATABASE_URL: postgresql+asyncpg://quazar:quazar-test@127.0.0.1:5432/quazar_test
+          PAIR_TEST_ARTIFACTS: ${{ runner.temp }}/device-pairing
       - name: Test mobile back swipes and preserved back arrows
         run: xvfb-run -a python -B desktop/test/run-device-pairing.py
         env:

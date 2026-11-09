@@ -96,6 +96,21 @@ async function generateIdentity(): Promise<KeyPair> {
   return saveIdentity(randomBytes(32));
 }
 
+/**
+ * Ключ, полученный с другого своего устройства: становится текущим, прежний уходит в архив,
+ * архивные ключи из пакета добавляются для чтения старой истории.
+ */
+export async function importTransferredIdentity(seed: Uint8Array, archived: Uint8Array[]): Promise<void> {
+  await saveIdentity(seed);
+  if (!archived.length) {return;}
+  const legacy = await readLegacy();
+  for (const value of archived) {
+    const key: KeyPair = {publicKey: publicKeyFromSecret(value), privateKey: encodeB64(value)};
+    if (key.publicKey !== _identity?.publicKey && !legacy.some(k => k.publicKey === key.publicKey)) {legacy.push(key);}
+  }
+  await AsyncStorage.setItem(KEY_LEGACY, JSON.stringify(legacy));
+}
+
 /** Текущий ключ устройства (без создания нового). */
 export function loadKeys(): Promise<KeyPair | null> {
   return readIdentity();

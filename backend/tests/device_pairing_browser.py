@@ -26,7 +26,9 @@ async def lifespan(app):
                 phone_verified_at=datetime.now(timezone.utc))
             db.add(user)
             await db.commit()
-            data = {"token": create_access_token(user.id), "user": MeOut.model_validate(user).model_dump(mode="json")}
+            data = {"token": create_access_token(user.id), "user": MeOut.model_validate(user).model_dump(mode="json"),
+                    # Ещё два входа того же аккаунта — для переноса ключей на устройство, где уже вошли.
+                    "extra_tokens": [create_access_token(user.id), create_access_token(user.id)]}
         path = Path(os.environ["PAIR_TEST_BOOTSTRAP"])
         path.write_text(json.dumps(data))
         path.chmod(0o600)

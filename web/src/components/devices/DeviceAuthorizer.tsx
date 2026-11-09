@@ -30,8 +30,23 @@ function Approval({ flow, keys, onChange }: { flow: PairView; keys: PairKeys; on
     } catch (err) { setError(apiErrorText(err, "Не удалось разрешить подключение")); }
     finally { setBusy(false); }
   };
+  const keysOnly = flow.kind === "keys";
+  if (keysOnly && ["approved", "consumed"].includes(flow.state)) return <p className={s.hint} role="status">Ключи переданы. На устройстве «{flow.device_name}» переписка откроется через несколько секунд.</p>;
   if (flow.state === "consumed") return <p className={s.hint} role="status">Устройство подключено. Его можно найти в списке устройств.</p>;
   if (flow.state === "approved") return <p className={s.hint} role="status">Подключение разрешено. Завершите вход на новом устройстве.</p>;
+  if (keysOnly) return <div className={s.stack}>
+    <p className={s.hint}>Ключи переписки просит: <strong>{flow.device_name}</strong></p>
+    <PairAccount flow={flow} />
+    <p className={s.hint}>Это устройство уже вошло в ваш аккаунт, но не может читать личные сообщения. Передавайте ключи только своему устройству и сверьте код с его экраном.</p>
+    <PairCode flow={flow} onBinding={setBinding} />
+    <label className={s.check}><input type="checkbox" checked={matches} onChange={event => setMatches(event.target.checked)} />Код на обоих устройствах совпадает</label>
+    {inspection && !inspection.available && <p className={s.error} role="alert">На этом устройстве тоже нет ключа переписки. Передайте ключи с устройства, где личные сообщения читаются.</p>}
+    {!!inspection?.skippedArchives && <p className={s.hint}>Часть архивной переписки останется доступна только на этом устройстве.</p>}
+    <button type="button" className={s.primary} disabled={busy || !matches || !inspection?.available || !binding} onClick={() => void approve()}>
+      {busy ? "Передаём…" : "Передать ключи"}
+    </button>
+    {error && <p className={s.error} role="alert">{error}</p>}
+  </div>;
   return <div className={s.stack}>
     <p className={s.hint}>Подключается: <strong>{flow.device_name}</strong></p>
     <PairAccount flow={flow} />
@@ -84,7 +99,7 @@ export function DeviceAuthorizer({ link }: { link?: Extract<DeviceLink, { kind: 
   };
   return <div className={s.stack}>
     {flow ? <><Approval flow={flow} keys={keys} onChange={accept} /><PairExpiry flow={flow} /></> : link ? <p className={s.hint}>Открываем запрос подключения…</p> : <>
-      <p className={s.hint}>На новом устройстве откройте «Войти по QR-коду», затем отсканируйте его QR или введите код.</p>
+      <p className={s.hint}>На новом устройстве откройте «Войти по QR-коду», затем отсканируйте его QR или введите код. Так же передаются ключи переписки устройству, где вы уже вошли: код показан в его окне «Восстановите ключи шифрования».</p>
       <button type="button" className={s.secondary} onClick={() => setScan(value => !value)}>{scan ? "Закрыть камеру" : "Сканировать QR-код"}</button>
       {scan && <DeviceQrScanner onScan={value => {
         const parsed = parseDeviceLink(value);

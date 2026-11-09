@@ -18,7 +18,8 @@ import asyncpg
 root = Path(__file__).resolve().parents[2]
 cases = {"pairing": ("tests.device_pairing_browser:app", "device-pairing-e2e.cjs"),
          "drafts-connection": ("tests.drafts_connection_browser:app", "drafts-connection-e2e.cjs"),
-         "navigation": ("tests.drafts_connection_browser:app", "navigation-e2e.cjs")}
+         "navigation": ("tests.drafts_connection_browser:app", "navigation-e2e.cjs"),
+         "key-transfer": ("tests.device_pairing_browser:app", "key-transfer-e2e.cjs")}
 fixture, test_script = cases[os.environ.get("BROWSER_TEST_CASE", "pairing")]
 dsn = os.environ.get("TEST_DATABASE_URL", "postgresql+asyncpg://quazar@127.0.0.1:55439/quazar")
 url = urlsplit(dsn.replace("postgresql+asyncpg:", "postgresql:"))

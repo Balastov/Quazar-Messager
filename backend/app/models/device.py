@@ -27,7 +27,7 @@ class DevicePairing(Base):
     __tablename__ = "device_pairings"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    kind: Mapped[str] = mapped_column(String(16), nullable=False)  # request / invite
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)  # request / invite / keys
     state: Mapped[str] = mapped_column(String(16), nullable=False)  # offered / pending / claimed / approved / consumed / rejected
     code_hash: Mapped[str | None] = mapped_column(String(64), unique=True, nullable=True)
     invite_secret_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)

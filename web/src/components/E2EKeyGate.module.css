@@ -212,3 +212,13 @@
   font-size: 12px;
   color: #c4b5fd;
 }
+
+.more summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: #c4b5fd;
+}
+
+.more[open] summary {
+  margin-bottom: 6px;
+}

@@ -558,16 +558,32 @@ export default function SettingsView() {
             устройстве.
             {e2eStatus === "ready" && !hasServerBackup && " Рекомендуется создать копию."}
             {e2eStatus === "needs_restore" &&
-              " Ключ этого устройства не совпадает с ключом аккаунта — восстановите ключи из копии."}
+              " На этом устройстве нет ключа аккаунта — получите его с другого устройства или из копии."}
           </p>
+          {e2eStatus === "needs_restore" && (
+            <div className={s.rowBtns}>
+              <button
+                type="button"
+                className={s.primary}
+                onClick={() => useE2EStore.getState().setRestorePromptOpen(true)}
+              >
+                Восстановить ключи
+              </button>
+            </div>
+          )}
           <input
             className={s.input}
             type="password"
-            placeholder="Пароль для копии (≥8)"
+            placeholder="Новый пароль для копии (≥8)"
             value={backupPassword}
             onChange={(e) => setBackupPassword(e.target.value)}
             disabled={busy}
+            autoComplete="new-password"
           />
+          <p className={s.hint}>
+            Придумайте отдельный пароль и сохраните его: без него копию не открыть, а сервер его
+            не знает. Новая копия заменяет прежнюю.
+          </p>
           <div className={s.rowBtns}>
             <button
               type="button"

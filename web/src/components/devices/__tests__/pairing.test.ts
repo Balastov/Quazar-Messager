@@ -163,3 +163,36 @@ it("does not silently switch an already authorized browser to an invited account
   expect(devicesApi.accept).not.toHaveBeenCalled();
   expect(finishDeviceLogin).not.toHaveBeenCalled();
 });
+
+it("passes keys to an already signed-in device only together with the keys", async () => {
+  state.token = "trusted-session";
+  const sealed = { nonce: "n".repeat(32), ciphertext: "c".repeat(64) };
+  vi.mocked(sealDeviceKeys).mockResolvedValue(sealed);
+  vi.mocked(devicesApi.claim).mockImplementation(async body => latest = { ...base(), kind: "keys", state: "claimed", account,
+    device_name: "Quazar Desktop · Windows", account_public_key: pairKeys().publicKey, approver_public_key: body.public_key });
+  vi.mocked(devicesApi.approve).mockImplementation(async () => ({ ...latest, state: "approved", transferred_keys: true }));
+  await act(async () => root.render(createElement(DeviceAuthorizer, { link: { kind: "request", id, key: receiver.publicKey } })));
+  await tick(0);
+  expect(host.textContent).toContain("Ключи переписки просит: Quazar Desktop · Windows");
+  expect(host.textContent).not.toContain("без переноса");
+  const box = host.querySelector<HTMLInputElement>('input[type="checkbox"]')!;
+  await act(async () => { box.checked = true; Simulate.change(box); });
+  const pass = await enabled("Передать ключи");
+  await act(async () => pass.click());
+  expect(devicesApi.approve).toHaveBeenCalledWith(id, expect.stringMatching(/^[a-f0-9]{64}$/), sealed, false);
+  expect(host.textContent).toContain("Ключи переданы");
+});
+
+it("cannot pass keys from a device that has none", async () => {
+  state.token = "trusted-session";
+  vi.mocked(inspectTransfer).mockResolvedValue({ available: false, needsKeys: true, skippedArchives: 0 });
+  vi.mocked(devicesApi.claim).mockImplementation(async body => latest = { ...base(), kind: "keys", state: "claimed", account,
+    account_public_key: pairKeys().publicKey, approver_public_key: body.public_key });
+  await act(async () => root.render(createElement(DeviceAuthorizer, { link: { kind: "request", id, key: receiver.publicKey } })));
+  await tick(0);
+  const box = host.querySelector<HTMLInputElement>('input[type="checkbox"]')!;
+  await act(async () => { box.checked = true; Simulate.change(box); });
+  await tick(0);
+  expect(host.querySelector('[role="alert"]')?.textContent).toContain("тоже нет ключа");
+  expect(button("Передать ключи").disabled).toBe(true);
+});

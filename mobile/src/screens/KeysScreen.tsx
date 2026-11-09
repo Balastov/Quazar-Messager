@@ -13,6 +13,7 @@ import {shortKeyId, StaleBackupError} from '../crypto/keys';
 import AccountProofInput from '../components/AccountProofInput';
 import type {AccountProof} from '../crypto/keys';
 import {useE2EStore} from '../store/e2e';
+import {KeyApproverCard, KeyReceiverCard} from '../components/KeyTransfer';
 
 function errorMessage(err: unknown): string {
   if (axios.isAxiosError(err)) {
@@ -49,6 +50,7 @@ export default function KeysScreen() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [proofRound, setProofRound] = useState(0);
+  const [forgot, setForgot] = useState(false);
 
   const run = async (fn: () => Promise<void>, done?: string) => {
     setError(null);
@@ -91,12 +93,12 @@ export default function KeysScreen() {
 
   return (
     <ScrollView style={s.root} contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
-      {needsRestore ? (
+      {needsRestore && (
         <View style={s.card}>
           <Text style={s.title}>Восстановите ключи шифрования</Text>
           <Text style={s.lead}>
-            У вашего аккаунта уже есть ключ шифрования с другого устройства. Чтобы читать и
-            отправлять личные сообщения здесь, восстановите его из резервной копии.
+            Личные сообщения шифруются ключом вашего аккаунта. На этом телефоне его пока нет —
+            перенесите ключ одним из способов ниже.
             {hasLocalKey &&
               ' Прежний ключ этого телефона сохранится — им по-прежнему расшифруется старая переписка.'}
           </Text>
@@ -104,11 +106,23 @@ export default function KeysScreen() {
             Ключ аккаунта: <Text style={s.mono}>{shortKeyId(accountPublicKey)}</Text> · ключ
             этого телефона: <Text style={s.mono}>{shortKeyId(localPublicKey)}</Text>
           </Text>
-          {!hasServerBackup && (
+        </View>
+      )}
+      {needsRestore && userId && <KeyReceiverCard userId={userId} />}
+      {status === 'ready' && <KeyApproverCard />}
+
+      {needsRestore ? (
+        <View style={s.card}>
+          <Text style={s.title}>Из резервной копии</Text>
+          {hasServerBackup ? (
+            <Text style={s.hint}>
+              Пароль копии вы придумали сами, когда сохраняли её. Это не пароль от аккаунта и не
+              код из звонка.
+            </Text>
+          ) : (
             <Text style={s.warn}>
-              На сервере нет резервной копии. Откройте Quazar на устройстве, где сообщения
-              читаются, и создайте копию: Настройки → Безопасность E2E. Затем нажмите
-              «Проверить снова».
+              На сервере нет резервной копии. Её можно создать на устройстве, где сообщения
+              читаются: в браузере — «Настройки → Безопасность E2E». Затем нажмите «Проверить снова».
             </Text>
           )}
           <TextInput
@@ -139,6 +153,19 @@ export default function KeysScreen() {
           {busy && (
             <Text style={s.hint}>Расшифровка копии может занять до минуты.</Text>
           )}
+          {hasServerBackup && (
+            <Pressable onPress={() => setForgot(value => !value)}>
+              <Text style={s.link}>Не помню пароль копии</Text>
+            </Pressable>
+          )}
+          {hasServerBackup && forgot && (
+            <Text style={s.hint}>
+              Пароль копии восстановить нельзя: сервер его не знает. Получите ключи с другого
+              устройства (выше) — или там, где переписка читается, сохраните новую копию с новым
+              паролем: в браузере — «Настройки → Безопасность E2E», в приложении на другом телефоне —
+              «Профиль → Ключи шифрования». Новая копия заменит старую, и здесь подойдёт новый пароль.
+            </Text>
+          )}
         </View>
       ) : (
         <View style={s.card}>
@@ -150,12 +177,18 @@ export default function KeysScreen() {
           {status === 'ready' && !hasServerBackup && (
             <Text style={s.warn}>Резервной копии пока нет — рекомендуется создать её сейчас.</Text>
           )}
+          <Text style={s.hint}>
+            Придумайте отдельный пароль и сохраните его: без него копию не открыть, а сервер его не
+            знает. Новая копия заменяет прежнюю.
+          </Text>
           <TextInput
             style={s.input}
-            placeholder="Пароль для копии (≥8)"
+            placeholder="Новый пароль для копии (≥8)"
             placeholderTextColor="#555"
             secureTextEntry
             autoCapitalize="none"
+            autoComplete="new-password"
+            textContentType="newPassword"
             value={password}
             onChangeText={setPassword}
             editable={!busy}
@@ -204,7 +237,7 @@ export default function KeysScreen() {
 
       <View style={s.card}>
         <Text style={s.title}>
-          {needsRestore ? 'Нет ни копии, ни доступа к другим устройствам?' : 'Сменить ключи'}
+          {needsRestore ? 'Нет ни копии, ни другого устройства с ключом?' : 'Сменить ключи'}
         </Text>
         <Text style={s.hint}>
           Новые ключи аккаунта. Переписка, зашифрованная старым ключом, на новых устройствах
@@ -280,5 +313,6 @@ const s = StyleSheet.create({
   dangerText: {color: '#fecaca', fontWeight: '600', fontSize: 15},
   disabled: {opacity: 0.5},
   ok: {color: '#6ee7a0', fontSize: 13, lineHeight: 19},
+  link: {color: '#c4b5fd', fontSize: 13},
   error: {color: '#ff6b6b', fontSize: 13, lineHeight: 19},
 });

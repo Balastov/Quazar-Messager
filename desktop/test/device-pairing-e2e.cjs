@@ -91,7 +91,7 @@ async function signedOut(win) {
 
 app.whenReady().then(async () => {
   const source = await make('source');
-  await source.webContents.executeJavaScript(`localStorage.setItem('quazar-auth', JSON.stringify({state:${JSON.stringify(bootstrap)},version:0}))`);
+  await source.webContents.executeJavaScript(`localStorage.setItem('quazar-auth', JSON.stringify({state:${JSON.stringify({ token: bootstrap.token, user: bootstrap.user })},version:0}))`);
   await source.webContents.reload();
   const original = await until(() => proof(source), 'initial account key');
   await settings(source);

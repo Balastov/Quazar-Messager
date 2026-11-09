@@ -16,6 +16,7 @@ from app.core.deps import get_current_user
 from app.core.security import create_access_token, token_claims
 from app.models.device import DevicePairing, DeviceSession
 from app.models.user import User
+from app.ws.hub import manager
 
 
 def no_cache(response: Response):
@@ -145,6 +146,28 @@ async def start_request(body: ReceiverBody, request: Request, db: Db):
     return {"request": await view(db, row), "code": code}
 
 
+async def key_request_closed(row: DevicePairing) -> None:
+    """Запрос ключей занят другим устройством или отменён — остальные убирают предложение."""
+    if row.kind == "keys" and row.user_id:
+        await manager.send_to_user(row.user_id, {"type": "device_key_request_closed", "id": row.id})
+
+
+@router.post("/device-pairing/key-requests")
+async def start_key_request(body: ReceiverBody, me: Me, device: CurrentDevice, db: Db):
+    await pairing.rate_limit(db, "keys", me.id)
+    row, code = await pairing.start_key_request(db, me.id, device.id, body.public_key, body.receiver_secret, body.device_name)
+    # Другие открытые устройства сразу предложат передать ключ. Код сравнения всё равно сверяют глазами.
+    await manager.send_to_user(me.id, {"type": "device_key_request", "id": row.id, "receiver_public_key": row.receiver_public_key,
+        "device_name": row.device_name, "expires_at": row.expires_at.isoformat()})
+    return {"request": await view(db, row), "code": code}
+
+
+@router.post("/device-pairing/key-requests/{pair_id}/consume")
+async def consume_keys(pair_id: str, body: SecretBody, me: Me, device: CurrentDevice, db: Db):
+    row = await pairing.consume_keys(db, pair_id, body.receiver_secret, me.id, device.id)
+    return {"request": await view(db, row), "encrypted_keys": row.encrypted_keys}
+
+
 @router.post("/device-pairing/invitations")
 async def create_invite(body: KeyBody, request: Request, me: Me, device: CurrentDevice, db: Db):
     await pairing.rate_limit(db, "invite", me.id)
@@ -163,6 +186,7 @@ async def accept_invite(pair_id: str, body: InviteAccept, request: Request, db: 
 async def claim(body: ClaimBody, me: Me, device: CurrentDevice, db: Db):
     await pairing.rate_limit(db, "claim", me.id)
     row = await pairing.claim(db, me.id, device.id, body.public_key, pair_id=body.request_id, code=body.code, expected_key=body.expected_key)
+    await key_request_closed(row)
     return await view(db, row)
 
 
@@ -202,6 +226,7 @@ async def cancel(pair_id: str, body: SecretBody, db: Db):
         raise HTTPException(status_code=409, detail="Устройство уже подключено. Завершите его сессию в настройках")
     row.state, row.encrypted_keys = "rejected", None
     await db.commit()
+    await key_request_closed(row)
 
 
 @router.post("/device-pairing/owned/{pair_id}/reject", status_code=204)

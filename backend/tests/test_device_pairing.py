@@ -27,7 +27,7 @@ def key():
     return base64.b64encode(private.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)).decode()
 
 
-class DevicePairingTest(StarsTestBase):
+class PairingTestBase(StarsTestBase):
     async def asyncSetUp(self):
         await super().asyncSetUp()
         self.rkey, self.akey = key(), key()
@@ -61,6 +61,8 @@ class DevicePairingTest(StarsTestBase):
             return await pairing.approve(db, row.id, self.users["alice"].id, self.source.id,
                 pairing.binding(row), cipher, allow_without_keys=True)
 
+
+class DevicePairingTest(PairingTestBase):
     async def test_request_contains_no_account_or_auth_token_before_confirmation(self):
         response = await self.client.post("/auth/device-pairing/requests", json={"public_key": self.rkey, "receiver_secret": self.secret, "device_name": "Телефон"})
         self.assertEqual(response.status_code, 200, response.text)
@@ -261,3 +263,111 @@ class DevicePairingTest(StarsTestBase):
         async with self.Session() as db:
             with self.assertRaises(HTTPException) as caught: await pairing.rate_limit(db, "test", "client", limit=2)
             self.assertEqual(caught.exception.status_code, 429)
+
+
+class KeyRequestTest(PairingTestBase):
+    """Устройство уже вошло, но без ключа переписки: ключ передаёт другое устройство того же аккаунта."""
+
+    async def asyncSetUp(self):
+        await super().asyncSetUp()
+        self.cipher = {"nonce": base64.b64encode(b"n" * 24).decode(), "ciphertext": base64.b64encode(b"c" * 48).decode()}
+        self.phone_token = create_access_token(self.users["alice"].id)
+        async with self.Session() as db:
+            (await db.get(User, self.users["alice"].id)).public_key = key()
+            await db.commit()
+            self.phone = await sessions.ensure(db, self.phone_token, self.users["alice"], "Quazar Desktop")
+
+    async def keys_request(self):
+        async with self.Session() as db:
+            return await pairing.start_key_request(db, self.users["alice"].id, self.phone.id, self.rkey, self.secret, "Quazar Desktop · Windows")
+
+    async def sessions_count(self):
+        async with self.Session() as db:
+            return (await db.execute(select(func.count()).select_from(DeviceSession))).scalar_one()
+
+    async def test_keys_move_to_a_signed_in_device_without_a_new_session(self):
+        before = await self.sessions_count()
+        row, code = await self.keys_request()
+        self.assertEqual(row.kind, "keys")
+        async with self.Session() as db:
+            claimed = await pairing.claim(db, self.users["alice"].id, self.source.id, self.akey, pair_id=None, code=code, expected_key=None)
+        async with self.Session() as db:
+            with self.assertRaises(HTTPException) as caught:
+                await pairing.consume_keys(db, row.id, self.secret, self.users["alice"].id, self.phone.id)
+            self.assertEqual(caught.exception.status_code, 409)
+        async with self.Session() as db:
+            await pairing.approve(db, row.id, self.users["alice"].id, self.source.id, pairing.binding(claimed), self.cipher, False)
+        async with self.Session() as db:
+            with self.assertRaises(HTTPException) as caught:
+                await pairing.consume(db, row.id, self.secret)
+            self.assertEqual(caught.exception.status_code, 404)
+        for session_id in (self.source.id, self.phone.id):
+            async with self.Session() as db:
+                if session_id == self.source.id:
+                    with self.assertRaises(HTTPException) as caught:
+                        await pairing.consume_keys(db, row.id, self.secret, self.users["alice"].id, session_id)
+                    self.assertEqual(caught.exception.status_code, 404)
+                else:
+                    done = await pairing.consume_keys(db, row.id, self.secret, self.users["alice"].id, session_id)
+                    self.assertEqual((done.state, done.encrypted_keys), ("consumed", self.cipher))
+        self.assertEqual(await self.sessions_count(), before)
+
+    async def test_only_another_device_of_the_same_account_can_claim(self):
+        row, code = await self.keys_request()
+        bob_token = create_access_token(self.users["bob"].id)
+        async with self.Session() as db:
+            bob = await sessions.ensure(db, bob_token, self.users["bob"], "Chrome")
+        async with self.Session() as db:
+            with self.assertRaises(HTTPException) as caught:
+                await pairing.claim(db, self.users["bob"].id, bob.id, self.akey, pair_id=None, code=code, expected_key=None)
+            self.assertEqual(caught.exception.status_code, 404)
+        async with self.Session() as db:
+            with self.assertRaises(HTTPException) as caught:
+                await pairing.claim(db, self.users["alice"].id, self.phone.id, self.akey, pair_id=row.id, code=None, expected_key=self.rkey)
+            self.assertEqual(caught.exception.status_code, 409)
+
+    async def test_approval_must_carry_the_keys(self):
+        row, code = await self.keys_request()
+        async with self.Session() as db:
+            claimed = await pairing.claim(db, self.users["alice"].id, self.source.id, self.akey, pair_id=None, code=code, expected_key=None)
+        async with self.Session() as db:
+            with self.assertRaises(HTTPException) as caught:
+                await pairing.approve(db, row.id, self.users["alice"].id, self.source.id, pairing.binding(claimed), None, True)
+            self.assertEqual(caught.exception.status_code, 422)
+
+    async def test_account_without_a_key_has_nothing_to_request(self):
+        async with self.Session() as db:
+            (await db.get(User, self.users["alice"].id)).public_key = None
+            await db.commit()
+        with self.assertRaises(HTTPException) as caught:
+            await self.keys_request()
+        self.assertEqual(caught.exception.status_code, 409)
+
+    async def test_key_request_endpoints_need_the_requesting_session(self):
+        body = {"public_key": self.rkey, "receiver_secret": self.secret, "device_name": "Quazar Desktop"}
+        response = await self.client.post("/auth/device-pairing/key-requests", json=body)
+        self.assertIn(response.status_code, (401, 403))
+        with mock.patch.object(api.manager, "send_to_user", mock.AsyncMock()) as send:
+            response = await self.client.post("/auth/device-pairing/key-requests", json=body, headers={"Authorization": f"Bearer {self.phone_token}"})
+        self.assertEqual(response.status_code, 200, response.text)
+        data = response.json()
+        # Другие устройства узнают о запросе, но не получают ни кода, ни секрета.
+        event = send.await_args.args[1]
+        self.assertEqual((send.await_args.args[0], event["type"], event["id"]), (self.users["alice"].id, "device_key_request", data["request"]["id"]))
+        self.assertNotIn(data["code"], str(event))
+        self.assertNotIn(self.secret, str(event))
+        self.assertEqual((data["request"]["kind"], len(data["code"])), ("keys", 8))
+        pair_id = data["request"]["id"]
+        consume = f"/auth/device-pairing/key-requests/{pair_id}/consume"
+        response = await self.client.post(consume, json={"receiver_secret": self.secret}, headers=self.headers)
+        self.assertEqual(response.status_code, 404)
+        response = await self.client.post(consume, json={"receiver_secret": self.secret}, headers={"Authorization": f"Bearer {self.phone_token}"})
+        self.assertEqual(response.status_code, 409)
+        # Занятый или отменённый запрос убирается с остальных устройств.
+        with mock.patch.object(api.manager, "send_to_user", mock.AsyncMock()) as send:
+            response = await self.client.post("/auth/device-pairing/claim", json={"public_key": self.akey, "code": data["code"]}, headers=self.headers)
+            self.assertEqual(response.status_code, 200, response.text)
+            response = await self.client.post(f"/auth/device-pairing/requests/{pair_id}/cancel", json={"receiver_secret": self.secret})
+            self.assertEqual(response.status_code, 204, response.text)
+        closed = {"type": "device_key_request_closed", "id": pair_id}
+        self.assertEqual([call.args for call in send.await_args_list], [(self.users["alice"].id, closed)] * 2)

@@ -7,6 +7,8 @@ import s from "./E2EKeyGate.module.css";
 import AccountProofInput from "./profile/AccountProofInput";
 import { clearReauth } from "../auth/reauth";
 import type { AccountProof } from "../crypto/keys";
+import DeviceKeyReceiver from "./devices/DeviceKeyReceiver";
+import KeyRequestBanner, { useIncomingKeyRequest } from "./devices/KeyRequestBanner";
 
 const BACKUP_HINT_DISMISSED_KEY = "quazar_e2e_backup_hint_dismissed";
 
@@ -61,6 +63,8 @@ export default function E2EKeyGate() {
   const [error, setError] = useState<string | null>(null);
   const [hintDismissed, setHintDismissed] = useState(readHintDismissed);
   const fileRef = useRef<HTMLInputElement>(null);
+  const [receiving, setReceiving] = useState(false);
+  const keyRequest = useIncomingKeyRequest();
 
   const run = async (fn: () => Promise<void>) => {
     setError(null);
@@ -105,9 +109,8 @@ export default function E2EKeyGate() {
           </div>
 
           <p className={s.lead}>
-            У вашего аккаунта уже есть ключ шифрования с другого устройства. Чтобы читать и
-            отправлять личные сообщения здесь, восстановите его из резервной копии.
-            Также можно выйти и войти через QR-код с устройства, где переписка уже читается.
+            Личные сообщения шифруются ключом вашего аккаунта. На этом устройстве его пока нет —
+            перенесите ключ одним из способов ниже.
             {hasLocalKey && (
               <span className={s.warn}>
                 {" "}
@@ -122,11 +125,37 @@ export default function E2EKeyGate() {
           </p>
 
           <section className={s.section}>
-            {!hasServerBackup && (
+            <h4 className={s.sectionTitle}>С другого своего устройства</h4>
+            <p className={s.hint}>
+              Подходит, если Quazar открыт там, где личные сообщения читаются: в браузере, в
+              приложении на компьютере или на телефоне. Пароль не нужен.
+            </p>
+            {receiving && userId ? (
+              <DeviceKeyReceiver userId={userId} />
+            ) : (
+              <button
+                type="button"
+                className={s.primary}
+                disabled={busy || !userId}
+                onClick={() => setReceiving(true)}
+              >
+                Получить ключи с другого устройства
+              </button>
+            )}
+          </section>
+
+          <section className={s.section}>
+            <h4 className={s.sectionTitle}>Из резервной копии</h4>
+            {hasServerBackup ? (
               <p className={s.hint}>
-                На сервере нет резервной копии. Откройте Quazar на устройстве, где сообщения
-                читаются, и создайте копию: Настройки → Безопасность E2E. Затем нажмите
-                «Проверить снова» — или восстановите ключи из файла копии.
+                Пароль копии вы придумали сами, когда сохраняли её в «Настройки → Безопасность
+                E2E». Это не пароль от аккаунта и не код из звонка.
+              </p>
+            ) : (
+              <p className={s.hint}>
+                На сервере нет резервной копии. Её можно создать на устройстве, где сообщения
+                читаются: «Настройки → Безопасность E2E», затем нажмите «Проверить снова». Или
+                восстановите ключи из файла копии.
               </p>
             )}
             <input
@@ -136,13 +165,12 @@ export default function E2EKeyGate() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               disabled={busy}
-              autoFocus
             />
             <div className={s.actions}>
               {hasServerBackup ? (
                 <button
                   type="button"
-                  className={s.primary}
+                  className={s.secondary}
                   disabled={busy || password.length < 8}
                   onClick={() => void runRestore(() => restoreFromServer(password))}
                 >
@@ -178,6 +206,18 @@ export default function E2EKeyGate() {
                 if (file) void runRestore(() => restoreFromFile(file, password));
               }}
             />
+            {hasServerBackup && (
+              <details className={s.more}>
+                <summary>Не помню пароль копии</summary>
+                <p className={s.hint}>
+                  Пароль копии восстановить нельзя: сервер его не знает. Получите ключи с другого
+                  устройства (выше) — или там, где переписка читается, сохраните новую копию с
+                  новым паролем: в браузере и приложении для компьютера — «Настройки →
+                  Безопасность E2E», в приложении на телефоне — «Профиль → Ключи шифрования».
+                  Новая копия заменит старую, и здесь подойдёт новый пароль.
+                </p>
+              </details>
+            )}
           </section>
 
           {stale && (
@@ -225,7 +265,7 @@ export default function E2EKeyGate() {
           )}
 
           <section className={s.section}>
-            <h4 className={s.sectionTitle}>Нет ни копии, ни доступа к другим устройствам?</h4>
+            <h4 className={s.sectionTitle}>Нет ни копии, ни другого устройства с ключом?</h4>
             <p className={s.hint}>
               Можно создать новые ключи аккаунта. Переписка, зашифрованная старым ключом, здесь
               не прочитается, а на остальных устройствах ключи придётся восстановить заново.
@@ -266,7 +306,10 @@ export default function E2EKeyGate() {
             type="button"
             className={s.later}
             disabled={busy}
-            onClick={() => setRestorePromptOpen(false)}
+            onClick={() => {
+              setReceiving(false);
+              setRestorePromptOpen(false);
+            }}
           >
             Позже
           </button>
@@ -289,6 +332,15 @@ export default function E2EKeyGate() {
           Восстановить
         </button>
       </div>
+    );
+  }
+
+  if (status === "ready" && keyRequest.request) {
+    return (
+      <KeyRequestBanner
+        incoming={{ ...keyRequest, request: keyRequest.request }}
+        classes={{ banner: s.banner, text: s.bannerText, action: s.bannerAction, close: s.close }}
+      />
     );
   }
 

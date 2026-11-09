@@ -28,6 +28,13 @@ const base = (): PairView => ({ id, kind: "request", state: "pending", receiver_
   created_at: new Date().toISOString(), expires_at: new Date(Date.now() + 120_000).toISOString() });
 const button = (text: string) => [...document.querySelectorAll<HTMLButtonElement>("button")].find(node => node.textContent?.trim() === text)!;
 const tick = (ms = 2000) => act(async () => vi.advanceTimersByTimeAsync(ms));
+// Проверочный код считает WebCrypto вне фейковых таймеров: на медленной машине кнопка ещё выключена.
+const realTimeout = globalThis.setTimeout;
+const enabled = async (text: string) => {
+  for (let i = 0; i < 200 && button(text)?.disabled !== false; i++) await act(() => new Promise<void>(done => realTimeout(done, 5)));
+  expect(button(text).disabled).toBe(false);
+  return button(text);
+};
 beforeEach(() => {
   vi.clearAllMocks(); vi.useFakeTimers(); vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   state.token = null; latest = base();
@@ -95,7 +102,8 @@ it("requires the matching-code checkbox before authorizing a code request", asyn
   expect(devicesApi.approve).not.toHaveBeenCalled();
   const checkbox = host.querySelector<HTMLInputElement>('input[type="checkbox"]')!;
   await act(async () => { checkbox.checked = true; Simulate.change(checkbox); });
-  await act(async () => approve.click());
+  const approveButton = await enabled("Это моё устройство — разрешить вход");
+  await act(async () => approveButton.click());
   expect(devicesApi.approve).toHaveBeenCalledOnce();
   expect(host.textContent).toContain("Подключение разрешено");
 });
@@ -114,7 +122,8 @@ it("requires explicit consent when the source cannot transfer chat keys", async 
   await act(async () => { boxes[0].checked = true; Simulate.change(boxes[0]); });
   expect(button("Это моё устройство — разрешить вход").disabled).toBe(true);
   await act(async () => { boxes[1].checked = true; Simulate.change(boxes[1]); });
-  await act(async () => button("Это моё устройство — разрешить вход").click());
+  const approveButton = await enabled("Это моё устройство — разрешить вход");
+  await act(async () => approveButton.click());
   expect(devicesApi.approve).toHaveBeenCalledWith(id, expect.stringMatching(/^[a-f0-9]{64}$/), null, true);
   expect(sealDeviceKeys).not.toHaveBeenCalled();
 });
@@ -129,7 +138,9 @@ it("keeps an approved phone invitation usable after closing the source dialog", 
   await tick();
   const box = host.querySelector<HTMLInputElement>('input[type="checkbox"]')!;
   await act(async () => { box.checked = true; Simulate.change(box); });
-  await act(async () => button("Это моё устройство — разрешить вход").click());
+  const approveButton = await enabled("Это моё устройство — разрешить вход");
+  await act(async () => approveButton.click());
+  expect(devicesApi.approve).toHaveBeenCalledOnce();
   await act(async () => root.render(null)); await tick(0);
   expect(devicesApi.reject).not.toHaveBeenCalled();
 });

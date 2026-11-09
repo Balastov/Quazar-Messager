@@ -13,7 +13,9 @@ async function swipe(x1,y1,x2,y2){
  const started=Date.now(),target=await run(`(()=>{const el=document.elementFromPoint(${x1},${y1});return el?el.tagName.toLowerCase()+(el.className?'.'+String(el.className).split(' ')[0]:''):'none'})()`);
  await win.webContents.debugger.sendCommand('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:x1,y:y1,id:0}]});
  for(let i=1;i<=5;i++){await win.webContents.debugger.sendCommand('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x:x1+(x2-x1)*i/5,y:y1+(y2-y1)*i/5,id:0}]});await pause(20)}
- await win.webContents.debugger.sendCommand('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});swipes.push(`${x1},${y1}->${x2},${y2} ${Date.now()-started}ms on ${target}`);await pause(200);
+ await win.webContents.debugger.sendCommand('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});const took=Date.now()-started;swipes.push(`${x1},${y1}->${x2},${y2} ${took}ms on ${target}`);await pause(200);
+ // A phone delivers touch moves every few ms; seconds per swipe means the harness, not the app, is under test.
+ if(took>2000)throw Error(`Touch input too slow for a realistic swipe: ${took}ms`);
 }
 async function chat(){await click('Чат');await until(()=>run(`(()=>{const el=[...document.querySelectorAll('button,[role="button"]')].find(n=>n.textContent.includes('Первый черновик')&&n.getClientRects().length);if(!el)return false;el.click();return true})()`),'chat row');await until(async()=>await overlays()===1,'chat overlay')}
 const deadline=setTimeout(()=>{console.error('Navigation test timed out');app.exit(1)},100000);
@@ -23,7 +25,10 @@ app.whenReady().then(async()=>{
  win=new BrowserWindow({show:false,width:390,height:760,useContentSize:true,webPreferences:{session:ses,contextIsolation:true,nodeIntegration:false,backgroundThrottling:false}});
  win.webContents.setUserAgent('Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Version/18.0 Mobile Safari/604.1');
  await win.loadURL(base+'/auth');await run(`localStorage.setItem('quazar-auth',JSON.stringify({state:${JSON.stringify({token:bootstrap.token,user:bootstrap.user})},version:0}));localStorage.setItem('quazar_e2e_backup_hint_dismissed','1');localStorage.setItem('quazar-contacts-asked','1');localStorage.setItem('quazar-notify-prefs',JSON.stringify({enabled:false,sound:false,promptDismissed:true}))`);
- await win.loadURL(base+'/');win.webContents.debugger.attach('1.3');await win.webContents.debugger.sendCommand('Emulation.setTouchEmulationEnabled',{enabled:true,maxTouchPoints:1});
+ await win.loadURL(base+'/');
+ // Xvfb barely paints hidden windows, and CDP touch events wait for frames (~1.6 s each on CI).
+ if(process.platform==='linux'){win.showInactive();win.moveTop();await run('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))')}
+ win.webContents.debugger.attach('1.3');await win.webContents.debugger.sendCommand('Emulation.setTouchEmulationEnabled',{enabled:true,maxTouchPoints:1});
  await chat();await swipe(70,330,108,335);assert.equal(await overlays(),1,'short swipe must stay');
  await swipe(70,220,80,350);assert.equal(await overlays(),1,'vertical scrolling must stay');
  const input=await run(`(()=>{const el=[...document.querySelectorAll('textarea')].find(n=>n.getClientRects().length);const r=el.getBoundingClientRect();return {x:r.x+20,y:r.y+r.height/2}})()`);

@@ -33,6 +33,7 @@ import OfficialBadge from "./support/OfficialBadge";
 import { displayName } from "../utils/profile";
 import { listTimestamp } from "../chat/listTimestamp";
 import UnreadBadge from "./chat/UnreadBadge";
+import { showOpenedChat } from "../chat/showOpenedChat";
 
 /** Строка под именем чата: последнее сообщение, а пока кто-то набирает — «печатает…». */
 function PreviewLine({ chat, className, children }: { chat: Chat; className: string; children: string }) {
@@ -53,8 +54,6 @@ export default function ContactsPane() {
   const currentUser = useAuthStore((st) => st.user);
   // Превью «Стикер 😂» обновится, когда загрузится каталог стикеров.
   useStickersStore((st) => st.loaded);
-  const setMobileChatOpen = useUiStore((st) => st.setMobileChatOpen);
-  const setTab = useUiStore((st) => st.setTab);
   const favoriteChatIds = useUiStore((st) => st.favoriteChatIds);
   const toggleFavorite = useUiStore((st) => st.toggleFavorite);
   const unreadCounts = useUnreadStore((st) => st.counts);
@@ -180,16 +179,10 @@ export default function ContactsPane() {
 
   const openContact = async (userId: string) => {
     setSearch("");
-    await openDirectChat(userId);
-    setTab("chats");
-    setMobileChatOpen(true);
+    await showOpenedChat(() => openDirectChat(userId));
   };
 
-  const openChat = async (chatId: string) => {
-    await selectChat(chatId);
-    setTab("chats");
-    setMobileChatOpen(true);
-  };
+  const openChat = (chatId: string) => showOpenedChat(() => selectChat(chatId));
 
   const pickFromPhone = async () => {
     setPickerHint(null);
@@ -300,12 +293,8 @@ export default function ContactsPane() {
               type="button"
               className={s.userResult}
               onClick={() => {
-                void (async () => {
-                  setSearch("");
-                  await openDirectChat(u.id);
-                  setTab("chats");
-                  setMobileChatOpen(true);
-                })();
+                setSearch("");
+                void showOpenedChat(() => openDirectChat(u.id));
               }}
             >
               <UserAvatar username={displayName(u)} avatarUrl={u.avatar_url} size="sm" userId={u.id} />
@@ -352,12 +341,7 @@ export default function ContactsPane() {
           <button
             type="button"
             className={savedChat && savedChat.id === activeChatId ? s.itemActive : s.item}
-            onClick={() =>
-              void openSavedChat().then(() => {
-                setTab("chats");
-                setMobileChatOpen(true);
-              })
-            }
+            onClick={() => void showOpenedChat(openSavedChat)}
           >
             <SavedAvatar />
             <div className={s.meta}>

@@ -3,7 +3,6 @@ import { starsApi, type StarDetail, type StarMember } from "../../api/stars";
 import { useAuthStore } from "../../store/auth";
 import { useChatStore } from "../../store/chat";
 import { usePresenceStore } from "../../store/presence";
-import { useUiStore } from "../../store/ui";
 import { presenceTone } from "../../utils/presence";
 import UserAvatar from "../UserAvatar";
 import { IconBack, IconChat } from "../icons";
@@ -28,6 +27,7 @@ import { placeNouns } from "./words";
 import s from "./Constellation.module.css";
 import { displayName } from "../../utils/profile";
 import PseudonymDialog, { canEditPseudonym } from "./PseudonymDialog";
+import { showOpenedChat } from "../../chat/showOpenedChat";
 
 interface Props {
   detail: StarDetail;
@@ -87,11 +87,7 @@ export default function MembersPanel({ detail, onClose, fullscreen = false }: Pr
     return at;
   }, [detail.voice, detail.channels]);
 
-  const write = async (userId: string) => {
-    await openDirectChat(userId);
-    useUiStore.getState().setTab("chats");
-    useUiStore.getState().setMobileChatOpen(true);
-  };
+  const write = (userId: string) => showOpenedChat(() => openDirectChat(userId));
 
   return (
     <aside className={fullscreen ? s.membersFull : s.membersPanel} aria-label="Участники Звезды">

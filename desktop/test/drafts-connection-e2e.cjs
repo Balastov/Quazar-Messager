@@ -57,5 +57,8 @@ app.whenReady().then(async()=>{
  await click('Закрыть проверку связи');await until(()=>run(`window.testTracks.length>0&&window.testTracks.every(track=>track.readyState==='ended')`),'microphone released');
  console.log('CONNECTION_CHECK_OK: real server/WS receipt, native bridge, local fake mic lifecycle and ringtone UI');
  clearTimeout(deadline);win.destroy();app.quit();
-}).catch(async error=>{console.error(error.stack||error);if(win){try{fs.writeFileSync(path.join(process.env.PAIR_TEST_PROFILE,'failure-drafts.png'),(await win.webContents.capturePage()).toPNG())}catch{}}
- console.error('::error title=Draft and connection integration::'+String(error.stack||error).replace(/%/g,'%25').replace(/\r/g,'%0D').replace(/\n/g,'%0A'));clearTimeout(deadline);app.exit(1)});
+}).catch(async error=>{let detail=String(error.stack||error);
+ // Screenshots are in artifacts (login required); the page state goes into the public annotation.
+ if(win){try{detail+='\nPage: '+await run(`JSON.stringify({path:location.pathname,titles:[...document.querySelectorAll('[title]')].filter(n=>n.getClientRects().length).map(n=>n.title).slice(0,30),dialogs:[...document.querySelectorAll('[role="dialog"]')].map(n=>n.getAttribute('aria-label')),errors:[...document.querySelectorAll('[class*="error"]')].map(n=>n.textContent.trim()).filter(Boolean).slice(0,5),text:document.body.innerText.replace(/\\s+/g,' ').slice(0,600)})`)}catch(e){detail+='\nPage: unavailable '+e}}
+ console.error(detail);if(win){try{fs.writeFileSync(path.join(process.env.PAIR_TEST_PROFILE,'failure-drafts.png'),(await win.webContents.capturePage()).toPNG())}catch{}}
+ console.error('::error title=Draft and connection integration::'+detail.replace(/%/g,'%25').replace(/\r/g,'%0D').replace(/\n/g,'%0A'));clearTimeout(deadline);app.exit(1)});

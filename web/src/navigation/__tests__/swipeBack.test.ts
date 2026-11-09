@@ -41,3 +41,16 @@ it("cancels an unfinished gesture when the screen changes or touch is cancelled"
   surface = host.firstElementChild as HTMLDivElement; touch("touchend", 180, 200); expect(back).not.toHaveBeenCalled();
   touch("touchstart", 30, 200); touch("touchmove", 180, 200); touch("touchcancel", 180, 200); touch("touchend", 180, 200); expect(back).not.toHaveBeenCalled();
 });
+it("finishes a slow horizontal drag once the intent is clear", () => {
+  const now = vi.spyOn(Date, "now").mockReturnValue(1_000);
+  touch("touchstart", 30, 200); touch("touchmove", 60, 201);
+  now.mockReturnValue(2_500); touch("touchmove", 150, 203);
+  now.mockReturnValue(4_000); touch("touchend", 170, 204);
+  expect(back).toHaveBeenCalledOnce(); now.mockRestore();
+});
+it("does not start a gesture that stays ambiguous for too long", () => {
+  const now = vi.spyOn(Date, "now").mockReturnValue(1_000);
+  touch("touchstart", 30, 200); touch("touchmove", 38, 202);
+  now.mockReturnValue(1_900); touch("touchmove", 170, 204); touch("touchend", 175, 204);
+  expect(back).not.toHaveBeenCalled(); now.mockRestore();
+});

@@ -7,10 +7,13 @@ let win;const pause=ms=>new Promise(r=>setTimeout(r,ms)),run=code=>win.webConten
 async function until(fn,label){for(let i=0;i<150;i++){try{if(await fn())return}catch{}await pause(100)}throw Error('Timeout '+label)}
 async function click(text){await until(()=>run(`(()=>{const el=[...document.querySelectorAll('button')].find(n=>n.textContent.trim()===${JSON.stringify(text)}&&n.getClientRects().length&&!n.disabled);if(!el)return false;el.click();return true})()`),'button '+text)}
 const overlays=()=>run(`document.querySelectorAll('[data-swipe-back]').length`);
+// Diagnostics for CI failures: how long the gesture took and what was under the finger.
+const swipes=[];
 async function swipe(x1,y1,x2,y2){
+ const started=Date.now(),target=await run(`(()=>{const el=document.elementFromPoint(${x1},${y1});return el?el.tagName.toLowerCase()+(el.className?'.'+String(el.className).split(' ')[0]:''):'none'})()`);
  await win.webContents.debugger.sendCommand('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:x1,y:y1,id:0}]});
  for(let i=1;i<=5;i++){await win.webContents.debugger.sendCommand('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x:x1+(x2-x1)*i/5,y:y1+(y2-y1)*i/5,id:0}]});await pause(20)}
- await win.webContents.debugger.sendCommand('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});await pause(200);
+ await win.webContents.debugger.sendCommand('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});swipes.push(`${x1},${y1}->${x2},${y2} ${Date.now()-started}ms on ${target}`);await pause(200);
 }
 async function chat(){await click('Чат');await until(()=>run(`(()=>{const el=[...document.querySelectorAll('button,[role="button"]')].find(n=>n.textContent.includes('Первый черновик')&&n.getClientRects().length);if(!el)return false;el.click();return true})()`),'chat row');await until(async()=>await overlays()===1,'chat overlay')}
 const deadline=setTimeout(()=>{console.error('Navigation test timed out');app.exit(1)},100000);
@@ -37,5 +40,5 @@ app.whenReady().then(async()=>{
  await swipe(65,350,245,357);await until(async()=>await overlays()===0,'channel swipe back');
  console.log('MOBILE_STAR_SWIPE_OK: topmost thread first, then channel list');
  win.webContents.debugger.detach();clearTimeout(deadline);win.destroy();app.quit();
-}).catch(async error=>{console.error(error.stack||error);if(win)try{fs.writeFileSync(path.join(process.env.PAIR_TEST_PROFILE,'failure-navigation.png'),(await win.webContents.capturePage()).toPNG())}catch{}
- console.error('::error title=Mobile navigation::'+String(error.stack||error).replace(/%/g,'%25').replace(/\r/g,'%0D').replace(/\n/g,'%0A'));clearTimeout(deadline);app.exit(1)});
+}).catch(async error=>{const detail=String(error.stack||error)+(swipes.length?`\nSwipes: ${swipes.join('; ')}`:'');console.error(detail);if(win)try{fs.writeFileSync(path.join(process.env.PAIR_TEST_PROFILE,'failure-navigation.png'),(await win.webContents.capturePage()).toPNG())}catch{}
+ console.error('::error title=Mobile navigation::'+detail.replace(/%/g,'%25').replace(/\r/g,'%0D').replace(/\n/g,'%0A'));clearTimeout(deadline);app.exit(1)});

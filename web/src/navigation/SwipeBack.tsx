@@ -1,6 +1,8 @@
 import { useLayoutEffect, useRef, type ReactNode } from "react";
 import s from "./SwipeBack.module.css";
 
+/** За это время движение должно стать явно горизонтальным, иначе это не жест «назад». */
+const INTENT_MS = 700;
 const INTERACTIVE = "input,textarea,select,button,a,img,video,audio,canvas,iframe,pre,summary,[contenteditable],[role='button'],[role='slider'],[role='dialog'],[data-swipe-back-ignore]";
 function scrollsHorizontally(target: Element, root: HTMLElement): boolean {
   let node: Element | null = target;
@@ -39,7 +41,8 @@ export default function SwipeBack({ onBack, screenId, className = "", children }
     };
     const touchMove = (event: TouchEvent) => {
       if (!start) return;
-      if (event.touches.length !== 1 || Date.now() - start.time > 700 || window.getSelection()?.toString()) { reset(true); return; }
+      // Время ограничивает только распознавание: медленный, но уже горизонтальный жест не обрывается.
+      if (event.touches.length !== 1 || (!start.horizontal && Date.now() - start.time > INTENT_MS) || window.getSelection()?.toString()) { reset(true); return; }
       const touch = Array.from(event.touches).find(item => item.identifier === start!.id);
       if (!touch) { reset(true); return; }
       const dx = touch.clientX - start.x, dy = Math.abs(touch.clientY - start.y);
@@ -63,7 +66,7 @@ export default function SwipeBack({ onBack, screenId, className = "", children }
       const distance = touch ? touch.clientX - gesture.x : gesture.dx;
       const vertical = touch ? Math.abs(touch.clientY - gesture.y) : 0;
       const threshold = Math.min(120, Math.max(64, window.innerWidth * .22));
-      const complete = gesture.horizontal && distance >= threshold && distance > vertical * 1.5 && Date.now() - gesture.time <= 700;
+      const complete = gesture.horizontal && distance >= threshold && distance > vertical * 1.5;
       reset(!complete);
       if (complete) back.current();
     };

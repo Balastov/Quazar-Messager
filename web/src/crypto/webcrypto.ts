@@ -209,6 +209,33 @@ export async function clearIdentityKeys(): Promise<void> {
   });
 }
 
+/**
+ * Стирает с этого устройства ключи переписки аккаунта — текущий и прежние из архива.
+ * Ключи других аккаунтов в этом браузере остаются.
+ */
+export async function forgetAccountKeys(accountId: string): Promise<void> {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, "readwrite");
+    const store = tx.objectStore(STORE);
+    const currentReq = store.get(RECORD_ID);
+    currentReq.onsuccess = () => {
+      const current = currentReq.result as StoredIdentity | undefined;
+      if (current?.accountId === accountId) store.delete(RECORD_ID);
+    };
+    const legacyReq = store.get(LEGACY_RECORD_ID);
+    legacyReq.onsuccess = () => {
+      const legacy = legacyReq.result as StoredLegacyIdentities | undefined;
+      if (!legacy) return;
+      const keys = legacy.keys.filter((key) => key.accountId !== accountId);
+      if (keys.length !== legacy.keys.length) store.put({ ...legacy, keys });
+    };
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error ?? new Error("IndexedDB delete failed"));
+    tx.onabort = () => reject(tx.error ?? new Error("IndexedDB delete aborted"));
+  });
+}
+
 /** NaCl crypto_box_beforenm using WebCrypto-derived shared secret (legacy keys). */
 export async function deriveBoxSharedKey(
   privateKey: CryptoKey,

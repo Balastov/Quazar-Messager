@@ -1,0 +1,198 @@
+/* Компьютер: список разделов слева, открытый раздел справа. */
+.layout {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 600px);
+  justify-content: center;
+  align-items: start;
+  gap: 28px;
+}
+
+.side {
+  position: sticky;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.content {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.navItem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 10px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: none;
+  color: var(--qz-text);
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.navItem:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.navItem:focus-visible {
+  outline: 2px solid var(--qz-accent);
+  outline-offset: 1px;
+}
+
+.navItem[aria-current="page"] {
+  background: var(--qz-accent-soft, rgba(124, 58, 237, 0.18));
+  border-color: var(--qz-glass-border);
+  font-weight: 600;
+}
+
+.navIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #c4b5fd;
+}
+
+.navText {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.navTitle {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.navSubtitle {
+  font-size: 12px;
+  color: var(--qz-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mark {
+  width: 9px;
+  height: 9px;
+  flex-shrink: 0;
+  border-radius: 50%;
+}
+
+.markAlert {
+  background: #f87171;
+  box-shadow: 0 0 8px rgba(248, 113, 113, 0.7);
+}
+
+.markWarn {
+  background: #fbbf24;
+}
+
+.chevron {
+  flex-shrink: 0;
+  color: var(--qz-text-muted);
+}
+
+/* Телефон: список разделов карточкой, раздел — отдельным экраном. */
+.phoneList {
+  max-width: 560px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.phoneList .nav {
+  border-radius: var(--qz-radius);
+  border: 1px solid var(--qz-glass-border);
+  background: var(--qz-glass-sheen), var(--qz-glass-inner);
+  padding: 6px;
+}
+
+.phoneList .navItem {
+  padding: 11px 8px;
+}
+
+.phoneList .content,
+.swipe .content {
+  max-width: 560px;
+  margin: 0 auto;
+}
+
+.swipe {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+}
+
+.phoneHeader {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.back {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: -6px;
+  padding: 4px 6px;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  color: #c4b5fd;
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+/* Нет ключа шифрования — заметно в любом разделе. */
+.keyWarning {
+  display: flex;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: var(--qz-radius);
+  border: 1px solid rgba(248, 113, 113, 0.45);
+  background: rgba(127, 29, 29, 0.28);
+}
+
+.keyWarningIcon {
+  flex-shrink: 0;
+  color: #fca5a5;
+  margin-top: 1px;
+}
+
+.keyWarningBody {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.keyWarningTitle {
+  font-size: 14px;
+  font-weight: 700;
+}

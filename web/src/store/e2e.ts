@@ -10,6 +10,7 @@ import {
   syncIdentityWithServer,
 } from "../crypto/keys";
 import { logError } from "../utils/log";
+import { reportDeviceKey, resetDeviceKeyReport } from "../crypto/deviceKeyReport";
 
 /**
  * - ready: ключ устройства = ключ аккаунта, можно читать и отправлять.
@@ -94,6 +95,7 @@ export const useE2EStore = create<E2EState>((set, get) => {
             localPublicKey: res.publicKey,
             restorePromptOpen: false,
           });
+          reportDeviceKey(userId, res.publicKey);
         } else {
           set({
             status: "needs_restore",
@@ -103,6 +105,7 @@ export const useE2EStore = create<E2EState>((set, get) => {
             localPublicKey: res.localPublicKey,
             restorePromptOpen: prev.status !== "needs_restore" || prev.restorePromptOpen,
           });
+          reportDeviceKey(userId, null);
         }
       } catch (err) {
         logError("e2e sync", err);
@@ -138,6 +141,9 @@ export const useE2EStore = create<E2EState>((set, get) => {
 
     setRestorePromptOpen: (open) => set({ restorePromptOpen: open }),
 
-    reset: () => set(initialState),
+    reset: () => {
+      resetDeviceKeyReport();
+      set(initialState);
+    },
   };
 });

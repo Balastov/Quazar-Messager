@@ -68,7 +68,7 @@ function ReceiveAttempt({ invite, onDone, onRestart }: { invite?: Extract<Device
     {!flow && !error && <p className={s.hint}>Подготавливаем подключение…</p>}
     {flow && !expired && flow.state !== "rejected" && <>
       {flow.state === "pending" && <>
-        <p className={s.hint}>На устройстве, где вы уже вошли, откройте «Настройки → Устройства → Подключить по QR или коду».</p>
+        <p className={s.hint}>На устройстве, где вы уже вошли, откройте «Настройки → Безопасность → Подключить по QR или коду».</p>
         <PairQr value={deviceLink({ kind: "request", id: flow.id, key: keys.publicKey })} />
         <p className={s.hint}>Без камеры: введите там этот одноразовый код</p>
         <div className={s.code} aria-label="Одноразовый код"><span>{code.slice(0, 4)}-{code.slice(4)}</span></div>

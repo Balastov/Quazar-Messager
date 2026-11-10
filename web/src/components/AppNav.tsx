@@ -172,6 +172,16 @@ export default function AppNav() {
                     На встрече или не беспокоить
                   </div>
                   <StatusPicker onDone={() => setStatusOpen(false)} />
+                  <button
+                    type="button"
+                    className={s.statusLink}
+                    onClick={() => {
+                      setStatusOpen(false);
+                      useUiStore.getState().openSettings("profile");
+                    }}
+                  >
+                    Настройки профиля
+                  </button>
                 </div>,
                 document.body
               )}

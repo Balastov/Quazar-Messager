@@ -21,6 +21,10 @@ class DeviceSession(Base):
     last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Какой ключ переписки устройство сообщило в последний раз (публичный, не секрет);
+    # null при e2e_reported_at — сообщило, что ключа аккаунта у него нет.
+    e2e_public_key: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    e2e_reported_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class DevicePairing(Base):

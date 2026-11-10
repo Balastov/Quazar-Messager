@@ -186,6 +186,32 @@
   min-width: 0;
 }
 
+/* Две кнопки не помещаются рядом с текстом на телефоне — переносим их под текст. */
+.bannerWrap {
+  flex-wrap: wrap;
+}
+
+.bannerWrap .bannerText {
+  flex-basis: 220px;
+}
+
+.bannerSecondary {
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+}
+
+.link {
+  display: inline;
+  padding: 0;
+  border: none;
+  background: none;
+  color: #c4b5fd;
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
 .bannerAction {
   flex-shrink: 0;
   border: none;

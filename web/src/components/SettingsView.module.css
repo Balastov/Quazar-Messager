@@ -196,11 +196,13 @@
 }
 
 .statusOk {
+  margin: 0;
   font-size: 13px;
   color: #6ee7a0;
 }
 
 .statusErr {
+  margin: 0;
   font-size: 13px;
   color: #f87171;
 }
@@ -326,4 +328,37 @@
 .wallpaperRow .meta {
   flex: 1;
   min-width: 0;
+}
+
+.details {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.details summary {
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  color: #fca5a5;
+}
+
+.details[open] summary {
+  margin-bottom: 12px;
+}
+
+/* Подсказки про боковую панель: на телефоне её нет. */
+.desktopOnly {
+  display: none;
+}
+
+@media (min-width: 768px) {
+  .desktopOnly {
+    display: block;
+  }
+}
+
+/* Блок без содержимого (например, подтверждение телефона выключено на сервере) не рисуем. */
+.card:empty {
+  display: none;
 }

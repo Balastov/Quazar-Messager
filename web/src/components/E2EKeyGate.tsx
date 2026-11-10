@@ -9,6 +9,8 @@ import { clearReauth } from "../auth/reauth";
 import type { AccountProof } from "../crypto/keys";
 import DeviceKeyReceiver from "./devices/DeviceKeyReceiver";
 import KeyRequestBanner, { useIncomingKeyRequest } from "./devices/KeyRequestBanner";
+import KeyHelp from "./settings/KeyHelp";
+import { KeyHelpDialog } from "./settings/KeyWarning";
 
 const BACKUP_HINT_DISMISSED_KEY = "quazar_e2e_backup_hint_dismissed";
 
@@ -64,7 +66,10 @@ export default function E2EKeyGate() {
   const [hintDismissed, setHintDismissed] = useState(readHintDismissed);
   const fileRef = useRef<HTMLInputElement>(null);
   const [receiving, setReceiving] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
   const keyRequest = useIncomingKeyRequest();
+  // В настройках о ключах и копии говорит сама страница — плашка сверху её бы закрывала.
+  const inSettings = useUiStore((st) => st.tab === "settings");
 
   const run = async (fn: () => Promise<void>) => {
     setError(null);
@@ -98,6 +103,22 @@ export default function E2EKeyGate() {
     }
   };
 
+  if (status === "needs_restore" && restorePromptOpen && helpOpen) {
+    return (
+      <div className={s.overlay}>
+        <div className={s.panel} role="dialog" aria-modal="true" aria-label="Ключи шифрования">
+          <div className={s.header}>
+            <h3 className={s.title}>Ключи шифрования</h3>
+          </div>
+          <KeyHelp onRestore={() => setHelpOpen(false)} />
+          <button type="button" className={s.later} onClick={() => setHelpOpen(false)}>
+            Назад к восстановлению
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   if (status === "needs_restore" && restorePromptOpen) {
     const { restoreFromServer, restoreFromFile, rotate, adoptBackup, sync, userId } =
       useE2EStore.getState();
@@ -110,7 +131,10 @@ export default function E2EKeyGate() {
 
           <p className={s.lead}>
             Личные сообщения шифруются ключом вашего аккаунта. На этом устройстве его пока нет —
-            перенесите ключ одним из способов ниже.
+            перенесите ключ одним из способов ниже.{" "}
+            <button type="button" className={s.link} onClick={() => setHelpOpen(true)}>
+              Что с этим делать?
+            </button>
             {hasLocalKey && (
               <span className={s.warn}>
                 {" "}
@@ -148,13 +172,13 @@ export default function E2EKeyGate() {
             <h4 className={s.sectionTitle}>Из резервной копии</h4>
             {hasServerBackup ? (
               <p className={s.hint}>
-                Пароль копии вы придумали сами, когда сохраняли её в «Настройки → Безопасность
-                E2E». Это не пароль от аккаунта и не код из звонка.
+                Пароль копии вы придумали сами, когда сохраняли её в «Настройки → Безопасность».
+                Это не пароль от аккаунта и не код из звонка.
               </p>
             ) : (
               <p className={s.hint}>
                 На сервере нет резервной копии. Её можно создать на устройстве, где сообщения
-                читаются: «Настройки → Безопасность E2E», затем нажмите «Проверить снова». Или
+                читаются: «Настройки → Безопасность», затем нажмите «Проверить снова». Или
                 восстановите ключи из файла копии.
               </p>
             )}
@@ -213,7 +237,7 @@ export default function E2EKeyGate() {
                   Пароль копии восстановить нельзя: сервер его не знает. Получите ключи с другого
                   устройства (выше) — или там, где переписка читается, сохраните новую копию с
                   новым паролем: в браузере и приложении для компьютера — «Настройки →
-                  Безопасность E2E», в приложении на телефоне — «Профиль → Ключи шифрования».
+                  Безопасность», в приложении на телефоне — «Профиль → Ключи шифрования».
                   Новая копия заменит старую, и здесь подойдёт новый пароль.
                 </p>
               </details>
@@ -308,6 +332,7 @@ export default function E2EKeyGate() {
             disabled={busy}
             onClick={() => {
               setReceiving(false);
+              setHelpOpen(false);
               setRestorePromptOpen(false);
             }}
           >
@@ -318,12 +343,15 @@ export default function E2EKeyGate() {
     );
   }
 
-  if (status === "needs_restore") {
+  if (status === "needs_restore" && !inSettings) {
     return (
-      <div className={`${s.banner} ${s.bannerWarn}`}>
+      <div className={`${s.banner} ${s.bannerWarn} ${s.bannerWrap}`}>
         <span className={s.bannerText}>
-          Ключи шифрования не восстановлены — личные сообщения на этом устройстве недоступны.
+          На этом устройстве нет ключей шифрования — личные сообщения здесь не открываются.
         </span>
+        <button type="button" className={`${s.bannerAction} ${s.bannerSecondary}`} onClick={() => setHelpOpen(true)}>
+          Что с этим делать?
+        </button>
         <button
           type="button"
           className={s.bannerAction}
@@ -331,6 +359,7 @@ export default function E2EKeyGate() {
         >
           Восстановить
         </button>
+        {helpOpen && <KeyHelpDialog onClose={() => setHelpOpen(false)} />}
       </div>
     );
   }
@@ -344,7 +373,7 @@ export default function E2EKeyGate() {
     );
   }
 
-  if (status === "ready" && !hasServerBackup && !hintDismissed) {
+  if (status === "ready" && !hasServerBackup && !hintDismissed && !inSettings) {
     return (
       <div className={s.banner}>
         <span className={s.bannerText}>
@@ -354,7 +383,7 @@ export default function E2EKeyGate() {
         <button
           type="button"
           className={s.bannerAction}
-          onClick={() => useUiStore.getState().setTab("settings")}
+          onClick={() => useUiStore.getState().openSettings("security")}
         >
           Создать
         </button>

@@ -27,7 +27,7 @@ export default function DeviceConnectPage() {
       <button type="button" className={p.secondary} onClick={() => useAuthStore.getState().logout()}>Выйти из текущего аккаунта</button>
     </> : <DeviceReceiver invite={link} onDone={() => navigate("/", { replace: true })} />)}
     {link?.kind === "request" && (token ? <DeviceAuthorizer link={link} /> : <>
-      <p className={p.hint}>Этот QR нужно открыть на устройстве, где вы уже вошли в Quazar. В его настройках выберите «Устройства → Подключить по QR или коду».</p>
+      <p className={p.hint}>Этот QR нужно открыть на устройстве, где вы уже вошли в Quazar. В его настройках выберите «Безопасность → Подключить по QR или коду».</p>
       <button type="button" className={p.secondary} onClick={() => navigate("/auth")}>На страницу входа</button>
     </>)}
     {link?.kind === "request" && token && <button type="button" className={p.secondary} onClick={() => navigate("/")}>Вернуться в Quazar</button>}

@@ -22,6 +22,8 @@ const base = '/auth/device-pairing';
 
 /** Перенос ключа переписки между своими устройствами, где уже выполнен вход. */
 export const devicesApi = {
+  /** Есть ли на этом телефоне ключ переписки аккаунта (публичный ключ; null — нет). */
+  reportKey: (public_key: string | null) => http.put('/auth/devices/current/key', {public_key}),
   requestKeys: (body: {public_key: string; receiver_secret: string; device_name: string}) =>
     http.post<{request: PairView; code: string}>(`${base}/key-requests`, body).then(r => r.data),
   status: (id: string, receiver_secret: string) =>

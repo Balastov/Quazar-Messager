@@ -5,6 +5,8 @@ const anonymous = axios.create({ baseURL: "/api" });
 
 export interface DeviceSession {
   id: string; name: string; current: boolean; created_at: string; last_seen_at: string; expires_at: string;
+  /** Есть ли там ключ переписки аккаунта; null/нет поля — устройство не сообщало (старая версия). */
+  has_account_key?: boolean | null;
 }
 export interface PairView {
   id: string; kind: "request" | "invite" | "keys"; state: "offered" | "pending" | "claimed" | "approved" | "consumed" | "rejected" | "expired";
@@ -21,6 +23,8 @@ const base = "/auth/device-pairing";
 export const devicesApi = {
   list: () => http.get<DeviceSession[]>("/auth/devices").then(r => r.data),
   revoke: (id: string) => http.delete(`/auth/devices/${id}`),
+  /** Сообщить, какой ключ переписки сейчас на этом устройстве (публичный); null — ключа аккаунта нет. */
+  reportKey: (public_key: string | null) => http.put("/auth/devices/current/key", { public_key }),
   revokeOthers: () => http.delete<{ access_token: string }>("/auth/devices/others").then(r => r.data),
   create: (body: ReceiverRequest) => anonymous.post<{ request: PairView; code: string }>(`${base}/requests`, body).then(r => r.data),
   /** Это устройство уже вошло, но без ключа переписки: просим его у другого своего устройства. */

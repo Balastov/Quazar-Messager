@@ -3,6 +3,15 @@ import { persist } from "zustand/middleware";
 import { DEFAULT_GLASS_TRANSPARENCY } from "../styles/glass";
 
 export type AppTab = "contacts" | "chats" | "stars" | "calls" | "settings" | "blackhole";
+export type SettingsSection =
+  | "profile"
+  | "account"
+  | "appearance"
+  | "notifications"
+  | "calls"
+  | "privacy"
+  | "security"
+  | "about";
 
 interface UiState {
   tab: AppTab;
@@ -25,6 +34,11 @@ interface UiState {
   collapsedFloorIds: string[];
   /** Окно «Обратная связь» (не персистим). */
   feedbackOpen: boolean;
+  /** Открытый раздел настроек; null — список разделов (на телефоне). */
+  settingsSection: SettingsSection | null;
+  setSettingsSection: (section: SettingsSection | null) => void;
+  /** Перейти в настройки сразу к разделу. */
+  openSettings: (section: SettingsSection) => void;
   setFeedbackOpen: (open: boolean) => void;
   setTab: (tab: AppTab) => void;
   setMobileChatOpen: (open: boolean) => void;
@@ -53,7 +67,10 @@ export const useUiStore = create<UiState>()(
       starMembersOpen: false,
       collapsedFloorIds: [],
       feedbackOpen: false,
+      settingsSection: null,
 
+      setSettingsSection: (settingsSection) => set({ settingsSection }),
+      openSettings: (settingsSection) => set({ tab: "settings", mobileChatOpen: false, settingsSection }),
       setFeedbackOpen: (feedbackOpen) => set({ feedbackOpen }),
       setTab: (tab) => set({ tab, mobileChatOpen: false }),
       setMobileChatOpen: (mobileChatOpen) => set({ mobileChatOpen }),
@@ -91,6 +108,7 @@ export const useUiStore = create<UiState>()(
         idleMinutes: state.idleMinutes,
         starMembersOpen: state.starMembersOpen,
         collapsedFloorIds: state.collapsedFloorIds,
+        settingsSection: state.settingsSection,
       }),
     }
   )

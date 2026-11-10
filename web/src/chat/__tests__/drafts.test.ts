@@ -52,3 +52,14 @@ it("keeps an in-memory draft and reports when persistent storage is blocked", as
   const key = scope(); await drafts.loadDraft(key, "alice"); drafts.setDraft(key, "alice", "Текст остаётся"); await drafts.flushDrafts();
   expect(current(key).text).toBe("Текст остаётся"); expect(current(key).ready).toBe(true); expect(current(key).error).toBe(true);
 });
+it("forgets one account's drafts and their key without touching another account", async () => {
+  const mine = scope(), theirs = scope("bob");
+  await drafts.loadDraft(mine, "alice"); await drafts.loadDraft(theirs, "bob");
+  drafts.setDraft(mine, "alice", "черновик Алисы"); drafts.setDraft(theirs, "bob", "черновик Боба"); await drafts.flushDrafts();
+  await drafts.forgetDrafts("alice");
+  expect(await raw(mine)).toBeUndefined();
+  expect(current(mine)).toBeUndefined();
+  drafts.useDraftsStore.setState({ entries: {} });
+  await drafts.loadDraft(theirs, "bob");
+  expect(current(theirs).text).toBe("черновик Боба");
+});

@@ -784,9 +784,9 @@ export default function MessageView({ showBack = false }: Props) {
 
       {isDirect && e2eTrust === "changed" && (
         <div className={s.bannerDanger}>
-          Ключ собеседника изменился. Сверьте код безопасности.
+          Ключ собеседника изменился — отправка ему приостановлена, пока вы не сверите код.
           <button type="button" className={s.bannerAction} onClick={() => setShowE2ePanel(true)}>
-            Открыть
+            Что делать?
           </button>
         </div>
       )}

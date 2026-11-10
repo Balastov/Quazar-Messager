@@ -104,7 +104,7 @@ export default function CallsView() {
 
       <div className={s.banner}>
         MVP: аудио- и видеозвонки 1:1 через WebRTC. Для стабильной связи за NAT нужен TURN.
-        Push на входящий — в настройках уведомлений.
+        Push на входящий — в «Настройки → Уведомления и звуки».
       </div>
 
       {filteredHistory.length > 0 && (

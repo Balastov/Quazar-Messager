@@ -371,3 +371,48 @@ class KeyRequestTest(PairingTestBase):
             self.assertEqual(response.status_code, 204, response.text)
         closed = {"type": "device_key_request_closed", "id": pair_id}
         self.assertEqual([call.args for call in send.await_args_list], [(self.users["alice"].id, closed)] * 2)
+
+
+class DeviceKeyReportTest(PairingTestBase):
+    """Устройства отмечают, есть ли на них ключ переписки, — чтобы подсказать, откуда его взять."""
+
+    async def asyncSetUp(self):
+        await super().asyncSetUp()
+        self.account_key = key()
+        self.phone_token = create_access_token(self.users["alice"].id)
+        async with self.Session() as db:
+            (await db.get(User, self.users["alice"].id)).public_key = self.account_key
+            await db.commit()
+            self.phone = await sessions.ensure(db, self.phone_token, self.users["alice"], "Телефон")
+        self.phone_headers = {"Authorization": f"Bearer {self.phone_token}"}
+
+    async def flags(self):
+        response = await self.client.get("/auth/devices", headers=self.headers)
+        self.assertEqual(response.status_code, 200)
+        rows = {row["id"]: row["has_account_key"] for row in response.json()}
+        return {"source": rows[self.source.id], "phone": rows[self.phone.id]}
+
+    async def test_devices_report_whether_they_hold_the_account_key(self):
+        # Пока устройство не сообщало — неизвестно (старые версии приложения).
+        self.assertEqual(await self.flags(), {"source": None, "phone": None})
+        response = await self.client.put("/auth/devices/current/key", json={"public_key": self.account_key}, headers=self.headers)
+        self.assertEqual(response.status_code, 204)
+        await self.client.put("/auth/devices/current/key", json={"public_key": None}, headers=self.phone_headers)
+        self.assertEqual(await self.flags(), {"source": True, "phone": False})
+
+    async def test_a_foreign_or_rotated_key_does_not_count(self):
+        await self.client.put("/auth/devices/current/key", json={"public_key": key()}, headers=self.phone_headers)
+        await self.client.put("/auth/devices/current/key", json={"public_key": self.account_key}, headers=self.headers)
+        self.assertEqual(await self.flags(), {"source": True, "phone": False})
+        # Ключ аккаунта сменили на другом устройстве: прежняя отметка больше не совпадает.
+        async with self.Session() as db:
+            (await db.get(User, self.users["alice"].id)).public_key = key()
+            await db.commit()
+        self.assertEqual(await self.flags(), {"source": False, "phone": False})
+
+    async def test_report_requires_a_live_session(self):
+        response = await self.client.put("/auth/devices/current/key", json={"public_key": self.account_key})
+        self.assertIn(response.status_code, (401, 403))
+        await self.client.delete(f"/auth/devices/{self.phone.id}", headers=self.headers)
+        response = await self.client.put("/auth/devices/current/key", json={"public_key": self.account_key}, headers=self.phone_headers)
+        self.assertEqual(response.status_code, 401)

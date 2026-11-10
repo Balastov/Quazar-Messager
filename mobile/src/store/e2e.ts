@@ -8,6 +8,7 @@ import {
   rotateKeys,
   syncIdentityWithServer,
 } from '../crypto/keys';
+import {devicesApi} from '../api/devices';
 
 /**
  * - ready: ключ устройства = ключ аккаунта, можно читать и отправлять.
@@ -47,6 +48,18 @@ const initialState = {
   busy: false,
   error: null,
 };
+
+let lastReport: string | null = null;
+
+/** Сообщает серверу, есть ли здесь ключ: другие устройства подскажут, откуда его взять. */
+function reportKey(userId: string, publicKey: string | null) {
+  const tag = `${userId}:${publicKey ?? ''}`;
+  if (tag === lastReport) {return;}
+  lastReport = tag;
+  devicesApi.reportKey(publicKey).catch(() => {
+    if (lastReport === tag) {lastReport = null;}
+  });
+}
 
 export const useE2EStore = create<E2EState>((set, get) => {
   /** Выполняет действие с ключами; sync() на это время не вмешивается. */
@@ -89,6 +102,7 @@ export const useE2EStore = create<E2EState>((set, get) => {
             localPublicKey: res.publicKey,
             restorePromptPending: false,
           });
+          reportKey(userId, res.publicKey);
         } else {
           set({
             status: 'needs_restore',
@@ -99,6 +113,7 @@ export const useE2EStore = create<E2EState>((set, get) => {
             restorePromptPending:
               prev.status !== 'needs_restore' || prev.restorePromptPending,
           });
+          reportKey(userId, null);
         }
       } catch (err) {
         console.error('e2e sync', err);
@@ -119,6 +134,9 @@ export const useE2EStore = create<E2EState>((set, get) => {
 
     consumeRestorePrompt: () => set({restorePromptPending: false}),
 
-    reset: () => set(initialState),
+    reset: () => {
+      lastReport = null;
+      set(initialState);
+    },
   };
 });

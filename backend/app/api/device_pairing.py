@@ -247,6 +247,20 @@ class SessionOut(BaseModel):
     created_at: datetime
     last_seen_at: datetime
     expires_at: datetime
+    # Есть ли на устройстве текущий ключ переписки аккаунта; None — устройство ещё не сообщало
+    # (старая версия приложения). Сменили ключ аккаунта — прежние отметки перестают совпадать.
+    has_account_key: bool | None = None
+
+
+def has_account_key(row: DeviceSession, user: User) -> bool | None:
+    if row.e2e_reported_at is None:
+        return None
+    return bool(user.public_key) and row.e2e_public_key == user.public_key
+
+
+class DeviceKeyReport(BaseModel):
+    # Публичный ключ, который сейчас у устройства совпадает с ключом аккаунта; null — ключа нет.
+    public_key: str | None = Field(default=None, max_length=128)
 
 
 @router.get("/devices", response_model=list[SessionOut])
@@ -255,7 +269,17 @@ async def list_devices(me: Me, device: CurrentDevice, db: Db):
     if sessions.cutoff(me):
         query = query.where(DeviceSession.issued_at >= sessions.cutoff(me))
     rows = (await db.execute(query.order_by(DeviceSession.last_seen_at.desc()))).scalars()
-    return [SessionOut(id=row.id, name=row.name, current=row.id == device.id, created_at=row.created_at, last_seen_at=row.last_seen_at, expires_at=row.expires_at) for row in rows]
+    return [SessionOut(id=row.id, name=row.name, current=row.id == device.id, created_at=row.created_at, last_seen_at=row.last_seen_at,
+                       expires_at=row.expires_at, has_account_key=has_account_key(row, me)) for row in rows]
+
+
+@router.put("/devices/current/key", status_code=204)
+async def report_device_key(body: DeviceKeyReport, me: Me, device: CurrentDevice, db: Db):
+    """Устройство сообщает, читается ли на нём переписка: так другие устройства подскажут, откуда взять ключ."""
+    # Чужой или устаревший ключ не считается: отметка нужна только для ключа аккаунта.
+    device.e2e_public_key = body.public_key if body.public_key and body.public_key == me.public_key else None
+    device.e2e_reported_at = sessions.now()
+    await db.commit()
 
 
 @router.delete("/devices/current", status_code=204)

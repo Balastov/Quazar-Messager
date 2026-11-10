@@ -47,7 +47,7 @@ app.whenReady().then(async()=>{
  await run(`document.querySelector('[aria-label="Ветка"] [aria-label="Закрыть ветку"]').click()`);await until(async()=>await value()==='Черновик Спутника','satellite preserved');
  await openThread();await until(async()=>await value('Ответ в ветке')==='Черновик ветки','thread restored');
  console.log('DRAFT_STAR_THREAD_OK: separate satellite and thread drafts');
- await click('Настройки');await click('Проверить связь');await click('Отправить тестовое уведомление');
+ await click('Настройки');await until(()=>run(`(()=>{const el=[...document.querySelectorAll('[data-settings-section="notifications"]')].find(n=>n.getClientRects().length);el?.click();return !!el})()`),'notification settings');await click('Проверить связь');await click('Отправить тестовое уведомление');
  await until(()=>run(`document.body.textContent.includes('Устройство подтвердило передачу уведомления системе')`),'server notification receipt');
  assert.equal(notifications.filter(n=>n.tag.startsWith('quazar-test-')).length,1);
  await click('Уведомление пришло');await click('Послушать звонок');await click('Слышу звук');

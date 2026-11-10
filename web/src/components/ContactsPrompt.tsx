@@ -64,7 +64,7 @@ export default function ContactsPrompt() {
         <button type="button" className={s.later} onClick={close}>
           {done ? "Готово" : "Не сейчас"}
         </button>
-        {!done && <p className={s.note}>Найти знакомых можно и позже — в Настройках.</p>}
+        {!done && <p className={s.note}>Найти знакомых можно и позже — в «Настройки → Конфиденциальность».</p>}
       </div>
     </div>
   );

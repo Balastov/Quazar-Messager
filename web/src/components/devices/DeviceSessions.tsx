@@ -7,11 +7,12 @@ import Dialog from "../constellation/Dialog";
 import { DeviceAuthorizer, DeviceInvitation } from "./DeviceAuthorizer";
 import s from "./Pairing.module.css";
 import settings from "../SettingsView.module.css";
+import LogoutDialog from "../settings/LogoutDialog";
 
 export default function DeviceSessions() {
   const userId = useAuthStore(state => state.user?.id);
   const [devices, setDevices] = useState<DeviceSession[]>([]), [mode, setMode] = useState<"invite" | "claim" | null>(null);
-  const [error, setError] = useState(""), [busy, setBusy] = useState(false);
+  const [error, setError] = useState(""), [busy, setBusy] = useState(false), [leaving, setLeaving] = useState(false);
   const round = useRef(0);
   const load = useCallback(async () => {
     const current = ++round.current;
@@ -28,6 +29,8 @@ export default function DeviceSessions() {
     return () => { round.current++; window.removeEventListener("focus", refresh); };
   }, [load, userId]);
   const revoke = async (device: DeviceSession) => {
+    // Своё устройство — обычный выход, с возможностью стереть ключи.
+    if (device.current) { setLeaving(true); return; }
     if (!window.confirm(`Завершить сеанс «${device.name}»? На этом устройстве потребуется войти снова.`)) return;
     setBusy(true); setError("");
     try { await devicesApi.revoke(device.id); if (device.current) useAuthStore.getState().logout(); else await load(); }
@@ -54,6 +57,8 @@ export default function DeviceSessions() {
     {devices.map(device => <div className={s.device} key={device.id}>
       <div className={s.deviceInfo}><strong>{device.name}</strong>
         {device.current && <span className={s.current}>Это устройство</span>}
+        {device.has_account_key === true && <span className={s.hint}>Ключ переписки есть</span>}
+        {device.has_account_key === false && <span className={s.hint}>Без ключа переписки</span>}
         <span className={s.hint}>Активность: {new Date(device.last_seen_at).toLocaleString("ru-RU")}</span>
       </div>
       <button type="button" className={s.secondary} disabled={busy} onClick={() => void revoke(device)}>{device.current ? "Выйти" : "Завершить сеанс"}</button>
@@ -64,6 +69,7 @@ export default function DeviceSessions() {
       <button type="button" className={s.secondary} disabled={busy || devices.length < 1} onClick={() => void revokeOthers()}>Завершить остальные сеансы</button>
     </div>
     {error && <p className={s.error} role="alert">{error}</p>}
+    {leaving && <LogoutDialog onClose={() => setLeaving(false)} />}
     {mode && createPortal(<Dialog title={mode === "invite" ? "Подключить телефон" : "Подключить устройство"} onClose={() => { setMode(null); void load(); }}>
       {mode === "invite" ? <DeviceInvitation /> : <DeviceAuthorizer />}
     </Dialog>, document.body)}

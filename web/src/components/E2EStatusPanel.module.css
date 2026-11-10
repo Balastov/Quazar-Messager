@@ -12,6 +12,10 @@
 .panel {
   width: 100%;
   max-width: 420px;
+  /* С объяснением смены ключа панель длиннее экрана телефона. */
+  max-height: calc(100dvh - 40px);
+  overflow-y: auto;
+  box-sizing: border-box;
   background: #1a1d27;
   border: 1px solid #2a2d3a;
   border-radius: 16px;
@@ -166,4 +170,40 @@
   color: #f87171;
   font-size: 14px;
   line-height: 1.4;
+}
+
+.explain {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(248, 113, 113, 0.35);
+  background: rgba(127, 29, 29, 0.18);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.explain p,
+.explain ol {
+  margin: 0;
+}
+
+.explain ol {
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.explainTitle {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+/* Прокручивается вся панель, блоки не сжимаются. */
+.panel > * {
+  flex-shrink: 0;
 }

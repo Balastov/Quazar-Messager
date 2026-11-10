@@ -124,3 +124,25 @@ export async function sendDraft(key: string, userId: string, action: () => Promi
 
 /** Tests and orderly shutdown can wait for writes already started by keystrokes. */
 export async function flushDrafts() { await Promise.all([...writes.values()]); }
+
+/** Стирает черновики аккаунта и ключ, которым они зашифрованы, с этого устройства. */
+export async function forgetDrafts(userId: string): Promise<void> {
+  await Promise.allSettled([...writes.values()]);
+  const prefix = JSON.stringify([userId]).slice(0, -1) + ",";
+  const database = await db();
+  await new Promise<void>((resolve, reject) => {
+    const transaction = database.transaction(["drafts", "keys"], "readwrite"), drafts = transaction.objectStore("drafts");
+    transaction.objectStore("keys").delete(userId);
+    const request = drafts.openCursor();
+    request.onsuccess = () => {
+      const cursor = request.result;
+      if (!cursor) return;
+      if (String(cursor.key).startsWith(prefix)) cursor.delete();
+      cursor.continue();
+    };
+    transaction.oncomplete = () => resolve(); transaction.onerror = () => reject(transaction.error);
+    transaction.onabort = () => reject(transaction.error);
+  });
+  keys.delete(userId);
+  useDraftsStore.setState(state => ({ entries: Object.fromEntries(Object.entries(state.entries).filter(([key]) => !key.startsWith(prefix))) }));
+}

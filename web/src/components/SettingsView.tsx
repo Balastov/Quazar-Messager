@@ -1,711 +1,163 @@
-import { useEffect, useRef, useState } from "react";
-import axios from "axios";
-import { usersApi } from "../api/users";
+import { useEffect, useRef, useState, type ComponentType } from "react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useAuthStore } from "../store/auth";
-import {
-  browserPermission,
-  getNotifyPrefs,
-  setNotifyPrefs,
-  subscribeNotifyPrefs,
-  type NotifyPrefs,
-} from "../notifications/prefs";
-import { playSoftChime } from "../notifications/sound";
-import { requestNotifyPermission } from "../notifications/notify";
-import { ensurePushSubscription } from "../notifications/push";
-import { downloadBackupFile, BackupError } from "../crypto/backup";
-import { fetchKeyBackup } from "../crypto/keys";
 import { useE2EStore } from "../store/e2e";
-import { useCallStore } from "../store/call";
-import { useUiStore } from "../store/ui";
-import { DEFAULT_GLASS_TRANSPARENCY } from "../styles/glass";
-import { useContactsStore } from "../store/contacts";
-import ContactsImport from "./ContactsImport";
-import { playStarSound, type StarSoundEvent } from "../sounds/starSounds";
-import { activityTracker, IDLE_MINUTES_OPTIONS, systemIdleSupported } from "../presence/activity";
-import StatusPicker from "./StatusPicker";
-import CustomStatusEditor from "./status/CustomStatusEditor";
-import { previewsEnabled, setPreviewsEnabled } from "../chat/linkPreview";
-import { MyWorkSchedule } from "./constellation/WorkSettings";
-import { useWallpaperStore } from "../store/wallpaper";
-import DesktopDownloadButton from "./DesktopDownloadButton";
-import DeviceSessions from "./devices/DeviceSessions";
-import { prepareBackground } from "../utils/wallpaper";
+import { useUiStore, type SettingsSection } from "../store/ui";
+import SwipeBack from "../navigation/SwipeBack";
+import { SETTINGS_SECTIONS, sectionInfo } from "./settings/sections";
+import KeyWarning from "./settings/KeyWarning";
+import ProfileSection from "./settings/ProfileSection";
+import AccountSection from "./settings/AccountSection";
+import AppearanceSection from "./settings/AppearanceSection";
+import NotificationsSection from "./settings/NotificationsSection";
+import CallsSection from "./settings/CallsSection";
+import PrivacySection from "./settings/PrivacySection";
+import SecuritySection from "./settings/SecuritySection";
+import AboutSection from "./settings/AboutSection";
+import base from "./SettingsView.module.css";
+import s from "./settings/Settings.module.css";
 
-const STAR_SOUNDS: [StarSoundEvent, string][] = [
-  ["enter", "Вход"],
-  ["leave", "Выход"],
-  ["peerJoin", "Кто-то вошёл"],
-  ["peerLeave", "Кто-то вышел"],
-  ["knock", "Стук"],
-  ["invite", "Приглашение"],
-];
-import UserAvatar from "./UserAvatar";
-import ProfileEditor from "./profile/ProfileEditor";
-import PhoneVisibilitySetting from "./profile/PhoneVisibilitySetting";
-import SignInSettings from "./profile/SignInSettings";
-import PhoneVerificationSetting from "./profile/PhoneVerificationSetting";
-import AccountProofInput from "./profile/AccountProofInput";
-import { clearReauth } from "../auth/reauth";
-import type { AccountProof } from "../crypto/keys";
-import { displayName } from "../utils/profile";
-import { formatRuPhoneDisplay } from "../utils/phone";
-import ConnectionDiagnostics from "./ConnectionDiagnostics";
-import AudioDevices from "./AudioDevices";
-import { IconLogout } from "./icons";
-import s from "./SettingsView.module.css";
+const CONTENT: Record<SettingsSection, ComponentType> = {
+  profile: ProfileSection,
+  account: AccountSection,
+  appearance: AppearanceSection,
+  notifications: NotificationsSection,
+  calls: CallsSection,
+  privacy: PrivacySection,
+  security: SecuritySection,
+  about: AboutSection,
+};
 
-const MAX_AVATAR_BYTES = 3 * 1024 * 1024;
+const PHONE_QUERY = "(max-width: 767px)";
 
-function apiErrorMessage(err: unknown, fallback: string): string {
-  if (axios.isAxiosError(err)) {
-    const detail = err.response?.data?.detail;
-    if (typeof detail === "string") return detail;
-    if (Array.isArray(detail) && detail[0]?.msg) return String(detail[0].msg);
-  }
-  if (err instanceof Error) return err.message;
-  return fallback;
+function useIsPhone(): boolean {
+  const [phone, setPhone] = useState(() => !!window.matchMedia?.(PHONE_QUERY).matches);
+  useEffect(() => {
+    const query = window.matchMedia?.(PHONE_QUERY);
+    if (!query) return;
+    const sync = () => setPhone(query.matches);
+    sync();
+    query.addEventListener?.("change", sync);
+    return () => query.removeEventListener?.("change", sync);
+  }, []);
+  return phone;
 }
 
+/** Точка у раздела «Безопасность»: красная — нет ключа, жёлтая — нет резервной копии. */
+function useSecurityMark(): "alert" | "warn" | null {
+  const status = useE2EStore((st) => st.status);
+  const hasServerBackup = useE2EStore((st) => st.hasServerBackup);
+  if (status === "needs_restore") return "alert";
+  if (status === "ready" && !hasServerBackup) return "warn";
+  return null;
+}
+
+/**
+ * Настройки по разделам. На компьютере — список разделов слева и открытый раздел справа,
+ * на телефоне — список, раздел открывается отдельным экраном (назад — кнопкой или свайпом).
+ */
 export default function SettingsView() {
   const user = useAuthStore((st) => st.user);
-  const setUser = useAuthStore((st) => st.setUser);
-  const logout = useAuthStore((st) => st.logout);
-  const e2eStatus = useE2EStore((st) => st.status);
-  const hasServerBackup = useE2EStore((st) => st.hasServerBackup);
-  const noiseSuppression = useCallStore((st) => st.noiseSuppression);
-  const toggleNoiseSuppression = useCallStore((st) => st.toggleNoiseSuppression);
-  const glassTransparency = useUiStore((st) => st.glassTransparency);
-  const setGlassTransparency = useUiStore((st) => st.setGlassTransparency);
-  const starSounds = useUiStore((st) => st.starSounds);
-  const systemIdle = useUiStore((st) => st.systemIdle);
-  const setSystemIdle = useUiStore((st) => st.setSystemIdle);
-  const idleMinutes = useUiStore((st) => st.idleMinutes);
-  const setIdleMinutes = useUiStore((st) => st.setIdleMinutes);
-  const setStarSounds = useUiStore((st) => st.setStarSounds);
-  const phonebook = useContactsStore((st) => st.contacts);
-  const phonebookSyncedAt = useContactsStore((st) => st.syncedAt);
-  const phonebookTotal = useContactsStore((st) => st.total);
-  const forgetPhonebook = useContactsStore((st) => st.forget);
+  const stored = useUiStore((st) => st.settingsSection);
+  const setSection = useUiStore((st) => st.setSettingsSection);
+  const phone = useIsPhone();
+  const mark = useSecurityMark();
+  const rootRef = useRef<HTMLDivElement>(null);
+  // Сохранённый раздел мог исчезнуть в новой версии.
+  const known = sectionInfo(stored) ? stored : null;
+  const section: SettingsSection | null = known ?? (phone ? null : "profile");
 
-  const [linkPreviews, setLinkPreviews] = useState(() => previewsEnabled());
-  const [prefs, setPrefs] = useState<NotifyPrefs>(() => getNotifyPrefs());
-  const [permission, setPermission] = useState(browserPermission);
-  const [status, setStatus] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [backupPassword, setBackupPassword] = useState("");
-  const [restorePassword, setRestorePassword] = useState("");
-  const [rotateProof, setRotateProof] = useState<AccountProof | null>(null);
-  // Подтверждение одноразовое: после смены ключей поле подтверждения начинается заново.
-  const [proofRound, setProofRound] = useState(0);
-  const fileRef = useRef<HTMLInputElement>(null);
-  const wallpaperRef = useRef<HTMLInputElement>(null);
-  const personalWallpaper = useWallpaperStore((st) => st.personalUrl);
-  const setPersonalWallpaper = useWallpaperStore((st) => st.setPersonal);
-  const backupFileRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => subscribeNotifyPrefs(setPrefs), []);
   useEffect(() => {
-    const sync = () => setPermission(browserPermission());
-    document.addEventListener("visibilitychange", sync);
-    return () => document.removeEventListener("visibilitychange", sync);
-  }, []);
+    rootRef.current?.scrollTo?.({ top: 0 });
+  }, [section]);
 
   if (!user) return null;
 
-  const permissionLabel = () => {
-    if (permission === "unsupported") return "Браузер не поддерживает уведомления";
-    if (permission === "granted") return "Разрешены браузером";
-    if (permission === "denied") return "Заблокированы в браузере";
-    return "Ещё не запрашивались";
-  };
-
-  const run = async (fn: () => Promise<void>) => {
-    setBusy(true);
-    setError(null);
-    setStatus(null);
-    try {
-      await fn();
-    } catch (err) {
-      setError(apiErrorMessage(err, "Ошибка"));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <div className={s.root}>
-      <div className={s.inner}>
-        <h2 className={s.title}>Настройки</h2>
-        <DesktopDownloadButton />
-
-        <section className={s.card}>
-          <div className={s.profileRow}>
-            <UserAvatar username={displayName(user)} avatarUrl={user.avatar_url} size="lg" />
-            <div className={s.meta}>
-              <div className={s.name}>{displayName(user)}</div>
-              <div className={s.phone}>
-                @{user.username} · {formatRuPhoneDisplay(user.phone)}
-                {user.phone_discoverable === false && " · скрыт"}
-              </div>
-            </div>
-          </div>
-          <h3 className={s.sectionTitle}>Профиль</h3>
-          <ProfileEditor user={user} />
-          <PhoneVisibilitySetting user={user} />
-          <PhoneVerificationSetting />
-          <SignInSettings />
-          <h3 className={s.sectionTitle}>Аватар</h3>
-          <p className={s.hint}>JPEG, PNG, WebP или GIF. Не больше 3 МБ.</p>
-          <div className={s.rowBtns}>
-            <button
-              type="button"
-              className={s.primary}
-              disabled={busy}
-              onClick={() => fileRef.current?.click()}
-            >
-              Загрузить фото
-            </button>
-            {user.avatar_url && (
-              <button
-                type="button"
-                className={s.secondary}
-                disabled={busy}
-                onClick={() =>
-                  void run(async () => {
-                    setUser(await usersApi.removeAvatar());
-                    setStatus("Аватар удалён");
-                  })
-                }
-              >
-                Удалить
-              </button>
-            )}
-          </div>
-          <input
-            ref={fileRef}
-            type="file"
-            accept="image/jpeg,image/png,image/webp,image/gif"
-            className={s.hidden}
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              e.target.value = "";
-              if (!file) return;
-              void run(async () => {
-                if (file.size > MAX_AVATAR_BYTES) throw new Error("Файл больше 3 МБ");
-                if (!file.type.startsWith("image/")) throw new Error("Нужен файл изображения");
-                setUser(await usersApi.uploadAvatar(file));
-                setStatus("Аватар обновлён");
-              });
-            }}
-          />
-        </section>
-
-        <DeviceSessions />
-        <section className={s.card}>
-          <h3 className={s.sectionTitle}>Обратная связь</h3>
-          <p className={s.hint}>
-            Предложение, вопрос или ошибка — напишите команде Квазара. Ответим в чате с Quazar_Admin_bot.
-          </p>
-          <div className={s.rowBtns}>
-            <button type="button" className={s.secondary} onClick={() => useUiStore.getState().setFeedbackOpen(true)}>
-              Написать команде
-            </button>
-          </div>
-        </section>
-
-        <section className={s.card}>
-          <h3 className={s.sectionTitle}>Оформление</h3>
-          <div className={s.sliderHead}>
-            <label htmlFor="glass-transparency" className={s.toggleLabel}>
-              Прозрачность
-            </label>
-            <span className={s.sliderValue}>{glassTransparency}%</span>
-          </div>
-          <input
-            id="glass-transparency"
-            type="range"
-            min={0}
-            max={100}
-            step={1}
-            value={glassTransparency}
-            onChange={(e) => setGlassTransparency(Number(e.target.value))}
-            className={s.slider}
-            style={{ "--fill": `${glassTransparency}%` } as React.CSSProperties}
-          />
-          <div className={s.sliderScale}>
-            <span>Матовое стекло</span>
-            <span>Прозрачное</span>
-          </div>
-          {glassTransparency !== DEFAULT_GLASS_TRANSPARENCY && (
-            <div className={s.rowBtns}>
-              <button
-                type="button"
-                className={s.secondary}
-                onClick={() => setGlassTransparency(DEFAULT_GLASS_TRANSPARENCY)}
-              >
-                По умолчанию
-              </button>
-            </div>
+  const nav = (
+    <nav className={s.nav} aria-label="Разделы настроек">
+      {SETTINGS_SECTIONS.map(({ id, title, subtitle, Icon }) => (
+        <button
+          key={id}
+          type="button"
+          className={s.navItem}
+          data-settings-section={id}
+          aria-current={!phone && section === id ? "page" : undefined}
+          onClick={() => setSection(id)}
+        >
+          <span className={s.navIcon}>
+            <Icon size={18} aria-hidden />
+          </span>
+          <span className={s.navText}>
+            <span className={s.navTitle}>{title}</span>
+            {phone && <span className={s.navSubtitle}>{subtitle}</span>}
+          </span>
+          {id === "security" && mark && (
+            <span
+              className={`${s.mark} ${mark === "alert" ? s.markAlert : s.markWarn}`}
+              aria-label={mark === "alert" ? "Нет ключей шифрования" : "Нет резервной копии ключа"}
+            />
           )}
+          {phone && <ChevronRight size={18} className={s.chevron} aria-hidden />}
+        </button>
+      ))}
+    </nav>
+  );
 
-          <div className={s.wallpaperRow}>
-            <div
-              className={s.wallpaperPreview}
-              style={{ backgroundImage: `url(${JSON.stringify(personalWallpaper ?? "/bg-desktop.jpg")})` }}
-              aria-hidden
-            />
-            <div className={s.meta}>
-              <div className={s.toggleLabel}>Фон приложения</div>
-              <p className={s.hint}>
-                Видите только вы — на всех своих устройствах. В чате с общим фоном и в Звезде со
-                своим фоном показывается их фон.
-              </p>
-            </div>
-          </div>
-          <div className={s.rowBtns}>
-            <button
-              type="button"
-              className={s.primary}
-              disabled={busy}
-              onClick={() => wallpaperRef.current?.click()}
-            >
-              Выбрать картинку
-            </button>
-            {personalWallpaper && (
-              <button
-                type="button"
-                className={s.secondary}
-                disabled={busy}
-                onClick={() =>
-                  void run(async () => {
-                    await setPersonalWallpaper(null);
-                    setStatus("Вернули стандартный фон");
-                  })
-                }
-              >
-                Стандартный
-              </button>
-            )}
-          </div>
-          <input
-            ref={wallpaperRef}
-            aria-label="Картинка для фона приложения"
-            type="file"
-            accept="image/jpeg,image/png,image/webp,image/gif"
-            className={s.hidden}
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              e.target.value = "";
-              if (!file) return;
-              void run(async () => {
-                await setPersonalWallpaper(await prepareBackground(file));
-                setStatus("Фон приложения обновлён");
-              });
-            }}
-          />
-        </section>
+  if (phone && !section) {
+    return (
+      <div className={base.root} ref={rootRef}>
+        <div className={s.phoneList}>
+          <h2 className={base.title}>Настройки</h2>
+          <KeyWarning />
+          {nav}
+        </div>
+      </div>
+    );
+  }
 
-        <section className={s.card}>
-          <h3 className={s.sectionTitle}>Контакты из телефона</h3>
-          <p className={s.hint}>
-            Покажем, кто из ваших контактов уже в Quazar. Номера сверяются на сервере и не
-            сохраняются: остаются только найденные люди и имена, под которыми они у вас записаны.
-          </p>
-          <ContactsImport />
-          {phonebookSyncedAt && (
-            <>
-              <p className={s.hint}>
-                Найдено в Quazar: {phonebook.length} (сверено контактов: {phonebookTotal}) ·
-                обновлено {new Date(phonebookSyncedAt).toLocaleString("ru")}. Список — во вкладке
-                «Контакты» → «Из телефона».
-              </p>
-              <div className={s.rowBtns}>
-                <button
-                  type="button"
-                  className={s.secondary}
-                  disabled={busy}
-                  onClick={() => {
-                    if (
-                      window.confirm(
-                        "Удалить найденные контакты с сервера? Люди останутся в Quazar, просто пропадут из списка «Из телефона»."
-                      )
-                    ) {
-                      void run(async () => {
-                        await forgetPhonebook();
-                        setStatus("Контакты удалены с сервера");
-                      });
-                    }
-                  }}
-                >
-                  Очистить список
-                </button>
-              </div>
-            </>
-          )}
-        </section>
-
-        <section className={s.card}>
-          <h3 className={s.sectionTitle}>Уведомления</h3>
-          <p className={s.hint}>
-            Статус в браузере: <span className={s.perm}>{permissionLabel()}</span>
-          </p>
-          <label className={s.toggle}>
-            <input
-              type="checkbox"
-              checked={prefs.enabled}
-              onChange={(e) => {
-                setNotifyPrefs({ enabled: e.target.checked });
-                setPrefs(getNotifyPrefs());
-                if (e.target.checked) {
-                  void requestNotifyPermission().then((p) => {
-                    setPermission(p);
-                    void ensurePushSubscription();
-                  });
-                }
-              }}
-            />
-            <span className={s.toggleUi} />
-            <span className={s.toggleLabel}>Уведомления о сообщениях</span>
-          </label>
-          <label className={s.toggle}>
-            <input
-              type="checkbox"
-              checked={prefs.sound}
-              disabled={!prefs.enabled}
-              onChange={(e) => {
-                setNotifyPrefs({ sound: e.target.checked });
-                setPrefs(getNotifyPrefs());
-                if (e.target.checked) void playSoftChime();
-              }}
-            />
-            <span className={s.toggleUi} />
-            <span className={s.toggleLabel}>Звук сообщений</span>
-          </label>
-          {permission !== "granted" && permission !== "unsupported" && (
-            <button
-              type="button"
-              className={s.primary}
-              onClick={() =>
-                void (async () => {
-                  const result = await requestNotifyPermission();
-                  setPermission(result);
-                  if (result === "granted") {
-                    setNotifyPrefs({ enabled: true, promptDismissed: true });
-                    setPrefs(getNotifyPrefs());
-                    void ensurePushSubscription();
-                    setStatus("Уведомления включены");
-                  } else if (result === "denied") {
-                    setError(
-                      "Браузер заблокировал уведомления. Разрешите их в настройках сайта."
-                    );
-                  }
-                })()
-              }
-            >
-              Разрешить уведомления
-            </button>
-          )}
-          <ConnectionDiagnostics />
-        </section>
-
-        <section className={s.card}>
-          <h3 className={s.sectionTitle}>Статус «в сети»</h3>
-          <p className={s.hint}>
-            🟢 в сети — вы работаете с Quazar или вы в звонке, на Планете, в Комнате. 🟡 отошёл(ла) —
-            на компьютере долго не трогали мышь и клавиатуру, на телефоне приложение свёрнуто или
-            экран погас. 🔴 на встрече или не беспокоить — вы поставили сами. Иначе — «был(а) …».
-          </p>
-          <StatusPicker />
-          <h3 className={s.sectionTitle} style={{ marginTop: 16 }}>Свой статус</h3>
-          <p className={s.hint}>
-            Значок, текст и до какого времени — видят все, с кем у вас общий чат или Звезда. Только
-            подпись: уведомления и звонки работают как обычно.
-          </p>
-          <CustomStatusEditor />
-          <label className={s.selectRow}>
-            <span className={s.toggleLabel}>Считать, что я отошёл, через</span>
-            <select
-              className={s.select}
-              value={idleMinutes}
-              onChange={(e) => setIdleMinutes(Number(e.target.value))}
-            >
-              {IDLE_MINUTES_OPTIONS.map((m) => (
-                <option key={m} value={m}>
-                  {m} мин
-                </option>
-              ))}
-            </select>
-          </label>
-          <p className={s.hint}>
-            Без мыши и клавиатуры на этом устройстве. Больше — если часто сидите на встречах в
-            Zoom или Телемосте и не хотите выглядеть «отошедшим».
-          </p>
-          {systemIdleSupported() && (
-            <>
-              <label className={s.toggle}>
-                <input
-                  type="checkbox"
-                  checked={systemIdle}
-                  onChange={(e) => {
-                    const on = e.target.checked;
-                    if (!on) {
-                      setSystemIdle(false);
-                      activityTracker?.stopSystemIdle();
-                      return;
-                    }
-                    void activityTracker?.startSystemIdle(true).then((ok) => {
-                      setSystemIdle(ok);
-                      if (!ok) setError("Браузер не дал доступ к определению простоя");
-                    });
-                  }}
-                />
-                <span className={s.toggleUi} />
-                <span className={s.toggleLabel}>Точнее определять, что я отошёл</span>
-              </label>
-              <p className={s.hint}>
-                Браузер сообщит, когда вы {idleMinutes} мин не пользуетесь компьютером вообще (в
-                любых программах) или заблокировали экран. Пока вы работаете в другом окне, вы
-                будете «в сети».
-              </p>
-            </>
-          )}
-        </section>
-
-        <section className={s.card}>
-          <h3 className={s.sectionTitle}>Рабочее время</h3>
-          <p className={s.hint}>
-            Для рабочих Звёзд, где владелец включил рабочее время. Коллеги увидят, что у вас
-            нерабочее время, а стуки и приглашения вне ваших часов придут без звука и уведомлений.
-          </p>
-          <MyWorkSchedule />
-        </section>
-
-        <section className={s.card}>
-          <h3 className={s.sectionTitle}>Превью ссылок</h3>
-          <label className={s.toggle}>
-            <input
-              type="checkbox"
-              checked={linkPreviews}
-              onChange={(e) => {
-                setLinkPreviews(e.target.checked);
-                setPreviewsEnabled(e.target.checked);
-              }}
-            />
-            <span className={s.toggleUi} />
-            <span className={s.toggleLabel}>Показывать превью ссылок, которые я отправляю</span>
-          </label>
-          <p className={s.hint}>
-            Пока вы пишете, сервер Quazar открывает первую ссылку из сообщения и берёт заголовок и
-            картинку — переписку он при этом не видит. В личных чатах превью уходит внутри
-            зашифрованного сообщения, собеседник сайт не открывает. Выключите, если не хотите,
-            чтобы сервер узнавал ваши ссылки.
-          </p>
-        </section>
-
-        <section className={s.card}>
-          <h3 className={s.sectionTitle}>Звуки Созвездия</h3>
-          <label className={s.toggle}>
-            <input
-              type="checkbox"
-              checked={starSounds}
-              onChange={(e) => {
-                setStarSounds(e.target.checked);
-                if (e.target.checked) void playStarSound("peerJoin", { force: true });
-              }}
-            />
-            <span className={s.toggleUi} />
-            <span className={s.toggleLabel}>Вход и выход, стук, приглашения</span>
-          </label>
-          <div className={s.rowBtns}>
-            {STAR_SOUNDS.map(([event, label]) => (
-              <button
-                key={event}
-                type="button"
-                className={`${s.secondary} ${s.soundBtn}`}
-                onClick={() => void playStarSound(event, { force: true })}
-                title="Прослушать"
-              >
-                ▶ {label}
-              </button>
-            ))}
-          </div>
-        </section>
-
-        <section className={s.card}>
-          <h3 className={s.sectionTitle}>Звонки</h3>
-          <label className={s.toggle}>
-            <input
-              type="checkbox"
-              checked={noiseSuppression}
-              onChange={() => void toggleNoiseSuppression()}
-            />
-            <span className={s.toggleUi} />
-            <span className={s.toggleLabel}>Шумоподавление микрофона</span>
-          </label>
-          <p className={s.hint}>
-            Убирает из вашего голоса клавиатуру, вентилятор, улицу и бытовые звуки. Можно
-            переключать прямо во время звонка.
-          </p>
-          <AudioDevices />
-        </section>
-
-        <section className={s.card}>
-          <h3 className={s.sectionTitle}>Безопасность E2E</h3>
-          <p className={s.hint}>
-            Один ключ шифрования на все ваши устройства. Резервная копия шифруется паролем
-            (сервер хранит только ciphertext) и нужна, чтобы открыть переписку на новом
-            устройстве.
-            {e2eStatus === "ready" && !hasServerBackup && " Рекомендуется создать копию."}
-            {e2eStatus === "needs_restore" &&
-              " На этом устройстве нет ключа аккаунта — получите его с другого устройства или из копии."}
-          </p>
-          {e2eStatus === "needs_restore" && (
-            <div className={s.rowBtns}>
-              <button
-                type="button"
-                className={s.primary}
-                onClick={() => useE2EStore.getState().setRestorePromptOpen(true)}
-              >
-                Восстановить ключи
-              </button>
-            </div>
-          )}
-          <input
-            className={s.input}
-            type="password"
-            placeholder="Новый пароль для копии (≥8)"
-            value={backupPassword}
-            onChange={(e) => setBackupPassword(e.target.value)}
-            disabled={busy}
-            autoComplete="new-password"
-          />
-          <p className={s.hint}>
-            Придумайте отдельный пароль и сохраните его: без него копию не открыть, а сервер его
-            не знает. Новая копия заменяет прежнюю.
-          </p>
-          <div className={s.rowBtns}>
-            <button
-              type="button"
-              className={s.primary}
-              disabled={busy || backupPassword.length < 8}
-              onClick={() =>
-                void run(async () => {
-                  const blob = await useE2EStore.getState().createBackup(backupPassword);
-                  downloadBackupFile(blob, user.username);
-                  setBackupPassword("");
-                  setStatus("Резервная копия сохранена и скачана");
-                })
-              }
-            >
-              Сохранить и скачать
-            </button>
-            <button
-              type="button"
-              className={s.secondary}
-              disabled={busy}
-              onClick={() =>
-                void run(async () => {
-                  const blob = await fetchKeyBackup();
-                  if (!blob) throw new BackupError("На сервере нет копии");
-                  downloadBackupFile(blob, user.username);
-                  setStatus("Файл скачан");
-                })
-              }
-            >
-              Скачать с сервера
-            </button>
-          </div>
-
-          <input
-            className={s.input}
-            type="password"
-            placeholder="Пароль для восстановления"
-            value={restorePassword}
-            onChange={(e) => setRestorePassword(e.target.value)}
-            disabled={busy}
-          />
-          <div className={s.rowBtns}>
-            <button
-              type="button"
-              className={s.secondary}
-              disabled={busy || restorePassword.length < 8}
-              onClick={() =>
-                void run(async () => {
-                  await useE2EStore.getState().restoreFromServer(restorePassword);
-                  setRestorePassword("");
-                  setStatus("Ключи восстановлены");
-                })
-              }
-            >
-              Восстановить с сервера
-            </button>
-            <button
-              type="button"
-              className={s.secondary}
-              disabled={busy || restorePassword.length < 8}
-              onClick={() => backupFileRef.current?.click()}
-            >
-              Из файла
-            </button>
-          </div>
-          <input
-            ref={backupFileRef}
-            type="file"
-            accept=".quazar-key,application/octet-stream"
-            className={s.hidden}
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              e.target.value = "";
-              if (!file) return;
-              void run(async () => {
-                await useE2EStore.getState().restoreFromFile(file, restorePassword);
-                setRestorePassword("");
-                setStatus("Ключи восстановлены из файла");
-              });
-            }}
-          />
-
-          <AccountProofInput
-            key={proofRound}
-            purpose="settings"
-            onChange={setRotateProof}
-            disabled={busy}
-            inputClassName={s.input}
-            buttonClassName={s.secondary}
-            hintClassName={s.hint}
-            placeholder="Пароль аккаунта для ротации"
-          />
+  const info = sectionInfo(section)!;
+  const Content = CONTENT[info.id];
+  const content = (
+    <div className={s.content}>
+      {phone ? (
+        <div className={s.phoneHeader}>
           <button
             type="button"
-            className={s.danger}
-            disabled={busy || !rotateProof}
-            onClick={() =>
-              void run(async () => {
-                await useE2EStore.getState().rotate(rotateProof!);
-                clearReauth();
-                setRotateProof(null);
-                setProofRound((n) => n + 1);
-                setStatus(
-                  "Ключи обновлены. Создайте новую резервную копию. На остальных устройствах восстановите новые ключи из неё или войдите заново через QR-код."
-                );
-              })
-            }
+            className={s.back}
+            aria-label="Назад к разделам настроек"
+            onClick={() => setSection(null)}
           >
-            Сменить ключи
+            <ChevronLeft size={20} aria-hidden /> Назад
           </button>
-        </section>
+          <h2 className={base.title}>{info.title}</h2>
+        </div>
+      ) : (
+        <h2 className={base.title}>{info.title}</h2>
+      )}
+      {/* В «Безопасности» о ключе говорит своя карточка. */}
+      {info.id !== "security" && <KeyWarning />}
+      <Content key={info.id} />
+    </div>
+  );
 
-        <section className={s.card}>
-          <button type="button" className={s.secondary} onClick={logout}>
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-              <IconLogout size={16} /> Выйти
-            </span>
-          </button>
-        </section>
+  if (phone) {
+    return (
+      <SwipeBack className={s.swipe} screenId={info.id} onBack={() => setSection(null)}>
+        <div className={base.root} ref={rootRef}>
+          {content}
+        </div>
+      </SwipeBack>
+    );
+  }
 
-        {status && <div className={s.statusOk}>{status}</div>}
-        {error && <div className={s.statusErr}>{error}</div>}
+  return (
+    <div className={base.root} ref={rootRef}>
+      <div className={s.layout}>
+        <aside className={s.side}>
+          <h2 className={base.title}>Настройки</h2>
+          {nav}
+        </aside>
+        {content}
       </div>
     </div>
   );

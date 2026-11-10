@@ -39,7 +39,8 @@ async function click(win, text) {
     if (!el) return false; el.scrollIntoView({block:'center'}); el.click(); return true;
   })()`), 'button ' + text);
 }
-async function settings(win) { await click(win, 'Настройки'); await until(() => win.webContents.executeJavaScript("!!document.querySelector('section[aria-label=\"Устройства\"]')"), 'device settings'); }
+// Устройства — в разделе «Безопасность»: на телефоне раздел открывается из списка.
+async function settings(win) { await click(win, 'Настройки'); await until(() => win.webContents.executeJavaScript(`(() => { if (document.querySelector('section[aria-label="Устройства"]')) return true; const el = [...document.querySelectorAll('[data-settings-section="security"]')].find(node => node.getClientRects().length); el?.click(); return false; })()`), 'device settings'); }
 async function code(win) {
   return until(() => win.webContents.executeJavaScript("document.querySelector('[aria-label=\"Код сравнения\"]')?.textContent?.replace(/\\s/g,'')"), 'comparison code').then(async value => {
     if (/^[A-F0-9]{16}$/.test(value)) return value;

@@ -100,7 +100,7 @@ app.whenReady().then(async () => {
   const short = await until(() => js(laptop, "document.querySelector('[aria-label=\"Одноразовый код\"]')?.textContent"), 'second one-time code');
   await until(async () => (await text(desktop)).includes('просит ключи шифрования'), 'banner reaches the newly keyed device');
   await click(desktop, 'Настройки');
-  await until(() => js(desktop, "!!document.querySelector('section[aria-label=\"Устройства\"]')"), 'device settings');
+  await until(() => js(desktop, `(() => { if (document.querySelector('section[aria-label="Устройства"]')) return true; const el = [...document.querySelectorAll('[data-settings-section="security"]')].find(node => node.getClientRects().length); el?.click(); return false; })()`), 'device settings');
   await click(desktop, 'Подключить по QR или коду');
   await js(desktop, `(() => { const input=document.querySelector('[role=dialog] [aria-label="Одноразовый код"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,${JSON.stringify(short)});input.dispatchEvent(new Event('input',{bubbles:true})); })()`);
   await click(desktop, 'Продолжить');
@@ -109,6 +109,23 @@ app.whenReady().then(async () => {
   assert.equal(chained.seed, original.seed);
   assert.equal(chained.token, bootstrap.extra_tokens[1]);
   console.log('KEY_E2E_CODE_OK: key passed on by one-time code from settings');
+
+  // 3. Сервер знает, где ключ: все устройства сообщили, что он у них есть.
+  const devices = `fetch('/api/auth/devices',{headers:{Authorization:'Bearer '+JSON.parse(localStorage.getItem('quazar-auth')).state.token}}).then(r=>r.json())`;
+  await until(async () => { const rows = await js(source, devices); return rows.length >= 3 && rows.every(row => row.has_account_key === true); }, 'devices report the account key');
+  console.log('KEY_E2E_REPORT_OK: every signed-in device reported the account key');
+
+  // 4. Выход с чужого компьютера: ключ и сеанс стираются, на остальных устройствах ключ остаётся.
+  await click(laptop, 'Настройки');
+  await until(() => js(laptop, `(() => { const el=[...document.querySelectorAll('[data-settings-section="account"]')].find(n=>n.getClientRects().length); el?.click(); return !!el; })()`), 'account settings');
+  await click(laptop, 'Выйти');
+  await until(() => js(laptop, "(() => { const box=document.querySelector('[role=dialog] input[type=checkbox]'); if (!box) return false; box.click(); return box.checked; })()"), 'wipe checkbox');
+  await click(laptop, 'Удалить ключи и выйти');
+  await until(() => js(laptop, "!JSON.parse(localStorage.getItem('quazar-auth') || 'null')?.state?.token"), 'laptop signed out');
+  const identity = await js(laptop, `new Promise((resolve,reject) => { const r=indexedDB.open('quazar-crypto'); r.onerror=()=>reject(r.error); r.onsuccess=()=>{ const db=r.result; const q=db.transaction('keys').objectStore('keys').get('identity'); q.onsuccess=()=>{ db.close(); resolve(q.result ? 'present' : 'gone'); }; }; })`);
+  assert.equal(identity, 'gone');
+  assert.equal((await proof(source)).seed, original.seed);
+  console.log('KEY_E2E_FORGET_OK: signing out with wipe removed the key from that device only');
   clearTimeout(timeout); windows.forEach(win => win.destroy()); app.quit();
 }).catch(async error => {
   const pages = [];

@@ -117,6 +117,21 @@
   margin-bottom: 10px;
 }
 
+.statusLink {
+  display: block;
+  width: 100%;
+  margin-top: 14px;
+  padding: 8px 0 0;
+  border: none;
+  border-top: 1px solid var(--qz-border);
+  background: none;
+  color: #c4b5fd;
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
 .profileName {
   font-size: 10px;
   color: var(--qz-text-muted);

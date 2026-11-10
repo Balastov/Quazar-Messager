@@ -7,6 +7,7 @@ import SwipeBack from "../navigation/SwipeBack";
 import { SETTINGS_SECTIONS, sectionInfo } from "./settings/sections";
 import KeyWarning from "./settings/KeyWarning";
 import ProfileSection from "./settings/ProfileSection";
+import PremiumSection from "./settings/PremiumSection";
 import AccountSection from "./settings/AccountSection";
 import AppearanceSection from "./settings/AppearanceSection";
 import NotificationsSection from "./settings/NotificationsSection";
@@ -19,6 +20,7 @@ import s from "./settings/Settings.module.css";
 
 const CONTENT: Record<SettingsSection, ComponentType> = {
   profile: ProfileSection,
+  premium: PremiumSection,
   account: AccountSection,
   appearance: AppearanceSection,
   notifications: NotificationsSection,

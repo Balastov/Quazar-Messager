@@ -28,6 +28,7 @@ from app.core import doors
 from app.core import bots, markup, notify, presence, revisions, shares, star_assets, star_audit, star_files, workflows
 from app.core import floors as floors_svc
 from app.core import voice
+from app.core import premium
 from app.core import pseudonyms, livekit
 from app.core.database import get_db
 from app.core.deps import get_current_user
@@ -103,7 +104,7 @@ def _forbid(detail: str = "Недостаточно прав") -> HTTPException:
 def _user_out(user: User, pseudonym: str | None = None, star_id: str | None = None, pseudonym_version: int = 0) -> StarUserOut:
     return StarUserOut(
         id=user.id, username=user.username, display_name=pseudonym or user.display_name,
-        account_display_name=user.display_name, avatar_url=user.avatar_url,
+        account_display_name=user.display_name, avatar_url=user.avatar_url, is_premium=user.is_premium,
         pseudonym=pseudonym, pseudonym_star_id=star_id, pseudonym_version=pseudonym_version,
     )
 
@@ -170,6 +171,22 @@ async def _member_count(db: AsyncSession, star_id: str) -> int:
     return (
         await db.execute(select(func.count()).select_from(StarMember).where(StarMember.star_id == star_id))
     ).scalar_one()
+
+
+def _stars(n: int) -> str:
+    return f"{n} своих Звезды" if 2 <= n % 10 <= 4 and not 12 <= n % 100 <= 14 else f"{n} своих Звёзд"
+
+
+def _limit_text(user: User, limit: int) -> str:
+    current = premium.state(user)
+    if not current.active:
+        return (f"Без Quazar Premium можно создать не больше {premium.FREE_STARS} Звёзд. "
+                f"С Premium — до {premium.PREMIUM_STARS} (в пробном месяце — до {premium.TRIAL_STARS}). "
+                "Или удалите либо передайте одну из своих.")
+    if current.kind == "trial":
+        return (f"В пробном Quazar Premium можно создать до {premium.TRIAL_STARS} Звёзд, "
+                f"с полным Premium — до {premium.PREMIUM_STARS}. Удалите или передайте одну из своих.")
+    return f"Можно создать не больше {limit} Звёзд. Удалите или передайте одну из своих."
 
 
 async def _owned_count(db: AsyncSession, user_id: str) -> int:
@@ -544,7 +561,7 @@ def _default_channels(star: Star) -> list[StarChannel]:
 @router.get("/limits", response_model=StarLimitsOut)
 async def get_limits(current_user: CurrentUser, db: Db):
     return StarLimitsOut(
-        max_owned_stars=rules.MAX_OWNED_STARS,
+        max_owned_stars=premium.star_limit(current_user),
         owned_stars=await _owned_count(db, current_user.id),
         max_star_members=rules.MAX_STAR_MEMBERS,
         gaming_max_satellites=rules.GAMING_MAX_SATELLITES,
@@ -575,13 +592,10 @@ async def list_stars(current_user: CurrentUser, db: Db):
 
 @router.post("", response_model=StarDetailOut, status_code=status.HTTP_201_CREATED)
 async def create_star(body: CreateStar, current_user: CurrentUser, db: Db):
-    await _lock_user(db, current_user.id)
-    if not current_user.is_superuser and await _owned_count(db, current_user.id) >= rules.MAX_OWNED_STARS:
-        raise HTTPException(
-            status_code=409,
-            detail=f"Можно создать не больше {rules.MAX_OWNED_STARS} Звёзд. "
-            "Удалите или передайте одну из своих.",
-        )
+    owner = await _lock_user(db, current_user.id)
+    limit = premium.star_limit(owner)
+    if limit is not None and await _owned_count(db, current_user.id) >= limit:
+        raise HTTPException(status_code=409, detail=_limit_text(owner, limit))
 
     star = Star(
         name=body.name,
@@ -718,12 +732,10 @@ async def transfer_star(star_id: str, body: TransferStar, current_user: CurrentU
         raise HTTPException(status_code=400, detail="Звезда уже ваша")
     target = await _target_member(db, star_id, body.user_id)
 
-    await _lock_user(db, body.user_id)
-    if not await _is_superuser(db, body.user_id) and await _owned_count(db, body.user_id) >= rules.MAX_OWNED_STARS:
-        raise HTTPException(
-            status_code=409,
-            detail=f"У этого участника уже {rules.MAX_OWNED_STARS} своих Звезды — передать нельзя.",
-        )
+    recipient = await _lock_user(db, body.user_id)
+    limit = premium.star_limit(recipient)
+    if limit is not None and await _owned_count(db, body.user_id) >= limit:
+        raise HTTPException(status_code=409, detail=f"У этого участника уже {_stars(limit)} — больше ему не положено, передать нельзя.")
 
     # Прежний владелец — админом (владелец ресурса может передать и чужую Звезду).
     previous = (

@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core import news, presence, support, voice
+from app.core import news, premium, presence, support, voice
 from app.core.database import get_db
 from app.core.deps import get_superuser
 from app.models.chat import Chat
@@ -50,6 +50,9 @@ class AdminUserOut(BaseModel):
     blocked_at: datetime | None
     blocked_reason: str | None
     online: bool = False
+    # Quazar Premium: trial / purchase / gift / superuser; None — нет. premium_until None при активном — бессрочный.
+    premium_kind: str | None = None
+    premium_until: datetime | None = None
 
     model_config = {"from_attributes": True}
 
@@ -57,6 +60,8 @@ class AdminUserOut(BaseModel):
 def _user_out(u: User) -> AdminUserOut:
     out = AdminUserOut.model_validate(u)
     out.online = presence.is_online(u.id)
+    current = premium.state(u)
+    out.premium_kind, out.premium_until = current.kind, current.until
     return out
 
 
@@ -177,6 +182,28 @@ async def unblock_user(user_id: str, me: Super, db: Db):
     user.blocked_at = None
     user.blocked_reason = None
     await db.commit()
+    return _user_out(user)
+
+
+class PremiumGrantBody(BaseModel):
+    # Месяцев по 30 дней; None — бессрочный.
+    months: int | None = Field(default=None, ge=1, le=120)
+
+
+@router.put("/users/{user_id}/premium", response_model=AdminUserOut)
+async def grant_premium(user_id: str, body: PremiumGrantBody, me: Super, db: Db):
+    """Выдать Quazar Premium (подарок или проверка): на N месяцев или бессрочно."""
+    user = await _target(db, user_id)
+    if user.is_official:
+        raise HTTPException(status_code=400, detail="Служебным аккаунтам Premium не нужен")
+    await premium.grant(db, user, body.months, me)
+    return _user_out(user)
+
+
+@router.delete("/users/{user_id}/premium", response_model=AdminUserOut)
+async def revoke_premium(user_id: str, me: Super, db: Db):
+    user = await _target(db, user_id)
+    await premium.revoke(db, user, me)
     return _user_out(user)
 
 

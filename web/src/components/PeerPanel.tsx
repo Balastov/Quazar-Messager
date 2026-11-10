@@ -1,4 +1,5 @@
 import { useState } from "react";
+import PremiumBadge from "./premium/PremiumBadge";
 import { useAuthStore } from "../store/auth";
 import { SAVED_CHAT_TITLE, useChatStore } from "../store/chat";
 import { useCallStore } from "../store/call";
@@ -44,6 +45,7 @@ export default function PeerPanel() {
     );
   }
 
+  const peerUser = chat.type === "direct" ? chat.members.find((m) => m.user.id !== currentUser?.id)?.user : undefined;
   const peer =
     chat.type === "group" || chat.type === "saved"
       ? {
@@ -76,6 +78,7 @@ export default function PeerPanel() {
         )}
         <div className={s.name}>
           {peer.username} {(chat.type === "support" || chat.type === "news") && <OfficialBadge size={18} />}
+          {chat.type === "direct" && peerUser?.is_premium && <PremiumBadge size={18} />}
         </div>
         {peer.nick && <div className={s.nick}>@{peer.nick}</div>}
         <div

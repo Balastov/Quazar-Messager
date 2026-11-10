@@ -1,4 +1,4 @@
-import { Bell, EyeOff, Info, KeyRound, Palette, Phone, ShieldCheck, UserRound } from "lucide-react";
+import { Bell, EyeOff, Info, KeyRound, Palette, Phone, ShieldCheck, Star, UserRound } from "lucide-react";
 import type { SettingsSection } from "../../store/ui";
 
 export interface SectionInfo {
@@ -11,6 +11,7 @@ export interface SectionInfo {
 
 export const SETTINGS_SECTIONS: SectionInfo[] = [
   { id: "profile", title: "Профиль", subtitle: "Фото, имя, статус, рабочее время", Icon: UserRound },
+  { id: "premium", title: "Quazar Premium", subtitle: "Больше Звёзд, значок у имени", Icon: Star },
   { id: "account", title: "Аккаунт и вход", subtitle: "Телефон, способы входа, выход", Icon: KeyRound },
   { id: "appearance", title: "Оформление", subtitle: "Прозрачность, фон", Icon: Palette },
   { id: "notifications", title: "Уведомления и звуки", subtitle: "Уведомления, звуки, проверка связи", Icon: Bell },

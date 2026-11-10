@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import PremiumBadge from "./premium/PremiumBadge";
 import { isUnreadable, openRevisionPayloads, SAVED_CHAT_TITLE, useChatStore } from "../store/chat";
 import { useAuthStore } from "../store/auth";
 import { useUiStore } from "../store/ui";
@@ -314,15 +315,16 @@ export default function MessageView({ showBack = false }: Props) {
   }
 
   const peer = (() => {
-    if (!chat) return { id: null as string | null, username: "", avatar_url: null as string | null };
+    if (!chat) return { id: null as string | null, username: "", avatar_url: null as string | null, premium: false };
     if (chat.type === "group" || chat.type === "saved") {
-      return { id: null, username: chat.type === "saved" ? SAVED_CHAT_TITLE : (chat.name ?? "Группа"), avatar_url: null };
+      return { id: null, username: chat.type === "saved" ? SAVED_CHAT_TITLE : (chat.name ?? "Группа"), avatar_url: null, premium: false };
     }
     const other = chat.members.find((m) => m.user.id !== currentUser?.id)?.user;
     return {
       id: other?.id ?? null,
       username: displayName(other) ?? "",
       avatar_url: other?.avatar_url ?? null,
+      premium: !!other?.is_premium,
     };
   })();
 
@@ -696,7 +698,8 @@ export default function MessageView({ showBack = false }: Props) {
         )}
         <div className={s.headerInfo}>
           <span className={s.name}>
-            {peer.username} {isDirect && <CustomStatusBadge userId={presencePeerId} />}
+            {peer.username}
+            {isDirect && peer.premium && <PremiumBadge />} {isDirect && <CustomStatusBadge userId={presencePeerId} />}
             {(isSupport || isNews) && <OfficialBadge />}
           </span>
           <span className={s.sub}>
@@ -825,6 +828,7 @@ export default function MessageView({ showBack = false }: Props) {
             showAuthor={!isDirect && !isSupport && !isNews}
             myId={currentUser?.id}
             nameOf={nameOf}
+            authorPremium={!!chat?.members.find((mb) => mb.user.id === msg.sender_id)?.user.is_premium}
             stickersLoaded={stickersLoaded}
             stickerOf={(pack, id) => stickersByKey[`${pack}/${id}`]}
             statusIcon={statusIcon}
@@ -1135,6 +1139,8 @@ interface ChatMessageProps {
   showAuthor: boolean;
   myId: string | undefined;
   nameOf: (userId: string | null | undefined) => string;
+  /** У автора Quazar Premium — значок у имени. */
+  authorPremium?: boolean;
   stickersLoaded: boolean;
   stickerOf: (pack: string, id: string) => StickerInfo | undefined;
   statusIcon: (status: string) => string;
@@ -1155,6 +1161,7 @@ function ChatMessage({
   showAuthor,
   myId,
   nameOf,
+  authorPremium,
   stickersLoaded,
   stickerOf,
   statusIcon,
@@ -1184,7 +1191,12 @@ function ChatMessage({
 
   return (
     <div data-mid={msg.id} className={`${bubbleClass} ${m.menuHost}`} {...trigger}>
-      {showAuthor && !isOwn && <span className={s.author}>{nameOf(msg.sender_id)}</span>}
+      {showAuthor && !isOwn && (
+        <span className={s.author}>
+          {nameOf(msg.sender_id)}
+          {authorPremium && <PremiumBadge size={13} />}
+        </span>
+      )}
       {msg.forwarded_from && (
         <span className={c.forwarded}>
           Переслано от <b>{msg.forwarded_from}</b>

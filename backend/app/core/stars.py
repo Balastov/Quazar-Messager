@@ -7,7 +7,6 @@ from enum import Enum
 
 # --- Лимиты ---------------------------------------------------------------
 
-MAX_OWNED_STARS = 2
 MAX_STAR_MEMBERS = 50
 GAMING_MAX_SATELLITES = 3
 GAMING_MAX_PLANETS = 5

@@ -26,6 +26,8 @@ export interface StarUser {
   pseudonym_star_id?: string | null;
   pseudonym_version?: number;
   avatar_url: string | null;
+  /** Quazar Premium — зелёная звезда-контур у имени. */
+  is_premium?: boolean;
 }
 
 export interface StarMember {
@@ -559,7 +561,8 @@ export interface StarBan {
 }
 
 export interface StarLimits {
-  max_owned_stars: number;
+  /** Своё ограничение: 2 без Premium, 3 в пробном, 5 с Premium; null — без ограничения. */
+  max_owned_stars: number | null;
   owned_stars: number;
   max_star_members: number;
   gaming_max_satellites: number;

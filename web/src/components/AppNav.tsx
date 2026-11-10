@@ -2,6 +2,7 @@ import { useContext, useEffect, useLayoutEffect, useRef, useState } from "react"
 import { createPortal } from "react-dom";
 import { useAuthStore } from "../store/auth";
 import StatusPicker from "./StatusPicker";
+import PremiumBadge from "./premium/PremiumBadge";
 import CustomStatusEditor from "./status/CustomStatusEditor";
 import CustomStatusBadge from "./status/CustomStatusBadge";
 import { useChatStore } from "../store/chat";
@@ -158,6 +159,7 @@ export default function AppNav() {
               <UserAvatar username={user.username} avatarUrl={user.avatar_url} size="sm" userId={user.id} />
               <span className={s.profileName}>
                 <CustomStatusBadge userId={user.id} compact /> {displayName(user)}
+                {user.is_premium && <PremiumBadge size={11} />}
               </span>
             </button>
             {statusOpen &&

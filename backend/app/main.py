@@ -17,9 +17,11 @@ from app.core.config import settings
 from app.core.database import AsyncSessionLocal, Base, engine
 from app.core.legacy_usernames import migrate_legacy_usernames
 from app.core.legacy_avatars import migrate_legacy_avatar_urls
-from app.models import Attachment, Call, PushSubscription, Star  # noqa: F401 — register tables for create_all
+from app.models import Attachment, Call, PushSubscription, Star  # noqa: F401
+from app.models.premium import PremiumGrant  # noqa: F401 — register the table for create_all
 from app.api.auth import router as auth_router
 from app.api.device_pairing import router as device_pairing_router
+from app.api.premium import router as premium_router
 from app.api.connection_check import router as connection_check_router
 from app.api.phone_verification import router as phone_verification_router
 from app.api.phone_reminders import router as phone_reminders_router
@@ -332,6 +334,8 @@ async def lifespan(app: FastAPI):
         await conn.execute(text("ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS password_reset_at TIMESTAMP WITH TIME ZONE"))
         await conn.execute(text("ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS password_reset_by_id VARCHAR(36) REFERENCES users(id) ON DELETE SET NULL"))
         await conn.execute(text("ALTER TABLE device_sessions ADD COLUMN IF NOT EXISTS e2e_public_key VARCHAR(128)"))
+        await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS premium_kind VARCHAR(16)"))
+        await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS premium_until TIMESTAMP WITH TIME ZONE"))
         # Новости об обновлениях публикуются после одобрения; прежние уже разосланы.
         for column in ("status VARCHAR(16) NOT NULL DEFAULT 'published'", "title TEXT", "changes JSON", "versions JSON",
                        "revision INTEGER NOT NULL DEFAULT 0", "updated_at TIMESTAMP WITH TIME ZONE",
@@ -381,6 +385,7 @@ app.add_middleware(SecurityHeadersMiddleware)
 
 app.include_router(auth_router)
 app.include_router(device_pairing_router)
+app.include_router(premium_router)
 app.include_router(connection_check_router)
 app.include_router(phone_verification_router)
 app.include_router(phone_reminders_router)

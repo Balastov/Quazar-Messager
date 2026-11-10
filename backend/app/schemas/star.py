@@ -215,6 +215,7 @@ class StarUserOut(BaseModel):
     pseudonym_star_id: str | None = None
     pseudonym_version: int = 0
     avatar_url: str | None
+    is_premium: bool = False
 
 
 class StarMemberOut(BaseModel):
@@ -484,7 +485,8 @@ class StarBanOut(BaseModel):
 
 
 class StarLimitsOut(BaseModel):
-    max_owned_stars: int
+    # Своё ограничение: 2 без Premium, 3 в пробном, 5 с Premium; None — без ограничения.
+    max_owned_stars: int | None
     owned_stars: int
     max_star_members: int
     gaming_max_satellites: int

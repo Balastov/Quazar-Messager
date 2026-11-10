@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useState } from "react";
+import PremiumBadge from "../premium/PremiumBadge";
 import { starsApi, type StarDetail, type StarMember } from "../../api/stars";
 import { useAuthStore } from "../../store/auth";
 import { useChatStore } from "../../store/chat";
@@ -133,6 +134,7 @@ export default function MembersPanel({ detail, onClose, fullscreen = false }: Pr
                   <div className={s.memberMain}>
                     <span className={s.memberName} style={{ color: memberColor(detail, member.user.id) }}>
                       {displayName(member.user)}
+                      {member.user.is_premium && <PremiumBadge size={13} />}
                       {isMe ? " (вы)" : ""}
                       {member.role !== "member" && (
                         <>

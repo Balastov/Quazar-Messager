@@ -6,6 +6,8 @@ import { activityTracker, IDLE_MINUTES_OPTIONS, systemIdleSupported } from "../.
 import { displayName } from "../../utils/profile";
 import { formatRuPhoneDisplay } from "../../utils/phone";
 import UserAvatar from "../UserAvatar";
+import PremiumBadge from "../premium/PremiumBadge";
+import PremiumStatus from "../premium/PremiumStatus";
 import ProfileEditor from "../profile/ProfileEditor";
 import StatusPicker from "../StatusPicker";
 import CustomStatusEditor from "../status/CustomStatusEditor";
@@ -33,11 +35,19 @@ export default function ProfileSection() {
         <div className={s.profileRow}>
           <UserAvatar username={displayName(user)} avatarUrl={user.avatar_url} size="lg" />
           <div className={s.meta}>
-            <div className={s.name}>{displayName(user)}</div>
+            <div className={s.name}>
+              {displayName(user)}
+              {user.is_premium && <PremiumBadge size={16} />}
+            </div>
             <div className={s.phone}>
               @{user.username} · {formatRuPhoneDisplay(user.phone)}
               {user.phone_discoverable === false && " · скрыт"}
             </div>
+            {user.premium?.active && (
+              <button type="button" className={s.premiumLine} onClick={() => useUiStore.getState().setSettingsSection("premium")}>
+                <PremiumStatus state={user.premium} />
+              </button>
+            )}
           </div>
         </div>
         <p className={s.hint}>Фото: JPEG, PNG, WebP или GIF, не больше 3 МБ.</p>

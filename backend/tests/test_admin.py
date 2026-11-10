@@ -13,7 +13,7 @@ from app.api import moderation as moderation_api
 from app.api import stars as api
 from app.core import deps
 from app.core.security import create_access_token, hash_password
-from app.core.stars import MAX_OWNED_STARS
+from app.core.premium import FREE_STARS as MAX_OWNED_STARS
 from app.models.user import User
 from app.schemas.star import CreateChannel, CreateStar, SendStarMessage
 from app.schemas.user import UserLogin

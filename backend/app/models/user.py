@@ -48,6 +48,10 @@ class User(Base):
     custom_status: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     # Владелец ресурса: «Чёрная дыра», власть в любой Звезде, без лимитов. Никому, кроме таких же,
     # не показывается: в ответах API о других людях этого поля нет.
+    # Quazar Premium сейчас: trial / purchase / gift и до какого момента (null при виде — бессрочный).
+    # Пересчитывается из premium_grants при каждой выдаче или снятии; истечение — по premium_until.
+    premium_kind: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    premium_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     is_superuser: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     # Официальный аккаунт Квазара (Quazar_Admin_bot): зелёный значок, в поиске его нет,
     # написать ему можно только через «Обратную связь».
@@ -78,6 +82,26 @@ class User(Base):
     @property
     def display_name(self) -> str:
         return display_name(self.first_name, self.last_name, self.username)
+
+    @property
+    def premium_active(self) -> bool:
+        """Quazar Premium действует сейчас; у суперпользователей — всегда (бессрочно)."""
+        if self.is_superuser:
+            return True
+        if not self.premium_kind:
+            return False
+        return self.premium_until is None or self.premium_until > datetime.now(timezone.utc)
+
+    @property
+    def is_premium(self) -> bool:
+        return self.premium_active and not self.is_official
+
+    @property
+    def premium_state(self) -> dict:
+        from app.core.premium import state
+
+        current = state(self)
+        return {"active": current.active, "kind": current.kind, "forever": current.forever, "until": current.until}
 
 
 class UserIdentity(Base):

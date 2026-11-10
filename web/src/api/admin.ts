@@ -17,6 +17,7 @@ export interface AdminStats {
   news_drafts?: number;
 }
 
+export type AdminPremiumKind = "trial" | "purchase" | "gift" | "superuser";
 export type AdminNewsStatus = "draft" | "published" | "skipped" | "merged";
 export interface AdminNews {
   version: string;
@@ -48,6 +49,10 @@ export interface AdminUser {
   created_at: string | null;
   last_seen_at: string | null;
   is_superuser: boolean;
+  /** Quazar Premium: trial / purchase / gift / superuser; null — нет. */
+  premium_kind?: AdminPremiumKind | null;
+  /** До какого момента; null при активном — бессрочный. */
+  premium_until?: string | null;
   blocked_at: string | null;
   blocked_reason: string | null;
   online: boolean;
@@ -118,6 +123,10 @@ export const adminApi = {
   unblock: (userId: string) => http.delete<AdminUser>(`/admin/users/${userId}/block`).then((r) => r.data),
   grant: (userId: string) => http.put<AdminUser>(`/admin/users/${userId}/superuser`).then((r) => r.data),
   revoke: (userId: string) => http.delete<AdminUser>(`/admin/users/${userId}/superuser`).then((r) => r.data),
+  /** months: null — бессрочный. */
+  grantPremium: (userId: string, months: number | null) =>
+    http.put<AdminUser>(`/admin/users/${userId}/premium`, { months }).then((r) => r.data),
+  revokePremium: (userId: string) => http.delete<AdminUser>(`/admin/users/${userId}/premium`).then((r) => r.data),
   stars: (q: string) => http.get<AdminStar[]>("/admin/stars", { params: { q } }).then((r) => r.data),
   reports: (status: "open" | "all") =>
     http.get<AdminReport[]>("/admin/reports", { params: { status } }).then((r) => r.data),

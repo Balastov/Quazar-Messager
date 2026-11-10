@@ -2,6 +2,8 @@ import { useState } from "react";
 import type { StarKind } from "../../api/stars";
 import { useStarsStore } from "../../store/stars";
 import Dialog from "./Dialog";
+import PremiumUpsell from "../premium/PremiumUpsell";
+import { ownStars } from "../premium/premiumText";
 import { apiError } from "./rules";
 import s from "./Constellation.module.css";
 
@@ -30,7 +32,8 @@ export default function CreateStarDialog({ onClose }: Props) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const limitReached = !!limits && limits.owned_stars >= limits.max_owned_stars;
+  const refreshLimits = useStarsStore((st) => st.refreshLimits);
+  const limitReached = !!limits && limits.max_owned_stars !== null && limits.owned_stars >= limits.max_owned_stars;
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -52,10 +55,11 @@ export default function CreateStarDialog({ onClose }: Props) {
       {limitReached ? (
         <>
           <p className={s.hint}>
-            Вы уже создали {limits.max_owned_stars} Звезды — это максимум. Чтобы создать новую,
-            удалите одну из своих или передайте её другому участнику (Настройки Звезды →
-            «Звезда»).
+            У вас уже {ownStars(limits.owned_stars)} из {limits.max_owned_stars} возможных. Чтобы
+            создать новую, подключите Quazar Premium — или удалите одну из своих Звёзд либо
+            передайте её другому участнику (Настройки Звезды → «Звезда»).
           </p>
+          <PremiumUpsell onUpgraded={() => void refreshLimits()} onOpenSettings={onClose} />
           <button type="button" className={s.secondary} onClick={onClose}>
             Понятно
           </button>
@@ -94,7 +98,10 @@ export default function CreateStarDialog({ onClose }: Props) {
           <p className={`${s.hint} ${s.warn}`}>Тип Звезды потом не сменить.</p>
           {limits && (
             <p className={s.hint}>
-              Создано {limits.owned_stars} из {limits.max_owned_stars}. В одной Звезде — до{" "}
+              {limits.max_owned_stars === null
+                ? `Своих Звёзд: ${limits.owned_stars}, без ограничения.`
+                : `Создано ${limits.owned_stars} из ${limits.max_owned_stars}.`}{" "}
+              В одной Звезде — до{" "}
               {limits.max_star_members} участников.
             </p>
           )}

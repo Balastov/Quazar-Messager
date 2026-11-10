@@ -209,6 +209,7 @@ async def run_due_workflows(db: AsyncSession, now: datetime | None = None) -> in
 async def run_forever(session_factory: async_sessionmaker) -> None:
     from app.core.room_activities import tick as room_activities_tick
     from app.core.news import send_pending as send_release_news
+    from app.core.premium import remind as remind_premium_trials
     from app.core.device_pairing import cleanup as cleanup_pairings
     from app.core.device_sessions import cleanup as cleanup_device_sessions
     while True:
@@ -222,6 +223,7 @@ async def run_forever(session_factory: async_sessionmaker) -> None:
             sweep_temporary_planets,
             booking_tick,
             run_due_workflows,
+            remind_premium_trials,
             send_release_news,
             cleanup_pairings,
             cleanup_device_sessions,

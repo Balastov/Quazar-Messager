@@ -5,6 +5,7 @@ import { DEFAULT_GLASS_TRANSPARENCY } from "../styles/glass";
 export type AppTab = "contacts" | "chats" | "stars" | "calls" | "settings" | "blackhole";
 export type SettingsSection =
   | "profile"
+  | "premium"
   | "account"
   | "appearance"
   | "notifications"

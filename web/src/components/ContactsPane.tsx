@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import PremiumBadge from "./premium/PremiumBadge";
 import { usersApi } from "../api/users";
 import type { User } from "../api/types";
 import { useAuthStore } from "../store/auth";
@@ -121,6 +122,7 @@ export default function ContactsPane() {
       username: (other && phonebookNames[other.id]) || displayName(other) || "Неизвестный",
       avatar_url: other?.avatar_url ?? null,
       phone: other?.phone ?? null,
+      premium: !!other?.is_premium,
     };
   };
 
@@ -385,6 +387,7 @@ export default function ContactsPane() {
                 <div className={s.nameRow}>
                   <span className={hasUnread ? s.nameUnread : s.name}>{displayName(peer)}</span>
                   {(chat.type === "support" || chat.type === "news") && <OfficialBadge />}
+                  {chat.type === "direct" && "premium" in peer && peer.premium && <PremiumBadge />}
                   {chat.type === "direct" && <CustomStatusBadge userId={peer.id} compact />}
                   {quiet && (
                     <span title="Уведомления выключены" aria-label="Уведомления выключены">

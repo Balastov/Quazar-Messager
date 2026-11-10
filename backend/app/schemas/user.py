@@ -109,12 +109,24 @@ class UserOut(BaseModel):
     created_at: datetime
     # Официальный аккаунт Квазара — зелёный значок рядом с именем.
     is_official: bool = False
+    # Quazar Premium — зелёная звезда-контур рядом с именем, видна всем.
+    is_premium: bool = False
 
     model_config = {"from_attributes": True}
 
 
+class PremiumOut(BaseModel):
+    active: bool
+    # trial — пробный, purchase — купленный, gift — выдан, superuser — у владельцев ресурса.
+    kind: str | None = None
+    # Бессрочный.
+    forever: bool = False
+    until: datetime | None = None
+
+
 class MeOut(UserOut):
     phone: str
+    premium: PremiumOut | None = Field(default=None, validation_alias="premium_state")
     phone_verified_at: datetime | None = None
     password_login_allowed: bool = False
     email: str | None = None

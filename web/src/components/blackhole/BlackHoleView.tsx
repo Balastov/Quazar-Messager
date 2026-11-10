@@ -7,6 +7,8 @@ import { useAdminStore } from "../../store/admin";
 import { formatWhen } from "../../chat/when";
 import { apiError } from "../constellation/rules";
 import Tickets from "./Tickets";
+import PremiumBadge from "../premium/PremiumBadge";
+import PremiumGrantDialog, { premiumLabel } from "./PremiumGrantDialog";
 import News from "./News";
 import { compareUsers } from "../../utils/profile";
 import s from "./BlackHole.module.css";
@@ -94,6 +96,7 @@ function Users({ onChange }: { onChange: () => void }) {
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState<"all" | "blocked" | "superusers">("all");
   const [users, setUsers] = useState<AdminUser[] | null>(null);
+  const [premiumFor, setPremiumFor] = useState<AdminUser | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -143,6 +146,11 @@ function Users({ onChange }: { onChange: () => void }) {
               <span className={s.name}>
                 {fullName(u) || u.username} <span className={s.nick}>@{u.username}</span>
                 {u.is_superuser && <span className={s.badge}>владелец ресурса</span>}
+                {u.premium_kind && (
+                  <span className={s.premiumBadge}>
+                    <PremiumBadge size={11} /> {premiumLabel(u)}
+                  </span>
+                )}
                 {u.blocked_at && <span className={`${s.badge} ${s.badgeDanger}`}>заблокирован</span>}
               </span>
               <span className={s.meta}>
@@ -151,6 +159,11 @@ function Users({ onChange }: { onChange: () => void }) {
               </span>
             </div>
             <div className={s.actions}>
+              {!u.is_superuser && (
+                <button type="button" className={s.btn} onClick={() => setPremiumFor(u)}>
+                  {u.premium_kind ? "Premium…" : "Выдать Premium"}
+                </button>
+              )}
               {u.id !== myId &&
                 (u.blocked_at ? (
                   <button type="button" className={s.btn} onClick={() => void act(() => adminApi.unblock(u.id))}>
@@ -198,6 +211,16 @@ function Users({ onChange }: { onChange: () => void }) {
           </div>
         ))}
         {users && users.length === 0 && <p className={s.empty}>Никого не нашлось</p>}
+        {premiumFor && (
+          <PremiumGrantDialog
+            user={premiumFor}
+            onClose={() => setPremiumFor(null)}
+            onDone={(next) => {
+              setPremiumFor(null);
+              setUsers((list) => list?.map((item) => (item.id === next.id ? next : item)) ?? list);
+            }}
+          />
+        )}
       </div>
     </>
   );

@@ -20,7 +20,7 @@ const memory = new Map<string, string>();
 vi.stubGlobal("localStorage", { getItem: (k: string) => memory.get(k) ?? null, setItem: (k: string, v: string) => void memory.set(k, v), removeItem: (k: string) => void memory.delete(k) });
 vi.mock("../../../api/devices", () => ({ devicesApi: { list: vi.fn() } }));
 // Содержимое разделов проверяется отдельно — здесь только навигация.
-for (const name of ["Profile", "Account", "Appearance", "Notifications", "Calls", "Privacy", "Security", "About"]) {
+for (const name of ["Profile", "Premium", "Account", "Appearance", "Notifications", "Calls", "Privacy", "Security", "About"]) {
   vi.doMock(`../${name}Section`, () => ({ default: () => createElement("p", null, `content:${name}`) }));
 }
 const { devicesApi } = await import("../../../api/devices");

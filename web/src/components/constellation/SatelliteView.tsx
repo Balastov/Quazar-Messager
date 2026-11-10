@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import PremiumBadge from "../premium/PremiumBadge";
 import {
   starsApi,
   type StarAsset,
@@ -967,6 +968,7 @@ export function SatelliteMessage({
           <span className={s.messageAuthor} style={color ? { color } : undefined}>
             {msg.kind === "bot" ? (msg.bot_name ?? "Интеграция") : (displayName(msg.sender) ?? "Бывший участник")}
           </span>
+          {msg.kind !== "bot" && msg.sender?.is_premium && <PremiumBadge size={13} />}
           {msg.kind === "bot" && <span className={w.botBadge}>{msg.bot_kind === "workflow" ? "сценарий" : "бот"}</span>}
           {external && (
             <span className={w.botBadge} title="Участник другой Звезды общего Спутника">

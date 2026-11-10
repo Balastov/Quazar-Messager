@@ -184,6 +184,19 @@ export interface User {
   created_at: string;
   /** Официальный аккаунт Квазара (Quazar_Admin_bot) — зелёный значок у имени. */
   is_official?: boolean;
+  /** Quazar Premium — зелёная звезда-контур у имени, видна всем. */
+  is_premium?: boolean;
+  /** Только у себя: состояние Quazar Premium. */
+  premium?: PremiumState | null;
+}
+
+export interface PremiumState {
+  active: boolean;
+  /** trial — пробный, purchase — купленный, gift — выдан, superuser — у владельцев ресурса. */
+  kind: "trial" | "purchase" | "gift" | "superuser" | null;
+  /** Бессрочный. */
+  forever: boolean;
+  until: string | null;
 }
 
 export interface ChatMember {

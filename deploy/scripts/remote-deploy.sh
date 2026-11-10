@@ -126,11 +126,11 @@ for attempt in {1..30}; do
   sleep 2
 done
 if [[ "$ready" != true ]]; then
-  echo "Deployment did not become ready; release news will not be queued." >&2
+  echo "Deployment did not become ready; release news will not be saved." >&2
   exit 1
 fi
 
-echo "==> Queueing release news..."
+echo "==> Saving the release news draft for approval in the Black Hole..."
 release_version=$(python3 -c 'import json; print(json.load(open("web/package.json"))["version"])')
 docker compose -f docker-compose.prod.yml --env-file .env.prod exec -T backend \
   python -m app.release_news --expected-version "$release_version" < deploy/release-notes.json

@@ -1,7 +1,7 @@
 from app.models.chat import Chat, ChatMember
 from app.models.device import DevicePairing, DevicePairLimit, DeviceSession
 from app.models.connection_check import ConnectionCheck
-from app.models.news import NewsDelivery, NewsInbox, NewsRelease
+from app.models.news import NewsDelivery, NewsInbox, NewsNotice, NewsRelease
 from app.models.room_activity import RoomActivity, RoomVideo
 from app.models.message import (
     HiddenMessage,
@@ -47,6 +47,7 @@ from app.models.star import (
 )
 
 __all__ = [
+    "NewsNotice",
     "NewsRelease",
     "NewsDelivery",
     "NewsInbox",

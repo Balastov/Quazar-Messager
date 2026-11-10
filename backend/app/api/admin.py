@@ -4,6 +4,7 @@
 Роль владельца ресурса видят и назначают только сами владельцы.
 """
 
+import uuid
 from datetime import datetime, timezone
 from typing import Annotated, Literal
 
@@ -12,12 +13,13 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core import presence, support, voice
+from app.core import news, presence, support, voice
 from app.core.database import get_db
 from app.core.deps import get_superuser
 from app.models.chat import Chat
 from app.models.message import Message
 from app.models.moderation import UserReport
+from app.models.news import NewsDelivery, NewsRelease
 from app.models.star import Star, StarMember, StarMessage
 from app.models.user import User
 from app.ws.hub import manager
@@ -68,6 +70,8 @@ class StatsOut(BaseModel):
     open_reports: int
     # Обращения в поддержку, которые ещё никто не взял.
     queued_tickets: int = 0
+    # Новости об обновлениях, которые ждут одобрения.
+    news_drafts: int = 0
 
 
 @router.get("/me", response_model=StatsOut)
@@ -95,6 +99,7 @@ async def admin_me(me: Super, db: Db):
         messages_today=messages + star_messages,
         open_reports=reports,
         queued_tickets=await support.queued_count(db),
+        news_drafts=(await count(select(func.count()).select_from(NewsRelease).where(NewsRelease.status == "draft"))).scalar_one(),
     )
 
 
@@ -290,3 +295,99 @@ async def resolve_report(report_id: str, me: Super, db: Db):
     await db.commit()
     if not result.rowcount:
         raise HTTPException(status_code=404, detail="Жалоба не найдена или уже разобрана")
+
+
+# --- Новости об обновлениях ------------------------------------------------------------
+
+
+class AdminNewsOut(BaseModel):
+    version: str
+    status: str
+    title: str | None
+    changes: list[str] | None
+    versions: list[str]
+    payload: str
+    revision: int
+    created_at: datetime | None
+    updated_at: datetime | None
+    updated_by: str | None
+    published_at: datetime | None
+    published_by: str | None
+    merged_into: str | None
+    sent: int
+    total: int
+
+
+class AdminNewsList(BaseModel):
+    items: list[AdminNewsOut]
+    # Сколько человек получит новость, если опубликовать её сейчас.
+    recipients: int
+
+
+class NewsEditBody(BaseModel):
+    title: str = Field(max_length=news.MAX_TITLE * 2)
+    changes: list[str] = Field(max_length=news.MAX_CHANGES * 2)
+    revision: int
+
+
+class NewsRevisionBody(BaseModel):
+    revision: int
+
+
+async def _news_out(db: AsyncSession, rows: list[NewsRelease]) -> list[AdminNewsOut]:
+    versions = [r.version for r in rows]
+    counts = dict.fromkeys(versions, (0, 0))
+    if versions:
+        query = (select(NewsDelivery.version, func.count(), func.count(NewsDelivery.published_at))
+                 .where(NewsDelivery.version.in_(versions)).group_by(NewsDelivery.version))
+        counts.update({v: (sent, total) for v, total, sent in (await db.execute(query)).all()})
+    people = {r.updated_by_id for r in rows} | {r.published_by_id for r in rows}
+    names = {u.id: u.username for u in (await db.execute(select(User).where(User.id.in_(people - {None})))).scalars()}
+    return [
+        AdminNewsOut(
+            version=r.version, status=r.status, title=r.title, changes=r.changes, versions=r.versions or [r.version],
+            payload=r.payload, revision=r.revision, created_at=r.created_at, updated_at=r.updated_at,
+            updated_by=names.get(r.updated_by_id), published_at=r.published_at, published_by=names.get(r.published_by_id),
+            merged_into=r.merged_into, sent=counts[r.version][0], total=counts[r.version][1],
+        )
+        for r in rows
+    ]
+
+
+@router.get("/news", response_model=AdminNewsList)
+async def list_news(me: Super, db: Db, limit: int = Query(30, ge=1, le=100)):
+    rows = (await db.execute(select(NewsRelease).order_by(NewsRelease.created_at.desc()).limit(limit))).scalars().all()
+    return AdminNewsList(items=await _news_out(db, list(rows)), recipients=await news.recipients(db))
+
+
+async def _one(db: AsyncSession, version: str) -> AdminNewsOut:
+    return (await _news_out(db, [await db.get(NewsRelease, version)]))[0]
+
+
+@router.put("/news/{version}", response_model=AdminNewsOut)
+async def edit_news(version: str, body: NewsEditBody, me: Super, db: Db):
+    await news.edit_draft(db, version, body.title, body.changes, body.revision, me.id)
+    return await _one(db, version)
+
+
+@router.post("/news/{version}/publish", response_model=AdminNewsOut)
+async def publish_news(version: str, body: NewsRevisionBody, me: Super, db: Db):
+    await news.publish(db, version, body.revision, me.id)
+    return await _one(db, version)
+
+
+@router.post("/news/{version}/skip", response_model=AdminNewsOut)
+async def skip_news(version: str, body: NewsRevisionBody, me: Super, db: Db):
+    await news.skip(db, version, body.revision, me.id)
+    return await _one(db, version)
+
+
+@router.post("/news/{version}/test", status_code=status.HTTP_204_NO_CONTENT)
+async def test_news(version: str, body: NewsEditBody, me: Super, db: Db):
+    """Пробная отправка себе: текст из редактора, даже несохранённый."""
+    title, changes = news.clean_text(body.title, body.changes)
+    if await db.get(NewsRelease, version) is None:
+        raise HTTPException(status_code=404, detail="Новость не найдена")
+    await news.notify(db, me.id, f"news-test:{version}:{me.id}:{uuid.uuid4()}",
+                      "Проба — видите только вы.\n\n" + news.compose(version, title, changes))
+    await db.commit()

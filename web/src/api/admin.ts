@@ -13,7 +13,31 @@ export interface AdminStats {
   open_reports: number;
   /** Обращения в поддержку, которые ещё никто не взял. */
   queued_tickets: number;
+  /** Новости об обновлениях, которые ждут одобрения. */
+  news_drafts?: number;
 }
+
+export type AdminNewsStatus = "draft" | "published" | "skipped" | "merged";
+export interface AdminNews {
+  version: string;
+  status: AdminNewsStatus;
+  title: string | null;
+  changes: string[] | null;
+  /** Версии, о которых рассказывает новость (несколько — объединённые черновики). */
+  versions: string[];
+  /** Текст сообщения так, как его получат люди. */
+  payload: string;
+  revision: number;
+  created_at: string | null;
+  updated_at: string | null;
+  updated_by: string | null;
+  published_at: string | null;
+  published_by: string | null;
+  merged_into: string | null;
+  sent: number;
+  total: number;
+}
+export interface NewsText { title: string; changes: string[] }
 
 export interface AdminUser {
   id: string;
@@ -76,6 +100,15 @@ export interface AdminTicketDetail extends AdminTicket {
 export type TicketFilter = "open" | "all" | TicketStatus;
 
 export const adminApi = {
+  news: () => http.get<{ items: AdminNews[]; recipients: number }>("/admin/news").then((r) => r.data),
+  editNews: (version: string, text: NewsText, revision: number) =>
+    http.put<AdminNews>(`/admin/news/${version}`, { ...text, revision }).then((r) => r.data),
+  publishNews: (version: string, revision: number) =>
+    http.post<AdminNews>(`/admin/news/${version}/publish`, { revision }).then((r) => r.data),
+  skipNews: (version: string, revision: number) =>
+    http.post<AdminNews>(`/admin/news/${version}/skip`, { revision }).then((r) => r.data),
+  /** Пробная отправка себе — текст из редактора, даже несохранённый. */
+  testNews: (version: string, text: NewsText) => http.post(`/admin/news/${version}/test`, { ...text, revision: 0 }),
   /** Сводка; 404 — не владелец ресурса. */
   me: () => http.get<AdminStats>("/admin/me").then((r) => r.data),
   users: (params: { q?: string; filter?: "all" | "blocked" | "superusers"; before?: string }) =>

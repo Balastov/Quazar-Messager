@@ -332,6 +332,13 @@ async def lifespan(app: FastAPI):
         await conn.execute(text("ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS password_reset_at TIMESTAMP WITH TIME ZONE"))
         await conn.execute(text("ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS password_reset_by_id VARCHAR(36) REFERENCES users(id) ON DELETE SET NULL"))
         await conn.execute(text("ALTER TABLE device_sessions ADD COLUMN IF NOT EXISTS e2e_public_key VARCHAR(128)"))
+        # Новости об обновлениях публикуются после одобрения; прежние уже разосланы.
+        for column in ("status VARCHAR(16) NOT NULL DEFAULT 'published'", "title TEXT", "changes JSON", "versions JSON",
+                       "revision INTEGER NOT NULL DEFAULT 0", "updated_at TIMESTAMP WITH TIME ZONE",
+                       "updated_by_id VARCHAR(36) REFERENCES users(id) ON DELETE SET NULL",
+                       "published_at TIMESTAMP WITH TIME ZONE",
+                       "published_by_id VARCHAR(36) REFERENCES users(id) ON DELETE SET NULL", "merged_into VARCHAR(32)"):
+            await conn.execute(text(f"ALTER TABLE news_releases ADD COLUMN IF NOT EXISTS {column}"))
         await conn.execute(text("ALTER TABLE device_sessions ADD COLUMN IF NOT EXISTS e2e_reported_at TIMESTAMP WITH TIME ZONE"))
         # Владельцы ресурса из окружения сервера.
         names = [n.strip().lower() for n in settings.SUPERUSER_BOOTSTRAP.split(",") if n.strip()]

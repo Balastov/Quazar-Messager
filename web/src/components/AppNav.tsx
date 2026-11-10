@@ -84,6 +84,7 @@ export default function AppNav() {
   }, [statusOpen]);
 
   const isSuper = useAdminStore((st) => st.isSuper);
+  const newsDrafts = useAdminStore((st) => st.newsDrafts);
   const items = isSuper ? [...ITEMS, BLACK_HOLE] : ITEMS;
   // Всего непрочитанных — на значке «Чат». Чаты с выключенными уведомлениями не считаем.
   const unreadCounts = useUnreadStore((st) => st.counts);
@@ -113,6 +114,9 @@ export default function AppNav() {
         >
           <span className={s.iconWrap}>
             <Icon size={variant === "side" ? 22 : 20} />
+            {id === "blackhole" && newsDrafts > 0 && (
+              <span className={s.attentionDot} aria-label="Новость ждёт одобрения" title="Новость об обновлении ждёт одобрения" />
+            )}
             {id === "chats" && totalUnread > 0 && (
               <span className={s.unreadBadge} aria-hidden>
                 {totalUnread > 99 ? "99+" : totalUnread}

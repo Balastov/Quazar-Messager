@@ -3,13 +3,15 @@ import { adminApi, type AdminReport, type AdminStar, type AdminStats, type Admin
 import { useStarsStore } from "../../store/stars";
 import { useUiStore } from "../../store/ui";
 import { useAuthStore } from "../../store/auth";
+import { useAdminStore } from "../../store/admin";
 import { formatWhen } from "../../chat/when";
 import { apiError } from "../constellation/rules";
 import Tickets from "./Tickets";
+import News from "./News";
 import { compareUsers } from "../../utils/profile";
 import s from "./BlackHole.module.css";
 
-type Section = "users" | "stars" | "reports" | "tickets";
+type Section = "users" | "stars" | "reports" | "tickets" | "news";
 
 const REASON: Record<string, string> = { spam: "Спам", abuse: "Оскорбления", fraud: "Мошенничество", other: "Другое" };
 
@@ -21,7 +23,13 @@ export default function BlackHoleView() {
   const [stats, setStats] = useState<AdminStats | null>(null);
 
   const reloadStats = useCallback(() => {
-    void adminApi.me().then(setStats).catch(() => {});
+    void adminApi
+      .me()
+      .then((value) => {
+        setStats(value);
+        useAdminStore.getState().setStats(value);
+      })
+      .catch(() => {});
   }, []);
   useEffect(reloadStats, [reloadStats]);
 
@@ -43,6 +51,7 @@ export default function BlackHoleView() {
           <Stat label="Сообщений сегодня" value={stats.messages_today} />
           <Stat label="Жалоб ждёт" value={stats.open_reports} warn={stats.open_reports > 0} />
           <Stat label="Обращений в очереди" value={stats.queued_tickets} warn={stats.queued_tickets > 0} />
+          <Stat label="Новостей ждут одобрения" value={stats.news_drafts ?? 0} warn={!!stats.news_drafts} />
         </div>
       )}
       <nav className={s.tabs}>
@@ -52,6 +61,7 @@ export default function BlackHoleView() {
             ["stars", "Звёзды"],
             ["reports", `Жалобы${stats?.open_reports ? ` · ${stats.open_reports}` : ""}`],
             ["tickets", `Обращения${stats?.queued_tickets ? ` · ${stats.queued_tickets}` : ""}`],
+            ["news", `Новости${stats?.news_drafts ? ` · ${stats.news_drafts}` : ""}`],
           ] as const
         ).map(([id, label]) => (
           <button key={id} type="button" className={section === id ? `${s.tab} ${s.tabOn}` : s.tab} onClick={() => setSection(id)}>
@@ -64,6 +74,7 @@ export default function BlackHoleView() {
         {section === "stars" && <Stars />}
         {section === "reports" && <Reports onChange={reloadStats} />}
         {section === "tickets" && <Tickets onChange={reloadStats} />}
+        {section === "news" && <News onChange={reloadStats} />}
       </div>
     </div>
   );

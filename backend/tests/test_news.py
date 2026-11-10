@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest import mock
 
+from fastapi import HTTPException
 from sqlalchemy import func, select, text
 
 from app.api import attachments, chats, later, messages
@@ -13,7 +14,7 @@ from app.core import news, support
 from app.core.release_notes import parse_release_notes
 from app.models.chat import Chat
 from app.models.message import Message
-from app.models.news import NewsDelivery, NewsInbox, NewsRelease
+from app.models.news import NewsDelivery, NewsInbox, NewsNotice, NewsRelease
 from app.models.notify import NotifySetting
 from app.models.user import User
 from app.schemas.chat import SetChatTtl
@@ -43,7 +44,7 @@ class ReleaseNotesTest(unittest.TestCase):
         parse_release_notes(json.loads((root / "deploy/release-notes.json").read_text()), version)
 
 
-class NewsTest(StarsTestBase):
+class NewsBase(StarsTestBase):
     async def asyncSetUp(self):
         await super().asyncSetUp()
         async with self.Session() as db:
@@ -52,9 +53,25 @@ class NewsTest(StarsTestBase):
         self.push = patcher.start()
         self.addCleanup(patcher.stop)
 
-    async def enqueue(self, value=None):
+    async def draft(self, value=None):
         async with self.Session() as db:
-            return await news.enqueue_release(db, value or notes())
+            return await news.add_draft(db, value or notes())
+
+    async def row(self, version="0.20.4"):
+        async with self.Session() as db:
+            return await db.get(NewsRelease, version)
+
+    async def publish(self, version="0.20.4"):
+        row = await self.row(version)
+        async with self.Session() as db:
+            return await news.publish(db, version, row.revision, None)
+
+    async def enqueue(self, value=None):
+        """Деплой и одобрение без правок: так новость уходила раньше сразу при деплое."""
+        value = value or notes()
+        if await self.draft(value) not in ("draft", "merged", "refreshed"):
+            return 0
+        return await self.publish(value.version)
 
     async def drain(self):
         async with self.Session() as db:
@@ -68,6 +85,8 @@ class NewsTest(StarsTestBase):
         async with self.Session() as db:
             return await db.get(NewsInbox, self.users[name].id)
 
+
+class NewsTest(NewsBase):
     async def test_support_and_news_are_distinct_official_accounts(self):
         async with self.Session() as db:
             admin = await support.bot_user(db)
@@ -120,10 +139,10 @@ class NewsTest(StarsTestBase):
         async with self.Session() as db:
             self.assertIsNotNone(await db.get(NewsInbox, person_id))
 
-    async def test_same_version_cannot_be_rewritten(self):
+    async def test_published_text_is_not_rewritten_by_a_redeploy(self):
         await self.enqueue()
-        with self.assertRaises(ValueError):
-            await self.enqueue(notes(change="Другой текст"))
+        self.assertEqual(await self.draft(notes(change="Другой текст")), "exists")
+        self.assertEqual((await self.row()).payload, notes().message)
 
     async def test_new_versions_reuse_the_same_inbox(self):
         await self.enqueue()
@@ -134,13 +153,22 @@ class NewsTest(StarsTestBase):
         self.assertEqual(await self.count(Message), 12)
 
     async def test_historical_versions_and_rollbacks_do_not_start_broadcasts(self):
-        self.assertEqual(await self.enqueue(notes("0.20.3")), 0)
+        self.assertEqual(await self.draft(notes("0.20.3")), "baseline")
         self.assertEqual(await self.count(NewsRelease), 0)
         self.assertEqual(await self.enqueue(notes("0.20.6")), 6)
-        self.assertEqual(await self.enqueue(notes("0.20.5")), 0)
+        self.assertEqual(await self.draft(notes("0.20.5")), "older")
+        self.assertIsNone(await self.row("0.20.5"))
 
-    async def test_parallel_deploys_snapshot_recipients_once(self):
-        self.assertEqual(sorted(await asyncio.gather(self.enqueue(), self.enqueue())), [0, 6])
+    async def test_parallel_deploys_and_approvals_snapshot_recipients_once(self):
+        self.assertEqual(sorted(await asyncio.gather(self.draft(), self.draft())), ["draft", "refreshed"])
+        revision = (await self.row()).revision
+        async def approve():
+            async with self.Session() as db:
+                try:
+                    return await news.publish(db, "0.20.4", revision, None)
+                except HTTPException as error:
+                    return error.status_code
+        self.assertEqual(sorted(await asyncio.gather(approve(), approve())), [6, 409])
         self.assertEqual(await self.count(NewsDelivery), 6)
 
     async def test_parallel_workers_cannot_create_duplicate_messages(self):
@@ -187,3 +215,147 @@ class NewsTest(StarsTestBase):
         async with self.Session() as db:
             count = (await db.execute(select(func.count()).select_from(Message).where(Message.chat_id == mine.chat_id))).scalar_one()
         self.assertEqual(count, 2)
+
+
+class NewsReviewTest(NewsBase):
+    """Черновик ждёт одобрения в «Чёрной дыре»: никто ничего не получает, пока его не опубликуют."""
+
+    async def asyncSetUp(self):
+        await super().asyncSetUp()
+        async with self.Session() as db:
+            (await db.get(User, self.users["alice"].id)).is_superuser = True
+            await db.commit()
+
+    async def messages_of(self, name):
+        inbox = await self.inbox(name)
+        if inbox is None:
+            return []
+        async with self.Session() as db:
+            return list((await db.execute(select(Message.payload).where(Message.chat_id == inbox.chat_id)
+                                          .order_by(Message.created_at))).scalars())
+
+    async def edit(self, version="0.20.4", title="Что нового", changes=("Исправленный текст.",), revision=None):
+        revision = (await self.row(version)).revision if revision is None else revision
+        async with self.Session() as db:
+            return await news.edit_draft(db, version, title, list(changes), revision, self.users["alice"].id)
+
+    async def test_a_deploy_only_drafts_and_asks_superusers_to_review(self):
+        self.assertEqual(await self.draft(), "draft")
+        self.assertEqual(await self.count(NewsDelivery), 0)
+        self.assertEqual(await self.drain(), 1)
+        alice = await self.messages_of("alice")
+        self.assertEqual(len(alice), 1)
+        self.assertIn("Готов текст новости об обновлении Quazar 0.20.4", alice[0])
+        self.assertEqual(await self.messages_of("bob"), [])
+        # Повторный деплой той же версии не дублирует напоминание.
+        await self.draft()
+        self.assertEqual(await self.drain(), 0)
+
+    async def test_published_text_is_the_reviewed_one(self):
+        await self.draft()
+        await self.edit(title="Фото профиля", changes=["Фото сразу видно всем.", "Кнопка «Удалить фото»."])
+        # Деплой после правки не затирает её.
+        self.assertEqual(await self.draft(), "exists")
+        self.assertEqual(await self.publish(), 6)
+        await self.drain()
+        expected = "Quazar 0.20.4 · Фото профиля\n\n• Фото сразу видно всем.\n• Кнопка «Удалить фото»."
+        self.assertEqual((await self.messages_of("bob")), [expected])
+        self.assertEqual((await self.row()).status, "published")
+
+    async def test_stale_or_finished_drafts_cannot_be_changed(self):
+        await self.draft()
+        before = (await self.row()).revision
+        await self.edit()
+        with self.assertRaises(HTTPException) as caught:
+            await self.edit(changes=["Чужая правка поверх"], revision=before)
+        self.assertEqual(caught.exception.status_code, 409)
+        with self.assertRaises(HTTPException) as caught:
+            async with self.Session() as db:
+                await news.publish(db, "0.20.4", before, None)
+        self.assertEqual(caught.exception.status_code, 409)
+        await self.publish()
+        with self.assertRaises(HTTPException) as caught:
+            await self.edit()
+        self.assertEqual(caught.exception.status_code, 409)
+
+    async def test_invalid_text_is_rejected(self):
+        await self.draft()
+        for title, changes in [("", ["x"]), ("x", []), ("x", ["a\nb"]), ("x" * 101, ["y"]), ("x", ["y"] * 21)]:
+            with self.subTest(title=title[:5], changes=len(changes)), self.assertRaises(HTTPException) as caught:
+                await self.edit(title=title, changes=changes)
+            self.assertEqual(caught.exception.status_code, 422)
+
+    async def test_an_unapproved_draft_is_merged_into_the_next_release(self):
+        await self.draft()
+        await self.edit(changes=["Правка к 0.20.4."])
+        self.assertEqual(await self.draft(notes("0.20.5", "Новое в 0.20.5.")), "merged")
+        old, new = await self.row("0.20.4"), await self.row("0.20.5")
+        self.assertEqual((old.status, old.merged_into), ("merged", "0.20.5"))
+        self.assertEqual(new.versions, ["0.20.4", "0.20.5"])
+        self.assertEqual(new.changes, ["Правка к 0.20.4.", "Новое в 0.20.5."])
+        with self.assertRaises(HTTPException):
+            await self.edit()
+        self.assertEqual(await self.publish("0.20.5"), 6)
+        await self.drain()
+        bob = await self.messages_of("bob")
+        self.assertEqual(bob, ["Quazar 0.20.5 · Что нового\n\n• Правка к 0.20.4.\n• Новое в 0.20.5."])
+        review = [m for m in await self.messages_of("alice") if "0.20.5" in m and "Готов текст" in m]
+        self.assertIn("вместе с 0.20.4", review[0])
+
+    async def test_skipped_news_is_not_sent_or_merged(self):
+        await self.draft()
+        async with self.Session() as db:
+            await news.skip(db, "0.20.4", (await self.row()).revision, self.users["alice"].id)
+        self.assertEqual(await self.draft(notes("0.20.5", "Новое в 0.20.5.")), "draft")
+        self.assertEqual((await self.row("0.20.5")).changes, ["Новое в 0.20.5."])
+        self.assertEqual((await self.row("0.20.4")).status, "skipped")
+        self.assertEqual(await self.count(NewsDelivery), 0)
+
+    async def test_notices_are_sent_once_per_key(self):
+        async with self.Session() as db:
+            self.assertTrue(await news.notify(db, self.users["bob"].id, "trial-end:1", "Пробный Premium заканчивается"))
+            self.assertFalse(await news.notify(db, self.users["bob"].id, "trial-end:1", "Повтор"))
+            await db.commit()
+        self.assertEqual(await self.drain(), 1)
+        self.assertEqual(await self.drain(), 0)
+        self.assertEqual(await self.messages_of("bob"), ["Пробный Premium заканчивается"])
+        self.assertEqual(await self.count(NewsNotice), 1)
+
+
+class NewsAdminApiTest(NewsBase):
+    async def asyncSetUp(self):
+        await super().asyncSetUp()
+        import httpx
+        from app.core.database import get_db
+        from app.core.security import create_access_token
+        from app.main import app
+        async with self.Session() as db:
+            (await db.get(User, self.users["alice"].id)).is_superuser = True
+            await db.commit()
+        async def database():
+            async with self.Session() as db:
+                yield db
+        app.dependency_overrides[get_db] = database
+        self.addCleanup(app.dependency_overrides.clear)
+        self.client = httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="https://quazar-msg.ru")
+        self.addAsyncCleanup(self.client.aclose)
+        self.alice = {"Authorization": f"Bearer {create_access_token(self.users['alice'].id)}"}
+        self.bob = {"Authorization": f"Bearer {create_access_token(self.users['bob'].id)}"}
+
+    async def test_only_superusers_review_and_publish(self):
+        await self.draft()
+        self.assertEqual((await self.client.get("/admin/news", headers=self.bob)).status_code, 404)
+        listed = (await self.client.get("/admin/news", headers=self.alice)).json()
+        self.assertEqual(listed["recipients"], 6)
+        item = listed["items"][0]
+        self.assertEqual((item["version"], item["status"], item["changes"]), ("0.20.4", "draft", ["Фото профиля сразу обновляется после замены."]))
+        self.assertEqual((await self.client.get("/admin/me", headers=self.alice)).json()["news_drafts"], 1)
+        body = {"title": "Фото", "changes": ["Новый пункт."], "revision": item["revision"]}
+        self.assertEqual((await self.client.put("/admin/news/0.20.4", json=body, headers=self.bob)).status_code, 404)
+        edited = (await self.client.put("/admin/news/0.20.4", json=body, headers=self.alice)).json()
+        self.assertEqual(edited["payload"], "Quazar 0.20.4 · Фото\n\n• Новый пункт.")
+        self.assertEqual(edited["updated_by"], "alice")
+        self.assertEqual((await self.client.post("/admin/news/0.20.4/test", json=body, headers=self.alice)).status_code, 204)
+        published = (await self.client.post("/admin/news/0.20.4/publish", json={"revision": edited["revision"]}, headers=self.alice)).json()
+        self.assertEqual((published["status"], published["total"], published["published_by"]), ("published", 6, "alice"))
+        self.assertEqual((await self.client.get("/admin/me", headers=self.alice)).json()["news_drafts"], 0)

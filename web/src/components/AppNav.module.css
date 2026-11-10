@@ -213,3 +213,15 @@
   font-variant-numeric: tabular-nums;
   box-shadow: 0 0 10px rgba(52, 211, 153, 0.45);
 }
+
+/* «Чёрная дыра»: новость об обновлении ждёт одобрения. */
+.attentionDot {
+  position: absolute;
+  top: -2px;
+  right: -4px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #fbbf24;
+  box-shadow: 0 0 6px rgba(251, 191, 36, 0.7);
+}

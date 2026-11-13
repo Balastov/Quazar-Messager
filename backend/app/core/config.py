@@ -61,6 +61,7 @@ class Settings(BaseSettings):
     BITRIX24_CLIENT_SECRET: str = ""
     # Отдельный Fernet-ключ, сохраняется при каждом обновлении приложения.
     BITRIX24_TOKEN_KEY: str = ""
+    BITRIX24_PUBLIC_PREFIX: str = ""
 
     # Подтверждение телефона входящим звонком. Ключ хранится только на сервере.
     ZVONOK_API_KEY: str = ""

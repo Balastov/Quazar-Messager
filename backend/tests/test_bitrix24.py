@@ -128,6 +128,12 @@ class Bitrix24Test(StarsTestBase):
             row.expires_at = datetime.now(timezone.utc) - timedelta(seconds=1); await db.commit()
         self.assertEqual((await self.exchange(response)).status_code, 410)
 
+    async def test_pilot_redirect_stays_under_isolated_prefix(self):
+        with mock.patch.object(settings, "BITRIX24_PUBLIC_PREFIX", "/bitrix24-pilot"):
+            response = await self.launch()
+        self.assertEqual(response.status_code, 303)
+        self.assertTrue(response.headers["location"].startswith("/bitrix24-pilot/bitrix24.html?"))
+
     async def test_parallel_exchange_consumes_handoff_exactly_once(self):
         response = await self.launch()
         results = await asyncio.gather(self.exchange(response), self.exchange(response))

@@ -55,3 +55,67 @@ jobs:
             sudo -n true
             ls -ld /opt/quazar
             sudo -n nginx -T 2>/dev/null | grep -E 'server_name|listen |ssl_certificate |location |proxy_pass ' | head -100
+
+  bitrix24-pilot-deploy:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/feature/bitrix24-pilot'
+    needs: bitrix24-pilot-inspect
+    name: Deploy isolated Bitrix24 pilot
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci --prefix web
+      - run: npm test --prefix web -- src/bitrix24
+      - run: npm run build --prefix web -- --base=/bitrix24-pilot/
+      - name: Validate isolated proxy configuration
+        run: |
+          bash -n deploy/bitrix24/deploy.sh
+          python3 -B -m unittest discover -s deploy/bitrix24 -p 'test_*.py'
+          docker run --rm --add-host backend:127.0.0.1 -v "$PWD/deploy/bitrix24/nginx.conf:/etc/nginx/conf.d/default.conf:ro" nginx:1.27-alpine nginx -t
+      - name: Upload and deploy only the isolated pilot
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          BITRIX24_PILOT_CLIENT_ID: ${{ secrets.BITRIX24_PILOT_CLIENT_ID }}
+          BITRIX24_PILOT_CLIENT_SECRET: ${{ secrets.BITRIX24_PILOT_CLIENT_SECRET }}
+        run: |
+          set -euo pipefail
+          pilot_key="$RUNNER_TEMP/bitrix24-pilot-ssh"
+          pilot_credentials="$RUNNER_TEMP/bitrix24-pilot-credentials.json"
+          umask 077
+          printf '%s\n' "$DEPLOY_SSH_KEY" > "$pilot_key"
+          trap 'rm -f "$pilot_key" "$pilot_credentials"' EXIT
+          ssh_args=(-i "$pilot_key" -o BatchMode=yes -o ConnectTimeout=15 -o StrictHostKeyChecking=yes -o UserKnownHostsFile=.github/desktop-updates.known_hosts)
+          tar -czf "$RUNNER_TEMP/bitrix24-pilot.tar.gz" --exclude=__pycache__ backend/app backend/requirements.txt backend/Dockerfile web/dist docker-compose.bitrix24-pilot.yml deploy/bitrix24
+          ssh "${ssh_args[@]}" "$DEPLOY_USER@$DEPLOY_HOST" 'sudo -n install -d -o "$(id -un)" -g "$(id -gn)" /opt/quazar-bitrix24'
+          scp "${ssh_args[@]}" "$RUNNER_TEMP/bitrix24-pilot.tar.gz" "$DEPLOY_USER@$DEPLOY_HOST:/opt/quazar-bitrix24/source-$GITHUB_SHA.tar.gz"
+          python3 - "$pilot_credentials" <<'PY'
+          import json, os, sys
+          a, b = os.environ['BITRIX24_PILOT_CLIENT_ID'], os.environ['BITRIX24_PILOT_CLIENT_SECRET']
+          if bool(a) != bool(b): raise SystemExit('Configure both pilot app credentials')
+          if a:
+              with open(sys.argv[1], 'x') as f: json.dump({'BITRIX24_CLIENT_ID':a, 'BITRIX24_CLIENT_SECRET':b},f)
+          PY
+          if [[ -f "$pilot_credentials" ]]; then
+            scp "${ssh_args[@]}" "$pilot_credentials" "$DEPLOY_USER@$DEPLOY_HOST:/opt/quazar-bitrix24/.next-credentials.json"
+          fi
+          ssh "${ssh_args[@]}" "$DEPLOY_USER@$DEPLOY_HOST" "bash -s -- '$GITHUB_SHA'" <<'REMOTE'
+          set -euo pipefail
+          [[ "$1" =~ ^[0-9a-f]{40}$ ]] || exit 2
+          pilot_release="/opt/quazar-bitrix24/releases/$1"
+          mkdir -p "$pilot_release"
+          tar -xzf "/opt/quazar-bitrix24/source-$1.tar.gz" -C "$pilot_release"
+          cd "$pilot_release"
+          bash deploy/bitrix24/deploy.sh
+          rm -f "/opt/quazar-bitrix24/source-$1.tar.gz"
+          REMOTE

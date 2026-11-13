@@ -1,0 +1,49 @@
+name: quazar-bitrix24-pilot
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    mem_limit: 192m
+    environment:
+      POSTGRES_DB: quazar_bitrix24
+      POSTGRES_USER: quazar_bitrix24
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}
+    volumes:
+      - pilot_db:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U quazar_bitrix24 -d quazar_bitrix24]
+      interval: 5s
+      retries: 15
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    mem_limit: 384m
+    environment:
+      DATABASE_URL: postgresql+asyncpg://quazar_bitrix24:${POSTGRES_PASSWORD}@postgres:5432/quazar_bitrix24
+      JWT_SECRET: ${JWT_SECRET:?}
+      PUBLIC_URL: https://quazar-msg.ru/bitrix24-pilot
+      CORS_ORIGINS: https://quazar-msg.ru
+      TRUST_PROXY_REAL_IP: "true"
+      BITRIX24_PORTAL_URL: https://is4business.bitrix24.ru
+      BITRIX24_CLIENT_ID: ${BITRIX24_CLIENT_ID:-}
+      BITRIX24_CLIENT_SECRET: ${BITRIX24_CLIENT_SECRET:-}
+      BITRIX24_TOKEN_KEY: ${BITRIX24_TOKEN_KEY:?}
+      BITRIX24_PUBLIC_PREFIX: /bitrix24-pilot
+    volumes:
+      - pilot_media:/app/media
+    depends_on:
+      postgres:
+        condition: service_healthy
+  web:
+    build:
+      context: .
+      dockerfile: deploy/bitrix24/Dockerfile.web
+    restart: unless-stopped
+    mem_limit: 64m
+    ports:
+      - "127.0.0.1:18084:80"
+    depends_on:
+      - backend
+volumes:
+  pilot_db:
+  pilot_media:

@@ -36,6 +36,8 @@ def require_enabled() -> None:
                 settings.BITRIX24_CLIENT_SECRET, settings.BITRIX24_TOKEN_KEY)):
         raise HTTPException(404, "Интеграция Б24 ещё не настроена")
     origin()
+    if settings.BITRIX24_PUBLIC_PREFIX and not re.fullmatch(r"/[a-z0-9-]+", settings.BITRIX24_PUBLIC_PREFIX):
+        raise HTTPException(503, "Неверно настроен адрес тестового приложения Б24")
     try:
         Fernet(settings.BITRIX24_TOKEN_KEY.encode())
     except (ValueError, TypeError):

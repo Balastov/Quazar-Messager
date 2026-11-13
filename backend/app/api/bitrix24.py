@@ -100,7 +100,7 @@ async def _launch(request: Request, db: AsyncSession, *, installing: bool):
     await db.commit()
     # Only a short-lived single-use handoff goes in the fragment, never OAuth tokens.
     query = urlencode({"DOMAIN": domain, "PROTOCOL": "1", "APP_SID": app_sid})
-    return RedirectResponse(f"/bitrix24.html?{query}#code={code}", status_code=303,
+    return RedirectResponse(f"{settings.BITRIX24_PUBLIC_PREFIX}/bitrix24.html?{query}#code={code}", status_code=303,
                             headers={"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"})
 
 

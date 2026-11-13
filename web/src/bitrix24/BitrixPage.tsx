@@ -65,7 +65,7 @@ export default function BitrixPage() {
     window.BX24.init(() => { window.BX24!.installFinish(); setInstallation(true); });
   }
   return <main className="b24-shell">
-    <header><img src="/icons/icon-192.png" width="48" height="48" alt="" /><div><h1>Квазар</h1><p>Рабочее пространство в Битрикс24</p></div></header>
+    <header><img src={`${import.meta.env.BASE_URL}icons/icon-192.png`} width="48" height="48" alt="" /><div><h1>Квазар</h1><p>Рабочее пространство в Битрикс24</p></div></header>
     {error ? <p role="alert" className="b24-error">{error}</p> : !context ? <p role="status">Проверяем запуск из Битрикс24…</p> : <>
       <section><h2>Здравствуйте, {context.display_name}</h2><p>Портал: {new URL(context.portal).hostname}</p><p>Битрикс24 подтвердил вашу учётную запись. Привязка аккаунта Квазара появится на следующем этапе пилота.</p>
         {context.mode === "install" && <button disabled={installation} onClick={finishInstallation}>{installation ? "Установка завершена" : "Завершить установку в Б24"}</button>}

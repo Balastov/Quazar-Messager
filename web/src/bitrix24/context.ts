@@ -15,7 +15,7 @@ export function launchContext(): Promise<BitrixContext> {
   window.history.replaceState(null, "", window.location.pathname + window.location.search);
   pending = (async () => {
     if (!code) throw new Error("Откройте Квазар из меню Битрикс24.");
-    const response = await fetch("/api/integrations/bitrix24/exchange", {
+    const response = await fetch(`${import.meta.env.BASE_URL}api/integrations/bitrix24/exchange`, {
       method: "POST", headers: { "Content-Type": "application/json" },
       credentials: "omit", cache: "no-store", body: JSON.stringify({ code }),
     });

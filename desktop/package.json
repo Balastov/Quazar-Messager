@@ -1,6 +1,6 @@
 {
   "name": "quazar-desktop",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "private": true,
   "description": "Quazar desktop client",
   "author": "Quazar",
@@ -47,6 +47,9 @@
       "category": "public.app-category.social-networking",
       "identity": "-",
       "notarize": false,
+      "hardenedRuntime": true,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
       "target": [
         "dmg",
         "zip"

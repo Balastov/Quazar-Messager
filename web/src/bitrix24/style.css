@@ -1,0 +1,14 @@
+:root { font-family: system-ui, sans-serif; color: #e8e5f0; background: #100e19; color-scheme: dark; }
+body { margin: 0; }
+.b24-shell { max-width: 800px; padding: 28px; margin: auto; line-height: 1.6; }
+.b24-shell header { display: flex; align-items: center; gap: 14px; margin-bottom: 28px; }
+.b24-shell h1, .b24-shell header p { margin: 0; }
+.b24-shell h1 { font-size: 26px; }
+.b24-shell h2 { font-size: 20px; }
+.b24-shell section { border-top: 1px solid #353041; padding: 16px 0 24px; }
+.b24-shell button { font: inherit; border: 1px solid #797084; background: #282234; color: inherit; padding: 9px 16px; border-radius: 8px; cursor: pointer; }
+.b24-shell button:disabled { opacity: .55; cursor: default; }
+.b24-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.b24-shell progress { width: 100%; margin-top: 18px; }
+.b24-shell a { color: #cbb6ff; }
+.b24-error { color: #ffa5a5; }

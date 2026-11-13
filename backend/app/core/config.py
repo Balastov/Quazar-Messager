@@ -55,6 +55,13 @@ class Settings(BaseSettings):
     # Публичный адрес сайта — для адресов возврата после внешнего входа.
     PUBLIC_URL: str = "https://quazar-msg.ru"
 
+    # Локальное серверное приложение Б24. Пустые настройки отключают интеграцию.
+    BITRIX24_PORTAL_URL: str = ""
+    BITRIX24_CLIENT_ID: str = ""
+    BITRIX24_CLIENT_SECRET: str = ""
+    # Отдельный Fernet-ключ, сохраняется при каждом обновлении приложения.
+    BITRIX24_TOKEN_KEY: str = ""
+
     # Подтверждение телефона входящим звонком. Ключ хранится только на сервере.
     ZVONOK_API_KEY: str = ""
     ZVONOK_CAMPAIGN_ID: str = ""

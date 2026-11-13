@@ -49,6 +49,10 @@ services:
       # Вход через Яндекс ID: ключи приложения с oauth.yandex.ru. Пусто — кнопки входа нет.
       YANDEX_CLIENT_ID: ${YANDEX_CLIENT_ID:-}
       YANDEX_CLIENT_SECRET: ${YANDEX_CLIENT_SECRET:-}
+      BITRIX24_PORTAL_URL: ${BITRIX24_PORTAL_URL:-}
+      BITRIX24_CLIENT_ID: ${BITRIX24_CLIENT_ID:-}
+      BITRIX24_CLIENT_SECRET: ${BITRIX24_CLIENT_SECRET:-}
+      BITRIX24_TOKEN_KEY: ${BITRIX24_TOKEN_KEY:-}
       PUBLIC_URL: ${PUBLIC_URL:-https://quazar-msg.ru}
       ZVONOK_API_KEY: ${ZVONOK_API_KEY:-}
       ZVONOK_CAMPAIGN_ID: ${ZVONOK_CAMPAIGN_ID:-}

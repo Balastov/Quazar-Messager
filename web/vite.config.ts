@@ -7,6 +7,14 @@ const csp =
 
 export default defineConfig({
   plugins: [react()],
+  build: {
+    rollupOptions: {
+      input: {
+        main: new URL("./index.html", import.meta.url).pathname,
+        bitrix24: new URL("./bitrix24.html", import.meta.url).pathname,
+      },
+    },
+  },
   server: {
     port: 3000,
     headers: {

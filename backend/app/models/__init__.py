@@ -1,3 +1,4 @@
+from app.models.bitrix24 import BitrixInstallation, BitrixCredential, BitrixHandoff
 from app.models.chat import Chat, ChatMember
 from app.models.device import DevicePairing, DevicePairLimit, DeviceSession
 from app.models.connection_check import ConnectionCheck

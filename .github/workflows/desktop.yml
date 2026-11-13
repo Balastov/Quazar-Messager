@@ -37,7 +37,7 @@ jobs:
       - run: pip install -r requirements.txt
         working-directory: backend
       - name: Test authentication and message receipt privacy
-        run: python -B -m unittest tests.test_oauth_yandex tests.test_phone_verification tests.test_password_recovery tests.test_device_pairing tests.test_connection_check tests.test_notification_delivery tests.test_profile tests.test_group_readers tests.test_message_status tests.test_message_actions tests.test_chat_features tests.test_news tests.test_pseudonyms
+        run: python -B -m unittest tests.test_bitrix24 tests.test_oauth_yandex tests.test_phone_verification tests.test_password_recovery tests.test_device_pairing tests.test_connection_check tests.test_notification_delivery tests.test_profile tests.test_group_readers tests.test_message_status tests.test_message_actions tests.test_chat_features tests.test_news tests.test_pseudonyms
         working-directory: backend
         env:
           TEST_DATABASE_URL: postgresql+asyncpg://quazar:quazar-test@127.0.0.1:5432/quazar_test

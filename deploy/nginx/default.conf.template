@@ -34,6 +34,16 @@ server {
 
     client_max_body_size 52m;
 
+    # Child headers intentionally replace inherited X-Frame-Options DENY here only.
+    # The web container restricts frame-ancestors to is4business.bitrix24.ru.
+    location = /bitrix24.html {
+        set $frame_upstream web;
+        proxy_pass http://$frame_upstream:80;
+        add_header X-Content-Type-Options nosniff always;
+        add_header Referrer-Policy no-referrer always;
+        add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    }
+
     location /api/ {
         set $api_upstream backend;
         rewrite ^/api/(.*)$ /$1 break;

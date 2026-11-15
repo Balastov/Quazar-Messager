@@ -72,6 +72,44 @@ class PublicationTest(unittest.TestCase):
         (stage / "publication.json").write_text(json.dumps(manifest))
         with self.assertRaises(ValueError): publisher.publish(stage, self.root)
 
+    def add_android(self, stage, version, content=b"apk"):
+        manifest = json.loads((stage / "publication.json").read_text())
+        source = stage / "quazar-desktop-android"
+        source.mkdir()
+        feed = json.dumps({"version": version, "versionCode": 1}).encode()
+        for filename, body in [(f"Quazar-{version}-android.apk", content), ("latest.json", feed)]:
+            (source / filename).write_bytes(body)
+            manifest["channels"].setdefault("android", []).append({"name": filename, "sha256": hashlib.sha256(body).hexdigest()})
+        (stage / "publication.json").write_text(json.dumps(manifest))
+        return stage
+
+    def test_publishes_the_android_channel_with_the_desktop_ones(self):
+        publisher.publish(self.add_android(self.stage("1.3.0"), "1.3.0"), self.root)
+        self.assertEqual(json.loads((self.root / "android" / "latest.json").read_text())["version"], "1.3.0")
+        self.assertEqual((self.root / "android" / "Quazar-1.3.0-android.apk").read_bytes(), b"apk")
+        # Выпуск без Android не трогает его канал.
+        publisher.publish(self.stage("1.3.1", suffix="two"), self.root)
+        self.assertEqual(json.loads((self.root / "android" / "latest.json").read_text())["version"], "1.3.0")
+
+    def test_android_feed_rejects_downgrades_and_foreign_files(self):
+        publisher.publish(self.add_android(self.stage("1.3.0"), "1.3.0"), self.root)
+        with self.assertRaises(ValueError):
+            publisher.publish(self.add_android(self.stage("1.3.0", suffix="two"), "1.2.0"), self.root)
+        stage = self.add_android(self.stage("1.4.0", suffix="three"), "1.4.0")
+        manifest = json.loads((stage / "publication.json").read_text())
+        manifest["channels"]["android"][0]["name"] = "evil.apk"
+        (stage / "quazar-desktop-android" / "Quazar-1.4.0-android.apk").rename(stage / "quazar-desktop-android" / "evil.apk")
+        (stage / "publication.json").write_text(json.dumps(manifest))
+        with self.assertRaises(ValueError): publisher.publish(stage, self.root)
+        self.assertEqual(json.loads((self.root / "android" / "latest.json").read_text())["version"], "1.3.0")
+
+    def test_rejects_unknown_channel(self):
+        stage = self.stage("0.20.0")
+        manifest = json.loads((stage / "publication.json").read_text())
+        manifest["channels"]["linux"] = manifest["channels"]["win-x64"]
+        (stage / "publication.json").write_text(json.dumps(manifest))
+        with self.assertRaises(ValueError): publisher.publish(stage, self.root)
+
     def downloadable(self):
         stage = self.stage("0.20.0")
         manifest = json.loads((stage / "publication.json").read_text())

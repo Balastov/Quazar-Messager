@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="ic_launcher_background">#05040B</color>
+    <!-- Фон приложения, пока грузится веб-часть, и под системными панелями. -->
+    <color name="quazar_background">#0F1117</color>
+</resources>

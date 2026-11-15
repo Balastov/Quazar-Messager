@@ -56,12 +56,16 @@ jobs:
               throw new Error('The source desktop build is not the expected successful push workflow');
             }
             const artifacts = await github.paginate(github.rest.actions.listWorkflowRunArtifacts, { owner, repo, run_id: candidate.run_id });
-            for (const name of ['quazar-desktop-win-x64', 'quazar-desktop-mac-arm64', 'quazar-desktop-mac-x64']) {
+            const required = ['quazar-desktop-win-x64', 'quazar-desktop-mac-arm64', 'quazar-desktop-mac-x64'];
+            // Приложение для Android — когда оно заявлено в выпуске.
+            if (candidate.android === true) required.push('quazar-desktop-android');
+            for (const name of required) {
               const matches = artifacts.filter(item => item.name === name && !item.expired);
               if (matches.length !== 1) throw new Error(`Missing or ambiguous artifact: ${name}`);
             }
             core.setOutput('run-id', String(candidate.run_id));
             core.setOutput('version', candidate.version);
+            core.setOutput('android', candidate.android === true ? 'true' : 'false');
       - uses: actions/download-artifact@v4
         with:
           pattern: quazar-desktop-*
@@ -83,7 +87,8 @@ jobs:
             core.setOutput('exists', release ? 'true' : 'false');
             const plan = JSON.parse(fs.readFileSync('desktop-release-assets/release-plan.json', 'utf8'));
             if (!release) {
-              const extra = plan.filter(item => !['SHA256SUMS.txt', ...['win-x64.exe', 'mac-arm64.dmg', 'mac-x64.dmg'].map(suffix => `Quazar-${{ steps.candidate.outputs.version }}-${suffix}`)].includes(item.name));
+              const created = ['win-x64.exe', 'mac-arm64.dmg', 'mac-x64.dmg', ...('${{ steps.candidate.outputs.android }}' === 'true' ? ['android.apk'] : [])];
+              const extra = plan.filter(item => !['SHA256SUMS.txt', ...created.map(suffix => `Quazar-${{ steps.candidate.outputs.version }}-${suffix}`)].includes(item.name));
               fs.writeFileSync('desktop-release-assets/missing-assets.txt', extra.map(item => item.path).join('\n'));
               core.setOutput('missing', String(extra.length)); return;
             }
@@ -100,11 +105,15 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.candidate.outputs.version }}
+          ANDROID: ${{ steps.candidate.outputs.android }}
         run: |
+          android=()
+          if [ "$ANDROID" = "true" ]; then android=("desktop-release-assets/quazar-desktop-android/Quazar-${VERSION}-android.apk"); fi
           gh release create "$RELEASE_TAG" \
             "desktop-release-assets/quazar-desktop-win-x64/Quazar-${VERSION}-win-x64.exe" \
             "desktop-release-assets/quazar-desktop-mac-arm64/Quazar-${VERSION}-mac-arm64.dmg" \
             "desktop-release-assets/quazar-desktop-mac-x64/Quazar-${VERSION}-mac-x64.dmg" \
+            "${android[@]}" \
             desktop-release-assets/SHA256SUMS.txt \
             --repo "$GITHUB_REPOSITORY" \
             --title "Quazar Desktop ${VERSION} — тестовая версия" \

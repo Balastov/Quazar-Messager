@@ -10,6 +10,8 @@ import { applyGlassTransparency } from "./styles/glass";
 import "./index.css";
 import { startDesktop } from "./platform/bootstrap";
 import DesktopUpdates from "./components/DesktopUpdates";
+import AndroidUpdates from "./components/AndroidUpdates";
+import Quiet from "./components/Quiet";
 import { DesktopDownloads } from "./components/DesktopDownload";
 
 applyGlassTransparency(useUiStore.getState().glassTransparency);
@@ -28,6 +30,7 @@ createRoot(document.getElementById("root")!).render(
     <DesktopDownloads>
       <App />
       <DesktopUpdates />
+      <Quiet><AndroidUpdates /></Quiet>
     </DesktopDownloads>
   </StrictMode>
 );

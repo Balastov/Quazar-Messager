@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Quazar</string>
+    <string name="title_activity_main">Quazar</string>
+    <string name="package_name">ru.quazarmsg.app</string>
+    <string name="custom_url_scheme">ru.quazarmsg.app</string>
+</resources>

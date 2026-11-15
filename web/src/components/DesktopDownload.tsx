@@ -2,7 +2,8 @@ import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 
 import { createPortal } from "react-dom";
 import { MonitorDown, Smartphone, X } from "lucide-react";
 import { desktop } from "../platform/desktop";
-import { DESKTOP_INSTALLERS, DOWNLOAD_OFFER_DELAY, DOWNLOAD_PROMPT_KEY, detectDownloadOS,
+import { androidShell } from "../platform/android";
+import { ANDROID_RELEASE, androidApkUrl, DESKTOP_INSTALLERS, DOWNLOAD_OFFER_DELAY, DOWNLOAD_PROMPT_KEY, detectDownloadOS,
   downloadPreference, parseDownloadPreference, type DownloadAnswer, type DownloadOS, type DownloadPreference } from "../platform/desktopDownloads";
 import { useAuthStore } from "../store/auth";
 import { useCallStore } from "../store/call";
@@ -17,7 +18,8 @@ export function DesktopDownloads({ children }: { children: ReactNode }) {
   const token = useAuthStore(st => st.token);
   const call = useCallStore(st => st.phase);
   const voice = useVoiceStore(st => st.status);
-  const insideDesktop = !!desktop();
+  // Внутри приложения (для ПК или Android) скачивать уже нечего.
+  const insideDesktop = !!desktop() || !!androidShell();
   const [os] = useState(() => detectDownloadOS(navigator));
   const [mode, setMode] = useState<Mode>(null);
   const [never, setNever] = useState(false);
@@ -82,7 +84,8 @@ export function DesktopDownloads({ children }: { children: ReactNode }) {
         <p className={s.cooldown}>«Позже» — через неделю, «Не хочу» — через месяц.</p>
       </aside>, document.body)}
     {!insideDesktop && mode?.kind === "choose" && createPortal(
-      os === "mobile" ? <MobileDownloadNotice onClose={() => setMode(null)} />
+      os === "android" && ANDROID_RELEASE ? <AndroidDownload version={ANDROID_RELEASE.version} onDownload={() => answer("yes")} onClose={() => setMode(null)} />
+        : os === "mobile" || os === "android" ? <MobileDownloadNotice onClose={() => setMode(null)} />
         : <DownloadChoices os={os} never={never} onNever={setNever} onDownload={() => answer("yes")} onClose={() => answer("later")} />,
       document.body)}
   </DesktopDownloadContext.Provider>;
@@ -94,6 +97,22 @@ function MobileDownloadNotice({ onClose }: { onClose(): void }) {
       <Smartphone size={36} className={s.symbol} aria-hidden />
       <p>Мобильное приложение почти готово, ожидайте уведомление</p>
       <button type="button" className={s.primary} autoFocus onClick={onClose}>Понятно</button>
+    </div>
+  </Dialog>;
+}
+
+function AndroidDownload({ version, onDownload, onClose }: { version: string; onDownload(): void; onClose(): void }) {
+  return <Dialog title="Quazar для Android" onClose={onClose}>
+    <div className={s.choices}>
+      <p>Тестовая версия {version}. Устанавливается без магазина и сама предлагает обновиться, когда выходит новая версия.</p>
+      <a className={s.installer} href={androidApkUrl({ version })} download onClick={onDownload} autoFocus>
+        <Smartphone size={20} aria-hidden /><span>Скачать для Android</span><span aria-hidden>↓</span>
+      </a>
+      <ol className={s.steps}>
+        <li>Откройте скачанный файл Quazar-{version}-android.apk.</li>
+        <li>Если Android спросит, разрешите браузеру устанавливать приложения.</li>
+        <li>Google Play Protect может предупредить о приложении не из магазина — выберите «Всё равно установить».</li>
+      </ol>
     </div>
   </Dialog>;
 }

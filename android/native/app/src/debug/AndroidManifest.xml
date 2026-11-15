@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Только отладочная сборка: можно открыть свой сервер по http (10.0.2.2 из эмулятора).
+     В релизе незашифрованные соединения запрещены. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application android:usesCleartextTraffic="true" />
+</manifest>

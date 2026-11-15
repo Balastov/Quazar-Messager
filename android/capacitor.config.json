@@ -1,0 +1,23 @@
+{
+  "appId": "ru.quazarmsg.app",
+  "appName": "Quazar",
+  "webDir": "www",
+  "server": {
+    "url": "https://quazar-msg.ru",
+    "errorPath": "offline.html",
+    "allowNavigation": [
+      "quazar-msg.ru"
+    ]
+  },
+  "android": {
+    "path": "native",
+    "appendUserAgent": "QuazarAndroid",
+    "allowMixedContent": false,
+    "webContentsDebuggingEnabled": false
+  },
+  "plugins": {
+    "SystemBars": {
+      "style": "DARK"
+    }
+  }
+}

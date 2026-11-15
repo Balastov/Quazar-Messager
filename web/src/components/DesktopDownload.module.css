@@ -39,3 +39,5 @@
   outline: 2px solid var(--qz-online); outline-offset: 3px;
 }
 @media (max-width: 767px) { .offer { bottom: calc(88px + var(--qz-safe-bottom)); } }
+.steps { margin:0; padding-left:20px; font-size:13px; line-height:1.5; color:var(--qz-text-muted); }
+.steps li + li { margin-top:4px; }

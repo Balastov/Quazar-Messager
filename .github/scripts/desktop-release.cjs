@@ -8,11 +8,19 @@ const tag = process.env.RELEASE_TAG ?? process.env.GITHUB_REF_NAME ?? '';
 if (!/^\d+\.\d+\.\d+$/.test(candidate.version) || !/^[a-f0-9]{40}$/.test(candidate.source_sha) || !Number.isSafeInteger(candidate.run_id)) throw new Error('Invalid desktop release candidate');
 const prefix = `desktop-v${candidate.version}-pilot.`;
 if (!tag.startsWith(prefix) || !/^[1-9]\d*$/.test(tag.slice(prefix.length))) throw new Error('Tag must be desktop-v<version>-pilot.<number>');
-for (const folder of ['web', 'desktop']) {
+// Приложение для Android входит в выпуск, когда в кандидате стоит "android": true.
+const withAndroid = candidate.android === true;
+for (const folder of withAndroid ? ['web', 'desktop', 'android'] : ['web', 'desktop']) {
   if (JSON.parse(fs.readFileSync(`${folder}/package.json`, 'utf8')).version !== candidate.version) throw new Error('Release version does not match shared client version');
 }
 // Инструкции публикации могут измениться; код приложений должен совпадать с проверенным CI.
-execFileSync('git', ['diff', '--quiet', candidate.source_sha, 'HEAD', '--', 'web', 'desktop', 'backend', 'deploy', 'docker-compose.prod.yml']);
+execFileSync('git', ['diff', '--quiet', candidate.source_sha, 'HEAD', '--', 'web', 'desktop', 'android', 'backend', 'deploy', 'docker-compose.prod.yml']);
+
+/** Код версии Android: 1.3.0 → 10300 (так же считает android/native/app/build.gradle). */
+function androidVersionCode(version) {
+  const [major, minor, patch] = version.split('.').map(Number);
+  return major * 10000 + minor * 100 + patch;
+}
 
 async function prepare() {
   const root = path.resolve('desktop-release-assets');
@@ -41,6 +49,31 @@ async function prepare() {
     sha256: hashes[index].split(' ')[0], size: fs.statSync(path.join(root, `quazar-desktop-${platform}`, name)).size }));
   const checksumFile = fs.readFileSync(path.join(root, 'SHA256SUMS.txt'));
   plan.push({ name: 'SHA256SUMS.txt', path: 'desktop-release-assets/SHA256SUMS.txt', sha256: crypto.createHash('sha256').update(checksumFile).digest('hex'), size: checksumFile.length });
+  const androidName = `Quazar-${candidate.version}-android.apk`;
+  const androidFolder = path.join(root, 'quazar-desktop-android');
+  if (withAndroid) {
+    const file = path.join(androidFolder, androidName);
+    const stat = fs.lstatSync(file);
+    if (!stat.isFile() || stat.isSymbolicLink() || stat.size < 1_000_000) throw new Error(`Invalid Android package: ${androidName}`);
+    const handle = fs.openSync(file, 'r');
+    try {
+      const magic = Buffer.alloc(4);
+      fs.readSync(handle, magic, 0, 4, 0);
+      if (!magic.equals(Buffer.from([0x50, 0x4b, 0x03, 0x04]))) throw new Error('Unexpected Android package format');
+    } finally { fs.closeSync(handle); }
+    const content = fs.readFileSync(file);
+    const sha256 = crypto.createHash('sha256').update(content).digest('hex');
+    hashes.push(`${sha256}  ${androidName}`);
+    fs.writeFileSync(path.join(root, 'SHA256SUMS.txt'), hashes.join('\n') + '\n');
+    // Файл обновлений для приложения: оно скачает APK отсюда и сверит контрольную сумму.
+    const feed = { version: candidate.version, versionCode: androidVersionCode(candidate.version),
+      url: `https://quazar-msg.ru/desktop-updates/android/${androidName}`, sha256 };
+    fs.writeFileSync(path.join(androidFolder, 'latest.json'), JSON.stringify(feed, null, 2) + '\n');
+    plan.splice(files.length, 0, { name: androidName, path: path.relative(process.cwd(), file), sha256, size: content.length });
+    const sums = fs.readFileSync(path.join(root, 'SHA256SUMS.txt'));
+    const sumsEntry = plan.find(item => item.name === 'SHA256SUMS.txt');
+    sumsEntry.sha256 = crypto.createHash('sha256').update(sums).digest('hex'); sumsEntry.size = sums.length;
+  }
   const yaml = require('../../desktop/node_modules/js-yaml');
   const repo = process.env.GITHUB_REPOSITORY;
   if (!/^[\w.-]+\/[\w.-]+$/.test(repo ?? '')) throw new Error('Invalid repository');
@@ -74,10 +107,25 @@ async function prepare() {
       if (!plan.some(item => item.name === asset)) plan.push({ name: asset, path: path.relative(process.cwd(), source), sha256, size: content.length });
     }
   }
+  if (withAndroid) {
+    publication.channels.android = [];
+    for (const name of [androidName, 'latest.json']) {
+      const content = fs.readFileSync(path.join(androidFolder, name));
+      const sha256 = crypto.createHash('sha256').update(content).digest('hex');
+      const asset = name === 'latest.json' ? 'latest-android.json' : name;
+      publication.channels.android.push({ name, asset, sha256, size: content.length });
+      if (name === 'latest.json') {
+        const metadataRoot = path.join(root, 'updater-metadata'); fs.mkdirSync(metadataRoot, { recursive: true });
+        const source = path.join(metadataRoot, asset); fs.copyFileSync(path.join(androidFolder, name), source);
+        plan.push({ name: asset, path: path.relative(process.cwd(), source), sha256, size: content.length });
+      }
+    }
+  }
   fs.writeFileSync(path.join(root, 'release-plan.json'), JSON.stringify(plan));
   fs.writeFileSync(path.join(root, 'publication.json'), JSON.stringify(publication));
   fs.copyFileSync('.github/scripts/publish-desktop-updates.py', path.join(root, 'publish-desktop-updates.py'));
-  const notes = `Тестовая версия Quazar Desktop ${candidate.version} для Windows и macOS.
+  const androidLink = withAndroid ? `- [Android — APK](${base}/${androidName})\n` : '';
+  const notes = `Тестовая версия Quazar ${candidate.version} для ${withAndroid ? 'Windows, macOS и Android' : 'Windows и macOS'}.
 
 ${Array.isArray(candidate.highlights) ? candidate.highlights.map(item => `- ${item}`).join('\n') + '\n' : ''}
 
@@ -86,8 +134,8 @@ ${Array.isArray(candidate.highlights) ? candidate.highlights.map(item => `- ${it
 - [Windows x64 — установщик EXE](${base}/${files[0][1]})
 - [macOS Apple Silicon (M1 и новее) — DMG](${base}/${files[1][1]})
 - [macOS Intel — DMG](${base}/${files[2][1]})
-
-На Windows запустите EXE. На Mac откройте DMG и перенесите Quazar в «Программы».
+${androidLink}
+На Windows запустите EXE. На Mac откройте DMG и перенесите Quazar в «Программы».${withAndroid ? ' На Android откройте APK и разрешите установку; дальше приложение обновляется само.' : ''}
 
 Крестик скрывает окно; приложение продолжает работать в трее/строке меню. Для полного выхода выберите «Завершить Quazar».
 
@@ -101,7 +149,7 @@ ${Array.isArray(candidate.highlights) ? candidate.highlights.map(item => `- ${it
 Исходный коммит приложений: ${candidate.source_sha}
 `;
   fs.writeFileSync(path.join(root, 'release-notes.md'), notes);
-  console.log('Three validated desktop installers prepared for the pilot release.');
+  console.log(`Validated installers prepared for the pilot release${withAndroid ? ' (with Android)' : ''}.`);
 }
 if (process.argv[2] === 'prepare') prepare().catch(error => { console.error(error.message); process.exitCode = 1; });
 else console.log(`Validated desktop release ${tag}, CI run ${candidate.run_id}.`);

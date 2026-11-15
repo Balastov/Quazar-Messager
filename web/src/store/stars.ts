@@ -16,6 +16,7 @@ import {
   type StarMember,
   type StarMessage,
   type ScheduledStarMessage,
+  type MyStarRole,
   type StarRole,
   type StarAsset,
   type StarBooking,
@@ -37,15 +38,16 @@ import { useUiStore } from "./ui";
 import { compareUsers, displayName } from "../utils/profile";
 import { stripMarkup } from "../chat/markdown";
 
-const ROLE_RANK: Record<StarRole, number> = { member: 0, moderator: 1, admin: 2, owner: 3 };
+// Посетитель по гостевой ссылке — ниже всех: прав у него нет.
+const ROLE_RANK: Record<MyStarRole, number> = { visitor: -1, member: 0, moderator: 1, admin: 2, owner: 3 };
 const PAGE_SIZE = 50;
 
-export function roleRank(role: StarRole): number {
+export function roleRank(role: MyStarRole): number {
   return ROLE_RANK[role];
 }
 
 /** Модератор и выше: без медленного режима и без обязательного согласия с правилами. */
-export function isStaff(role: StarRole): boolean {
+export function isStaff(role: MyStarRole): boolean {
   return roleRank(role) >= ROLE_RANK.moderator;
 }
 
@@ -86,6 +88,7 @@ const REMOVED_NOTICE: Record<string, (name: string) => string> = {
   kick: (n) => `Вас исключили из Звезды «${n}»`,
   ban: (n) => `Вас заблокировали в Звезде «${n}»`,
   deleted: (n) => `Звезда «${n}» удалена`,
+  guest_link: (n) => `Гостевая ссылка в Звезду «${n}» больше не действует`,
 };
 
 interface Unread {
@@ -140,6 +143,8 @@ interface StarsState {
   mySchedule: WorkSchedule | null | undefined;
   /** Что открыто в каждой Звезде; нет записи — по умолчанию (у рабочих — карта). */
   viewByStar: Record<string, StarView>;
+  /** Показать на карте офиса эту Комнату (открыли гостевую ссылку): карта переключит этаж. */
+  mapFocus: { starId: string; channelId: string } | null;
   /** Закреплённые в Спутнике (свежие первыми); нет записи — не загружали. */
   pins: Record<string, StarMessage[]>;
   /** Закладки Спутника по порядку полосы; нет записи — не загружали. */
@@ -173,6 +178,9 @@ interface StarsState {
   /** Файл в открытый Спутник (или в открытую ветку). onProgress — доля загрузки 0…1. */
   sendFile: (file: File, opts?: { caption?: string; inThread?: boolean; onProgress?: (share: number) => void }) => Promise<void>;
   setView: (starId: string, view: StarView) => void;
+  /** Гостевая ссылка /guest/<код> под своим аккаунтом: Комната появится в приложении на срок ссылки. */
+  openGuestLink: (code: string) => Promise<void>;
+  clearMapFocus: () => void;
   /** Из уведомления: открыть Звезду на этом Спутнике. */
   openChannelLink: (starId: string, channelId: string) => Promise<void>;
   openThread: (root: StarMessage) => Promise<void>;
@@ -273,6 +281,7 @@ const initialState = {
   bookings: {} as Record<string, StarBooking[]>,
   mySchedule: undefined as WorkSchedule | null | undefined,
   viewByStar: {} as Record<string, StarView>,
+  mapFocus: null as { starId: string; channelId: string } | null,
   pins: {} as Record<string, StarMessage[]>,
   bookmarks: {} as Record<string, StarBookmark[]>,
   notesVersion: {} as Record<string, number>,
@@ -962,6 +971,29 @@ export const useStarsStore = create<StarsState>((set, get) => {
     clearReveal: () => set({ revealRequest: null }),
 
     setView: (starId, view) => set((s) => ({ viewByStar: { ...s.viewByStar, [starId]: view } })),
+
+    openGuestLink: async (code) => {
+      const claim = await starsApi.claimGuestLink(code);
+      const starId = claim.star_id;
+      useUiStore.getState().setTab("stars");
+      if (!get().loaded) await get().load().catch(() => {});
+      // Посетителя Звезда ещё не знает — карточка добавит её в список.
+      await get().refreshStar(starId);
+      const room = get().details[starId]?.channels.find((c) => c.id === claim.channel_id);
+      if (!room) return;
+      set((s) => ({
+        viewByStar: { ...s.viewByStar, [starId]: "map" },
+        mapFocus: { starId, channelId: room.id },
+        mobileChannelOpen: true,
+      }));
+      await get().selectStar(starId);
+      const until = new Date(claim.expires_at).toLocaleString("ru-RU", {
+        day: "numeric", month: "long", hour: "2-digit", minute: "2-digit",
+      });
+      set({ notice: `Комната «${room.name}» открыта по гостевой ссылке до ${until}` });
+    },
+
+    clearMapFocus: () => set({ mapFocus: null }),
 
     openChannelLink: async (starId, channelId) => {
       useUiStore.getState().setTab("stars");

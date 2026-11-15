@@ -3,15 +3,16 @@
  * Решает всё равно сервер (backend/app/core/stars.py).
  */
 import axios from "axios";
-import { avatarInitials } from "../../utils/profile";
-import type { RoomKind, StarChannel, StarDetail, StarKind, StarPerm, StarRole } from "../../api/stars";
+import { avatarInitials, displayName } from "../../utils/profile";
+import type { MyStarRole, RoomKind, StarChannel, StarDetail, StarKind, StarPerm, StarRole, VoicePresence } from "../../api/stars";
 import { roleRank } from "../../store/stars";
 
-export const ROLE_LABEL: Record<StarRole, string> = {
+export const ROLE_LABEL: Record<MyStarRole, string> = {
   owner: "Владелец",
   admin: "Админ",
   moderator: "Модератор",
   member: "Участник",
+  visitor: "Гость по ссылке",
 };
 
 export const KIND_LABEL: Record<StarKind, string> = {
@@ -73,7 +74,7 @@ export function can(detail: StarDetail | undefined, perm: StarPerm): boolean {
   return !!detail?.my_permissions.includes(perm);
 }
 
-export function outranks(a: StarRole, b: StarRole): boolean {
+export function outranks(a: MyStarRole, b: MyStarRole): boolean {
   return roleRank(a) > roleRank(b);
 }
 
@@ -86,12 +87,12 @@ export function canKick(detail: StarDetail, target: StarRole): boolean {
   return can(detail, "kick") && outranks(detail.my_role, target);
 }
 
-export function canBan(me: StarRole, target: StarRole): boolean {
+export function canBan(me: MyStarRole, target: StarRole): boolean {
   return (me === "owner" || me === "admin") && outranks(me, target);
 }
 
 /** Роли, которые я могу назначить участнику с ролью target (кроме текущей). */
-export function assignableRoles(me: StarRole, target: StarRole): Exclude<StarRole, "owner">[] {
+export function assignableRoles(me: MyStarRole, target: StarRole): Exclude<StarRole, "owner">[] {
   if (!outranks(me, target)) return [];
   const roles: Exclude<StarRole, "owner">[] = me === "owner" ? ["admin", "moderator", "member"] : [];
   if (me === "admin" && target !== "admin") roles.push("moderator", "member");
@@ -117,6 +118,12 @@ export interface RoomDoor {
 
 /** Правила двери комнаты для меня. Повторяют backend/app/api/doors.py. */
 export function roomDoor(detail: StarDetail, channel: StarChannel, myId: string | undefined): RoomDoor {
+  const door = baseDoor(detail, channel, myId);
+  // Гостевая ссылка — уже приглашение: по ней входят без стука.
+  return detail.room_passes?.[channel.id] ? { ...door, entersFreely: true } : door;
+}
+
+function baseDoor(detail: StarDetail, channel: StarChannel, myId: string | undefined): RoomDoor {
   const kind = doorKind(channel);
   const presence = detail.voice?.[channel.id] ?? [];
   const hostId = kind === "invite" ? (presence.find((p) => p.is_host)?.user_id ?? null) : null;
@@ -163,4 +170,32 @@ export function formatTime(iso: string): string {
   const time = d.toLocaleTimeString("ru", { hour: "2-digit", minute: "2-digit" });
   if (d.toDateString() === today.toDateString()) return time;
   return `${d.toLocaleDateString("ru", { day: "numeric", month: "short" })}, ${time}`;
+}
+
+/** Имя того, кто в Комнате: из списка участников, иначе — что прислал сервер (гость, посетитель). */
+export function presenceName(detail: StarDetail, p: VoicePresence): string {
+  return (
+    displayName(detail.members.find((m) => m.user.id === p.user_id)?.user) ??
+    (p.guest_name?.trim() || p.name?.trim() || "Участник")
+  );
+}
+
+export function presenceAvatar(detail: StarDetail, p: VoicePresence): string | null {
+  return detail.members.find((m) => m.user.id === p.user_id)?.user.avatar_url ?? p.avatar_url ?? null;
+}
+
+function untilText(iso: string): string {
+  return new Date(iso).toLocaleString("ru-RU", { day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" });
+}
+
+/** Комната видна мне по гостевой ссылке — до какого времени (текстом), иначе null. */
+export function passUntil(detail: StarDetail, channelId: string): string | null {
+  const at = detail.room_passes?.[channelId];
+  return at ? untilText(at) : null;
+}
+
+/** Посетителю: до какого времени действует самая долгая из его ссылок. */
+export function latestPass(detail: StarDetail): string | null {
+  const all = Object.values(detail.room_passes ?? {}).sort();
+  return all.length ? untilText(all[all.length - 1]) : null;
 }

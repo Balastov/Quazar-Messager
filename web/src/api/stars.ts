@@ -4,6 +4,11 @@ import type { LinkPreview } from "../chat/linkPreview";
 
 export type StarKind = "gaming" | "work";
 export type StarRole = "owner" | "admin" | "moderator" | "member";
+/**
+ * Моя роль в Звезде. visitor — не участник: открыл гостевую ссылку в Комнату под своим аккаунтом
+ * и видит только её, пока ссылка действует.
+ */
+export type MyStarRole = StarRole | "visitor";
 export type ChannelKind = "satellite" | "planet";
 export type RoomKind = "coworking" | "meeting" | "smoking" | "kitchen" | "custom" | "lobby";
 /** Вход в Планету: свободный, по приглашениям (стучаться) или личный кабинет (Звёзды «Работа»). */
@@ -369,7 +374,7 @@ export interface StarSummary {
   background_url: string | null;
   created_at: string;
   member_count: number;
-  my_role: StarRole;
+  my_role: MyStarRole;
 }
 
 export interface RolePermissions {
@@ -438,6 +443,11 @@ export interface VoicePresence {
   is_host?: boolean;
   /** Гость по ссылке (без аккаунта): его имя; user_id тогда — guest-…. */
   guest_name?: string | null;
+  /** Имя в этой Звезде и фото — для тех, кого нет в моём списке участников. */
+  name?: string | null;
+  avatar_url?: string | null;
+  /** Вошёл по гостевой ссылке под своим аккаунтом, не будучи участником Звезды. */
+  visitor?: boolean;
 }
 
 export interface StarDetail extends StarSummary {
@@ -463,6 +473,8 @@ export interface StarDetail extends StarSummary {
   /** Рабочее время: включено ли (настраивают владелец и админы) и общий график Звезды. */
   work_hours_enabled?: boolean;
   work_hours?: WorkSchedule | null;
+  /** Комнаты, видные мне по гостевым ссылкам: channel_id → до какого времени (ISO). */
+  room_passes?: Record<string, string>;
 }
 
 export interface PlanetJoin {
@@ -580,7 +592,7 @@ export type StarEvent =
       avatar_url: string | null;
       background_url: string | null;
     }
-  | { type: "star_removed"; star_id: string; reason: "kick" | "ban" | "leave" | "deleted" }
+  | { type: "star_removed"; star_id: string; reason: "kick" | "ban" | "leave" | "deleted" | "guest_link" }
   | { type: "star_member_upsert"; star_id: string; member: StarMember }
   | { type: "star_member_removed"; star_id: string; user_id: string; reason: string }
   | { type: "star_permissions"; star_id: string; role_permissions: RolePermissions }
@@ -924,6 +936,9 @@ export const starsApi = {
   createGuestLink: (starId: string, channelId: string, hours: number) =>
     http.post<GuestLink>(`${base(starId)}/planets/${channelId}/guest-links`, { hours }).then((r) => r.data),
   revokeGuestLink: (starId: string, linkId: string) => http.delete(`${base(starId)}/guest-links/${linkId}`),
+  /** Открыть гостевую ссылку под своим аккаунтом: Комната появится в приложении на срок ссылки. */
+  claimGuestLink: (code: string) =>
+    http.post<GuestClaim>(`/guest/${encodeURIComponent(code)}/claim`).then((r) => r.data),
   thread: (starId: string, channelId: string, rootId: string) =>
     http
       .get<StarMessage[]>(`${base(starId)}/channels/${channelId}/threads/${rootId}`)
@@ -1080,6 +1095,34 @@ export function capturePendingInvite(): void {
     // ignore
   }
   window.history.replaceState({}, "", "/");
+}
+
+export interface GuestClaim {
+  star_id: string;
+  channel_id: string;
+  floor_id: string | null;
+  expires_at: string;
+}
+
+const PENDING_GUEST_KEY = "quazar_pending_guest_link";
+
+/** Гостевую ссылку открыли до входа в аккаунт и решили войти — откроем её после входа. */
+export function rememberGuestLink(code: string): void {
+  try {
+    localStorage.setItem(PENDING_GUEST_KEY, code);
+  } catch {
+    // ignore
+  }
+}
+
+export function takePendingGuestLink(): string | null {
+  try {
+    const code = localStorage.getItem(PENDING_GUEST_KEY);
+    if (code) localStorage.removeItem(PENDING_GUEST_KEY);
+    return code;
+  } catch {
+    return null;
+  }
 }
 
 export function takePendingInvite(): string | null {

@@ -7,7 +7,7 @@ import { IconContacts, IconGear, IconPlanet, IconSatellite } from "../icons";
 import { usePresenceStore } from "../../store/presence";
 import { useVoiceStore } from "../../store/voice";
 import { ActiveTime, activeSince } from "./ActiveTime";
-import { apiError, can, GAMING_LIMITS, initials, KIND_LABEL, ROLE_LABEL } from "./rules";
+import { apiError, can, GAMING_LIMITS, initials, KIND_LABEL, latestPass, passUntil, presenceName, ROLE_LABEL } from "./rules";
 import { starsApi } from "../../api/stars";
 import { VoiceBar } from "./VoiceBar";
 import { placeNouns, roomWords } from "./words";
@@ -15,7 +15,7 @@ import { currentBooking, doorSign, hhmm, useBookings } from "./work";
 import NotifyDialog from "../NotifyDialog";
 import { channelLevel, starLevel, STAR_DEFAULT, useNotifyStore } from "../../notifications/levels";
 import s from "./Constellation.module.css";
-import { compareNames, displayName } from "../../utils/profile";
+import { compareNames } from "../../utils/profile";
 import { useUiStore } from "../../store/ui";
 import { groupByFloor } from "./office";
 
@@ -76,17 +76,18 @@ export default function ChannelSidebar({
   const [notifyOpen, setNotifyOpen] = useState(false);
   const starQuiet = starLevel(notifySettings, detail.id) === "none";
   const collapsedFloors = useUiStore((st) => st.collapsedFloorIds);
+  const visitor = detail.my_role === "visitor";
+  const visitorUntil = visitor ? latestPass(detail) : null;
   const toggleFloor = useUiStore((st) => st.toggleFloor);
 
   const row = (c: StarChannel, kind: ChannelKind) => {
     const count = unread[c.id]?.count ?? 0;
     const mentionCount = unread[c.id]?.mentions ?? 0;
     const quiet = kind === "satellite" && channelLevel(notifySettings, detail.id, c.id) === "none";
-    const personName = (userId: string, guestName?: string | null) =>
-      displayName(detail.members.find((m) => m.user.id === userId)?.user) ?? guestName ?? "Участник";
     const inside = kind === "planet" ? [...(detail.voice?.[c.id] ?? [])].sort((a, b) =>
-      compareNames(personName(a.user_id, a.guest_name), personName(b.user_id, b.guest_name))
+      compareNames(presenceName(detail, a), presenceName(detail, b))
     ) : [];
+    const pass = passUntil(detail, c.id);
     const busy = kind === "planet" ? currentBooking(bookings, c.id, now) : null;
     const sign = kind === "planet" ? doorSign(c, now) : null;
     return (
@@ -107,6 +108,7 @@ export default function ChannelSidebar({
               ? [
                   busy ? `Занято до ${hhmm(busy.ends_at)}: «${busy.title}»` : "",
                   sign ? `Табличка: ${sign.icon} ${sign.text}` : "",
+                  pass ? `По гостевой ссылке до ${pass}` : "",
                   `Двойной клик — ${roomWords(detail.kind, c.name).enter}`,
                 ]
                   .filter(Boolean)
@@ -132,6 +134,7 @@ export default function ChannelSidebar({
             {quiet ? " 🔕" : ""}
             {sign ? ` ${sign.icon}` : ""}
             {busy ? " 📅" : ""}
+            {pass ? " 🎟" : ""}
           </span>
           {kind === "planet" && (
             <span className={s.channelHint}>
@@ -149,7 +152,7 @@ export default function ChannelSidebar({
         {inside.length > 0 && (
           <div className={s.presence}>
             {inside.map((p) => {
-              const name = personName(p.user_id, p.guest_name);
+              const name = presenceName(detail, p);
               const talking = c.id === voiceChannelId && speaking.has(p.user_id);
               return (
                 <div key={p.user_id} className={s.presenceRow}>
@@ -160,6 +163,7 @@ export default function ChannelSidebar({
                     {initials(name)}
                   </span>
                   <span className={s.presenceName}>{name}</span>
+                  {p.visitor && <span title="Гость по ссылке, не участник Звезды">🎟</span>}
                   {p.is_host && c.access === "invite" && c.room_kind !== "lobby" && (
                     <span title="Главный в комнате: впускает и зовёт">👑</span>
                   )}
@@ -295,9 +299,12 @@ export default function ChannelSidebar({
         <div className={s.starTitle}>
           <span className={s.starName}>{detail.name}</span>
           <span className={s.starMeta}>
-            {KIND_LABEL[detail.kind]} · {detail.member_count} уч. · {ROLE_LABEL[detail.my_role]}
+            {visitor
+              ? `${ROLE_LABEL.visitor}${visitorUntil ? ` до ${visitorUntil}` : ""}`
+              : `${KIND_LABEL[detail.kind]} · ${detail.member_count} уч. · ${ROLE_LABEL[detail.my_role]}`}
           </span>
         </div>
+        {!visitor && (<>
         <button
           type="button"
           className={`${s.iconBtn} ${s.membersBtn} ${membersOpen ? s.membersBtnActive : ""}`}
@@ -327,18 +334,28 @@ export default function ChannelSidebar({
         >
           <IconGear />
         </button>
+        </>)}
       </div>
       <div className={s.channels}>
-        {section("satellite", "Спутники")}
-        <button
-          type="button"
-          className={filesActive ? s.channelActive : s.channel}
-          style={{ marginTop: 10 }}
-          onClick={onOpenFiles}
-        >
-          <span aria-hidden>📁</span>
-          <span className={s.channelName}>Файлы</span>
-        </button>
+        {visitor ? (
+          <p className={s.hint} style={{ padding: "4px 10px" }}>
+            Вас пригласили гостевой ссылкой: в этой Звезде вам видна только эта Комната, пока
+            ссылка действует. Участником Звезды вы не стали.
+          </p>
+        ) : (
+          <>
+            {section("satellite", "Спутники")}
+            <button
+              type="button"
+              className={filesActive ? s.channelActive : s.channel}
+              style={{ marginTop: 10 }}
+              onClick={onOpenFiles}
+            >
+              <span aria-hidden>📁</span>
+              <span className={s.channelName}>Файлы</span>
+            </button>
+          </>
+        )}
         {detail.kind === "work" && onOpenMap && (
           <button
             type="button"

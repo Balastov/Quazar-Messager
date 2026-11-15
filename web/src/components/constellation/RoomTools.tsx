@@ -19,7 +19,8 @@ export default function RoomTools({ detail, channel, children, summary }: {
   const contentId = useId();
   useEffect(() => { setCollapsed(readCollapsed(preferenceKey)); }, [preferenceKey]);
   const workExtras = detail.kind === "work" && channel.kind === "planet" && channel.room_kind !== "lobby";
-  if (!workExtras && !children) return null;
+  // Посетителю по гостевой ссылке инструменты Комнаты (заметки, брони, ссылки) не положены.
+  if (detail.my_role === "visitor" || (!workExtras && !children)) return null;
 
   const toggle = () => {
     const next = !collapsed;

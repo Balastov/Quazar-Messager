@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import axios from "axios";
 import type { Participant, RemoteAudioTrack, Room, Track } from "livekit-client";
 import { http } from "../api/client";
+import { rememberGuestLink } from "../api/stars";
+import { useAuthStore } from "../store/auth";
 import { compareNames } from "../utils/profile";
 import ScreenStage from "../components/constellation/ScreenStage";
 import ScreenAudioControls from "../components/ScreenAudioControls";
@@ -62,9 +64,14 @@ function people(room: Room): Person[] {
  * Гость по ссылке: без аккаунта, только эта комната. Видит, кто внутри и кто говорит,
  * смотрит демонстрацию экрана, может выключить микрофон и выйти.
  * Больше ничего из Звезды гостю не видно.
+ *
+ * Вошли в аккаунт Quazar — ссылка открывается в приложении: Комната появится там под вашим
+ * именем, пока ссылка действует.
  */
 export default function GuestPage() {
   const { code = "" } = useParams();
+  const navigate = useNavigate();
+  const signedIn = useAuthStore((st) => !!st.token);
   const [info, setInfo] = useState<GuestInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [name, setName] = useState(() => {
@@ -98,6 +105,16 @@ export default function GuestPage() {
       .catch((err) => { if (active) setError(errorText(err, "Ссылка не открывается")); });
     return () => { active = false; };
   }, [code]);
+
+  // С аккаунтом — сразу в приложение: там ссылку «примут» и покажут Комнату.
+  const openInApp = () => {
+    rememberGuestLink(code);
+    navigate(signedIn ? "/" : "/auth", { replace: true });
+  };
+  useEffect(() => {
+    if (signedIn && info) openInApp();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [signedIn, info]);
 
   useEffect(() => () => {
     attemptRef.current++;
@@ -243,7 +260,8 @@ export default function GuestPage() {
         )}
         {error && <div className={s.error}>{error}</div>}
 
-        {info && state !== "in" && state !== "left" && (
+        {info && signedIn && <p className={s.hint}>Открываем в Quazar…</p>}
+        {info && !signedIn && state !== "in" && state !== "left" && (
           <form className={s.form} onSubmit={(e) => void join(e)}>
             <input
               className={s.input}
@@ -262,6 +280,15 @@ export default function GuestPage() {
                 ? "В этой комнате только слушают — микрофон не понадобится."
                 : "Браузер спросит доступ к микрофону. Регистрироваться не нужно."}
             </p>
+            {state === "form" && (
+              <p className={s.hint}>
+                Есть аккаунт Quazar?{" "}
+                <button type="button" className={s.linkButton} onClick={openInApp}>
+                  Войдите
+                </button>{" "}
+                — и Комната появится в приложении под вашим именем.
+              </p>
+            )}
           </form>
         )}
 

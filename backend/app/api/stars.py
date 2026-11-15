@@ -140,6 +140,25 @@ async def _load_membership(db: AsyncSession, star_id: str, user_id: str) -> tupl
     return row[0], row[1]
 
 
+async def _load_viewer(db: AsyncSession, star_id: str, user_id: str) -> tuple[Star, StarMember]:
+    """Как _load_membership, но пускает и посетителя по гостевой ссылке в Комнату.
+
+    Посетитель — не участник: его «участие» с ролью visitor в базу не попадает, прав у него нет.
+    Используется только там, где посетителю место: карточка Звезды и вход в его Комнату.
+    """
+    try:
+        return await _load_membership(db, star_id, user_id)
+    except HTTPException as exc:
+        if exc.status_code != 404:
+            raise
+        star = await db.get(Star, star_id)
+        if not star or not (await floors_svc.room_passes(db, star_id, [user_id])).get(user_id):
+            raise
+        return star, StarMember(
+            star_id=star.id, user_id=user_id, role=floors_svc.VISITOR, joined_at=_now(), rules_accepted_at=_now()
+        )
+
+
 async def _is_superuser(db: AsyncSession, user_id: str) -> bool:
     return bool((await db.execute(select(User.is_superuser).where(User.id == user_id))).scalar_one_or_none())
 
@@ -223,21 +242,34 @@ async def _floor_scoped(db: AsyncSession, star_id: str, event: dict, channel_id:
     так комната, перенесённая на закрытый этаж, пропадает у них сразу.
     """
     kind = event.get("type")
-    if kind == "star_floors":
+    if kind in ("star_floors", "star_layout"):
         star = await db.get(Star, star_id)
         if not star or star.kind != "work":
             return False
-        groups: dict[frozenset[str], list[str]] = defaultdict(list)
-        for uid, hidden in (await floors_svc.hidden_by_member(db, star)).items():
-            groups[frozenset(hidden)].append(uid)
-        for hidden, uids in groups.items():
-            scoped = {**event, "floors": [f for f in event["floors"] if f["id"] not in hidden]}
-            await manager.broadcast_to_users(uids, await pseudonyms.in_star(db, star_id, {"star_id": star_id, **scoped}))
+        seen = await floors_svc.views(db, star)
+        groups: dict[str, list[str]] = defaultdict(list)
+        scoped: dict[str, dict] = {}
+        if kind == "star_floors":
+            for uid, view in seen.items():
+                floors = [f for f in event["floors"] if view.sees_floor(f["id"])]
+                key = ",".join(f["id"] for f in floors)
+                scoped.setdefault(key, {**event, "floors": floors})
+                groups[key].append(uid)
+        else:
+            # План этажа: кому этаж виден по гостевой ссылке — только свои Комнаты.
+            floor_id = event["floor"]["id"]
+            rooms = {c.id: c for c in await floors_svc.floor_rooms(db, floor_id)}
+            for uid, view in seen.items():
+                if not view.sees_floor(floor_id):
+                    continue
+                placed = [r for r in event["rooms"] if (c := rooms.get(r["channel_id"])) is None or view.sees_room(c)]
+                key = ",".join(r["channel_id"] for r in placed)
+                scoped.setdefault(key, {**event, "rooms": placed})
+                groups[key].append(uid)
+        for key, uids in groups.items():
+            await manager.broadcast_to_users(uids, await pseudonyms.in_star(db, star_id, {"star_id": star_id, **scoped[key]}))
         return True
-    if kind == "star_layout":
-        star = await db.get(Star, star_id)
-        audience = await floors_svc.floor_audience(db, star, event["floor"]["id"]) if star else None
-    elif channel_id:
+    if channel_id:
         audience = await floors_svc.room_audience(db, channel_id)
     else:
         return False
@@ -397,21 +429,25 @@ def floors_event(floors: list) -> dict:
 async def _detail(db: AsyncSession, star: Star, me: StarMember) -> StarDetailOut:
     # Рабочим Звёздам — этаж и места для комнат (в т.ч. созданным до появления карты).
     floors = await floors_svc.ensure_floors(db, star)
-    members = await _members_out(db, star.id)
+    visitor = me.role == floors_svc.VISITOR
+    # Посетитель по гостевой ссылке не видит, кто ещё в Звезде, — только тех, кто в его Комнате.
+    members = [] if visitor else await _members_out(db, star.id)
     channels = await channels_out(db, star.id)
     # Закрытые для меня этажи: ни этажа, ни его комнат, ни того, кто в них сидит.
-    hidden = await floors_svc.hidden_floor_ids(db, star, me)
-    if hidden:
-        floors = [f for f in floors if f.id not in hidden]
-        concealed = {c.id for c in channels if floors_svc.room_floor_id(c) in hidden}
-        channels = [c for c in channels if c.id not in concealed]
-    else:
-        concealed = set()
-    tags = (
+    # По гостевой ссылке — этаж только с её Комнатой.
+    view = await floors_svc.view_of(db, star, me)
+    by_id = {c.id: c for c in await _channels(db, star.id)}
+    floors = [f for f in floors if view.sees_floor(f.id)]
+    concealed = {c.id for c in channels if c.id in by_id and not view.sees_room(by_id[c.id])}
+    if visitor:
+        concealed |= {c.id for c in channels if c.id not in by_id}
+    channels = [c for c in channels if c.id not in concealed]
+    passes = (await floors_svc.room_passes(db, star.id, [me.user_id])).get(me.user_id, {}) if star.kind == "work" else {}
+    tags = [] if visitor else (
         await db.execute(select(StarTag).where(StarTag.star_id == star.id).order_by(StarTag.position, StarTag.created_at))
     ).scalars().all()
     return StarDetailOut(
-        **_summary(star, me.role, len(members)).model_dump(),
+        **_summary(star, me.role, len(members) if not visitor else 0).model_dump(),
         my_permissions=rules.effective_permissions(me.role, star.role_permissions),
         role_permissions=rules.normalize_role_permissions(star.role_permissions),
         channels=channels,
@@ -419,15 +455,16 @@ async def _detail(db: AsyncSession, star: Star, me: StarMember) -> StarDetailOut
         voice={k: v for k, v in voice.star_presence(star.id).items() if k not in concealed},
         voice_since={k: v for k, v in voice.star_active_since(star.id).items() if k not in concealed},
         floors=[StarFloorOut.model_validate(f) for f in floors],
-        rules_text=star.rules_text,
-        rules_accepted=_rules_ok(star, me),
-        welcome_text=star.welcome_text,
-        welcome_channel_id=star.welcome_channel_id,
+        rules_text=None if visitor else star.rules_text,
+        rules_accepted=visitor or _rules_ok(star, me),
+        welcome_text=None if visitor else star.welcome_text,
+        welcome_channel_id=None if visitor else star.welcome_channel_id,
         soundboard=star.soundboard,
         banned_words=list(star.banned_words or []) if me.role in ("owner", "admin") else [],
         tags=[StarTagOut.model_validate(t) for t in tags],
-        work_hours_enabled=star.work_hours_enabled,
-        work_hours=star.work_hours,
+        work_hours_enabled=star.work_hours_enabled and not visitor,
+        work_hours=None if visitor else star.work_hours,
+        room_passes={c: at for c, at in passes.items() if c not in concealed},
     )
 
 
@@ -480,17 +517,40 @@ async def assert_room_access(db: AsyncSession, star: Star, me: StarMember, chann
 
 
 async def enforce_floor_access(db: AsyncSession, star: Star, user_ids: set[str] | None = None) -> None:
-    """Потерявшие доступ к этажу выходят из его комнат."""
+    """Потерявшие доступ к этажу (или чья гостевая ссылка кончилась) выходят из его комнат."""
     if star.kind != "work":
         return
     rooms = {c.id: c for c in await _channels(db, star.id) if c.kind == "planet"}
-    for uid, hidden in (await floors_svc.hidden_by_member(db, star)).items():
-        if not hidden or (user_ids is not None and uid not in user_ids):
-            continue
-        for channel_id in voice.channels_with_user(star.id, uid):
-            room = rooms.get(channel_id)
-            if room and floors_svc.room_floor_id(room) in hidden:
-                await voice.remove_from_planet(star.id, channel_id, uid)
+    seen = await floors_svc.views(db, star)
+    for planet_id, room in rooms.items():
+        for p in voice.participants(planet_id):
+            uid = p.user_id
+            if voice.is_guest(uid) or (user_ids is not None and uid not in user_ids):
+                continue
+            view = seen.get(uid)
+            # Не участник и без живой ссылки — тоже выходит (суперпользователь действует как владелец).
+            if view is None and await _is_superuser(db, uid):
+                continue
+            if view is None or not view.sees_room(room):
+                await voice.remove_from_planet(star.id, planet_id, uid)
+
+
+async def passes_changed(db: AsyncSession, star: Star, user_ids: set[str]) -> None:
+    """Гостевые ссылки этих людей кончились, отозваны или их Комнату удалили.
+
+    Кто больше не видит Комнату — выходит из неё. Участники и посетители с другими ссылками
+    перечитают Звезду; посетитель без живых ссылок теряет Звезду из списка.
+    """
+    if not user_ids:
+        return
+    await enforce_floor_access(db, star, user_ids)
+    seen = await floors_svc.views(db, star)
+    stay = [uid for uid in user_ids if uid in seen]
+    if stay:
+        await manager.broadcast_to_users(stay, {"type": "star_floor_access", "star_id": star.id})
+    for uid in user_ids - set(stay):
+        if not await _is_superuser(db, uid):
+            await manager.send_to_user(uid, {"type": "star_removed", "star_id": star.id, "reason": "guest_link"})
 
 
 def assert_can_post(star: Star, me: StarMember) -> None:
@@ -587,7 +647,13 @@ async def list_stars(current_user: CurrentUser, db: Db):
             .order_by(StarMember.joined_at)
         )
     ).all()
-    return [_summary(star, role, n) for star, role, n in rows]
+    out = [_summary(star, role, n) for star, role, n in rows]
+    # Звёзды, куда меня позвали гостевой ссылкой в Комнату, — пока ссылка действует.
+    visiting = await floors_svc.visiting_star_ids(db, current_user.id, exclude={star.id for star, _, _ in rows})
+    if visiting:
+        stars = (await db.execute(select(Star).where(Star.id.in_(visiting)))).scalars()
+        out += [_summary(star, floors_svc.VISITOR, 0) for star in sorted(stars, key=lambda st: st.created_at)]
+    return out
 
 
 @router.post("", response_model=StarDetailOut, status_code=status.HTTP_201_CREATED)
@@ -616,7 +682,7 @@ async def create_star(body: CreateStar, current_user: CurrentUser, db: Db):
 
 @router.get("/{star_id}", response_model=StarDetailOut)
 async def get_star(star_id: str, current_user: CurrentUser, db: Db):
-    star, me = await _load_membership(db, star_id, current_user.id)
+    star, me = await _load_viewer(db, star_id, current_user.id)
     return await _detail(db, star, me)
 
 
@@ -1212,6 +1278,8 @@ async def delete_channel(star_id: str, channel_id: str, current_user: CurrentUse
         floor.version += 1  # план этажа изменился
     name = channel.name
     guests = await shares.guest_star_ids(db, channel_id)
+    # Пропуска по гостевым ссылкам в эту Комнату уходят каскадом — их владельцам скажем отдельно.
+    holders = {uid for uid, rooms in (await floors_svc.room_passes(db, star_id)).items() if channel_id in rooms}
     await db.delete(channel)
     await db.commit()
     await _broadcast(db, star_id, {"type": "star_channel_deleted", "channel_id": channel_id})
@@ -1223,6 +1291,7 @@ async def delete_channel(star_id: str, channel_id: str, current_user: CurrentUse
         await _broadcast(db, star_id, floors_event(await floors_svc.list_floors(db, star_id)))
     if is_planet:
         await voice.close_planet(star_id, channel_id)
+    await passes_changed(db, star, holders)
 
 
 @router.put("/{star_id}/channels/order", status_code=status.HTTP_204_NO_CONTENT)

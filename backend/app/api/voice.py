@@ -7,8 +7,9 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 
 from app.api.doors import enters_freely, is_closed
-from app.api.stars import _channel, _load_membership, _target_member, assert_room_access
+from app.api.stars import _channel, _load_membership, _load_viewer, _target_member, assert_room_access
 from app.core import doors, livekit, voice, pseudonyms
+from app.core import floors as floors_svc
 from app.core import stars as rules
 from app.core.config import settings
 from app.core.database import get_db
@@ -48,11 +49,15 @@ async def _planet(db: AsyncSession, star_id: str, channel_id: str):
 
 @router.post("/{star_id}/planets/{channel_id}/join", response_model=PlanetJoinOut)
 async def join_planet(star_id: str, channel_id: str, current_user: CurrentUser, db: Db):
-    star, me = await _load_membership(db, star_id, current_user.id)
+    # Посетителю по гостевой ссылке — тоже, но только в его Комнату (проверит assert_room_access).
+    star, me = await _load_viewer(db, star_id, current_user.id)
     channel = await _planet(db, star_id, channel_id)
     await assert_room_access(db, star, me, channel)
     if not livekit.configured():
         raise _unavailable()
+    visitor = me.role == floors_svc.VISITOR
+    # Гостевая ссылка — уже приглашение: по ней входят без стука, как и гости без аккаунта.
+    invited = channel_id in (await floors_svc.room_passes(db, star_id, [current_user.id])).get(current_user.id, {})
 
     room = voice.room_name(channel_id)
     capacity = channel.capacity or rules.DEFAULT_PLANET_CAPACITY
@@ -73,7 +78,7 @@ async def join_planet(star_id: str, channel_id: str, current_user: CurrentUser, 
 
     # Закрытая дверь: кто не входит свободно, тому нужен пропуск (позвали или впустили).
     occupied = bool(identities - {current_user.id})
-    if is_closed(channel) and not already_inside and not enters_freely(star, me, channel, occupied):
+    if is_closed(channel) and not already_inside and not invited and not enters_freely(star, me, channel, occupied):
         # Пропуск гасится, когда LiveKit подтвердит вход (вебхук): сорвалось подключение —
         # можно повторить, пока пропуск не истёк.
         if not doors.has_pass(current_user.id, channel_id):
@@ -90,7 +95,12 @@ async def join_planet(star_id: str, channel_id: str, current_user: CurrentUser, 
         room=room,
         identity=current_user.id,
         name=me.pseudonym or current_user.display_name,
-        metadata={"star_id": star_id, "channel_id": channel_id},
+        metadata={
+            "star_id": star_id,
+            "channel_id": channel_id,
+            "avatar_url": current_user.avatar_url,
+            **({"visitor": True} if visitor else {}),
+        },
         # «Только слушать» или тайм-аут — без микрофона.
         sources=() if channel.listen_only or timed_out else (livekit.SOURCE_MICROPHONE,),
     )
@@ -100,8 +110,9 @@ async def join_planet(star_id: str, channel_id: str, current_user: CurrentUser, 
 async def _moderation_target(db: AsyncSession, star_id: str, channel_id: str, user: User, target_id: str):
     star, me = await _load_membership(db, star_id, user.id)
     await _planet(db, star_id, channel_id)
-    if voice.is_guest(target_id):
-        # Гостя выключает и выводит модератор или главный в комнате.
+    visitor = any(p.user_id == target_id and p.visitor for p in voice.participants(channel_id))
+    if voice.is_guest(target_id) or visitor:
+        # Гостя (и посетителя по ссылке) выключает и выводит модератор или главный в комнате.
         allowed = rules.has_perm(me.role, Perm.VOICE_MODERATE, star.role_permissions) or voice.host(channel_id) == user.id
     else:
         target = await _target_member(db, star_id, target_id)

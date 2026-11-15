@@ -63,7 +63,8 @@ export function useBookings(detail: StarDetail): { bookings: StarBooking[]; now:
   const loaded = useStarsStore((st) => detail.id in st.bookings);
   const loadBookings = useStarsStore((st) => st.loadBookings);
   const [now, setNow] = useState(() => Date.now());
-  const isWork = detail.kind === "work";
+  // Посетителю по гостевой ссылке брони не показываем — он не участник.
+  const isWork = detail.kind === "work" && detail.my_role !== "visitor";
 
   useEffect(() => {
     if (isWork && !loaded) void loadBookings(detail.id).catch(() => {});

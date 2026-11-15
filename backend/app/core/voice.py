@@ -66,6 +66,11 @@ class VoiceParticipant:
     screen_track_sid: str | None = None
     # Имя гостя по ссылке (у участников Звезды имя берут из списка участников).
     guest_name: str | None = None
+    # Имя в Звезде и фото из токена: по ним посетителя по ссылке видят участники, а он — их.
+    name: str | None = None
+    avatar_url: str | None = None
+    # Открыл гостевую ссылку под своим аккаунтом, не будучи участником Звезды.
+    visitor: bool = False
 
     def out(self) -> dict:
         return {
@@ -74,6 +79,9 @@ class VoiceParticipant:
             "server_muted": self.server_muted,
             "screen_sharing": self.screen_sharing,
             "guest_name": self.guest_name,
+            "name": self.name,
+            "avatar_url": self.avatar_url,
+            "visitor": self.visitor,
         }
 
     def publish_sources(self, listen_only: bool = False) -> list[str]:
@@ -161,10 +169,11 @@ async def broadcast(star_id: str, channel_id: str) -> None:
                 await db.execute(select(StarMember.user_id).where(StarMember.star_id == star_id))
             ).all()
         ]
-        # Кто сидит в комнате закрытого этажа, видят только те, у кого к нему есть доступ.
+        # Кто сидит в комнате закрытого этажа, видят только те, у кого к нему есть доступ
+        # (и посетители по гостевой ссылке в эту комнату).
         audience = await floors.room_audience(db, channel_id)
         if audience is not None:
-            member_ids = [uid for uid in member_ids if uid in audience]
+            member_ids = list(audience)
     await manager.broadcast_to_users(
         member_ids,
         {
@@ -177,13 +186,31 @@ async def broadcast(star_id: str, channel_id: str) -> None:
     )
 
 
-def _add(star_id: str, channel_id: str, user_id: str, listen_only: bool = False, name: str | None = None) -> None:
+def _metadata(raw) -> dict:
+    if isinstance(raw, dict):
+        return raw
+    try:
+        value = json.loads(raw or "{}")
+    except (TypeError, ValueError):
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def _add(
+    star_id: str, channel_id: str, user_id: str, listen_only: bool = False, name: str | None = None, metadata=None
+) -> None:
     planet = _planets.setdefault(channel_id, Planet(star_id=star_id, listen_only=listen_only))
     participant = planet.participants.setdefault(user_id, VoiceParticipant(user_id=user_id))
     if is_guest(user_id):
         participant.guest_name = (name or "Гость")[:60]
-    # Главным может быть только участник Звезды, не гость.
-    elif planet.host_id not in planet.participants:
+        return
+    meta = _metadata(metadata)
+    participant.name = (name or "")[:80] or None
+    avatar = meta.get("avatar_url")
+    participant.avatar_url = avatar if isinstance(avatar, str) else None
+    participant.visitor = meta.get("visitor") is True
+    # Главным может быть только участник Звезды — не гость и не посетитель по ссылке.
+    if not participant.visitor and planet.host_id not in planet.participants:
         planet.host_id = user_id
 
 
@@ -195,7 +222,7 @@ def _remove(channel_id: str, user_id: str) -> bool:
     if not planet.participants:
         _planets.pop(channel_id, None)
     elif planet.host_id == user_id:
-        members = [p.user_id for p in participants(channel_id) if not is_guest(p.user_id)]
+        members = [p.user_id for p in participants(channel_id) if not is_guest(p.user_id) and not p.visitor]
         planet.host_id = members[0] if members else None
     return True
 
@@ -203,7 +230,7 @@ def _remove(channel_id: str, user_id: str) -> bool:
 async def set_host(star_id: str, channel_id: str, user_id: str) -> bool:
     """Передать звание главного другому присутствующему (не гостю)."""
     planet = _planets.get(channel_id)
-    if not planet or user_id not in planet.participants or is_guest(user_id):
+    if not planet or user_id not in planet.participants or is_guest(user_id) or planet.participants[user_id].visitor:
         return False
     planet.host_id = user_id
     await broadcast(star_id, channel_id)
@@ -358,7 +385,8 @@ async def handle_webhook(event: dict) -> None:
             return
         star_id, listen_only = info
         started = planet is None
-        _add(star_id, channel_id, identity, listen_only, (event.get("participant") or {}).get("name"))
+        participant = event.get("participant") or {}
+        _add(star_id, channel_id, identity, listen_only, participant.get("name"), participant.get("metadata"))
         doors.consume_pass(identity, channel_id)
         if listen_only:
             # Токен выдали до того, как Планету сделали «Только слушать», — забираем микрофон.
@@ -455,7 +483,7 @@ async def resync() -> None:
                 identity = p.get("identity")
                 if not identity:
                     continue
-                _add(star_id, channel_id, identity, listen_only, p.get("name"))
+                _add(star_id, channel_id, identity, listen_only, p.get("name"), p.get("metadata"))
                 joined = _from_epoch(livekit.field(p, "joined_at"))
                 if joined:
                     _planets[channel_id].participants[identity].joined_at = joined

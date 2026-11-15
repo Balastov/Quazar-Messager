@@ -268,7 +268,7 @@ async def list_bookings(
     """Брони всех комнат Звезды в интервале (по умолчанию — с текущего момента на неделю вперёд).
     Брони комнат закрытых для меня этажей не показываем."""
     star, me = await _load_membership(db, star_id, current_user.id)
-    hidden = await floors_svc.hidden_floor_ids(db, star, me)
+    view = await floors_svc.view_of(db, star, me)
     start = start or _now()
     end = end or start + timedelta(days=7)
     rows = await db.execute(
@@ -277,10 +277,10 @@ async def list_bookings(
         .order_by(StarBooking.starts_at)
     )
     bookings = list(rows.scalars().all())
-    if not hidden:
+    if not view.closed:
         return bookings
     rooms = {c.id: c for c in (await db.execute(select(StarChannel).where(StarChannel.star_id == star_id))).scalars()}
-    return [b for b in bookings if b.channel_id not in rooms or floors_svc.room_floor_id(rooms[b.channel_id]) not in hidden]
+    return [b for b in bookings if b.channel_id not in rooms or view.sees_room(rooms[b.channel_id])]
 
 
 @router.post("/{star_id}/channels/{channel_id}/bookings", response_model=BookingOut, status_code=status.HTTP_201_CREATED)

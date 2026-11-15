@@ -43,8 +43,10 @@ export default function RoomActivities({ detail, channel, sharerId, sharerName, 
   useEffect(() => {
     if (room?.video?.playing && room.video.file_id) setView((current) => current ?? "video");
   }, [room?.video?.playing, room?.video?.file_id]);
+  // Посетитель по гостевой ссылке видит людей и показ экрана; доска и видео — для участников.
+  const visitor = detail.my_role === "visitor";
   useEffect(() => {
-    if (!confirmed || status !== "connected") return;
+    if (visitor || !confirmed || status !== "connected") return;
     let active = true;
     const refresh = () => void load(detail.id, channel.id).then(() => { if (active) setError(null); }).catch((err) => {
       if (active) setError(apiError(err, "Не удалось загрузить активности комнаты"));
@@ -53,7 +55,7 @@ export default function RoomActivities({ detail, channel, sharerId, sharerName, 
     const off = socket.onStatus((open) => { if (open) refresh(); });
     const timer = setInterval(refresh, 30_000);
     return () => { active = false; off(); clearInterval(timer); };
-  }, [detail.id, channel.id, confirmed, status, load]);
+  }, [detail.id, channel.id, confirmed, status, load, visitor]);
   const pointersEnabled = !!sharerId && room?.pointers_sharer_id === sharerId;
   const fullscreenControls = <>{controls}{room?.ready && <FocusOrbit detail={detail} channel={channel} room={room} readOnly={readOnly} compact />}</>;
   return (
@@ -63,7 +65,8 @@ export default function RoomActivities({ detail, channel, sharerId, sharerName, 
         {room?.ready && <FocusOrbit detail={detail} channel={channel} room={room} readOnly={readOnly} />}
       </RoomTools>
       <div className={s.tabs} role="group" aria-label="Активности комнаты">
-        {([ [null, "Участники"], ["screen", "Экран"], ["board", "Доска"], ["video", "Видео"] ] as const).map(([id, label]) =>
+        {([ [null, "Участники"], ["screen", "Экран"], ["board", "Доска"], ["video", "Видео"] ] as const)
+          .filter(([id]) => !visitor || id === null || id === "screen").map(([id, label]) =>
           <button key={id ?? "people"} type="button" className={view === id ? s.activeButton : s.button}
             aria-pressed={view === id} onClick={() => setView(id)}>{label}{id === "screen" && sharerId ? " · идёт показ"
               : id === "video" && room?.video?.playing ? " · смотрим" : ""}</button>)}

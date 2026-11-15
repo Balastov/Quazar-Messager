@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
+from dataclasses import dataclass
+from datetime import datetime, timezone
+
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import office
 from app.core import stars as rules
 from app.core.stars import Perm
-from app.models.star import Star, StarChannel, StarFloor, StarFloorAccess, StarMember
+from app.models.star import Star, StarChannel, StarFloor, StarFloorAccess, StarGuestLink, StarMember, StarRoomPass
 
 ALL, NONE = "all", "none"
 FLOOR_ACCESS = (ALL, NONE)
@@ -117,7 +121,39 @@ async def ensure_floors(db: AsyncSession, star: Star) -> list[StarFloor]:
 # У этажа есть доступ по умолчанию (всем / никому) и исключения для отдельных участников.
 # Владелец, админы и те, кому дали «Редактировать карту офиса», видят все этажи — иначе
 # некому было бы ими управлять. Зал ожидания открыт всем: туда отправляют постучавшихся.
-# Гостевые ссылки не зависят от этажей: гость попадает только в свою комнату.
+#
+# Гостевая ссылка в Комнату, открытая под своим аккаунтом, — пропуск (StarRoomPass), пока ссылка
+# действует. Участнику без доступа к этажу он открывает этаж с одной этой Комнатой. Тому, кто не в
+# Звезде («посетитель»), — саму Звезду, но в ней видна только эта Комната.
+
+VISITOR = "visitor"
+
+
+@dataclass(frozen=True)
+class View:
+    """Что человек видит в рабочей Звезде."""
+
+    # Этажи без доступа (у посетителя — все).
+    closed: frozenset[str] = frozenset()
+    # Комнаты по гостевым ссылкам и их этажи.
+    rooms: frozenset[str] = frozenset()
+    room_floors: frozenset[str] = frozenset()
+    # Не участник Звезды: видит только Комнаты по ссылкам — ни Спутников, ни зала ожидания.
+    visitor: bool = False
+
+    def sees_floor(self, floor_id: str | None) -> bool:
+        if self.visitor:
+            return floor_id in self.room_floors
+        return floor_id not in self.closed or floor_id in self.room_floors
+
+    def sees_room(self, channel: StarChannel) -> bool:
+        if self.visitor or channel.id in self.rooms:
+            return channel.id in self.rooms
+        floor_id = room_floor_id(channel)
+        return floor_id is None or floor_id not in self.closed
+
+
+OPEN = View()
 
 
 def manages_floors(star: Star, member: StarMember) -> bool:
@@ -135,17 +171,61 @@ def room_floor_id(channel: StarChannel) -> str | None:
     return channel.floor_id
 
 
-async def hidden_by_member(
-    db: AsyncSession, star: Star, members: list[StarMember] | None = None
-) -> dict[str, set[str]]:
-    """user_id -> этажи, которых участник не видит (пустое множество — видит все)."""
-    if members is None:
-        members = list((await db.execute(select(StarMember).where(StarMember.star_id == star.id))).scalars())
-    if star.kind != "work":
-        return {m.user_id: set() for m in members}
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+async def room_passes(
+    db: AsyncSession, star_id: str, user_ids: Iterable[str] | None = None
+) -> dict[str, dict[str, datetime]]:
+    """user_id -> {комната -> до какого времени действует ссылка} (только живые ссылки)."""
+    query = (
+        select(StarRoomPass.user_id, StarRoomPass.channel_id, StarGuestLink.expires_at)
+        .join(StarGuestLink, StarGuestLink.id == StarRoomPass.link_id)
+        .where(
+            StarRoomPass.star_id == star_id,
+            StarGuestLink.revoked.is_(False),
+            StarGuestLink.expires_at > _now(),
+        )
+    )
+    if user_ids is not None:
+        query = query.where(StarRoomPass.user_id.in_(list(user_ids)))
+    out: dict[str, dict[str, datetime]] = {}
+    for user_id, channel_id, expires_at in (await db.execute(query)).all():
+        rooms = out.setdefault(user_id, {})
+        rooms[channel_id] = max(expires_at, rooms.get(channel_id, expires_at))
+    return out
+
+
+async def visiting_star_ids(db: AsyncSession, user_id: str, exclude: set[str]) -> list[str]:
+    """Рабочие Звёзды, куда человек не входит, но открыл живую гостевую ссылку в Комнату."""
+    rows = await db.execute(
+        select(StarRoomPass.star_id)
+        .join(StarGuestLink, StarGuestLink.id == StarRoomPass.link_id)
+        .join(Star, Star.id == StarRoomPass.star_id)
+        .where(
+            StarRoomPass.user_id == user_id,
+            StarGuestLink.revoked.is_(False),
+            StarGuestLink.expires_at > _now(),
+            Star.kind == "work",
+        )
+        .distinct()
+    )
+    return [star_id for (star_id,) in rows.all() if star_id not in exclude]
+
+
+async def _rooms_floors(db: AsyncSession, channel_ids: set[str]) -> dict[str, str | None]:
+    if not channel_ids:
+        return {}
+    rows = await db.execute(select(StarChannel.id, StarChannel.floor_id).where(StarChannel.id.in_(channel_ids)))
+    return dict(rows.all())
+
+
+async def _closed_by_member(db: AsyncSession, star: Star, members: list[StarMember]) -> dict[str, frozenset[str]]:
+    """user_id -> этажи, к которым у участника нет доступа (без учёта гостевых ссылок)."""
     floors = await list_floors(db, star.id)
     overrides: dict[tuple[str, str], bool] = {}
-    if floors:
+    if floors and members:
         rows = await db.execute(
             select(StarFloorAccess.floor_id, StarFloorAccess.user_id, StarFloorAccess.allowed).where(
                 StarFloorAccess.floor_id.in_([f.id for f in floors]),
@@ -154,49 +234,90 @@ async def hidden_by_member(
         )
         overrides = {(floor_id, user_id): allowed for floor_id, user_id, allowed in rows.all()}
     return {
-        m.user_id: set()
+        m.user_id: frozenset()
         if manages_floors(star, m)
-        else {f.id for f in floors if not _allowed(f, overrides.get((f.id, m.user_id)))}
+        else frozenset(f.id for f in floors if not _allowed(f, overrides.get((f.id, m.user_id))))
         for m in members
     }
 
 
+async def views(
+    db: AsyncSession, star: Star, members: list[StarMember] | None = None, *, visitors: bool | None = None
+) -> dict[str, View]:
+    """user_id -> что видит. Без members — все участники и посетители по ссылкам."""
+    if visitors is None:
+        visitors = members is None
+    if members is None:
+        members = list((await db.execute(select(StarMember).where(StarMember.star_id == star.id))).scalars())
+    if star.kind != "work":
+        return {m.user_id: OPEN for m in members}
+    closed = await _closed_by_member(db, star, members)
+    member_ids = set(closed)
+    passes = await room_passes(db, star.id, None if visitors else member_ids)
+    floor_of = await _rooms_floors(db, {c for rooms in passes.values() for c in rooms})
+    all_floors = frozenset(f.id for f in await list_floors(db, star.id))
+    out: dict[str, View] = {}
+    for user_id in member_ids | (set(passes) if visitors else set()):
+        rooms = frozenset(passes.get(user_id, {}))
+        is_visitor = user_id not in member_ids
+        out[user_id] = View(
+            closed=all_floors if is_visitor else closed[user_id],
+            rooms=rooms,
+            room_floors=frozenset(f for c in rooms if (f := floor_of.get(c))),
+            visitor=is_visitor,
+        )
+    return out
+
+
+async def view_of(db: AsyncSession, star: Star, member: StarMember) -> View:
+    """Что видит участник (или посетитель — участие с ролью visitor, в базе его нет)."""
+    if star.kind != "work":
+        return OPEN
+    if member.role == VISITOR:
+        rooms = frozenset((await room_passes(db, star.id, [member.user_id])).get(member.user_id, {}))
+        floor_of = await _rooms_floors(db, set(rooms))
+        return View(
+            closed=frozenset(f.id for f in await list_floors(db, star.id)),
+            rooms=rooms,
+            room_floors=frozenset(f for c in rooms if (f := floor_of.get(c))),
+            visitor=True,
+        )
+    return (await views(db, star, [member], visitors=True))[member.user_id]
+
+
 async def hidden_floor_ids(db: AsyncSession, star: Star, member: StarMember) -> set[str]:
-    """Этажи, которых участник не видит и в комнаты которых не входит."""
+    """Этажи, к которым у участника нет доступа (гостевые ссылки его не дают)."""
     if star.kind != "work" or manages_floors(star, member):
         return set()
-    return (await hidden_by_member(db, star, [member]))[member.user_id]
+    return set((await _closed_by_member(db, star, [member]))[member.user_id])
 
 
 async def can_use_room(db: AsyncSession, star: Star, member: StarMember, channel: StarChannel) -> bool:
-    floor_id = room_floor_id(channel)
-    if star.kind != "work" or floor_id is None:
-        return True
-    return floor_id not in await hidden_floor_ids(db, star, member)
-
-
-async def floor_audience(db: AsyncSession, star: Star, floor_id: str) -> set[str]:
-    """Участники Звезды, которым этаж виден."""
-    return {uid for uid, hidden in (await hidden_by_member(db, star)).items() if floor_id not in hidden}
+    if star.kind != "work":
+        return member.role != VISITOR
+    return (await view_of(db, star, member)).sees_room(channel)
 
 
 async def floor_user_ids(db: AsyncSession, star: Star, floor: StarFloor) -> list[str]:
     """Участники с доступом к этажу — кроме тех, кто видит все этажи по роли (для настройки)."""
     members = list((await db.execute(select(StarMember).where(StarMember.star_id == star.id))).scalars())
-    hidden = await hidden_by_member(db, star, members)
-    return sorted(m.user_id for m in members if not manages_floors(star, m) and floor.id not in hidden[m.user_id])
+    closed = await _closed_by_member(db, star, members)
+    return sorted(m.user_id for m in members if not manages_floors(star, m) and floor.id not in closed[m.user_id])
 
 
 async def room_audience(db: AsyncSession, channel_id: str) -> set[str] | None:
-    """Кому видна комната: None — всем участникам (не рабочая Звезда, не комната, зал ожидания)."""
+    """Кому видна комната: None — всем участникам (не рабочая Звезда, не комната, зал ожидания).
+
+    Посетители по гостевой ссылке входят в аудиторию своей Комнаты, хотя они не участники.
+    """
     channel = await db.get(StarChannel, channel_id)
-    floor_id = room_floor_id(channel) if channel else None
-    if not floor_id:
+    # Зал ожидания видят все участники (посетителям он не показывается).
+    if not channel or room_floor_id(channel) is None:
         return None
     star = await db.get(Star, channel.star_id)
     if not star or star.kind != "work":
         return None
-    return await floor_audience(db, star, floor_id)
+    return {uid for uid, view in (await views(db, star)).items() if view.sees_room(channel)}
 
 
 async def set_floor_access(db: AsyncSession, star: Star, floor: StarFloor, access: str, user_ids: set[str]) -> None:

@@ -75,9 +75,11 @@ export default function ConstellationView() {
   }, [activeStarId, activeChannelByStar, unread, mobileChannelOpen, selectChannel, channelOnScreen]);
 
   // Стуки в двери этой Звезды (кто может впускать — все, остальным — свои).
+  const activeRole = stars.find((st) => st.id === activeStarId)?.my_role;
   useEffect(() => {
-    if (activeStarId) void useDoorsStore.getState().loadKnocks(activeStarId);
-  }, [activeStarId]);
+    // Посетитель по гостевой ссылке входит без стука и стуки других не видит.
+    if (activeStarId && activeRole && activeRole !== "visitor") void useDoorsStore.getState().loadKnocks(activeStarId);
+  }, [activeStarId, activeRole]);
 
   useEffect(() => {
     if (!notice) return;
@@ -170,7 +172,7 @@ export default function ConstellationView() {
                 void selectStar(star.id);
                 setMobileChannelOpen(false);
               }}
-              title={star.name}
+              title={star.my_role === "visitor" ? `${star.name} — вы здесь по гостевой ссылке` : star.name}
               aria-label={star.name}
               aria-current={active}
             >
@@ -252,7 +254,7 @@ export default function ConstellationView() {
               <ThreadPanel detail={detail} />
             </div>
           )}
-          {membersOpen && !threadOpen && (
+          {membersOpen && !threadOpen && detail.my_role !== "visitor" && (
             <div className={s.membersColumn}>
               <MembersPanel detail={detail} onClose={() => setMembersOpen(false)} />
             </div>

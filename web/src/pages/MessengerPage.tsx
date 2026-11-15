@@ -20,7 +20,8 @@ import VoiceBarHost from "../components/constellation/VoiceBar";
 import DoorToasts from "../components/constellation/DoorToasts";
 import { useDoorsStore } from "../store/doors";
 import type { DoorLink } from "../notifications/notify";
-import { takePendingInvite } from "../api/stars";
+import { takePendingGuestLink, takePendingInvite } from "../api/stars";
+import { apiError } from "../components/constellation/rules";
 import { useStarsStore } from "../store/stars";
 import { useNotifyStore } from "../notifications/levels";
 import { useAdminStore } from "../store/admin";
@@ -133,6 +134,17 @@ export default function MessengerPage() {
     if (inviteCode) {
       useUiStore.getState().setTab("stars");
       useStarsStore.getState().openJoinDialog(inviteCode);
+    }
+    // Гостевая ссылка в Комнату, открытая под своим аккаунтом.
+    const guestCode = takePendingGuestLink();
+    if (guestCode) {
+      void useStarsStore
+        .getState()
+        .openGuestLink(guestCode)
+        .catch((err) => {
+          useUiStore.getState().setTab("stars");
+          useStarsStore.setState({ notice: apiError(err, "Гостевая ссылка не открылась") });
+        });
     }
     return () => {
       window.removeEventListener("quazar-star-door", onDoor);

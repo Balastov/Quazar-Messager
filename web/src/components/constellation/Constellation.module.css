@@ -1358,6 +1358,24 @@
   border-color: var(--qz-danger);
 }
 
+/* Комната, которую открыли по гостевой ссылке: несколько раз мигает обводкой. */
+.roomFocused {
+  animation: roomFocus 1.2s ease-in-out 3;
+}
+
+@keyframes roomFocus {
+  50% {
+    box-shadow: 0 0 0 4px rgba(108, 99, 255, 0.55), 0 0 22px rgba(108, 99, 255, 0.45);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .roomFocused {
+    animation: none;
+    box-shadow: 0 0 0 3px rgba(108, 99, 255, 0.55);
+  }
+}
+
 .roomHead {
   display: flex;
   align-items: center;

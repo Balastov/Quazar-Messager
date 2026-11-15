@@ -13,7 +13,7 @@ import RoomActivities from "./RoomActivities";
 import ScreenShareDialog from "../ScreenShareDialog";
 import { Soundboard, VoiceKeysSettings } from "./VoicePanels";
 import { keyLabel } from "../../voice/keys";
-import { apiError, can, canStopScreen, outranks, ROOM_LABEL, roomDoor } from "./rules";
+import { apiError, can, canStopScreen, outranks, passUntil, presenceAvatar, presenceName, ROOM_LABEL, roomDoor } from "./rules";
 import { placeNouns, roomWords } from "./words";
 import RoomTools from "./RoomTools";
 import { confirmKnock } from "./work";
@@ -61,8 +61,9 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
   const userName = (userId: string, fallback?: string | null) =>
     displayName(member(userId)?.user) ?? (fallback?.trim() || "Участник");
   const sortedPresence = [...presence].sort((a, b) =>
-    compareNames(userName(a.user_id, a.guest_name), userName(b.user_id, b.guest_name))
+    compareNames(presenceName(detail, a), presenceName(detail, b))
   );
+  const pass = passUntil(detail, channel.id);
   const cabinetOwnerName = personal
     ? (displayName(member(channel.cabinet_owner_id ?? "")?.user) ?? "без хозяина")
     : "";
@@ -165,16 +166,16 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
           {presence.length > 0 && (
             <div className={s.list} style={{ width: "100%" }}>
               {sortedPresence.map((p) => {
-                const m = member(p.user_id);
                 return (
                   <div key={p.user_id} className={s.listItem}>
                     <UserAvatar
-                      username={displayName(m?.user) ?? p.guest_name ?? "?"}
-                      avatarUrl={m?.user.avatar_url ?? null}
+                      username={presenceName(detail, p)}
+                      avatarUrl={presenceAvatar(detail, p)}
                       size="sm"
                     />
                     <div className={s.listMain}>
-                      <span className={s.listTitle}>{displayName(m?.user) ?? p.guest_name ?? "Участник"}</span>
+                      <span className={s.listTitle}>{presenceName(detail, p)}</span>
+                      {p.visitor && <span className={s.listSub}>🎟 гость по ссылке</span>}
                       {badge(p.user_id) && <span className={s.listSub}>{badge(p.user_id)}</span>}
                       {p.server_muted && (
                         <span className={`${s.listSub} ${s.voicePeerMuted}`}>
@@ -210,10 +211,15 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
               позвать вас.
             </p>
           )}
-          {door.kind === "invite" && !mustKnock && presence.length === 0 && (
+          {door.kind === "invite" && !mustKnock && presence.length === 0 && detail.my_role !== "visitor" && (
             <p className={s.hint}>
               🔒 {nouns.one} по приглашениям. Сейчас пусто — заходите, и вы станете в ней главным:
               будете впускать тех, кто стучится, и звать людей.
+            </p>
+          )}
+          {pass && (
+            <p className={s.hint}>
+              🎟 Вас пригласили гостевой ссылкой: входите без стука, пока она действует — до {pass}.
             </p>
           )}
           {mustKnock && myKnockHere ? (
@@ -356,7 +362,7 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
                 >
                   <UserAvatar
                     username={displayName(m?.user) ?? peer.name}
-                    avatarUrl={m?.user.avatar_url ?? null}
+                    avatarUrl={m?.user.avatar_url ?? presence.find((p) => p.user_id === peer.userId)?.avatar_url ?? null}
                     size="lg"
                   />
                 </div>
@@ -440,6 +446,9 @@ export function RoomControls({ detail, channel }: { detail: StarDetail; channel:
   const presence = detail.voice?.[channel.id] ?? [];
   const door = roomDoor(detail, channel, myId);
   const canInvite = door.kind === "open" || door.canAnswer;
+  // Посетитель по гостевой ссылке: говорит и слушает, но звать людей, показывать экран и
+  // включать звуки могут только участники.
+  const visitor = detail.my_role === "visitor";
   const words = roomWords(detail.kind, channel.name);
   const nouns = placeNouns(detail.kind);
   const sharerId = presence.find((p) => p.screen_sharing)?.user_id ?? null;
@@ -497,7 +506,7 @@ export function RoomControls({ detail, channel }: { detail: StarDetail; channel:
           disabled={voice.status !== "connected"}
           onClick={() => void voice.toggleDeafen()}
         />
-        {detail.soundboard !== false && (
+        {detail.soundboard !== false && !visitor && (
           <ControlButton
             icon={<span aria-hidden>🎵</span>}
             label="Звуковая панель"
@@ -505,7 +514,7 @@ export function RoomControls({ detail, channel }: { detail: StarDetail; channel:
             onClick={() => setSoundsOpen(true)}
           />
         )}
-        {canShareScreen() &&
+        {canShareScreen() && !visitor &&
           (voice.sharingScreen || sharerId === myId ? (
             <ControlButton
               icon={<IconScreenStop />}
@@ -533,7 +542,7 @@ export function RoomControls({ detail, channel }: { detail: StarDetail; channel:
           label="Микрофон и динамик"
           onClick={() => setDevicesOpen(true)}
         />
-        {canInvite && (
+        {canInvite && !visitor && (
           <ControlButton
             icon={<IconStarInvite />}
             label={`Позвать ${nouns.into}`}

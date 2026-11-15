@@ -18,6 +18,8 @@ vi.mock("../../api/client", () => ({ http: { get: vi.fn(), post: vi.fn() } }));
 const memory = new Map<string, string>();
 vi.stubGlobal("localStorage", { getItem: (key: string) => memory.get(key) ?? null,
   setItem: (key: string, value: string) => void memory.set(key, value) });
+const auth = vi.hoisted(() => ({ token: null as string | null }));
+vi.mock("../../store/auth", () => ({ useAuthStore: (select: (st: { token: string | null }) => unknown) => select(auth) }));
 const { http } = await import("../../api/client");
 const { useScreenAudio } = await import("../../store/screenAudio");
 const { default: GuestPage } = await import("../GuestPage");
@@ -86,7 +88,7 @@ async function enter() {
   await act(async () => Simulate.submit(host.querySelector("form")!));
 }
 beforeEach(() => {
-  vi.clearAllMocks(); memory.clear();
+  vi.clearAllMocks(); memory.clear(); auth.token = null;
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   host = document.createElement("div"); document.body.append(host); root = createRoot(host);
   listenOnly = false; room = fakeRoom();
@@ -233,5 +235,38 @@ describe("guest screen viewing", () => {
     expect(host.querySelector("video")).toBeNull();
     expect(button("Войти в Комнату").disabled).toBe(false);
     expect(host.textContent).toContain("Не удалось войти");
+  });
+});
+
+describe("guest link with a Quazar account", () => {
+  // Подмену localStorage снимает afterEach каждого теста — ставим свою заново.
+  const pending = () => memory.get("quazar_pending_guest_link");
+  beforeEach(() => {
+    vi.stubGlobal("localStorage", { getItem: (key: string) => memory.get(key) ?? null,
+      setItem: (key: string, value: string) => void memory.set(key, value) });
+  });
+
+  async function open() {
+    await act(async () => root.render(createElement(MemoryRouter, { initialEntries: ["/guest/invite-code"],
+      future: { v7_startTransition: true, v7_relativeSplatPath: true } }, createElement(Routes, null,
+        createElement(Route, { path: "/guest/:code", element: createElement(GuestPage) }),
+        createElement(Route, { path: "/", element: "приложение" }),
+        createElement(Route, { path: "/auth", element: "вход" })))));
+  }
+
+  it("opens the room in the app when signed in", async () => {
+    auth.token = "jwt";
+    await open();
+    expect(pending()).toBe("invite-code");
+    expect(host.textContent).toBe("приложение");
+    expect(http.post).not.toHaveBeenCalled();
+  });
+
+  it("offers to sign in and keeps the link for after that", async () => {
+    await open();
+    expect(host.querySelector('[aria-label="Ваше имя"]')).not.toBeNull();
+    await act(async () => button("Войдите").click());
+    expect(pending()).toBe("invite-code");
+    expect(host.textContent).toBe("вход");
   });
 });

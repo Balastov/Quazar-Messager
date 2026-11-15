@@ -62,7 +62,7 @@ it("edits per-member access and leaves role-based access out of the list", async
   expect(box("alice").checked).toBe(true);
   expect(box("bob").checked).toBe(false);
   expect(host.textContent).toContain("Всегда видят все этажи: boss.");
-  expect(host.textContent).toContain("Гостевые ссылки работают как раньше");
+  expect(host.textContent).toContain("Гостевая ссылка откроет ему только свою Комнату");
 
   // «Доступен всем» отмечает всех, затем одного исключаем.
   await act(async () => Simulate.change(radio("all")));

@@ -3,21 +3,28 @@
 Гость видит только эту комнату — ни Спутников, ни участников Звезды, ни других комнат. Говорит
 (если комната не «только слушать»), главным в комнате не становится. Ссылка живёт до срока
 или пока её не отзовут; отзыв выводит из комнаты и тех гостей, что уже внутри.
+
+Открыл ссылку под своим аккаунтом — получает пропуск (StarRoomPass) на срок ссылки: Комната видна
+ему в приложении и пускает без стука. Участнику без доступа к этажу — этаж с одной этой Комнатой,
+тому, кто не в Звезде, — Звезда с одной этой Комнатой. Ссылка кончилась или её отозвали — пропуск
+пропадает, а сам человек выходит из Комнаты.
 """
 
 import secrets
 import time
+import uuid
 from collections import defaultdict, deque
 from datetime import datetime, timedelta, timezone
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import delete, or_, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.doors import INVITE, PERSONAL, can_admit, door
-from app.api.stars import _channel, _load_membership, assert_room_access
+from app.api.stars import _channel, _is_superuser, _load_membership, assert_room_access, passes_changed
 from app.core import floors as floors_svc
 from app.core import livekit, voice
 from app.core import stars as rules
@@ -25,8 +32,9 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.core.stars import Perm
-from app.models.star import Star, StarChannel, StarGuestLink, StarMember
+from app.models.star import Star, StarBan, StarChannel, StarGuestLink, StarMember, StarRoomPass
 from app.models.user import User
+from app.ws.hub import manager
 
 router = APIRouter(prefix="/stars", tags=["guests"])
 public_router = APIRouter(prefix="/guest", tags=["guests"])
@@ -124,6 +132,38 @@ async def revoke_guest_link(star_id: str, link_id: str, current_user: CurrentUse
     for p in voice.participants(link.channel_id):
         if p.user_id.startswith(prefix):
             await voice.remove_from_planet(star_id, link.channel_id, p.user_id)
+    # И те, кто открыл её под своим аккаунтом.
+    await release_passes(db, list((await db.execute(select(StarRoomPass).where(StarRoomPass.link_id == link.id))).scalars()))
+
+
+async def release_passes(db: AsyncSession, passes: list[StarRoomPass]) -> None:
+    """Пропуска по ссылкам, которые кончились или отозваны: убрать и сказать их владельцам."""
+    if not passes:
+        return
+    by_star: dict[str, set[str]] = defaultdict(set)
+    for p in passes:
+        by_star[p.star_id].add(p.user_id)
+    await db.execute(delete(StarRoomPass).where(StarRoomPass.id.in_([p.id for p in passes])))
+    await db.commit()
+    for star_id, user_ids in by_star.items():
+        star = await db.get(Star, star_id)
+        if star:
+            await passes_changed(db, star, user_ids)
+
+
+async def expire_room_passes(db: AsyncSession) -> int:
+    """Фоновая задача: пропуска по истёкшим и отозванным ссылкам."""
+    rows = list(
+        (
+            await db.execute(
+                select(StarRoomPass)
+                .join(StarGuestLink, StarGuestLink.id == StarRoomPass.link_id)
+                .where(or_(StarGuestLink.revoked.is_(True), StarGuestLink.expires_at <= _now()))
+            )
+        ).scalars()
+    )
+    await release_passes(db, rows)
+    return len(rows)
 
 
 # --- Гость --------------------------------------------------------------------------
@@ -164,6 +204,42 @@ async def _active_link(db: AsyncSession, code: str) -> tuple[StarGuestLink, Star
 async def guest_info(code: str, db: Db):
     link, star, channel = await _active_link(db, code)
     return GuestInfoOut(star_name=star.name, room_name=channel.name, expires_at=link.expires_at, listen_only=channel.listen_only)
+
+
+class GuestClaimOut(BaseModel):
+    star_id: str
+    channel_id: str
+    floor_id: str | None
+    expires_at: datetime
+
+
+@public_router.post("/{code}/claim", response_model=GuestClaimOut)
+async def claim_guest_link(code: str, current_user: CurrentUser, db: Db):
+    """Открыть ссылку под своим аккаунтом: Комната появится в приложении, пока ссылка действует."""
+    link, star, channel = await _active_link(db, code)
+    banned = (
+        await db.execute(select(StarBan.id).where(StarBan.star_id == star.id, StarBan.user_id == current_user.id))
+    ).first()
+    if banned:
+        raise HTTPException(status_code=403, detail="Вас заблокировали в этой Звезде")
+    member = (
+        await db.execute(select(StarMember).where(StarMember.star_id == star.id, StarMember.user_id == current_user.id))
+    ).scalar_one_or_none()
+    # Кому Комната и так открыта, пропуск не нужен.
+    sees = await _is_superuser(db, current_user.id) or (
+        member is not None and await floors_svc.can_use_room(db, star, member, channel)
+    )
+    if not sees:
+        added = await db.execute(
+            pg_insert(StarRoomPass)
+            .values(id=str(uuid.uuid4()), link_id=link.id, user_id=current_user.id, star_id=star.id, channel_id=channel.id)
+            .on_conflict_do_nothing(constraint="uq_star_room_pass")
+        )
+        await db.commit()
+        if added.rowcount:
+            # Другие устройства этого человека тоже перечитают Звезду (или впервые её получат).
+            await manager.send_to_user(current_user.id, {"type": "star_floor_access", "star_id": star.id})
+    return GuestClaimOut(star_id=star.id, channel_id=channel.id, floor_id=channel.floor_id, expires_at=link.expires_at)
 
 
 @public_router.post("/{code}/join", response_model=GuestJoinOut)

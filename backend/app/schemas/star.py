@@ -9,6 +9,8 @@ from app.core.stars import MAX_MESSAGE_LENGTH, PLANET_MAX_CAPACITY, ROOM_KINDS, 
 StarKind = Literal["gaming", "work"]
 ChannelKind = Literal["satellite", "planet"]
 Role = Literal["owner", "admin", "moderator", "member"]
+# Роль в ответах о Звезде: visitor — не участник, открыл гостевую ссылку в Комнату под своим аккаунтом.
+ViewerRole = Literal["owner", "admin", "moderator", "member", "visitor"]
 AssignableRole = Literal["admin", "moderator", "member"]
 RoomKind = Literal["coworking", "meeting", "smoking", "kitchen", "custom"]
 Access = Literal["open", "invite", "personal"]
@@ -311,7 +313,7 @@ class StarSummaryOut(BaseModel):
     background_url: str | None
     created_at: datetime
     member_count: int
-    my_role: Role
+    my_role: ViewerRole
 
 
 class VoiceParticipantOut(BaseModel):
@@ -323,6 +325,11 @@ class VoiceParticipantOut(BaseModel):
     is_host: bool = False
     # Гость по ссылке: его имя (у участников Звезды — None).
     guest_name: str | None = None
+    # Вошёл по гостевой ссылке под своим аккаунтом, не будучи участником Звезды.
+    visitor: bool = False
+    # Имя в этой Звезде и фото: участники найдут посетителя только так, а посетитель — участников.
+    name: str | None = None
+    avatar_url: str | None = None
 
 
 class StarDetailOut(StarSummaryOut):
@@ -348,6 +355,8 @@ class StarDetailOut(StarSummaryOut):
     work_hours: dict | None = None
     # Этажи карты офиса (только у Звёзд «Работа»).
     floors: list[StarFloorOut] = []
+    # Комнаты, видные мне по гостевым ссылкам: channel_id -> до какого времени.
+    room_passes: dict[str, datetime] = {}
 
 
 class StarReplyOut(BaseModel):

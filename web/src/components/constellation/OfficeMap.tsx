@@ -19,7 +19,7 @@ import {
   type Rect,
 } from "./office";
 import { ActiveTime, activeSince } from "./ActiveTime";
-import { apiError, can, doorKind, initials, roomDoor } from "./rules";
+import { apiError, can, doorKind, initials, passUntil, presenceName, roomDoor } from "./rules";
 import s from "./Constellation.module.css";
 import w from "./Work.module.css";
 import { currentBooking, doorSign, hhmm, useBookings } from "./work";
@@ -91,12 +91,25 @@ export default function OfficeMap({ detail, onBack, onOpenPlanet, onAddRoom }: P
   const unplaced = rooms.filter((c) => !rectOf(c));
 
   const rectFor = (c: StarChannel): Rect => (editing && draft[c.id]) || rectOf(c)!;
-  const memberName = (userId: string) =>
-    displayName(detail.members.find((m) => m.user.id === userId)?.user) ??
-    Object.values(detail.voice ?? {})
-      .flat()
-      .find((p) => p.user_id === userId)?.guest_name ??
-    "?";
+  const memberName = (userId: string) => {
+    const p = Object.values(detail.voice ?? {}).flat().find((x) => x.user_id === userId);
+    return p ? presenceName(detail, p) : (displayName(detail.members.find((m) => m.user.id === userId)?.user) ?? "?");
+  };
+
+  // Открыли гостевую ссылку — показываем этаж её Комнаты и подсвечиваем её.
+  const mapFocus = useStarsStore((st) => st.mapFocus);
+  const clearMapFocus = useStarsStore((st) => st.clearMapFocus);
+  const [focused, setFocused] = useState<string | null>(null);
+  useEffect(() => {
+    if (mapFocus?.starId !== detail.id) return;
+    const room = detail.channels.find((c) => c.id === mapFocus.channelId);
+    clearMapFocus();
+    if (!room?.floor_id) return;
+    setFloorId(room.floor_id);
+    setFocused(room.id);
+    const timer = setTimeout(() => setFocused(null), 4000);
+    return () => clearTimeout(timer);
+  }, [mapFocus, detail.id, detail.channels, clearMapFocus]);
   const iAmIn = (c: StarChannel) => voice.channelId === c.id && voice.status !== "idle";
 
   const startEditing = () => {
@@ -338,9 +351,11 @@ export default function OfficeMap({ detail, onBack, onOpenPlanet, onAddRoom }: P
             const knocking = myKnock?.channelId === c.id;
             const booked = currentBooking(bookings, c.id, now);
             const sign = doorSign(c, now);
+            const pass = passUntil(detail, c.id);
             const extra = [
               booked ? `занято до ${hhmm(booked.ends_at)}: «${booked.title}»` : "",
               sign ? `${sign.icon} ${sign.text}` : "",
+              pass ? `🎟 по гостевой ссылке до ${pass}` : "",
             ]
               .filter(Boolean)
               .map((x) => ` · ${x}`)
@@ -353,6 +368,7 @@ export default function OfficeMap({ detail, onBack, onOpenPlanet, onAddRoom }: P
               editing ? s.roomEditing : "",
               drag?.id === c.id ? s.roomDragging : "",
               blocked === c.id ? s.roomBlocked : "",
+              focused === c.id ? s.roomFocused : "",
             ];
             return (
               <div
@@ -384,6 +400,7 @@ export default function OfficeMap({ detail, onBack, onOpenPlanet, onAddRoom }: P
                   <span aria-hidden>{ROOM_ICON[c.room_kind ?? "custom"]}</span>
                   <span className={s.roomName}>{c.name}</span>
                   {sign && !editing && <span aria-label={sign.text}>{sign.icon}</span>}
+                  {pass && !editing && <span aria-label={`по гостевой ссылке до ${pass}`}>🎟</span>}
                   {isClosed(c) && (
                     <span
                       className={s.lock}

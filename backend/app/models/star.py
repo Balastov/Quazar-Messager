@@ -533,6 +533,32 @@ class StarGuestLink(Base):
     uses: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
 
+class StarRoomPass(Base):
+    """Гостевую ссылку открыл человек с аккаунтом: пока ссылка действует, Комната видна ему в приложении.
+
+    Участнику без доступа к этажу — этаж с одной этой Комнатой; тому, кто не в Звезде, — сама
+    Звезда с этой Комнатой (участником он не становится). Срок и отзыв — у ссылки.
+    """
+
+    __tablename__ = "star_room_passes"
+    __table_args__ = (UniqueConstraint("link_id", "user_id", name="uq_star_room_pass"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    link_id: Mapped[str] = mapped_column(
+        ForeignKey("star_guest_links.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    star_id: Mapped[str] = mapped_column(
+        ForeignKey("stars.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    channel_id: Mapped[str] = mapped_column(
+        ForeignKey("star_channels.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
 class StarBookmark(Base):
     """Закладка Спутника — полоса под шапкой: ссылка (url) или файл этой Звезды (file_id).
 

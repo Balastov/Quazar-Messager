@@ -111,13 +111,13 @@ async def set_floor_access(star_id: str, floor_id: str, body: SetFloorAccess, cu
     members = set((await db.execute(select(StarMember.user_id).where(StarMember.star_id == star_id))).scalars())
     if unknown := set(body.user_ids) - members:
         raise HTTPException(status_code=422, detail=f"Не участники Звезды: {len(unknown)}")
-    before = await floors_svc.floor_audience(db, star, floor.id)
+    before = await floors_svc.views(db, star)
     await floors_svc.set_floor_access(db, star, floor, body.access, set(body.user_ids))
     await db.commit()
-    after = await floors_svc.floor_audience(db, star, floor.id)
+    after = await floors_svc.views(db, star)
 
     # Потерявшие доступ выходят из комнат этажа; у кого доступ поменялся — перечитают Звезду.
-    changed = before ^ after
+    changed = {uid for uid in before.keys() | after.keys() if before.get(uid) != after.get(uid)}
     await enforce_floor_access(db, star, changed)
     await _broadcast(db, star_id, floors_event(await floors_svc.list_floors(db, star_id)))
     if changed:

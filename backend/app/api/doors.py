@@ -150,9 +150,8 @@ async def _names(db: AsyncSession, user_ids: set[str], star_id: str) -> dict[str
 async def _answerers(db: AsyncSession, star: Star, channel: StarChannel) -> list[str]:
     """Кто может впускать в эту комнату."""
     members = list((await db.execute(select(StarMember).where(StarMember.star_id == star.id))).scalars())
-    hidden = await floors_svc.hidden_by_member(db, star, members)
-    floor_id = floors_svc.room_floor_id(channel)
-    return [m.user_id for m in members if can_answer(star, m, channel) and floor_id not in hidden[m.user_id]]
+    seen = await floors_svc.views(db, star, members)
+    return [m.user_id for m in members if can_answer(star, m, channel) and seen[m.user_id].sees_room(channel)]
 
 
 async def _notify(

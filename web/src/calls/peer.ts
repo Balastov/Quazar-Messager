@@ -17,6 +17,8 @@ export type PeerCallbacks = {
   onError: (message: string) => void;
   /** Работает ли сейчас шумоподавление RNNoise для микрофона. */
   onNoiseSuppression?: (active: boolean) => void;
+  /** Микрофон физически отключили (трек завершился) — пора искать другой. */
+  onMicrophoneEnded?: () => void;
 };
 
 /**
@@ -106,6 +108,7 @@ export class CallPeer {
     if (wantsDenoiser) void preloadNoiseSuppression().catch(() => {});
     const stream = await navigator.mediaDevices.getUserMedia(this.mediaConstraints());
     this.localStream = stream;
+    this.watchMicrophone(stream.getAudioTracks()[0]);
     if (wantsDenoiser) {
       await this.attachDenoiser();
     }
@@ -131,7 +134,7 @@ export class CallPeer {
     if (!raw) return;
     const denoiser = wantsDenoiser ? await NoiseSuppressedMic.create(raw) : null;
     if (wantsDenoiser && !denoiser) await setBrowserNoiseSuppression(raw, true);
-    if (denoiser) denoiser.onFailed = () => void this.detachDenoiser();
+    if (denoiser) denoiser.onFailed = () => this.denoiserFailed(raw);
     const newOut = denoiser?.track ?? raw;
     newOut.enabled = wasEnabled; // выключенный микрофон остаётся выключенным
 
@@ -140,7 +143,25 @@ export class CallPeer {
     this.rawAudioTrack = denoiser ? raw : null;
     oldDenoiser?.close();
     oldRaw?.stop();
+    this.watchMicrophone(raw);
     this.cb.onNoiseSuppression?.(denoiser !== null);
+  }
+
+  /** Исходный трек микрофона, который сейчас уходит собеседнику (напрямую или через RNNoise). */
+  microphoneTrack(): MediaStreamTrack | null {
+    return this.rawAudioTrack ?? this.localStream?.getAudioTracks()[0] ?? null;
+  }
+
+  private watchMicrophone(track: MediaStreamTrack | undefined): void {
+    track?.addEventListener("ended", () => {
+      if (this.microphoneTrack() === track) this.cb.onMicrophoneEnded?.();
+    }, { once: true });
+  }
+
+  /** RNNoise замолчал. Если микрофон просто выдернули — это не сбой шумоподавления. */
+  private denoiserFailed(raw: MediaStreamTrack): void {
+    if (raw.readyState === "ended") return;
+    void this.detachDenoiser();
   }
 
   isNoiseSuppressionActive(): boolean {
@@ -181,7 +202,7 @@ export class CallPeer {
     // Выключенный микрофон остаётся выключенным: mute управляет отправляемым треком.
     denoiser.track.enabled = raw.enabled;
     raw.enabled = true;
-    denoiser.onFailed = () => void this.detachDenoiser();
+    denoiser.onFailed = () => this.denoiserFailed(raw);
 
     await this.swapAudioTrack(raw, denoiser.track);
     this.rawAudioTrack = raw;

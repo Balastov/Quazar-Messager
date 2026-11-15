@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { MIC_LOST, micNeedsSwitch, serial } from "../calls/micWatch";
 import { callsApi } from "../api/calls";
 import type { CallHistoryItem, CallMedia, CallPhase, WsEvent } from "../api/types";
 import { CallPeer } from "../calls/peer";
@@ -72,6 +73,8 @@ interface CallState {
   toggleNoiseSuppression: () => Promise<void>;
   /** Выбрали другой микрофон в настройках устройств. */
   switchMicrophone: () => Promise<void>;
+  /** Микрофон выдернули или вставили: если нужно — берём заново, не трогая mute. */
+  recoverMicrophone: () => Promise<void>;
   /** Камера вкл/выкл — и в аудиозвонке тоже (звонок становится видео). */
   toggleCamera: () => Promise<void>;
   flipCamera: () => Promise<void>;
@@ -293,6 +296,7 @@ async function ensurePeer(media: CallMedia): Promise<CallPeer> {
       useCallStore.setState({ remoteStream: stream });
     },
     onRemoteScreenAudio: (stream) => useCallStore.setState({ remoteScreenStream: stream }),
+    onMicrophoneEnded: () => void useCallStore.getState().recoverMicrophone(),
     onLocalScreenAudioEnded: () => {
       useCallStore.setState({ screenAudioAvailable: false, sharingScreenAudio: false,
         screenAudioNotice: "Источник перестал передавать звук трансляции." });
@@ -762,10 +766,26 @@ export const useCallStore = create<CallState>((set, get) => {
     switchMicrophone: async () => {
       try {
         await peer?.switchMicrophone();
+        if (get().error === MIC_LOST) set({ error: null });
       } catch {
         set({ error: "Не удалось переключить микрофон" });
       }
     },
+
+    recoverMicrophone: serial(async () => {
+      const current = peer;
+      if (!current || !["outgoing", "connecting", "active"].includes(get().phase)) return;
+      const track = current.microphoneTrack();
+      if (!(await micNeedsSwitch(track))) return;
+      const lost = track?.readyState === "ended" || !!track?.muted;
+      try {
+        await current.switchMicrophone();
+        if (peer === current && get().error === MIC_LOST) set({ error: null });
+      } catch {
+        // Другого микрофона нет — ждём, пока подключат: звонок не обрываем.
+        if (lost && peer === current) set({ error: MIC_LOST });
+      }
+    }),
 
     toggleNoiseSuppression: async () => {
       const next = !get().noiseSuppression;

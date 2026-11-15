@@ -8,13 +8,25 @@ vi.stubGlobal("localStorage", {
   clear: () => memoryStorage.clear(),
 });
 
-class FakeTrack {
+class FakeTrack extends EventTarget {
   enabled = true;
   stopped = false;
+  muted = false;
+  readyState: MediaStreamTrackState = "live";
   constructor(
     readonly id: string,
     readonly source = "microphone"
-  ) {}
+  ) {
+    super();
+  }
+  getSettings(): MediaTrackSettings {
+    return { deviceId: this.id };
+  }
+  /** Микрофон выдернули: браузер завершает трек. */
+  unplug() {
+    this.readyState = "ended";
+    this.dispatchEvent(new Event("ended"));
+  }
   get kind() { return this.source === "screen_share" ? "video" : "audio"; }
   stop() {
     this.stopped = true;
@@ -179,6 +191,8 @@ function setListenOnly(on: boolean) {
 
 let mic: FakeTrack;
 let micDenied = false;
+let micMissing = false;
+let devices: { kind: string; deviceId: string; groupId: string; label: string }[] = [];
 let micRequests = 0;
 vi.stubGlobal("navigator", {
   mediaDevices: {
@@ -191,8 +205,10 @@ vi.stubGlobal("navigator", {
     getUserMedia: async () => {
       micRequests++;
       if (micDenied) throw new DOMException("denied", "NotAllowedError");
+      if (micMissing) throw new DOMException("no device", "NotFoundError");
       return { getAudioTracks: () => [mic] };
     },
+    enumerateDevices: async () => devices,
   },
 });
 
@@ -207,6 +223,8 @@ beforeEach(async () => {
   FakeRoom.last = null;
   FakeDenoiser.fail = false;
   micDenied = false;
+  micMissing = false;
+  devices = [{ kind: "audioinput", deviceId: "mic", groupId: "g-mic", label: "Микрофон" }];
   callState.phase = "idle";
   mic = new FakeTrack("mic");
   joinPlanet.mockClear();
@@ -631,3 +649,66 @@ describe("micErrorText", () => {
     expect(micErrorText(new Error("publish timed out"))).toMatch(/publish timed out/);
   });
 });
+
+describe("microphone unplugged and plugged back", () => {
+  it("keeps the planet, says so, and brings the microphone back by itself", async () => {
+    await useVoiceStore.getState().join("s1", "p1");
+    const room = FakeRoom.last!;
+    const pub = room.published[0];
+    await pub.mute(); // человек был с выключенным микрофоном — так и останется
+    const unplugged = mic;
+    const denoiser = FakeDenoiser.last!;
+
+    // Других микрофонов нет.
+    micMissing = true;
+    devices = [];
+    unplugged.unplug();
+    await vi.waitFor(() => expect(useVoiceStore.getState().notice).toBe("Микрофон отключён — подключите его снова, звук включится сам"));
+    // Тишина из-за выдернутого микрофона — не «шумоподавление не заработало».
+    denoiser.onFailed!("silent");
+    expect(useVoiceStore.getState().notice).toMatch(/Микрофон отключён/);
+    expect(useVoiceStore.getState().status).toBe("connected");
+
+    // Вставили обратно.
+    micMissing = false;
+    mic = new FakeTrack("mic");
+    devices = [{ kind: "audioinput", deviceId: "mic", groupId: "g-mic", label: "Микрофон" }];
+    await useVoiceStore.getState().recoverMicrophone();
+    expect(FakeDenoiser.last).not.toBe(denoiser);
+    expect(pub.audioTrack.replaceTrack).toHaveBeenLastCalledWith(FakeDenoiser.last!.track, true);
+    expect(unplugged.stopped).toBe(true);
+    expect(pub.isMuted).toBe(true);
+    expect(room.published).toHaveLength(1);
+    expect(useVoiceStore.getState().notice).toBe("Микрофон снова работает");
+  });
+
+  it("moves to another microphone at once when the headset is pulled out", async () => {
+    await useVoiceStore.getState().join("s1", "p1");
+    const pub = FakeRoom.last!.published[0];
+    const headset = mic;
+    mic = new FakeTrack("built-in");
+    devices = [{ kind: "audioinput", deviceId: "built-in", groupId: "g-built-in", label: "Встроенный" }];
+    headset.unplug();
+    await vi.waitFor(() => expect(pub.audioTrack.replaceTrack).toHaveBeenLastCalledWith(FakeDenoiser.last!.track, true));
+    expect(headset.stopped).toBe(true);
+    expect(useVoiceStore.getState().notice).toBeNull();
+  });
+
+  it("leaves a working microphone alone when nothing relevant changed", async () => {
+    await useVoiceStore.getState().join("s1", "p1");
+    const before = micRequests;
+    await useVoiceStore.getState().recoverMicrophone();
+    expect(micRequests).toBe(before);
+  });
+
+  it("picks up a microphone that was missing when entering the planet", async () => {
+    micMissing = true;
+    await useVoiceStore.getState().join("s1", "p1");
+    expect(useVoiceStore.getState().micUnavailable).toBe(true);
+    micMissing = false;
+    await useVoiceStore.getState().recoverMicrophone();
+    expect(useVoiceStore.getState().micUnavailable).toBe(false);
+    expect(FakeRoom.last!.published).toHaveLength(1);
+  });
+});
+

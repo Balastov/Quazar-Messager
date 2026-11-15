@@ -36,8 +36,13 @@ interface DevicesState {
 
 export const useDevicesStore = create<DevicesState>((set, get) => {
   if (typeof navigator !== "undefined" && navigator.mediaDevices?.addEventListener) {
-    // Подключили или вынули гарнитуру — обновляем список.
-    navigator.mediaDevices.addEventListener("devicechange", () => void get().refresh());
+    // Подключили или вынули гарнитуру — обновляем список и, если идёт звонок, берём микрофон заново:
+    // вернули отключённый, вставили выбранный или система сменила устройство по умолчанию.
+    navigator.mediaDevices.addEventListener("devicechange", () => {
+      void get().refresh();
+      void useVoiceStore.getState().recoverMicrophone();
+      void useCallStore.getState().recoverMicrophone();
+    });
   }
 
   return {

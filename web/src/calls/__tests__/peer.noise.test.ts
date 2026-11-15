@@ -1,13 +1,25 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-class FakeTrack {
+class FakeTrack extends EventTarget {
   enabled = true;
   stopped = false;
+  muted = false;
+  readyState: MediaStreamTrackState = "live";
   constraints: MediaTrackConstraints[] = [];
   constructor(
     readonly kind: "audio" | "video",
     readonly id: string
-  ) {}
+  ) {
+    super();
+  }
+  getSettings(): MediaTrackSettings {
+    return { deviceId: this.id };
+  }
+  /** Микрофон выдернули: браузер завершает трек. */
+  unplug() {
+    this.readyState = "ended";
+    this.dispatchEvent(new Event("ended"));
+  }
   async applyConstraints(c: MediaTrackConstraints) {
     this.constraints.push(c);
   }
@@ -97,6 +109,7 @@ let lastConstraints: MediaStreamConstraints | null;
 
 function makePeer(noiseSuppression: boolean) {
   const onNoiseSuppression = vi.fn();
+  const onMicrophoneEnded = vi.fn();
   const peer = new CallPeer(
     [],
     { audio: true, video: false },
@@ -106,10 +119,11 @@ function makePeer(noiseSuppression: boolean) {
       onConnectionState: () => {},
       onError: () => {},
       onNoiseSuppression,
+      onMicrophoneEnded,
     },
     noiseSuppression
   );
-  return { peer, onNoiseSuppression };
+  return { peer, onNoiseSuppression, onMicrophoneEnded };
 }
 
 function sentAudio(pc: FakePeerConnection) {
@@ -247,5 +261,38 @@ describe("CallPeer noise suppression", () => {
     peer.close();
     expect(denoiser.closed).toBe(true);
     expect(mic.stopped).toBe(true);
+  });
+
+  it("reports an unplugged microphone and does not blame noise suppression", async () => {
+    const { peer, onNoiseSuppression, onMicrophoneEnded } = makePeer(true);
+    await peer.ensurePeer();
+    const denoiser = FakeDenoiser.instances[0];
+    expect(peer.microphoneTrack()).toBe(mic);
+
+    mic.unplug();
+    expect(onMicrophoneEnded).toHaveBeenCalledOnce();
+    // RNNoise замолчал из-за выдернутого микрофона — это не сбой шумоподавления.
+    denoiser.onFailed!();
+    expect(denoiser.closed).toBe(false);
+    expect(onNoiseSuppression).not.toHaveBeenLastCalledWith(false);
+  });
+
+  it("takes the microphone again after it was plugged back, keeping mute", async () => {
+    const { peer, onMicrophoneEnded } = makePeer(false);
+    await peer.ensurePeer();
+    peer.setMuted(true);
+    const old = mic;
+    old.unplug();
+
+    mic = new FakeTrack("audio", "mic-again");
+    await peer.switchMicrophone();
+    expect(sentAudio(pcs[0])?.id).toBe("mic-again");
+    expect(sentAudio(pcs[0])?.enabled).toBe(false);
+    expect(peer.microphoneTrack()).toBe(mic);
+    // Старый трек больше не наш — его события не считаются.
+    old.dispatchEvent(new Event("ended"));
+    expect(onMicrophoneEnded).toHaveBeenCalledOnce();
+    mic.unplug();
+    expect(onMicrophoneEnded).toHaveBeenCalledTimes(2);
   });
 });

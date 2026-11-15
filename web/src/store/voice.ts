@@ -53,6 +53,7 @@ import { socket } from "../ws/socket";
 import { hotkey, isTyping, loadVoiceKeys, saveVoiceKeys, type VoiceKeyPrefs } from "../voice/keys";
 import { captureScreen, NO_SCREEN_AUDIO, type ScreenMode } from "../calls/screenCapture";
 import { useScreenAudio, screenAudioVolume } from "./screenAudio";
+import { MIC_BACK, MIC_LOST, micNeedsSwitch, serial } from "../calls/micWatch";
 
 export type VoiceStatus = "idle" | "connecting" | "connected" | "reconnecting";
 
@@ -119,6 +120,8 @@ interface VoiceState {
   retryMic: () => Promise<void>;
   /** Выбрали другой микрофон — подменяем отправляемый трек на ходу. */
   switchMicrophone: () => Promise<void>;
+  /** Микрофон выдернули или вставили: если нужно — берём заново, не трогая mute. */
+  recoverMicrophone: () => Promise<void>;
   /** Выбрали другой динамик — переводим звук собеседников. */
   applyOutput: () => Promise<void>;
   toggleNoise: () => Promise<void>;
@@ -490,6 +493,8 @@ export const useVoiceStore = create<VoiceState>((set, get) => {
   function watchDenoiser(denoiser: NoiseSuppressedMic) {
     denoiser.onFailed = (reason) => {
       if (!mic || mic.denoiser !== denoiser) return;
+      // Микрофон выдернули — это не сбой шумоподавления: его вернёт recoverMicrophone.
+      if (mic.raw.readyState === "ended") return;
       void mic.publication?.audioTrack?.replaceTrack(mic.raw, true);
       void setBrowserNoiseSuppression(mic.raw, true);
       denoiser.close();
@@ -504,6 +509,38 @@ export const useVoiceStore = create<VoiceState>((set, get) => {
           : {}),
       });
     };
+  }
+
+  /** Микрофон физически отключили — ищем другой или ждём, пока его вставят обратно. */
+  function watchMicrophone(raw: MediaStreamTrack) {
+    raw.addEventListener("ended", () => {
+      if (mic?.raw === raw) void get().recoverMicrophone();
+    }, { once: true });
+  }
+
+  /** Подменяет отправляемый микрофон, сохраняя публикацию (и mute). Возвращает ошибку или null. */
+  async function replaceMic(r: Room): Promise<unknown> {
+    const old = mic;
+    if (!old) return null;
+    try {
+      const next = await openMicrophone();
+      if (room !== r || mic !== old) {
+        next.denoiser?.close();
+        next.raw.stop();
+        return null;
+      }
+      const track = next.denoiser?.track ?? next.raw;
+      await old.publication?.audioTrack?.replaceTrack(track, true);
+      if (next.denoiser) watchDenoiser(next.denoiser);
+      mic = { raw: next.raw, denoiser: next.denoiser, publication: old.publication };
+      watchMicrophone(next.raw);
+      old.denoiser?.close();
+      old.raw.stop();
+      set({ noiseActive: !!next.denoiser, micError: null });
+      return null;
+    } catch (err) {
+      return err;
+    }
   }
 
   /** Микрофон (выбранный или системный) и, если можно, RNNoise поверх него. */
@@ -531,6 +568,7 @@ export const useVoiceStore = create<VoiceState>((set, get) => {
         return;
       }
       mic = { raw, denoiser, publication: null };
+      watchMicrophone(raw);
       if (denoiser) watchDenoiser(denoiser);
       await publishMic(r);
       if (startMuted) await mic?.publication?.mute();
@@ -803,26 +841,35 @@ export const useVoiceStore = create<VoiceState>((set, get) => {
         syncPeers();
         return;
       }
-      const old = mic;
-      try {
-        const next = await openMicrophone();
-        if (room !== r || mic !== old) {
-          next.denoiser?.close();
-          next.raw.stop();
-          return;
-        }
-        const track = next.denoiser?.track ?? next.raw;
-        await old.publication?.audioTrack?.replaceTrack(track, true);
-        if (next.denoiser) watchDenoiser(next.denoiser);
-        mic = { raw: next.raw, denoiser: next.denoiser, publication: old.publication };
-        old.denoiser?.close();
-        old.raw.stop();
-        set({ noiseActive: !!next.denoiser, micError: null });
-      } catch (err) {
-        set({ notice: micErrorText(err) });
-      }
+      const err = await replaceMic(r);
+      if (err) set({ notice: micErrorText(err) });
       syncPeers();
     },
+
+    recoverMicrophone: serial(async () => {
+      const r = room;
+      if (!r || get().status === "idle" || get().listenOnly) return;
+      if (!mic) {
+        // Микрофона не было (не нашли при входе) — вдруг его как раз подключили.
+        if (get().micUnavailable) {
+          await acquireMic(r);
+          syncPeers();
+        }
+        return;
+      }
+      const lostTrack = mic.raw;
+      if (!(await micNeedsSwitch(lostTrack))) return;
+      const lost = lostTrack.readyState === "ended" || lostTrack.muted;
+      const err = await replaceMic(r);
+      if (room !== r) return;
+      if (err) {
+        // Другого микрофона нет — ждём, пока подключат: с Планеты не выкидываем.
+        if (lost && get().notice !== MIC_LOST) set({ notice: MIC_LOST });
+      } else if (get().notice === MIC_LOST) {
+        set({ notice: MIC_BACK });
+      }
+      syncPeers();
+    }),
 
     applyOutput: async () => {
       const deviceId = getPreferredOutput();

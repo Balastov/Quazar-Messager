@@ -116,7 +116,7 @@ jobs:
             "${android[@]}" \
             desktop-release-assets/SHA256SUMS.txt \
             --repo "$GITHUB_REPOSITORY" \
-            --title "Quazar Desktop ${VERSION} — тестовая версия" \
+            --title "Quazar ${VERSION} — тестовая версия" \
             --notes-file desktop-release-assets/release-notes.md \
             --prerelease --latest=false --verify-tag
       - name: Publish updater assets or resume an interrupted asset upload

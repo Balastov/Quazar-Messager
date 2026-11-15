@@ -108,11 +108,25 @@ it("does not advertise inside the desktop client", async () => {
 });
 
 it.each([
-  { userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 18)", platform: "iPhone" },
   { userAgent: "Mozilla/5.0 (Linux; Android 14) Mobile", platform: "Linux armv8l" },
   { userAgent: "reduced", userAgentData: { platform: "Android", mobile: false } },
+])("offers the Android app on Android phones without desktop prompts", async browser => {
+  vi.stubGlobal("navigator", browser);
+  await render(); await tick(60_000); expect(document.querySelector('[role="dialog"]')).toBeNull();
+  expect(host.textContent).toBe("Скачать мобильное приложение");
+  await act(async () => button("Скачать мобильное приложение").click());
+  const dialog = document.querySelector('[role="dialog"][aria-label="Quazar для Android"]')!;
+  const link = dialog.querySelector("a")!;
+  expect(link.href).toMatch(/^https:\/\/quazar-msg\.ru\/desktop-updates\/android\/Quazar-\d+\.\d+\.\d+-android\.apk$/);
+  expect(dialog.textContent).toContain("Play Protect");
+  await act(async () => link.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true })));
+  expect(document.querySelector('[role="dialog"]')).toBeNull();
+});
+
+it.each([
+  { userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 18)", platform: "iPhone" },
   { userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)", platform: "MacIntel", maxTouchPoints: 5 },
-])("shows the mobile placeholder on phones and tablets without desktop prompts", async browser => {
+])("shows the mobile placeholder on iPhone and iPad without desktop prompts", async browser => {
   vi.stubGlobal("navigator", browser);
   await render(); await tick(60_000); expect(document.querySelector('[role="dialog"]')).toBeNull();
   expect(host.textContent).toBe("Скачать мобильное приложение");

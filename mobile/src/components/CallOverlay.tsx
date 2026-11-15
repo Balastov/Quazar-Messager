@@ -1,4 +1,5 @@
 import React, {useMemo} from 'react';
+import {avatarInitials} from '../utils/profile';
 import {
   Modal,
   Pressable,
@@ -105,7 +106,7 @@ export default function CallOverlay() {
         ) : (
           <View style={s.placeholder}>
             <View style={s.avatar}>
-              <Text style={s.avatarText}>{name[0]?.toUpperCase() ?? '?'}</Text>
+              <Text style={s.avatarText}>{avatarInitials(name)}</Text>
             </View>
             <Text style={s.name}>{name}</Text>
             <Text style={s.status}>

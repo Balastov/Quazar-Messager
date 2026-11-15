@@ -11,6 +11,30 @@ const RESERVED = new Set([
 export type Named = { id?: string | null; username: string; display_name?: string | null; account_display_name?: string | null; pseudonym?: string | null; pseudonym_star_id?: string | null };
 
 const graphemes = typeof Intl.Segmenter === "function" ? new Intl.Segmenter(undefined, { granularity: "grapheme" }) : null;
+function firstGraphemes(word: string, count: number): string {
+  const parts = graphemes ? Array.from(graphemes.segment(word), (part) => part.segment) : Array.from(word);
+  return parts.slice(0, count).join("");
+}
+
+const EMOJI_START = /^[\p{Extended_Pictographic}\p{Regional_Indicator}]/u;
+const LETTER_START = /^[\p{L}\p{N}]/u;
+
+/**
+ * Буквы для аватара без фото: «Имя Фамилия» → «ИФ», одно слово → первые две буквы,
+ * имени нет (передан никнейм) → первые две буквы никнейма. Начинается с эмодзи — только эмодзи.
+ * Слова со знака препинания («(гость)») пропускаются.
+ */
+export function avatarInitials(name: string): string {
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  if (words[0] && EMOJI_START.test(words[0])) return firstGraphemes(words[0], 1);
+  const letters = words.filter((word) => LETTER_START.test(word));
+  if (!letters.length) return "?";
+  const value = letters.length > 1
+    ? firstGraphemes(letters[0], 1) + firstGraphemes(letters[1], 1)
+    : firstGraphemes(letters[0], 2);
+  return value.toUpperCase();
+}
+
 export function profileInitial(name: string): string {
   const first = graphemes ? graphemes.segment(name)[Symbol.iterator]().next().value?.segment : Array.from(name)[0];
   return (first || "?").toUpperCase();

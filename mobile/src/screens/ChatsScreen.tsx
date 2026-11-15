@@ -19,7 +19,7 @@ import type {Chat, User} from '../api/types';
 import {useContactsStore} from '../store/contacts';
 import ContactsPrompt from '../contacts/ContactsPrompt';
 import PresenceDot from '../components/PresenceDot';
-import {displayName} from '../utils/profile';
+import {displayName, avatarInitials} from '../utils/profile';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Chats'>;
 
@@ -148,7 +148,7 @@ export default function ChatsScreen({navigation}: Props) {
           {contactMatches.map(c => (
             <Pressable key={`c-${c.user.id}`} style={s.userRow} onPress={() => startDirectChat(c.user, c.name)}>
               <View style={s.avatar}>
-                <Text style={s.avatarText}>{(c.name || displayName(c.user))[0].toUpperCase()}</Text>
+                <Text style={s.avatarText}>{avatarInitials(c.name || displayName(c.user))}</Text>
                 <PresenceDot userId={c.user.id} />
               </View>
               <View>
@@ -164,7 +164,7 @@ export default function ChatsScreen({navigation}: Props) {
           {results.filter(u => !contactMatches.some(c => c.user.id === u.id)).map(u => (
             <Pressable key={u.id} style={s.userRow} onPress={() => startDirectChat(u)}>
               <View style={s.avatar}>
-                <Text style={s.avatarText}>{displayName(u)[0].toUpperCase()}</Text>
+                <Text style={s.avatarText}>{avatarInitials(displayName(u))}</Text>
                 <PresenceDot userId={u.id} />
               </View>
               <View>
@@ -182,7 +182,7 @@ export default function ChatsScreen({navigation}: Props) {
         renderItem={({item}) => (
           <Pressable style={s.chatItem} onPress={() => openChat(item)}>
             <View style={s.avatar}>
-              <Text style={s.avatarText}>{chatName(item)[0].toUpperCase()}</Text>
+              <Text style={s.avatarText}>{avatarInitials(chatName(item))}</Text>
               {item.type === 'direct' && (
                 <PresenceDot userId={item.members.find(m => m.user.id !== currentUser?.id)?.user.id} />
               )}
@@ -202,7 +202,7 @@ export default function ChatsScreen({navigation}: Props) {
               {newContacts.map(c => (
                 <Pressable key={c.user.id} style={s.chatItem} onPress={() => startDirectChat(c.user, c.name)}>
                   <View style={s.avatar}>
-                    <Text style={s.avatarText}>{(c.name || displayName(c.user))[0].toUpperCase()}</Text>
+                    <Text style={s.avatarText}>{avatarInitials(c.name || displayName(c.user))}</Text>
                     <PresenceDot userId={c.user.id} />
                   </View>
                   <View>

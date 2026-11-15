@@ -12,6 +12,7 @@ import {
 import { playSoftChime } from "../notifications/sound";
 import { requestNotifyPermission } from "../notifications/notify";
 import UserAvatar from "./UserAvatar";
+import { displayName } from "../utils/profile";
 import s from "./ProfileSettings.module.css";
 
 const MAX_AVATAR_BYTES = 3 * 1024 * 1024;
@@ -134,7 +135,7 @@ export default function ProfileSettings({ onClose }: Props) {
         </div>
 
         <section className={s.profileCard}>
-          <UserAvatar username={user.username} avatarUrl={user.avatar_url} size="lg" />
+          <UserAvatar username={displayName(user)} avatarUrl={user.avatar_url} size="lg" />
           <div className={s.profileMeta}>
             <div className={s.username}>{user.username}</div>
             <div className={s.phone}>{user.phone}</div>

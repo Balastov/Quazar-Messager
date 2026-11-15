@@ -15,7 +15,7 @@ import {useAuthStore} from '../store/auth';
 import {useContactsStore} from '../store/contacts';
 import {setMyManualStatus, useMyManualStatus} from '../store/presence';
 import {MANUAL_LABEL, untilText, type ManualKind} from '../utils/presence';
-import {displayName} from '../utils/profile';
+import {displayName, avatarInitials} from '../utils/profile';
 import ProfileEditor from '../components/ProfileEditor';
 import PhoneVisibilitySetting from '../components/PhoneVisibilitySetting';
 import PasswordSettings from '../components/PasswordSettings';
@@ -71,7 +71,7 @@ export default function ProfileScreen({navigation}: Props) {
     <ScrollView style={s.root} contentContainerStyle={s.content}>
       <View style={s.card}>
         <View style={s.avatar}>
-          <Text style={s.avatarText}>{displayName(user)?.[0]?.toUpperCase() ?? '?'}</Text>
+          <Text style={s.avatarText}>{avatarInitials(displayName(user) ?? '')}</Text>
         </View>
         <Text style={s.name}>{displayName(user)}</Text>
         <Text style={[s.muted, s.center]}>

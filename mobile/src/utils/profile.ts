@@ -19,6 +19,34 @@ export function displayName(u: Named | null | undefined): string | undefined {
   return u.display_name?.trim() || u.username;
 }
 
+// Hermes может не знать Intl.Segmenter — тогда делим по символам Unicode.
+type Segmenter = {segment(text: string): Iterable<{segment: string}>};
+const SegmenterClass = (Intl as unknown as {Segmenter?: new (locale: undefined, options: {granularity: 'grapheme'}) => Segmenter}).Segmenter;
+const graphemes = SegmenterClass ? new SegmenterClass(undefined, {granularity: 'grapheme'}) : null;
+
+function firstGraphemes(word: string, count: number): string {
+  const parts = graphemes ? Array.from(graphemes.segment(word), part => part.segment) : Array.from(word);
+  return parts.slice(0, count).join('');
+}
+
+const EMOJI_START = /^[\p{Extended_Pictographic}\p{Regional_Indicator}]/u;
+const LETTER_START = /^[\p{L}\p{N}]/u;
+
+/**
+ * Буквы для аватара без фото — как в веб-версии: «Имя Фамилия» → «ИФ», одно слово — первые две буквы,
+ * имени нет (передан никнейм) — первые две буквы никнейма. Начинается с эмодзи — только эмодзи.
+ */
+export function avatarInitials(name: string): string {
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  if (words[0] && EMOJI_START.test(words[0])) {return firstGraphemes(words[0], 1);}
+  const letters = words.filter(word => LETTER_START.test(word));
+  if (!letters.length) {return '?';}
+  const value = letters.length > 1
+    ? firstGraphemes(letters[0], 1) + firstGraphemes(letters[1], 1)
+    : firstGraphemes(letters[0], 2);
+  return value.toUpperCase();
+}
+
 const nameCollator = new Intl.Collator('ru', {sensitivity: 'accent', numeric: true});
 
 function alphabetGroup(name: string): number {

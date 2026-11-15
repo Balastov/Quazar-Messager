@@ -1,9 +1,10 @@
 import { usePresence, usePresenceStore } from "../store/presence";
 import { activeManual, MANUAL_LABEL } from "../utils/presence";
 import s from "./UserAvatar.module.css";
-import { profileInitial } from "../utils/profile";
+import { avatarInitials } from "../utils/profile";
 
 interface Props {
+  /** Имя для показа: «Имя Фамилия», а если имени нет — никнейм. Из него берутся буквы без фото. */
   username: string;
   avatarUrl?: string | null;
   size?: "sm" | "md" | "lg";
@@ -17,14 +18,14 @@ export default function UserAvatar({ username, avatarUrl, size = "md", className
   usePresenceStore((st) => st.minute); // истёк таймер ручного статуса — перерисуемся
   const manual = activeManual(presence);
   const status = presence?.status;
-  const letter = profileInitial(username ?? "");
+  const letters = avatarInitials(username ?? "");
   const sizeClass = size === "sm" ? s.sm : size === "lg" ? s.lg : s.md;
   const classes = [s.root, sizeClass, className].filter(Boolean).join(" ");
 
   const avatar = avatarUrl ? (
     <img className={`${classes} ${s.image}`} src={avatarUrl} alt="" loading="lazy" />
   ) : (
-    <span className={classes}>{letter}</span>
+    <span className={classes} aria-hidden>{letters}</span>
   );
   if (!userId) return avatar;
 

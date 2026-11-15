@@ -3,6 +3,7 @@
  * Решает всё равно сервер (backend/app/core/stars.py).
  */
 import axios from "axios";
+import { avatarInitials } from "../../utils/profile";
 import type { RoomKind, StarChannel, StarDetail, StarKind, StarPerm, StarRole } from "../../api/stars";
 import { roleRank } from "../../store/stars";
 
@@ -141,11 +142,9 @@ export function roomDoor(detail: StarDetail, channel: StarChannel, myId: string 
   return { kind, hostId, entersFreely: true, canAnswer: false };
 }
 
+/** Буквы вместо картинки — по тем же правилам, что у аватара человека. */
 export function initials(name: string): string {
-  // Только слова с буквой или цифрой: «Пётр (гость)» → «П».
-  const words = name.trim().split(/\s+/).filter((w) => /^[\p{L}\p{N}]/u.test(w));
-  const letters = words.length > 1 ? words[0][0] + words[1][0] : (words[0] ?? "?").slice(0, 2);
-  return letters.toUpperCase();
+  return avatarInitials(name);
 }
 
 export function apiError(err: unknown, fallback = "Не получилось. Попробуйте ещё раз."): string {

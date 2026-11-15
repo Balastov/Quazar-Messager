@@ -156,7 +156,7 @@ export default function AppNav() {
               aria-expanded={statusOpen}
               title="Статус: свой, на встрече, не беспокоить"
             >
-              <UserAvatar username={user.username} avatarUrl={user.avatar_url} size="sm" userId={user.id} />
+              <UserAvatar username={displayName(user)} avatarUrl={user.avatar_url} size="sm" userId={user.id} />
               <span className={s.profileName}>
                 <CustomStatusBadge userId={user.id} compact /> {displayName(user)}
                 {user.is_premium && <PremiumBadge size={11} />}

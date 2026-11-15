@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { roomWords } from "./words";
 import { createPortal } from "react-dom";
 import type { StarChannel, StarDetail } from "../../api/stars";
 import { useAuthStore } from "../../store/auth";
@@ -371,7 +372,7 @@ export default function OfficeMap({ detail, onBack, onOpenPlanet, onAddRoom }: P
                           ? `${c.name} — вы постучались, ждём ответа`
                           : locked
                             ? `${c.name} — ${doorKind(c) === "personal" ? "личный кабинет" : "по приглашениям"}, нажмите, чтобы постучаться`
-                            : `Войти в ${c.name}`) + (editing ? "" : extra)
+                            : `${roomWords("work", c.name).enter} «${c.name}»`) + (editing ? "" : extra)
                 }
                 onPointerDown={(e) => onPointerDown(e, c, "move")}
                 onClick={() => onRoomClick(c)}

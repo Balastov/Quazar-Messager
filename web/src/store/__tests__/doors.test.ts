@@ -191,7 +191,7 @@ describe("doors store", () => {
       type: "planet_knock_answer", star_id: "s1", channel_id: "room", knock_id: "k1", action: "deny",
       room_name: "Переговорная", star_name: "Офис", by_name: "Модератор",
     });
-    await vi.waitFor(() => expect(useDoorsStore.getState().notice).toMatch(/отказали/));
+    await vi.waitFor(() => expect(useDoorsStore.getState().notice).toMatch(/^Вам не разрешили (войти в Комнату|отправиться на Планету)$/));
     expect(useDoorsStore.getState().myKnock).toBeNull();
     expect(join).not.toHaveBeenCalled();
   });

@@ -149,12 +149,12 @@ describe("guest screen viewing", () => {
     expect(room.localParticipant.setMicrophoneEnabled).toHaveBeenLastCalledWith(false);
     expect(button("🔇 Включить микрофон", expanded)).toBeDefined();
     expect(expanded.querySelector('[aria-label="Громкость трансляции"]')).not.toBeNull();
-    await act(async () => button("Выйти", expanded).click());
+    await act(async () => button("Выйти из Комнаты", expanded).click());
     expect(room.disconnect).toHaveBeenCalledOnce();
     expect(document.querySelector("video")).toBeNull();
     expect(document.querySelector("audio")).toBeNull();
     expect(audio.detach).toHaveBeenCalled();
-    expect(host.textContent).toContain("Вы вышли из комнаты");
+    expect(host.textContent).toContain("Вы вышли из Комнаты");
   });
 
   it("controls screen audio independently from voices and handles mute and new subscriptions", async () => {
@@ -195,7 +195,7 @@ describe("guest screen viewing", () => {
     expect(room.localParticipant.setMicrophoneEnabled).not.toHaveBeenCalled();
     expect(host.textContent).not.toContain("Включить микрофон");
     expect(host.textContent).not.toContain("Выключить микрофон");
-    expect(button("Выйти")).toBeDefined();
+    expect(button("Выйти из Комнаты")).toBeDefined();
   });
 
   it("still shows the screen when microphone access is denied", async () => {
@@ -231,7 +231,7 @@ describe("guest screen viewing", () => {
     await enter();
     expect(room.disconnect).toHaveBeenCalledOnce();
     expect(host.querySelector("video")).toBeNull();
-    expect(button("Войти в комнату").disabled).toBe(false);
+    expect(button("Войти в Комнату").disabled).toBe(false);
     expect(host.textContent).toContain("Не удалось войти");
   });
 });

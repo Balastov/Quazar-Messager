@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { roomWords } from "./words";
 import type { StarDetail, StarMessage } from "../../api/stars";
 import { useAuthStore } from "../../store/auth";
 import { isStaff, useStarsStore } from "../../store/stars";
@@ -80,7 +81,7 @@ export default function LfgCard({ message, detail }: { message: StarMessage; det
               void doors.enterRoom(detail, planet);
             }}
           >
-            Войти на Планету
+            {roomWords("gaming", planet.name).enter}
           </button>
         )}
         {lfg.status === "started" && !planet && <span>Планета уже закрылась</span>}

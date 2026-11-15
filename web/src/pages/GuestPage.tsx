@@ -227,7 +227,7 @@ export default function GuestPage() {
     {!info?.listen_only && <button type="button" className={micOn ? s.secondary : s.danger} onClick={() => void toggleMic()}>
       {micOn ? "🎙 Выключить микрофон" : "🔇 Включить микрофон"}
     </button>}
-    <button type="button" className={s.danger} onClick={() => void leave()}>Выйти</button>
+    <button type="button" className={s.danger} onClick={() => void leave()}>Выйти из Комнаты</button>
   </div>;
 
   return (
@@ -255,7 +255,7 @@ export default function GuestPage() {
               onChange={(e) => setName(e.target.value)}
             />
             <button type="submit" className={s.primary} disabled={!name.trim() || state === "joining"}>
-              {state === "joining" ? "Входим…" : "Войти в комнату"}
+              {state === "joining" ? "Входим…" : "Войти в Комнату"}
             </button>
             <p className={s.hint}>
               {info.listen_only
@@ -292,7 +292,7 @@ export default function GuestPage() {
 
         {state === "left" && (
           <>
-            <p className={s.hint}>Вы вышли из комнаты.</p>
+            <p className={s.hint}>Вы вышли из Комнаты.</p>
             <button type="button" className={s.secondary} onClick={() => setState("form")}>
               Войти снова
             </button>

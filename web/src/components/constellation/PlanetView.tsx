@@ -427,7 +427,7 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
 
 /**
  * Панель Комнаты/Планеты внизу: микрофон, шумоподавление, звук, экран, устройства, «Позвать»
- * и «Выйти». Та же панель стоит под картой офиса, пока вы в Комнате этой Звезды.
+ * и «Покинуть Планету» / «Выйти из Комнаты». Та же панель стоит под картой офиса, пока вы в Комнате этой Звезды.
  */
 export function RoomControls({ detail, channel }: { detail: StarDetail; channel: StarChannel }) {
   const myId = useAuthStore((st) => st.user?.id);

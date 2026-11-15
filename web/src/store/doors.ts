@@ -71,13 +71,13 @@ function errorText(err: unknown, fallback: string): string {
   return fallback;
 }
 
-/** Вид Звезды — от него зависят слова («Посетить Планету» / «Войти в Комнату»). */
+/** Вид Звезды — от него зависят слова («Отправиться на Планету» / «Войти в Комнату»). */
 function starKind(starId: string) {
   const stars = useStarsStore.getState();
   return stars.details?.[starId]?.kind ?? stars.stars?.find((st) => st.id === starId)?.kind;
 }
 
-/** Открыть Звезду и войти на Планету. */
+/** Открыть Звезду и отправиться на Планету (или войти в Комнату). */
 async function goToPlanet(starId: string, channelId: string): Promise<void> {
   useUiStore.getState().setTab("stars");
   const stars = useStarsStore.getState();
@@ -361,8 +361,8 @@ export const useDoorsStore = create<DoorsState>((set, get) => {
             myKnock: null,
             notice:
               starKind(link.starId) === "work"
-                ? "Вам отказали во входе в Комнату"
-                : "Вам отказали в посещении Планеты",
+                ? "Вам не разрешили войти в Комнату"
+                : "Вам не разрешили отправиться на Планету",
           });
           break;
         case "free": {

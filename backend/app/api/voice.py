@@ -159,7 +159,7 @@ async def start_screen(star_id: str, channel_id: str, current_user: CurrentUser,
     if not started:
         raise HTTPException(
             status_code=409,
-            detail="Сначала войдите в Комнату" if star.kind == "work" else "Сначала посетите Планету",
+            detail="Сначала войдите в Комнату" if star.kind == "work" else "Сначала отправьтесь на Планету",
         )
 
 

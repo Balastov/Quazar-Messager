@@ -179,9 +179,15 @@ jobs:
           tools="$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -1)"
           apk=android/native/app/build/outputs/apk/release/app-release.apk
           # Обновление встанет поверх установленного приложения, только если ключ тот же.
-          actual="$("$tools/apksigner" verify --print-certs "$apk" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')"
+          # Формат строк apksigner меняется между версиями — ищем отпечаток в любой из них.
+          report="$("$tools/apksigner" verify --print-certs "$apk" 2>&1 || true)"
+          actual="$(printf '%s\n' "$report" | grep -oiE 'certificate SHA-256 digest: [0-9a-f]{64}' | head -1 | grep -oiE '[0-9a-f]{64}$' | tr 'A-F' 'a-f' || true)"
           expected="$(tr -d '[:space:]' < android/signing-certificate.sha256)"
-          if [ "$actual" != "$expected" ]; then echo "::error title=Android::Signed with an unexpected key ($actual)"; exit 1; fi
+          if [ "$actual" != "$expected" ]; then
+            summary="$(printf '%s' "$report" | head -c 1500 | tr '\n' ' ')"
+            echo "::error title=Android::Signed with an unexpected key (${actual:-none}); tools=$tools; apksigner: $summary"
+            exit 1
+          fi
           version="$(node -p "require('./android/package.json').version")"
           "$tools/aapt2" dump badging "$apk" | grep -q "versionName='$version'"
           mkdir -p android/release

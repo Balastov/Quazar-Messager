@@ -255,6 +255,28 @@ class RoomActivitiesTest(StarsTestBase):
         await activity.handle_pointer(body, self.users["bob"].id)
         self.assertEqual(len(self.events), 2)
 
+    async def test_each_screen_sharer_has_own_pointers(self):
+        alice, bob = self.users["alice"].id, self.users["bob"].id
+        for uid in (alice, bob):
+            voice._participant(self.planet.id, uid).screen_sharing = True
+        await self.call(api.set_pointers, self.star.id, self.planet.id, PointersBody(enabled=True), user="alice")
+        await self.call(api.set_pointers, self.star.id, self.planet.id, PointersBody(enabled=True), user="bob")
+        state = await self.state()
+        self.assertEqual(set(state["pointer_sharers"]), {alice, bob})
+        self.assertIn(state["pointers_sharer_id"], {alice, bob})
+        # Боб выключил свои — у Алисы остались.
+        await self.call(api.set_pointers, self.star.id, self.planet.id, PointersBody(enabled=False), user="bob")
+        self.assertEqual((await self.state())["pointer_sharers"], [alice])
+        self.events.clear()
+        body = {"type": "room_pointer", "star_id": self.star.id, "channel_id": self.planet.id, "x": 0.5, "y": 0.5}
+        await activity.handle_pointer({**body, "sharer_id": bob}, alice)
+        self.assertFalse(any(e["type"] == "room_pointer" for _, e in self.events))
+        await activity.handle_pointer({**body, "sharer_id": alice}, bob)
+        self.assertEqual([e["sharer_id"] for _, e in self.events if e["type"] == "room_pointer"], [alice, alice])
+        # Закончила показ — её указатели в состоянии больше не видны.
+        voice._participant(self.planet.id, alice).screen_sharing = False
+        self.assertEqual((await self.state())["pointer_sharers"], [])
+
     async def test_timeout_blocks_writes_but_does_not_hide_existing_content(self):
         item_id = uuid.uuid4()
         await self.put(item_id, BoardItemBody(kind="note", text="План"))

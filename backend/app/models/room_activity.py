@@ -12,7 +12,10 @@ class RoomActivity(Base):
     channel_id: Mapped[str] = mapped_column(ForeignKey("star_channels.id", ondelete="CASCADE"), primary_key=True)
     star_id: Mapped[str] = mapped_column(ForeignKey("stars.id", ondelete="CASCADE"), nullable=False, index=True)
     revision: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # Устарело: один показывающий с указателями. Пишем первого из pointer_sharers для старых клиентов.
     pointers_sharer_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    # Кто из показывающих экран разрешил указатели на своём показе (в рабочей Комнате их двое).
+    pointer_sharers: Mapped[list] = mapped_column(JSON, nullable=False, default=list, server_default="[]")
     board: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     focus: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     video: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)

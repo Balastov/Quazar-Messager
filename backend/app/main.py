@@ -344,6 +344,12 @@ async def lifespan(app: FastAPI):
                        "published_by_id VARCHAR(36) REFERENCES users(id) ON DELETE SET NULL", "merged_into VARCHAR(32)"):
             await conn.execute(text(f"ALTER TABLE news_releases ADD COLUMN IF NOT EXISTS {column}"))
         await conn.execute(text("ALTER TABLE device_sessions ADD COLUMN IF NOT EXISTS e2e_reported_at TIMESTAMP WITH TIME ZONE"))
+        # Указатели у каждого показывающего экран свои (в рабочей Комнате показывают двое).
+        await conn.execute(text("ALTER TABLE room_activities ADD COLUMN IF NOT EXISTS pointer_sharers JSON NOT NULL DEFAULT '[]'"))
+        await conn.execute(text(
+            "UPDATE room_activities SET pointer_sharers = json_build_array(pointers_sharer_id) "
+            "WHERE pointers_sharer_id IS NOT NULL AND pointer_sharers::text = '[]'"
+        ))
         # Владельцы ресурса из окружения сервера.
         names = [n.strip().lower() for n in settings.SUPERUSER_BOOTSTRAP.split(",") if n.strip()]
         if names:

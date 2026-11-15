@@ -229,6 +229,39 @@ class VoiceApiTest(StarsTestBase):
         await self.call(voice_api.start_screen, self.star.id, self.planet.id, user="bob")
         self.assertEqual(self.sharing(), {self.users["bob"].id})
 
+    async def test_work_room_lets_two_people_share_screens(self):
+        self.star = await self.star_with_roles("work")
+        self.planet = await self.call(
+            api.create_channel, self.star.id, CreateChannel(kind="planet", name="Разбор", room_kind="meeting"), user="owner"
+        )
+        for name in ("alice", "bob", "mod"):
+            await self.enter(name)
+        alice, bob = self.users["alice"].id, self.users["bob"].id
+        await self.call(voice_api.start_screen, self.star.id, self.planet.id, user="alice")
+        await self.call(voice_api.start_screen, self.star.id, self.planet.id, user="bob")
+        self.assertEqual(self.sharing(), {alice, bob})
+        room = voice.room_name(self.planet.id)
+        self.assertIn("SCREEN_SHARE", self.lk.sources(room, bob))
+        # Третьему — отказ с именами обоих.
+        err = await self.expect_error(409, voice_api.start_screen, self.star.id, self.planet.id, user="mod")
+        self.assertIn("alice", err.detail)
+        self.assertIn("bob", err.detail)
+        self.assertIn("не больше двух", err.detail)
+        # Остановил один — освободилось место.
+        await self.call(voice_api.stop_my_screen, self.star.id, self.planet.id, user="alice")
+        await self.call(voice_api.start_screen, self.star.id, self.planet.id, user="mod")
+        self.assertEqual(self.sharing(), {bob, self.users["mod"].id})
+
+    async def test_resync_restores_two_screens(self):
+        await self.enter("alice")
+        await self.enter("bob")
+        room = voice.room_name(self.planet.id)
+        for name in ("alice", "bob"):
+            self.lk.tracks[(room, self.users[name].id)] = [{"sid": f"TR_{name}", "source": 3}]
+        voice.reset()
+        await voice.resync()
+        self.assertEqual(self.sharing(), {self.users["alice"].id, self.users["bob"].id})
+
     async def test_screen_share_needs_presence(self):
         err = await self.expect_error(409, voice_api.start_screen, self.star.id, self.planet.id, user="alice")
         self.assertEqual(err.detail, "Сначала отправьтесь на Планету")

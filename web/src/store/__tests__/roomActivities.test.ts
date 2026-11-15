@@ -67,11 +67,26 @@ describe("room activity collaboration", () => {
     cache = applyRoomEvent(cache, { type: "room_activity_state", ...state, pointers_sharer_id: "alice" });
     cache = applyRoomEvent(cache, { type: "room_pointer", star_id: "star", channel_id: "room", user_id: "bob",
       name: "Боб", sharer_id: "alice", x: 0.5, y: 0.25, created_at: state.server_time });
-    expect(cache.pointers.bob).toBeDefined();
+    expect(cache.pointers["alice:bob"]).toBeDefined();
     cache = applyRoomEvent(cache, { type: "room_activity_state", ...state, revision: 7 });
     expect(cache.pointers_sharer_id).toBe("alice");
     cache = applyRoomEvent(cache, { type: "room_activity_state", ...state, revision: 9, pointers_sharer_id: null });
     expect(cache.pointers).toEqual({});
+  });
+
+  it("keeps pointers of each screen separately when two people share", () => {
+    let cache = emptyRoom("star", "room");
+    const { board: _, ...state } = snapshot(8);
+    cache = applyRoomEvent(cache, { type: "room_activity_state", ...state, pointers_sharer_id: "alice", pointer_sharers: ["alice", "carol"] });
+    const point = (sharer: string) => ({ type: "room_pointer" as const, star_id: "star", channel_id: "room", user_id: "bob",
+      name: "Боб", sharer_id: sharer, x: 0.5, y: 0.25, created_at: state.server_time });
+    cache = applyRoomEvent(cache, point("alice"));
+    cache = applyRoomEvent(cache, point("carol"));
+    cache = applyRoomEvent(cache, point("dave"));
+    expect(Object.keys(cache.pointers).sort()).toEqual(["alice:bob", "carol:bob"]);
+    // Кэрол выключила указатели — у показа Алисы метки остались.
+    cache = applyRoomEvent(cache, { type: "room_activity_state", ...state, revision: 9, pointers_sharer_id: "alice", pointer_sharers: ["alice"] });
+    expect(Object.keys(cache.pointers)).toEqual(["alice:bob"]);
   });
 
   it("updates the local board after a successful save without waiting for WebSocket echo", async () => {

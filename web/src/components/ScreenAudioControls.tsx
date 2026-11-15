@@ -1,11 +1,19 @@
-import { useScreenAudio } from "../store/screenAudio";
+import { sharerAudio, useScreenAudio } from "../store/screenAudio";
 import s from "./ScreenAudioControls.module.css";
 
-/** Личные настройки зрителя. Не управляют микрофоном или звуком других участников. */
-export default function ScreenAudioControls({ available }: { available: boolean }) {
-  const { enabled, volume, setEnabled, setVolume } = useScreenAudio();
+/**
+ * Личные настройки зрителя. Не управляют микрофоном или звуком других участников.
+ * sharerId — звук только этого показа (когда в Комнате показывают двое).
+ */
+export default function ScreenAudioControls({ available, sharerId, label }: {
+  available: boolean; sharerId?: string; label?: string;
+}) {
+  const state = useScreenAudio();
+  const { enabled, volume } = sharerAudio(state, sharerId);
+  const setEnabled = (value: boolean) => (sharerId ? state.setSharerAudio(sharerId, { enabled: value }) : state.setEnabled(value));
+  const setVolume = (value: number) => (sharerId ? state.setSharerAudio(sharerId, { volume: value }) : state.setVolume(value));
   return (
-    <div className={s.root} role="group" aria-label="Звук трансляции">
+    <div className={s.root} role="group" aria-label={label ? `Звук трансляции: ${label}` : "Звук трансляции"}>
       <label className={s.toggle}>
         <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
         Звук трансляции: {enabled ? "включён" : "отключён"}

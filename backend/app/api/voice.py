@@ -152,19 +152,24 @@ async def remove_participant(
 
 @router.post("/{star_id}/planets/{channel_id}/screen", status_code=status.HTTP_204_NO_CONTENT)
 async def start_screen(star_id: str, channel_id: str, current_user: CurrentUser, db: Db):
-    """Занять слот показа экрана: на Планете показывает не больше одного человека."""
+    """Занять слот показа экрана: на Планете показывает один человек, в рабочей Комнате — двое."""
     star, _ = await _load_membership(db, star_id, current_user.id)
     await _planet(db, star_id, channel_id)
     if not livekit.configured():
         raise _unavailable()
     try:
-        started = await voice.start_screen(star_id, channel_id, current_user.id)
+        started = await voice.start_screen(star_id, channel_id, current_user.id, voice.screen_limit(star.kind))
     except voice.ScreenBusy as busy:
-        busy_user = await db.get(User, busy.user_id)
-        name = await pseudonyms.name_in_star(db, star_id, busy_user)
-        raise HTTPException(
-            status_code=409, detail=f"Сейчас экран показывает {name or 'другой участник'}"
-        ) from None
+        names = []
+        for user_id in busy.user_ids:
+            name = await pseudonyms.name_in_star(db, star_id, await db.get(User, user_id))
+            names.append(name or "другой участник")
+        detail = (
+            f"Сейчас экран показывает {names[0]}"
+            if len(names) == 1
+            else f"Сейчас экраны показывают {' и '.join(names)} — одновременно можно не больше двух"
+        )
+        raise HTTPException(status_code=409, detail=detail) from None
     except livekit.LiveKitError as exc:
         raise _unavailable("Голосовой сервер сейчас недоступен.") from exc
     if not started:

@@ -199,3 +199,8 @@ export function latestPass(detail: StarDetail): string | null {
   const all = Object.values(detail.room_passes ?? {}).sort();
   return all.length ? untilText(all[all.length - 1]) : null;
 }
+
+/** Сколько человек одновременно показывают экран: в рабочей Комнате — двое, на игровой Планете — один. */
+export function screenLimit(kind: StarKind): number {
+  return kind === "work" ? 2 : 1;
+}

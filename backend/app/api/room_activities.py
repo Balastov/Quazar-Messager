@@ -62,14 +62,22 @@ async def videos(db, channel_id: str) -> list[dict]:
              "duration": duration} for f, duration in rows]
 
 
+def pointer_sharers(row: RoomActivity | None, channel_id: str) -> list[str]:
+    """Кто из показывающих сейчас экран включил на своём показе указатели."""
+    enabled = set(row.pointer_sharers or []) if row else set()
+    return [p.user_id for p in voice.screen_sharers(channel_id) if p.user_id in enabled]
+
+
 async def snapshot(db, star_id: str, channel_id: str, row: RoomActivity | None) -> dict:
-    sharer = voice.screen_sharer(channel_id)
+    pointers = pointer_sharers(row, channel_id)
     return {
         "star_id": star_id, "channel_id": channel_id, "revision": row.revision if row else 0,
         "board": list((row.board if row else {}).values()),
         "focus": (activity.advance_focus(row.focus, activity.now()) or None) if row else None,
         "video": (row.video or None) if row else None, "videos": await videos(db, channel_id),
-        "pointers_sharer_id": row.pointers_sharer_id if row and sharer and row.pointers_sharer_id == sharer.user_id else None,
+        "pointer_sharers": pointers,
+        # Для клиентов, которые знают только один показ.
+        "pointers_sharer_id": pointers[0] if pointers else None,
         "server_time": activity.now().isoformat(),
     }
 
@@ -89,10 +97,12 @@ async def get_state(star_id: str, channel_id: str, current_user: CurrentUser, db
 @router.put("/pointers")
 async def set_pointers(star_id: str, channel_id: str, body: PointersBody, current_user: CurrentUser, db: Db):
     row, _ = await locked(db, star_id, channel_id, current_user)
-    sharer = voice.screen_sharer(channel_id)
-    if not sharer or sharer.user_id != current_user.id:
+    if not voice.is_screen_sharer(channel_id, current_user.id):
         raise HTTPException(status_code=403, detail="Указатели включает тот, кто показывает экран")
-    row.pointers_sharer_id = current_user.id if body.enabled else None
+    # Только свой показ: указатели другого показывающего не трогаем.
+    others = [uid for uid in (row.pointer_sharers or []) if uid != current_user.id]
+    row.pointer_sharers = [*others, current_user.id] if body.enabled else others
+    row.pointers_sharer_id = row.pointer_sharers[0] if row.pointer_sharers else None
     row.revision += 1
     await db.commit()
     await state_event(db, row)

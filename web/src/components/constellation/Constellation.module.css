@@ -1535,6 +1535,90 @@
   width: 100%;
 }
 
+/* Два показа экрана в рабочей Комнате: переключатель и пара рядом. */
+.screenPairBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.screenSwitch {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.screenPairBar .screenSwitch {
+  margin-bottom: 0;
+}
+
+.screenSwitchButton,
+.screenSwitchActive {
+  min-width: 0;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 5px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--qz-glass-border);
+  background: var(--qz-glass-inner);
+  color: var(--qz-text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.screenSwitchActive {
+  border-color: rgba(168, 85, 247, 0.6);
+  background: rgba(168, 85, 247, 0.22);
+  font-weight: 600;
+}
+
+/* Экран поделён по вертикали пополам: слева один показ, справа другой. */
+.screenPairGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+}
+
+.screenPairFull {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px;
+  background: #05040b;
+}
+
+.screenPairFull .screenPairGrid {
+  flex: 1;
+  min-height: 0;
+  align-items: stretch;
+}
+
+.screenPairFull .screenStage {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.screenPairFull .screenFrame {
+  flex: 1;
+  aspect-ratio: auto;
+  max-height: none;
+}
+
+.screenPairControls {
+  flex-shrink: 0;
+  max-height: 40%;
+  overflow-y: auto;
+}
+
 .screenFrame {
   position: relative;
   width: 100%;

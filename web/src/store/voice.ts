@@ -611,7 +611,7 @@ export const useVoiceStore = create<VoiceState>((set, get) => {
 
   /** Громкость собеседника с учётом «оглушения». */
   function volumeOf(userId: string, screen = false): number {
-    return get().deafened ? 0 : screen ? screenAudioVolume() : (get().volumes[userId] ?? 1);
+    return get().deafened ? 0 : screen ? screenAudioVolume(userId) : (get().volumes[userId] ?? 1);
   }
 
   /** Громкость всем, кто сейчас звучит (после разблокировки звука LiveKit снимает mute). */
@@ -623,7 +623,9 @@ export const useVoiceStore = create<VoiceState>((set, get) => {
   }
 
   useScreenAudio.subscribe((state, previous) => {
-    if (state.enabled !== previous.enabled || state.volume !== previous.volume) void applyVolumes();
+    if (state.enabled !== previous.enabled || state.volume !== previous.volume || state.bySharer !== previous.bySharer) {
+      void applyVolumes();
+    }
   });
 
   function wire(r: Room, { RoomEvent, DisconnectReason }: LiveKit) {

@@ -43,7 +43,10 @@ export interface RoomSnapshot {
   channel_id: string;
   revision: number;
   server_time: string;
+  /** Устарело: первый из pointer_sharers (для клиентов, знающих один показ). */
   pointers_sharer_id: string | null;
+  /** Кто из показывающих экран разрешил указатели на своём показе. */
+  pointer_sharers?: string[];
   focus: FocusState | null;
   video: VideoState | null;
   videos: RoomVideo[];

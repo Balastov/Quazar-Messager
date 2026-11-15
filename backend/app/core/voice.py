@@ -4,9 +4,10 @@
 обновляют реестр в памяти, а при старте бэкенда реестр восстанавливается запросом к LiveKit.
 Бэкенд работает одним процессом, поэтому реестра в памяти достаточно.
 
-Показ экрана: на Планете его ведёт не больше одного человека. Токен разрешает публиковать
-только микрофон; право на экран бэкенд выдаёт через UpdateParticipant тому, кто занял слот,
-и отзывает, когда показ закончен (сам, модератором или ушёл с Планеты).
+Показ экрана: на игровой Планете его ведёт не больше одного человека, в Комнате рабочей Звезды —
+до двух одновременно. Токен разрешает публиковать только микрофон; право на экран бэкенд выдаёт
+через UpdateParticipant тому, кто занял слот, и отзывает, когда показ закончен (сам, модератором
+или ушёл с Планеты).
 
 Время активности: Планета «идёт» с входа первого человека в пустую комнату до выхода последнего.
 Начало пишем и в метаданные комнаты LiveKit — после перезапуска бэкенда счётчик не сбрасывается.
@@ -91,12 +92,20 @@ class VoiceParticipant:
         return sources
 
 
-class ScreenBusy(Exception):
-    """Экран на этой Планете уже показывает другой участник."""
+# Сколько человек одновременно показывают экран: рабочая Комната — двое, игровая Планета — один.
+MAX_SCREENS = 2
 
-    def __init__(self, user_id: str):
-        super().__init__(user_id)
-        self.user_id = user_id
+
+def screen_limit(star_kind: str) -> int:
+    return MAX_SCREENS if star_kind == "work" else 1
+
+
+class ScreenBusy(Exception):
+    """Все слоты показа экрана на этой Планете заняты."""
+
+    def __init__(self, user_ids: list[str]):
+        super().__init__(*user_ids)
+        self.user_ids = user_ids
 
 
 @dataclass
@@ -250,8 +259,13 @@ def _participant(channel_id: str, user_id: str) -> VoiceParticipant | None:
     return planet.participants.get(user_id) if planet else None
 
 
-def screen_sharer(channel_id: str) -> VoiceParticipant | None:
-    return next((p for p in participants(channel_id) if p.screen_sharing), None)
+def screen_sharers(channel_id: str) -> list[VoiceParticipant]:
+    """Кто сейчас показывает экран — в порядке входа в комнату."""
+    return [p for p in participants(channel_id) if p.screen_sharing]
+
+
+def is_screen_sharer(channel_id: str, user_id: str | None) -> bool:
+    return any(p.user_id == user_id for p in screen_sharers(channel_id))
 
 
 async def _apply_permissions(channel_id: str, participant: VoiceParticipant) -> None:
@@ -292,16 +306,16 @@ async def set_server_muted(star_id: str, channel_id: str, user_id: str, muted: b
     return True
 
 
-async def start_screen(star_id: str, channel_id: str, user_id: str) -> bool:
-    """Занять слот показа экрана. False — участника нет на Планете; ScreenBusy — слот занят."""
+async def start_screen(star_id: str, channel_id: str, user_id: str, limit: int = 1) -> bool:
+    """Занять слот показа экрана. False — участника нет на Планете; ScreenBusy — слоты заняты."""
     participant = _participant(channel_id, user_id)
     if not participant:
         return False
     if participant.screen_sharing:
         return True
-    current = screen_sharer(channel_id)
-    if current:
-        raise ScreenBusy(current.user_id)
+    current = screen_sharers(channel_id)
+    if len(current) >= limit:
+        raise ScreenBusy([p.user_id for p in current])
     # Слот занимаем до первого await: два одновременных запроса не пройдут оба.
     participant.screen_sharing = True
     participant.screen_track_sid = None
@@ -495,7 +509,7 @@ async def resync() -> None:
                     ),
                     None,
                 )
-                if screen and not screen_sharer(channel_id):
+                if screen and len(screen_sharers(channel_id)) < MAX_SCREENS:
                     restored = _planets[channel_id].participants[identity]
                     restored.screen_sharing = True
                     restored.screen_track_sid = screen.get("sid")

@@ -25,11 +25,18 @@ export function emptyRoom(starId: string, channelId: string): RoomCache {
     clockOffset: 0, ready: false, pointers: {} };
 }
 
+/** Кто из показывающих разрешил указатели (старый сервер присылает только одного). */
+export function pointerSharers(state: Pick<RoomSnapshot, "pointers_sharer_id" | "pointer_sharers">): string[] {
+  return state.pointer_sharers ?? (state.pointers_sharer_id ? [state.pointers_sharer_id] : []);
+}
+
 function header(cache: RoomCache, state: Omit<RoomSnapshot, "board">): RoomCache {
   if (state.revision < cache.stateRevision) return cache;
+  // Указатели показа, на котором их выключили, исчезают; у второго показа — остаются.
+  const allowed = new Set(pointerSharers(state));
+  const pointers = Object.fromEntries(Object.entries(cache.pointers).filter(([, p]) => allowed.has(p.sharer_id)));
   return { ...cache, ...state, revision: Math.max(cache.revision, state.revision), stateRevision: state.revision,
-    clockOffset: cache.ready ? cache.clockOffset : Date.parse(state.server_time) - Date.now(),
-    pointers: state.pointers_sharer_id === cache.pointers_sharer_id ? cache.pointers : {} };
+    clockOffset: cache.ready ? cache.clockOffset : Date.parse(state.server_time) - Date.now(), pointers };
 }
 
 /** Поздний GET не затирает пришедшие после него изменения и удаления объектов. */
@@ -57,8 +64,10 @@ export function mergeRoomSnapshot(cache: RoomCache, snapshot: RoomSnapshot, cloc
 export function applyRoomEvent(cache: RoomCache, event: RoomActivityEvent): RoomCache {
   if (event.type === "room_activity_state") return header(cache, event);
   if (event.type === "room_pointer") {
-    if (event.sharer_id !== cache.pointers_sharer_id) return cache;
-    return { ...cache, pointers: { ...cache.pointers, [event.user_id]: { ...event, expires: Date.now() + 3500 } } };
+    if (!pointerSharers(cache).includes(event.sharer_id)) return cache;
+    // Один человек может указывать на оба показа — метки у каждого показа свои.
+    const key = `${event.sharer_id}:${event.user_id}`;
+    return { ...cache, pointers: { ...cache.pointers, [key]: { ...event, expires: Date.now() + 3500 } } };
   }
   if (event.revision <= cache.resetRevision) return cache;
   if (event.type === "room_board_reset") {

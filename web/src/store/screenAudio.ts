@@ -13,10 +13,15 @@ function load(): Preferences {
   } catch { return defaults; }
 }
 
+/** Свой звук у каждого показа, когда их два (на время разговора, не сохраняется). */
+export interface SharerAudio { enabled: boolean; volume: number }
+
 interface ScreenAudioState extends Preferences {
+  bySharer: Record<string, SharerAudio>;
   setShareAudio: (enabled: boolean) => void;
   setEnabled: (enabled: boolean) => void;
   setVolume: (volume: number) => void;
+  setSharerAudio: (userId: string, patch: Partial<SharerAudio>) => void;
 }
 
 export const useScreenAudio = create<ScreenAudioState>((set) => {
@@ -25,12 +30,27 @@ export const useScreenAudio = create<ScreenAudioState>((set) => {
     try { localStorage.setItem(KEY, JSON.stringify(next)); } catch { /* Настройка действует и без хранилища. */ }
     return next;
   });
-  return { ...load(), setShareAudio: (shareAudio) => update({ shareAudio }),
-    setEnabled: (enabled) => update({ enabled }),
-    setVolume: (volume) => { if (Number.isFinite(volume)) update({ volume: Math.max(0, Math.min(1, volume)) }); } };
+  return { ...load(), bySharer: {}, setShareAudio: (shareAudio) => update({ shareAudio }),
+    // Общая настройка снова управляет всеми показами: отдельные (от двух показов) сбрасываются.
+    setEnabled: (enabled) => { update({ enabled }); set({ bySharer: {} }); },
+    setVolume: (volume) => {
+      if (!Number.isFinite(volume)) return;
+      update({ volume: Math.max(0, Math.min(1, volume)) });
+      set({ bySharer: {} });
+    },
+    setSharerAudio: (userId, patch) => set((state) => {
+      const current = sharerAudio(state, userId);
+      const volume = patch.volume === undefined || !Number.isFinite(patch.volume) ? current.volume : Math.max(0, Math.min(1, patch.volume));
+      return { bySharer: { ...state.bySharer, [userId]: { enabled: patch.enabled ?? current.enabled, volume } } };
+    }) };
 });
 
-export function screenAudioVolume(): number {
-  const { enabled, volume } = useScreenAudio.getState();
+/** Звук показа этого человека: своя настройка, а пока её нет — общая. */
+export function sharerAudio(state: Pick<ScreenAudioState, "enabled" | "volume" | "bySharer">, userId?: string): SharerAudio {
+  return (userId && state.bySharer[userId]) || { enabled: state.enabled, volume: state.volume };
+}
+
+export function screenAudioVolume(userId?: string): number {
+  const { enabled, volume } = sharerAudio(useScreenAudio.getState(), userId);
   return enabled ? volume : 0;
 }

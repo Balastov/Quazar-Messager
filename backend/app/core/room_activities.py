@@ -104,8 +104,7 @@ async def handle_pointer(data: dict, user_id: str) -> None:
         return
     if user_id not in members(body.channel_id):
         return
-    sharer = voice.screen_sharer(body.channel_id)
-    if not sharer or sharer.user_id != body.sharer_id:
+    if not voice.is_screen_sharer(body.channel_id, body.sharer_id):
         return
     key, stamp = (user_id, body.channel_id), time.monotonic()
     if stamp - _pointer_times.get(key, -1) < 0.25:
@@ -120,7 +119,7 @@ async def handle_pointer(data: dict, user_id: str) -> None:
             StarMember.star_id == body.star_id, StarMember.user_id == user_id,
         ))).scalar_one_or_none()
         user = await db.get(User, user_id)
-        if not row or row.star_id != body.star_id or row.pointers_sharer_id != body.sharer_id or not member or not user:
+        if not row or row.star_id != body.star_id or body.sharer_id not in (row.pointer_sharers or []) or not member or not user:
             return
         from app.api.stars import assert_can_post
         star = await db.get(Star, body.star_id)

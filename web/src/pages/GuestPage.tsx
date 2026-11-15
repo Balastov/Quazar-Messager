@@ -6,7 +6,7 @@ import { http } from "../api/client";
 import { rememberGuestLink } from "../api/stars";
 import { useAuthStore } from "../store/auth";
 import { compareNames } from "../utils/profile";
-import ScreenStage from "../components/constellation/ScreenStage";
+import ScreenStages from "../components/constellation/ScreenStages";
 import ScreenAudioControls from "../components/ScreenAudioControls";
 import { screenAudioVolume, useScreenAudio } from "../store/screenAudio";
 import s from "./GuestPage.module.css";
@@ -85,10 +85,12 @@ export default function GuestPage() {
   const [list, setList] = useState<Person[]>([]);
   const [micOn, setMicOn] = useState(false);
   const [needsUnlock, setNeedsUnlock] = useState(false);
-  const [screen, setScreen] = useState<GuestScreen | null>(null);
+  // Показы экрана: в рабочей Комнате их может быть два.
+  const [screens, setScreens] = useState<GuestScreen[]>([]);
   const roomRef = useRef<Room | null>(null);
   const audioRef = useRef<HTMLDivElement>(null);
-  const audioTracks = useRef(new Map<RemoteAudioTrack, boolean>());
+  // Аудиоплееры: для звука показа — чей это показ (своя громкость у каждого), для голоса — null.
+  const audioTracks = useRef(new Map<RemoteAudioTrack, string | null>());
   const attemptRef = useRef(0);
 
   const clearAudio = () => {
@@ -98,7 +100,7 @@ export default function GuestPage() {
 
   useEffect(() => {
     let active = true;
-    setInfo(null); setError(null); setState("form"); setScreen(null); setList([]);
+    setInfo(null); setError(null); setState("form"); setScreens([]); setList([]);
     http
       .get<GuestInfo>(`/guest/${encodeURIComponent(code)}`)
       .then((r) => { if (active) setInfo(r.data); })
@@ -125,8 +127,8 @@ export default function GuestPage() {
   }, [code]);
 
   useEffect(() => useScreenAudio.subscribe(() => {
-    for (const [track, isScreen] of audioTracks.current) {
-      if (isScreen) track.setVolume(screenAudioVolume());
+    for (const [track, sharer] of audioTracks.current) {
+      if (sharer) track.setVolume(screenAudioVolume(sharer));
     }
   }), []);
 
@@ -152,11 +154,12 @@ export default function GuestPage() {
         if (roomRef.current !== room) return;
         setList(people(room));
         setMicOn(room.localParticipant.isMicrophoneEnabled);
-        const sharer = [...room.remoteParticipants.values()].find((p) => p.getTrackPublication(lk.Track.Source.ScreenShare));
-        const video = sharer?.getTrackPublication(lk.Track.Source.ScreenShare);
-        const audio = sharer?.getTrackPublication(lk.Track.Source.ScreenShareAudio);
-        setScreen(sharer && video ? { userId: sharer.identity, name: sharer.name || "Участник",
-          track: video.track ?? null, hasAudio: !!audio?.track && !audio.isMuted } : null);
+        setScreens([...room.remoteParticipants.values()].flatMap((sharer) => {
+          const video = sharer.getTrackPublication(lk.Track.Source.ScreenShare);
+          const audio = sharer.getTrackPublication(lk.Track.Source.ScreenShareAudio);
+          return video ? [{ userId: sharer.identity, name: sharer.name || "Участник",
+            track: video.track ?? null, hasAudio: !!audio?.track && !audio.isMuted }] : [];
+        }));
       };
       room
         .on(lk.RoomEvent.ParticipantConnected, sync)
@@ -170,14 +173,15 @@ export default function GuestPage() {
         .on(lk.RoomEvent.TrackUnpublished, sync)
         .on(lk.RoomEvent.ParticipantNameChanged, sync)
         .on(lk.RoomEvent.Reconnected, sync)
-        .on(lk.RoomEvent.TrackSubscribed, (track, publication) => {
+        .on(lk.RoomEvent.TrackSubscribed, (track, publication, participant) => {
           if (roomRef.current !== room) return;
           if (track.kind === "audio") {
             const audio = track as RemoteAudioTrack;
             if (!audioTracks.current.has(audio)) {
               const isScreen = publication.source === lk.Track.Source.ScreenShareAudio || track.source === lk.Track.Source.ScreenShareAudio;
-              audioTracks.current.set(audio, isScreen);
-              if (isScreen) audio.setVolume(screenAudioVolume());
+              const sharer = isScreen ? (participant?.identity ?? "") : null;
+              audioTracks.current.set(audio, sharer);
+              if (sharer !== null) audio.setVolume(screenAudioVolume(sharer || undefined));
               audioRef.current?.appendChild(audio.attach());
             }
           }
@@ -198,7 +202,7 @@ export default function GuestPage() {
           if (roomRef.current !== room) return;
           roomRef.current = null;
           clearAudio();
-          setScreen(null); setList([]); setMicOn(false); setNeedsUnlock(false); setState("left");
+          setScreens([]); setList([]); setMicOn(false); setNeedsUnlock(false); setState("left");
         });
       await room.connect(data.url, data.token);
       if (attempt !== attemptRef.current || roomRef.current !== room) return;
@@ -218,7 +222,7 @@ export default function GuestPage() {
       roomRef.current = null;
       clearAudio();
       void room?.disconnect();
-      setScreen(null);
+      setScreens([]);
       setState("form");
       setError(errorText(err, "Не удалось войти — попробуйте ещё раз"));
     }
@@ -249,7 +253,7 @@ export default function GuestPage() {
 
   return (
     <div className={s.page}>
-      <div className={`${s.card} ${state === "in" && screen ? s.cardWithScreen : ""}`}>
+      <div className={`${s.card} ${state === "in" && screens.length ? s.cardWithScreen : ""}`}>
         <img className={s.logo} src="/logo-mark.png?v=neon-q-2" alt="Quazar" />
         {!info && !error && <p className={s.hint}>Открываем приглашение…</p>}
         {info && (
@@ -294,10 +298,14 @@ export default function GuestPage() {
 
         {state === "in" && (
           <>
-            {screen && <section aria-label="Демонстрация экрана в комнате">
-              <ScreenStage sharerName={screen.name} placeInside="в комнате" isMine={false}
-                screen={screen.track ? { userId: screen.userId, isLocal: false, track: screen.track, hasAudio: screen.hasAudio } : null}
-                controls={controls} audioControls={<ScreenAudioControls available={screen.hasAudio} />} />
+            {screens.length > 0 && <section aria-label="Демонстрация экрана в комнате">
+              <ScreenStages placeInside="в комнате" controls={controls}
+                screens={screens.map((screen) => ({
+                  userId: screen.userId, name: screen.name, isMine: false, pointersEnabled: false,
+                  screen: screen.track ? { userId: screen.userId, isLocal: false, track: screen.track, hasAudio: screen.hasAudio } : null,
+                  audioControls: <ScreenAudioControls available={screen.hasAudio}
+                    sharerId={screens.length > 1 ? screen.userId : undefined} label={screens.length > 1 ? screen.name : undefined} />,
+                }))} />
             </section>}
             <div className={s.people} aria-label="Кто в комнате">
               {list.map((p) => (

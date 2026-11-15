@@ -2,10 +2,10 @@ import { useEffect, useState, type ReactNode } from "react";
 import type { StarChannel, StarDetail } from "../../api/stars";
 import { useVoiceStore } from "../../store/voice";
 import { useAuthStore } from "../../store/auth";
-import { useRoomActivities } from "../../store/roomActivities";
+import { pointerSharers, useRoomActivities } from "../../store/roomActivities";
 import { socket } from "../../ws/socket";
 import { apiError } from "./rules";
-import ScreenStage from "./ScreenStage";
+import ScreenStages, { type StageScreen } from "./ScreenStages";
 import FocusOrbit from "./FocusOrbit";
 import RoomTools from "./RoomTools";
 import RoomBoard from "./RoomBoard";
@@ -14,10 +14,19 @@ import ActivityFrame from "./ActivityFrame";
 import ScreenAudioControls, { ShareScreenAudioToggle } from "../ScreenAudioControls";
 import s from "./RoomActivities.module.css";
 
-export default function RoomActivities({ detail, channel, sharerId, sharerName, onStop, controls }: {
-  detail: StarDetail; channel: StarChannel; sharerId: string | null; sharerName: string;
-  onStop?: () => void; controls: ReactNode;
+/** Кто показывает экран: в игровой Планете — один, в рабочей Комнате — до двух. */
+export interface RoomSharer {
+  userId: string;
+  name: string;
+  /** Остановить: свой показ — всегда, чужой — модератор. */
+  onStop?: () => void;
+}
+
+export default function RoomActivities({ detail, channel, sharers, controls }: {
+  detail: StarDetail; channel: StarChannel; sharers: RoomSharer[]; controls: ReactNode;
 }) {
+  const sharerId = sharers[0]?.userId ?? null;
+  const sharerKey = sharers.map((sharer) => sharer.userId).join(",");
   const myId = useAuthStore((st) => st.user?.id);
   const status = useVoiceStore((st) => st.status);
   const screens = useVoiceStore((st) => st.screens);
@@ -39,7 +48,8 @@ export default function RoomActivities({ detail, channel, sharerId, sharerName, 
   useEffect(() => {
     setView(sharerId ? "screen" : null); setError(null);
   }, [channel.id]);
-  useEffect(() => { if (sharerId) setView((current) => current ?? "screen"); }, [sharerId]);
+  // Начался показ (в том числе второй) — открываем «Экран», если ничего другого не смотрели.
+  useEffect(() => { if (sharerKey) setView((current) => current ?? "screen"); }, [sharerKey]);
   useEffect(() => {
     if (room?.video?.playing && room.video.file_id) setView((current) => current ?? "video");
   }, [room?.video?.playing, room?.video?.file_id]);
@@ -56,7 +66,7 @@ export default function RoomActivities({ detail, channel, sharerId, sharerName, 
     const timer = setInterval(refresh, 30_000);
     return () => { active = false; off(); clearInterval(timer); };
   }, [detail.id, channel.id, confirmed, status, load, visitor]);
-  const pointersEnabled = !!sharerId && room?.pointers_sharer_id === sharerId;
+  const withPointers = room ? pointerSharers(room) : [];
   const fullscreenControls = <>{controls}{room?.ready && <FocusOrbit detail={detail} channel={channel} room={room} readOnly={readOnly} compact />}</>;
   return (
     <div className={s.activities}>
@@ -68,25 +78,35 @@ export default function RoomActivities({ detail, channel, sharerId, sharerName, 
         {([ [null, "Участники"], ["screen", "Экран"], ["board", "Доска"], ["video", "Видео"] ] as const)
           .filter(([id]) => !visitor || id === null || id === "screen").map(([id, label]) =>
           <button key={id ?? "people"} type="button" className={view === id ? s.activeButton : s.button}
-            aria-pressed={view === id} onClick={() => setView(id)}>{label}{id === "screen" && sharerId ? " · идёт показ"
+            aria-pressed={view === id} onClick={() => setView(id)}>{label}{id === "screen" && sharers.length > 1 ? " · идут 2 показа" : id === "screen" && sharerId ? " · идёт показ"
               : id === "video" && room?.video?.playing ? " · смотрим" : ""}</button>)}
       </div>
       {error && <div role="alert" className={s.error}>{error}
         <button type="button" className={s.button} onClick={() => void load(detail.id, channel.id).then(() => setError(null))
           .catch((err) => setError(apiError(err, "Не удалось загрузить активности")))}>Повторить</button>
       </div>}
-      {view === "screen" && (sharerId ? <ScreenStage
-        sharerName={sharerName} placeInside={detail.kind === "work" ? "в Комнате" : "на Планете"}
-        screen={screens.find((screen) => screen.userId === sharerId) ?? null} isMine={sharerId === myId}
-        controls={fullscreenControls} onStop={onStop} pointersEnabled={pointersEnabled}
-        audioControls={sharerId === myId ? <ShareScreenAudioToggle enabled={screenAudioSharing} available={screenAudioAvailable}
-          onChange={(enabled) => void setScreenAudioSharing(enabled).catch((err) => setError(apiError(err, "Не удалось изменить передачу звука")))} />
-          : <ScreenAudioControls available={!!screens.find((screen) => screen.userId === sharerId)?.hasAudio} />}
+      {view === "screen" && (sharers.length ? <ScreenStages
+        placeInside={detail.kind === "work" ? "в Комнате" : "на Планете"}
+        controls={fullscreenControls}
         pointers={Object.values(room?.pointers ?? {})}
-        onPoint={!readOnly && pointersEnabled ? (x, y) => point(detail.id, channel.id, sharerId, x, y) : undefined}
-        onTogglePointers={sharerId === myId && room?.ready && !readOnly ? () => {
-          void setPointers(detail.id, channel.id, !pointersEnabled).catch((err) => setError(apiError(err, "Не удалось изменить указатели")));
-        } : undefined}
+        screens={sharers.map((sharer): StageScreen => {
+          const mine = sharer.userId === myId;
+          const screen = screens.find((sc) => sc.userId === sharer.userId) ?? null;
+          const pointersOn = withPointers.includes(sharer.userId);
+          return {
+            userId: sharer.userId, name: sharer.name, screen, isMine: mine, onStop: sharer.onStop,
+            pointersEnabled: pointersOn,
+            audioControls: mine ? <ShareScreenAudioToggle enabled={screenAudioSharing} available={screenAudioAvailable}
+              onChange={(enabled) => void setScreenAudioSharing(enabled).catch((err) => setError(apiError(err, "Не удалось изменить передачу звука")))} />
+              // Два показа — у каждого своя громкость.
+              : <ScreenAudioControls available={!!screen?.hasAudio} sharerId={sharers.length > 1 ? sharer.userId : undefined}
+                label={sharers.length > 1 ? sharer.name : undefined} />,
+            onPoint: !readOnly && pointersOn ? (x, y) => point(detail.id, channel.id, sharer.userId, x, y) : undefined,
+            onTogglePointers: mine && room?.ready && !readOnly ? () => {
+              void setPointers(detail.id, channel.id, !pointersOn).catch((err) => setError(apiError(err, "Не удалось изменить указатели")));
+            } : undefined,
+          };
+        })}
       /> : <p className={s.hint}>Сейчас никто не показывает экран. Начать показ можно кнопкой в панели разговора.</p>)}
       {(view === "board" || view === "video") && !room?.ready && !error && <p className={s.hint}>Подключаем активности комнаты…</p>}
       {view === "board" && room?.ready && <ActivityFrame title="Общая доска" controls={fullscreenControls}>

@@ -9,11 +9,11 @@ import { IconBack, IconGear, IconPlanet, IconStarMic, IconStarMicOff, IconNoiseF
 import { ActiveTime, activeSince } from "./ActiveTime";
 import Dialog from "./Dialog";
 import AudioDevices from "../AudioDevices";
-import RoomActivities from "./RoomActivities";
+import RoomActivities, { type RoomSharer } from "./RoomActivities";
 import ScreenShareDialog from "../ScreenShareDialog";
 import { Soundboard, VoiceKeysSettings } from "./VoicePanels";
 import { keyLabel } from "../../voice/keys";
-import { apiError, can, canStopScreen, outranks, passUntil, presenceAvatar, presenceName, ROOM_LABEL, roomDoor } from "./rules";
+import { apiError, can, canStopScreen, outranks, passUntil, presenceAvatar, presenceName, ROOM_LABEL, roomDoor, screenLimit } from "./rules";
 import { placeNouns, roomWords } from "./words";
 import RoomTools from "./RoomTools";
 import { confirmKnock } from "./work";
@@ -77,11 +77,27 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
   const serverMuted = (userId: string) =>
     presence.find((p) => p.user_id === userId)?.server_muted ?? false;
   // Кто показывает экран — решает сервер; чужие треки экрана без слота не показываем.
-  const sharerId = presence.find((p) => p.screen_sharing)?.user_id ?? null;
-  const sharerName = sharerId ? (displayName(member(sharerId)?.user) ?? "Участник") : "";
-  const sharerRole = sharerId ? member(sharerId)?.role : undefined;
-  const canStopSharer =
-    !!sharerId && sharerId !== myId && !!sharerRole && canStopScreen(detail, sharerRole);
+  // Кто показывает экран (в рабочей Комнате — до двух человек), в порядке входа.
+  const sharing = presence.filter((p) => p.screen_sharing);
+  const sharers: RoomSharer[] = sharing.map((p) => {
+    const name = presenceName(detail, p);
+    const role = member(p.user_id)?.role;
+    const canStop = p.user_id !== myId && !!role && canStopScreen(detail, role);
+    return {
+      userId: p.user_id,
+      name,
+      onStop:
+        p.user_id === myId
+          ? () => void voice.stopScreenShare()
+          : canStop
+            ? () => {
+                if (window.confirm(`Остановить показ экрана ${name}?`)) {
+                  void moderate(() => starsApi.stopScreenOf(detail.id, channel.id, p.user_id));
+                }
+              }
+            : undefined,
+    };
+  });
   const canModerate = (userId: string) => {
     // Гостя по ссылке выключает и выводит модератор или главный в комнате.
     if (userId.startsWith("guest-")) return can(detail, "voice_moderate") || door.hostId === myId;
@@ -333,20 +349,8 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
           <RoomActivities
             detail={detail}
             channel={channel}
-            sharerId={sharerId}
-            sharerName={sharerName}
+            sharers={sharers}
             controls={<RoomControls detail={detail} channel={channel} />}
-            onStop={
-              sharerId === myId
-                ? () => void voice.stopScreenShare()
-                : canStopSharer && sharerId
-                  ? () => {
-                      if (window.confirm(`Остановить показ экрана ${sharerName}?`)) {
-                        void moderate(() => starsApi.stopScreenOf(detail.id, channel.id, sharerId));
-                      }
-                    }
-                  : undefined
-            }
           />
         )}
         <div className={s.voiceGrid}>
@@ -374,7 +378,7 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
                   {state.text}
                 </span>
                 {badge(peer.userId) && <span className={s.voicePeerState}>{badge(peer.userId)}</span>}
-                {peer.userId === sharerId && <span className={s.voicePeerState}>🖥 показывает экран</span>}
+                {sharing.some((p) => p.user_id === peer.userId) && <span className={s.voicePeerState}>🖥 показывает экран</span>}
                 {!peer.isLocal && <PeerVolume userId={peer.userId} name={displayName(m?.user) ?? peer.name} />}
                 {iAmHost && !peer.isLocal && !peer.userId.startsWith("guest-") && (
                   <button
@@ -451,10 +455,10 @@ export function RoomControls({ detail, channel }: { detail: StarDetail; channel:
   const visitor = detail.my_role === "visitor";
   const words = roomWords(detail.kind, channel.name);
   const nouns = placeNouns(detail.kind);
-  const sharerId = presence.find((p) => p.screen_sharing)?.user_id ?? null;
-  const sharerName = sharerId
-    ? (displayName(detail.members.find((m) => m.user.id === sharerId)?.user) ?? "Участник")
-    : "";
+  // Показывают другие: в рабочей Комнате — двое одновременно, на игровой Планете — один.
+  const othersSharing = presence.filter((p) => p.screen_sharing && p.user_id !== myId);
+  const slotsFull = othersSharing.length >= screenLimit(detail.kind);
+  const othersNames = othersSharing.map((p) => presenceName(detail, p)).join(" и ");
 
   return (
     <>
@@ -515,7 +519,7 @@ export function RoomControls({ detail, channel }: { detail: StarDetail; channel:
           />
         )}
         {canShareScreen() && !visitor &&
-          (voice.sharingScreen || sharerId === myId ? (
+          (voice.sharingScreen || presence.some((p) => p.screen_sharing && p.user_id === myId) ? (
             <ControlButton
               icon={<IconScreenStop />}
               tone="on"
@@ -527,13 +531,17 @@ export function RoomControls({ detail, channel }: { detail: StarDetail; channel:
             <ControlButton
               icon={<IconScreenShare />}
               label={
-                sharerId
-                  ? `Сейчас экран показывает ${sharerName}`
+                slotsFull
+                  ? othersSharing.length > 1
+                    ? `Сейчас экраны показывают ${othersNames} — одновременно не больше двух`
+                    : `Сейчас экран показывает ${othersNames}`
                   : voice.screenStarting
                     ? "Выбираем экран…"
-                    : `Показать экран всем ${nouns.inside}`
+                    : othersSharing.length
+                      ? `Показать свой экран рядом с показом ${othersNames}`
+                      : `Показать экран всем ${nouns.inside}`
               }
-              disabled={!!sharerId || voice.screenStarting || voice.status !== "connected"}
+              disabled={slotsFull || voice.screenStarting || voice.status !== "connected"}
               onClick={() => setScreenDialogOpen(true)}
             />
           ))}

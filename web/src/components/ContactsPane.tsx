@@ -35,6 +35,7 @@ import { displayName } from "../utils/profile";
 import { listTimestamp } from "../chat/listTimestamp";
 import UnreadBadge from "./chat/UnreadBadge";
 import { showOpenedChat } from "../chat/showOpenedChat";
+import InviteFriendsButton from "../invite/InviteFriendsButton";
 
 /** Строка под именем чата: последнее сообщение, а пока кто-то набирает — «печатает…». */
 function PreviewLine({ chat, className, children }: { chat: Chat; className: string; children: string }) {
@@ -213,6 +214,7 @@ export default function ContactsPane() {
     <div className={s.root}>
       <div className={s.header}>
         <h2 className={s.title}>Контакты</h2>
+        <InviteFriendsButton className={s.inviteBtn} onNotice={setPickerHint} />
       </div>
 
       <div className={s.searchRow}>
@@ -288,6 +290,10 @@ export default function ContactsPane() {
                   ? "Введите номер целиком — по части номера не ищем"
                   : "По этому номеру никого не нашли. Человек мог скрыть номер — попробуйте никнейм или имя"}
             </div>
+          )}
+          {!searching && results.length === 0 && looksLikePhoneQuery(search) &&
+            extractRuLocalDigits(search).length >= 10 && (
+            <InviteFriendsButton className={s.inviteInline} onNotice={setPickerHint} />
           )}
           {results.map((u) => (
             <button

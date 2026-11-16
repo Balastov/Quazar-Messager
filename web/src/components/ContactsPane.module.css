@@ -32,6 +32,37 @@
   font-weight: 700;
 }
 
+/* «Пригласить друзей» — фирменным зелёным, как счётчики непрочитанных. */
+.inviteBtn,
+.inviteInline {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--qz-online);
+  background: var(--qz-online);
+  color: #06281c;
+  border-radius: var(--qz-radius-pill);
+  padding: 7px 12px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+  box-shadow: 0 0 12px rgba(52, 211, 153, 0.35);
+  transition: filter 0.15s, box-shadow 0.15s;
+}
+
+.inviteBtn:hover,
+.inviteInline:hover {
+  filter: brightness(1.08);
+  box-shadow: 0 0 16px rgba(52, 211, 153, 0.55);
+}
+
+.inviteInline {
+  margin: 0 16px 12px;
+}
+
 .searchRow {
   display: flex;
   align-items: center;

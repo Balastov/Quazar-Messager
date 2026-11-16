@@ -7,6 +7,7 @@ import { useCallStore } from "../store/call";
 import { E2EError } from "../crypto/errors";
 import E2EStatusPanel from "./E2EStatusPanel";
 import UserAvatar from "./UserAvatar";
+import ProfileLink from "./profile/ProfileLink";
 import {
   IconBack,
   IconFormat,
@@ -751,11 +752,15 @@ export default function MessageView({ showBack = false }: Props) {
         ) : isSupport || isNews ? (
           <SupportAvatar size="sm" kind={isNews ? "news" : "support"} />
         ) : (
-          <UserAvatar username={peer.username || "?"} avatarUrl={peer.avatar_url} size="sm" userId={peer.id} />
+          <ProfileLink userId={isDirect ? peer.id : null} hint={{ display_name: peer.username, avatar_url: peer.avatar_url }}>
+            <UserAvatar username={peer.username || "?"} avatarUrl={peer.avatar_url} size="sm" userId={peer.id} />
+          </ProfileLink>
         )}
         <div className={s.headerInfo}>
           <span className={s.name}>
-            {peer.username}
+            <ProfileLink userId={isDirect ? peer.id : null} hint={{ display_name: peer.username, avatar_url: peer.avatar_url }}>
+              {peer.username}
+            </ProfileLink>
             {isDirect && peer.premium && <PremiumBadge />} {isDirect && <CustomStatusBadge userId={presencePeerId} />}
             {(isSupport || isNews) && <OfficialBadge />}
           </span>
@@ -1305,7 +1310,9 @@ function ChatMessage({
     <div data-mid={msg.id} className={`${bubbleClass} ${m.menuHost}`} {...trigger}>
       {showAuthor && !isOwn && (
         <span className={s.author}>
-          {nameOf(msg.sender_id)}
+          <ProfileLink userId={msg.sender_id} hint={{ display_name: nameOf(msg.sender_id) }}>
+            {nameOf(msg.sender_id)}
+          </ProfileLink>
           {authorPremium && <PremiumBadge size={13} />}
         </span>
       )}

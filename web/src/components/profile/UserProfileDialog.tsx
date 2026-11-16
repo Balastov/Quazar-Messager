@@ -1,0 +1,148 @@
+import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
+import { usersApi } from "../../api/users";
+import type { User } from "../../api/types";
+import { useAuthStore } from "../../store/auth";
+import { useChatStore } from "../../store/chat";
+import { usePresence, usePresenceText } from "../../store/presence";
+import { useProfileStore, type ProfileTarget } from "../../store/profile";
+import { useStarsStore } from "../../store/stars";
+import { useUiStore } from "../../store/ui";
+import { presenceTone } from "../../utils/presence";
+import { formatRuPhoneDisplay } from "../../utils/phone";
+import { showOpenedChat } from "../../chat/showOpenedChat";
+import Dialog from "../constellation/Dialog";
+import PremiumBadge from "../premium/PremiumBadge";
+import OfficialBadge from "../support/OfficialBadge";
+import CustomStatusBadge from "../status/CustomStatusBadge";
+import UserAvatar from "../UserAvatar";
+import { IconChat } from "../icons";
+import c from "../constellation/Constellation.module.css";
+import s from "./UserProfile.module.css";
+
+/** «5 ноября 2026». */
+export function joinedDate(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleDateString("ru-RU", { day: "numeric", month: "long", year: "numeric" });
+}
+
+/** Карточка открытого профиля; ничего не открыто — ничего не рисуем. */
+export default function UserProfileHost() {
+  const target = useProfileStore((st) => st.target);
+  const close = useProfileStore((st) => st.close);
+  if (!target) return null;
+  // key: другой человек — карточка с чистого листа.
+  return createPortal(<UserProfileDialog key={target.userId} target={target} onClose={close} />, document.body);
+}
+
+function UserProfileDialog({ target, onClose }: { target: ProfileTarget; onClose: () => void }) {
+  const { userId, starId, hint } = target;
+  const myId = useAuthStore((st) => st.user?.id);
+  const openDirectChat = useChatStore((st) => st.openDirectChat);
+  // Уже переписываемся с ним в открытом чате — «Написать» ни к чему.
+  const inHisChat = useChatStore((st) => {
+    const chat = st.chats.find((c) => c.id === st.activeChatId);
+    return chat?.type === "direct" && chat.members.some((m) => m.user.id === userId);
+  });
+  const tab = useUiStore((st) => st.tab);
+  const star = useStarsStore((st) => (starId ? st.details[starId] : undefined));
+  const presence = usePresence(userId);
+  const presenceText = usePresenceText(userId);
+  const [user, setUser] = useState<User | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    usersApi
+      .get(userId)
+      .then((u) => !cancelled && setUser(u))
+      .catch(() => !cancelled && setError("Профиль недоступен"));
+    return () => {
+      cancelled = true;
+    };
+  }, [userId]);
+
+  const member = star?.members.find((m) => m.user.id === userId);
+  const pseudonym = member?.user.pseudonym ?? null;
+  // Настоящее имя: с сервера, а пока не пришло — то, что знаем на месте (без псевдонима).
+  const name =
+    user?.display_name ||
+    member?.user.account_display_name ||
+    (pseudonym ? null : hint?.display_name) ||
+    user?.username ||
+    member?.user.username ||
+    hint?.username ||
+    "…";
+  const username = user?.username ?? member?.user.username ?? hint?.username ?? null;
+  const avatar = user?.avatar_url ?? member?.user.avatar_url ?? hint?.avatar_url ?? null;
+  const premium = user?.is_premium ?? member?.user.is_premium ?? hint?.is_premium ?? false;
+  const isMe = userId === myId;
+  const tone = presenceTone(presence);
+
+  return (
+    <Dialog title="Профиль" onClose={onClose} className={s.dialog}>
+      <div className={s.card}>
+        <UserAvatar username={name} avatarUrl={avatar} size="lg" userId={userId} className={s.avatar} />
+        <div className={s.name}>
+          {name}
+          {premium && <PremiumBadge size={18} />}
+          {user?.is_official && <OfficialBadge size={18} />}
+        </div>
+        {username && <div className={s.nick}>@{username}</div>}
+        {pseudonym && (
+          <div className={s.pseudonym}>
+            Псевдоним в «{star?.name}»: <b>{pseudonym}</b>
+          </div>
+        )}
+        {isMe ? (
+          <div className={s.status}>Это вы</div>
+        ) : (
+          presenceText && (
+            <div
+              className={`${s.status} ${
+                { online: s.online, away: s.away, busy: s.busy, none: "" }[tone ?? "none"] ?? ""
+              }`}
+            >
+              {presenceText}
+            </div>
+          )
+        )}
+        <CustomStatusBadge userId={userId} />
+      </div>
+
+      {error && !user && <p className={c.error}>{error}</p>}
+
+      {(user?.phone || user?.created_at) && (
+        <dl className={s.facts}>
+          {user?.phone && (
+            <div>
+              <dt>Телефон</dt>
+              <dd>{formatRuPhoneDisplay(user.phone)}</dd>
+            </div>
+          )}
+          {user?.created_at && (
+            <div>
+              <dt>В Quazar</dt>
+              <dd>с {joinedDate(user.created_at)}</dd>
+            </div>
+          )}
+        </dl>
+      )}
+
+      {!isMe && !user?.is_official && !(inHisChat && (tab === "chats" || tab === "contacts")) && (
+        <button
+          type="button"
+          className={`${c.primary} ${s.write}`}
+          onClick={() => {
+            onClose();
+            void showOpenedChat(() => openDirectChat(userId));
+          }}
+        >
+          <IconChat size={18} />
+          Написать
+        </button>
+      )}
+    </Dialog>
+  );
+}

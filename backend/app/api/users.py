@@ -372,6 +372,19 @@ async def search_users(
     return result.scalars().all()
 
 
+@router.get("/{user_id}", response_model=UserOut)
+async def get_user(
+    user_id: str,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Профиль глазами других — те же поля, что в поиске: номер, только если по нему можно найти."""
+    user = await db.get(User, user_id)
+    if not user or not user.is_active:
+        raise HTTPException(status_code=404, detail="Пользователь не найден")
+    return user
+
+
 @router.get("/{user_id}/key", response_model=PublicKeyOut)
 async def get_public_key(
     user_id: str,

@@ -29,6 +29,7 @@ import s from "./Constellation.module.css";
 import { displayName } from "../../utils/profile";
 import PseudonymDialog, { canEditPseudonym } from "./PseudonymDialog";
 import { showOpenedChat } from "../../chat/showOpenedChat";
+import ProfileLink from "../profile/ProfileLink";
 import { usersApi } from "../../api/users";
 import { IconSearch } from "../icons";
 import { isPartialPhone, matchesMember, phoneQuery } from "./memberSearch";
@@ -192,15 +193,19 @@ export default function MembersPanel({ detail, onClose, fullscreen = false }: Pr
                   key={member.user.id}
                   className={`${s.memberRow} ${group.key === "offline" ? s.memberRowOffline : ""}`}
                 >
-                  <UserAvatar
-                    username={displayName(member.user)}
-                    avatarUrl={member.user.avatar_url}
-                    size="sm"
-                    userId={member.user.id}
-                  />
+                  <ProfileLink userId={member.user.id} starId={detail.id} hint={member.user}>
+                    <UserAvatar
+                      username={displayName(member.user)}
+                      avatarUrl={member.user.avatar_url}
+                      size="sm"
+                      userId={member.user.id}
+                    />
+                  </ProfileLink>
                   <div className={s.memberMain}>
                     <span className={s.memberName} style={{ color: memberColor(detail, member.user.id) }}>
-                      {displayName(member.user)}
+                      <ProfileLink userId={member.user.id} starId={detail.id} hint={member.user}>
+                        {displayName(member.user)}
+                      </ProfileLink>
                       {member.user.is_premium && <PremiumBadge size={13} />}
                       {isMe ? " (вы)" : ""}
                       {member.role !== "member" && (

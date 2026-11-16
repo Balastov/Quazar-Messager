@@ -5,6 +5,7 @@ import { useCallStore } from "../../store/call";
 import { useDoorsStore } from "../../store/doors";
 import { canShareScreen, useVoiceStore, type VoicePeer } from "../../store/voice";
 import UserAvatar from "../UserAvatar";
+import ProfileLink from "../profile/ProfileLink";
 import { IconBack, IconGear, IconPlanet, IconStarMic, IconStarMicOff, IconNoiseFilter, IconScreenShare, IconScreenStop, IconStarHeadphones, IconStarInvite, IconStarVolume } from "../icons";
 import { ActiveTime, activeSince } from "./ActiveTime";
 import Dialog from "./Dialog";
@@ -184,13 +185,21 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
               {sortedPresence.map((p) => {
                 return (
                   <div key={p.user_id} className={s.listItem}>
-                    <UserAvatar
-                      username={presenceName(detail, p)}
-                      avatarUrl={presenceAvatar(detail, p)}
-                      size="sm"
-                    />
+                    <ProfileLink userId={p.guest_name || p.user_id.startsWith("guest-") ? null : p.user_id} starId={detail.id}
+                      hint={{ display_name: presenceName(detail, p), avatar_url: presenceAvatar(detail, p) }}>
+                      <UserAvatar
+                        username={presenceName(detail, p)}
+                        avatarUrl={presenceAvatar(detail, p)}
+                        size="sm"
+                      />
+                    </ProfileLink>
                     <div className={s.listMain}>
-                      <span className={s.listTitle}>{presenceName(detail, p)}</span>
+                      <span className={s.listTitle}>
+                        <ProfileLink userId={p.guest_name || p.user_id.startsWith("guest-") ? null : p.user_id} starId={detail.id}
+                          hint={{ display_name: presenceName(detail, p), avatar_url: presenceAvatar(detail, p) }}>
+                          {presenceName(detail, p)}
+                        </ProfileLink>
+                      </span>
                       {p.visitor && <span className={s.listSub}>🎟 гость по ссылке</span>}
                       {badge(p.user_id) && <span className={s.listSub}>{badge(p.user_id)}</span>}
                       {p.server_muted && (
@@ -364,14 +373,18 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
                 <div
                   className={`${s.voiceAvatar} ${peer.speaking && peer.micOn ? s.voiceAvatarSpeaking : ""}`}
                 >
-                  <UserAvatar
-                    username={displayName(m?.user) ?? peer.name}
-                    avatarUrl={m?.user.avatar_url ?? presence.find((p) => p.user_id === peer.userId)?.avatar_url ?? null}
-                    size="lg"
-                  />
+                  <ProfileLink userId={m ? peer.userId : null} starId={detail.id} hint={m?.user}>
+                    <UserAvatar
+                      username={displayName(m?.user) ?? peer.name}
+                      avatarUrl={m?.user.avatar_url ?? presence.find((p) => p.user_id === peer.userId)?.avatar_url ?? null}
+                      size="lg"
+                    />
+                  </ProfileLink>
                 </div>
                 <span className={s.voicePeerName}>
-                  {displayName(m?.user) ?? peer.name}
+                  <ProfileLink userId={m ? peer.userId : null} starId={detail.id} hint={m?.user}>
+                    {displayName(m?.user) ?? peer.name}
+                  </ProfileLink>
                   {peer.isLocal ? " (вы)" : ""}
                 </span>
                 <span className={`${s.voicePeerState} ${state.muted ? s.voicePeerMuted : ""}`}>

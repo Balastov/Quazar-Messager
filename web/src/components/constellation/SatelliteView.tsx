@@ -82,6 +82,7 @@ import { BotButtons } from "./Bots";
 import { FormDialog } from "./Workflows";
 import { BookmarkDialog, BookmarksBar, ChannelTabs, PinnedList, canAddBookmark, type ChannelTab } from "./ChannelTabs";
 import { stripMarkup } from "../../chat/markdown";
+import ProfileLink from "../profile/ProfileLink";
 
 const EMPTY: StarMessage[] = [];
 const NO_ASSETS: StarAsset[] = [];
@@ -957,16 +958,22 @@ export function SatelliteMessage({
       {msg.kind === "bot" ? (
         <BotAvatar kind={msg.bot_kind} />
       ) : (
-        <UserAvatar
-          username={displayName(msg.sender) ?? "?"}
-          avatarUrl={msg.sender?.avatar_url ?? null}
-          size="sm"
-        />
+        <ProfileLink userId={msg.sender?.id} starId={detail.id} hint={msg.sender ?? undefined}>
+          <UserAvatar
+            username={displayName(msg.sender) ?? "?"}
+            avatarUrl={msg.sender?.avatar_url ?? null}
+            size="sm"
+          />
+        </ProfileLink>
       )}
       <div className={s.messageBody}>
         <div className={s.messageHead}>
           <span className={s.messageAuthor} style={color ? { color } : undefined}>
-            {msg.kind === "bot" ? (msg.bot_name ?? "Интеграция") : (displayName(msg.sender) ?? "Бывший участник")}
+            {msg.kind === "bot" ? (msg.bot_name ?? "Интеграция") : (
+              <ProfileLink userId={msg.sender?.id} starId={detail.id} hint={msg.sender ?? undefined}>
+                {displayName(msg.sender) ?? "Бывший участник"}
+              </ProfileLink>
+            )}
           </span>
           {msg.kind !== "bot" && msg.sender?.is_premium && <PremiumBadge size={13} />}
           {msg.kind === "bot" && <span className={w.botBadge}>{msg.bot_kind === "workflow" ? "сценарий" : "бот"}</span>}

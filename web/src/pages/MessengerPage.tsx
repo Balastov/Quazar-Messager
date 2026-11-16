@@ -12,6 +12,7 @@ import PeerPanel from "../components/PeerPanel";
 import CallsView from "../components/CallsView";
 import SettingsView from "../components/SettingsView";
 import ToastStack from "../components/ToastStack";
+import UserProfileHost from "../components/profile/UserProfileDialog";
 import NotifyPrompt from "../components/NotifyPrompt";
 import WallpaperHost from "../components/WallpaperHost";
 import CallOverlay from "../components/CallOverlay";
@@ -295,6 +296,7 @@ export default function MessengerPage() {
 
       {!showMobileChat && <NotifyPrompt />}
       <ToastStack />
+      <UserProfileHost />
       <E2EKeyGate />
       <PhoneVisibilityGate />
       <PhoneVerificationPrompt />

@@ -19,6 +19,7 @@ from app.models.chat import Chat, ChatMember
 from app.models.message import HiddenMessage, Message, MessageReaction, MessageReadReceipt, MessageRevision
 from app.models.user import User
 from app.schemas.message import (
+    MAX_MESSAGE_ATTACHMENTS,
     EditMessage,
     MessageOut,
     ReactionOut,
@@ -147,6 +148,7 @@ async def deliver(
     *,
     reply_to: Message | None = None,
     attachment_id: str | None = None,
+    attachment_ids: list[str] | None = None,
     card: bool = False,
     notification_mentions: list[str] | None = None,
 ) -> Message:
@@ -189,20 +191,24 @@ async def deliver(
     )
     db.add(message)
     await db.flush()
-    if attachment_id:
-        attachment = (
+    wanted = list(dict.fromkeys([*([attachment_id] if attachment_id else []), *(attachment_ids or [])]))
+    if len(wanted) > MAX_MESSAGE_ATTACHMENTS:
+        raise HTTPException(status_code=422, detail=f"В одном сообщении — не больше {MAX_MESSAGE_ATTACHMENTS} картинок")
+    if wanted:
+        attachments = (
             await db.execute(
                 select(Attachment).where(
-                    Attachment.id == attachment_id,
+                    Attachment.id.in_(wanted),
                     Attachment.chat_id == chat.id,
                     Attachment.uploader_id == sender_id,
                     Attachment.message_id.is_(None),
                 )
             )
-        ).scalar_one_or_none()
-        if not attachment:
+        ).scalars().all()
+        if len(attachments) != len(wanted):
             raise HTTPException(status_code=422, detail="Attachment not found")
-        attachment.message_id = message.id
+        for attachment in attachments:
+            attachment.message_id = message.id
     if hidden_for:
         db.add(HiddenMessage(user_id=hidden_for, message_id=message.id))
     await db.commit()
@@ -320,6 +326,7 @@ async def send_message(
         body.payload,
         reply_to=reply_to,
         attachment_id=body.attachment_id,
+        attachment_ids=body.attachment_ids,
         notification_mentions=body.notification_mentions,
     )
     return (await messages_out(db, [message], current_user.id))[0]

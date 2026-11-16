@@ -8,8 +8,11 @@ import {
   AttachmentError,
   decryptFile,
   detectImageMime,
+  encodeAlbum,
   encodeImage,
+  parseAlbum,
   encryptFile,
+  MAX_ALBUM_IMAGES,
   MAX_IMAGE_BYTES,
   parseImage,
   type ImageRef,
@@ -110,11 +113,17 @@ interface ChatState {
   sendMessage: (
     chatId: string,
     plaintext: string,
-    attachmentId?: string,
+    /** Вложение сообщения; у альбома — все его картинки. */
+    attachmentId?: string | string[],
     replyToId?: string
   ) => Promise<void>;
   /** Бросает AttachmentError (или E2EError) с текстом для пользователя. */
   sendImage: (chatId: string, file: File, replyToId?: string) => Promise<void>;
+  /**
+   * До MAX_ALBUM_IMAGES картинок и подпись одним сообщением. onProgress — сколько картинок уже загружено.
+   * Бросает AttachmentError с текстом для пользователя (какая картинка не подошла).
+   */
+  sendImages: (chatId: string, files: File[], text: string, replyToId?: string, onProgress?: (done: number) => void) => Promise<void>;
   /** Записанное голосовое: зашифровать, загрузить и отправить. */
   sendVoice: (chatId: string, recording: Recording, replyToId?: string) => Promise<void>;
   /** Любой файл до 50 МБ: шифруется на устройстве, как фото. onProgress — доля загрузки 0…1. */
@@ -917,6 +926,25 @@ export const useChatStore = create<ChatState>((set, get) => {
       await get().sendMessage(chatId, encodeImage(ref), ref.id, replyToId);
     },
 
+    sendImages: async (chatId, files, text, replyToId, onProgress) => {
+      if (!files.length) return;
+      if (files.length > MAX_ALBUM_IMAGES) throw new AttachmentError(`В одном сообщении — не больше ${MAX_ALBUM_IMAGES} картинок`);
+      const refs: ImageRef[] = [];
+      // По очереди: в альбоме — в том же порядке, а память не забивают шесть больших картинок сразу.
+      for (const file of files) {
+        try {
+          refs.push(await uploadChatImage(chatId, file));
+        } catch (err) {
+          if (err instanceof AttachmentError && files.length > 1) {
+            throw new AttachmentError(`«${file.name || "Картинка"}»: ${err.message}`);
+          }
+          throw err;
+        }
+        onProgress?.(refs.length);
+      }
+      await get().sendMessage(chatId, encodeAlbum(refs, text), refs.map((r) => r.id), replyToId);
+    },
+
     sendVoice: async (chatId, recording, replyToId) => {
       if (recording.bytes.length > MAX_IMAGE_BYTES) {
         throw new AttachmentError("Голосовое больше 10 МБ — такое не отправить");
@@ -1026,7 +1054,23 @@ export const useChatStore = create<ChatState>((set, get) => {
         displayName(source?.members.find((m) => m.user.id === message.sender_id)?.user) ??
         "Неизвестный";
       let body = message.payload;
-      let attachmentId: string | undefined;
+      let attachmentId: string | string[] | undefined;
+
+      // Альбом: каждую картинку — заново в целевой чат.
+      const album = parseImage(body) ? null : parseAlbum(body);
+      if (album) {
+        const images: ImageRef[] = [];
+        for (const ref of album.images) {
+          const bytes = decryptFile(await attachmentsApi.download(message.chat_id, ref.id), ref.key);
+          if (!bytes) throw new AttachmentError("Не удалось прочитать вложение — оно могло устареть");
+          const { blob, key } = encryptFile(bytes);
+          const { id } = await attachmentsApi.upload(targetChatId, blob);
+          seedImageUrl(id, bytes, ref.mime);
+          images.push({ ...ref, id, key });
+        }
+        await get().sendMessage(targetChatId, encodeForward(from, encodeAlbum(images, album.text)), images.map((i) => i.id));
+        return;
+      }
 
       // Картинку, голосовое и файл заново шифруем и загружаем в целевой чат: вложение привязано к чату.
       const image = parseImage(body);

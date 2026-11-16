@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { adminApi, type AdminTicket, type AdminTicketDetail, type AdminUser, type TicketFilter } from "../../api/admin";
 import { socket } from "../../ws/socket";
-import { parseImage } from "../../attachments/image";
+import { parseAlbum } from "../../attachments/image";
 import { messagePreview } from "../../store/stickers";
 import { apiError } from "../constellation/rules";
 import ChatImage from "../ChatImage";
@@ -240,7 +240,7 @@ function TicketDetail({
       <div className={s.thread}>
         {detail?.messages.map((m) => {
           const card = parseTicket(m.payload);
-          const image = parseImage(m.payload);
+          const album = parseAlbum(m.payload);
           return (
             <div key={m.id} className={m.sender === "user" ? s.msgUser : s.msgBot}>
               <span className={s.msgWho}>
@@ -250,8 +250,13 @@ function TicketDetail({
               </span>
               {card ? (
                 <TicketCard chatId={current.chat_id} ticket={card} download={download} />
-              ) : image ? (
-                <ChatImage chatId={current.chat_id} image={image} download={() => download(image.id)} maxW={240} maxH={240} />
+              ) : album ? (
+                <>
+                  {album.images.map((image) => (
+                    <ChatImage key={image.id} chatId={current.chat_id} image={image} download={() => download(image.id)} maxW={240} maxH={240} />
+                  ))}
+                  {album.text && <span className={s.msgText}>{album.text}</span>}
+                </>
               ) : (
                 <span className={s.msgText}>{messagePreview(m.payload)}</span>
               )}

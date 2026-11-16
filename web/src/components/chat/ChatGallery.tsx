@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { messagesApi } from "../../api/messages";
 import type { Message } from "../../api/types";
 import { loadImageUrl } from "../../attachments/cache";
-import { parseImage, type ImageRef } from "../../attachments/image";
+import { parseAlbum, type ImageRef } from "../../attachments/image";
 import { parseVoice } from "../../attachments/voice";
 import { parseFile } from "../../attachments/file";
 import ChatFile from "./ChatFile";
@@ -49,7 +49,7 @@ function Media({ chatId, kind }: { chatId: string; kind: "photos" | "voice" | "f
   // Новое фото или голосовое в чате — перечитываем первую страницу.
   const attachmentsInFeed = useChatStore(
     (st) =>
-      (st.messages[chatId] ?? []).filter((m) => parseImage(m.payload) || parseVoice(m.payload) || parseFile(m.payload))
+      (st.messages[chatId] ?? []).filter((m) => parseAlbum(m.payload) || parseVoice(m.payload) || parseFile(m.payload))
         .length
   );
 
@@ -59,10 +59,8 @@ function Media({ chatId, kind }: { chatId: string; kind: "photos" | "voice" | "f
     void load().catch(() => setDone(true));
   }, [load, attachmentsInFeed]);
 
-  const photos = items.flatMap((m) => {
-    const ref = parseImage(m.payload);
-    return ref ? [{ m, ref }] : [];
-  });
+  // Альбом — каждой картинкой отдельно.
+  const photos = items.flatMap((m) => (parseAlbum(m.payload)?.images ?? []).map((ref) => ({ m, ref })));
   const voices = items.flatMap((m) => {
     const ref = parseVoice(m.payload);
     return ref ? [{ m, ref }] : [];
@@ -78,7 +76,7 @@ function Media({ chatId, kind }: { chatId: string; kind: "photos" | "voice" | "f
       {kind === "photos" ? (
         <div className={s.grid}>
           {photos.map(({ m, ref }) => (
-            <Thumb key={m.id} chatId={chatId} image={ref} onOpen={() => void openMessage(chatId, m.id)} />
+            <Thumb key={`${m.id}:${ref.id}`} chatId={chatId} image={ref} onOpen={() => void openMessage(chatId, m.id)} />
           ))}
         </div>
       ) : kind === "files" ? (

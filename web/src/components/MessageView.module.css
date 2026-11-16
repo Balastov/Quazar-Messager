@@ -298,6 +298,12 @@
   padding-right: 6px;
 }
 
+/* Подпись под картинками: отступы как у обычного текста. */
+.albumCaption {
+  padding: 6px 8px 0;
+  max-width: 320px;
+}
+
 .textMuted {
   font-size: 13px;
   color: rgba(255, 255, 255, 0.65);
@@ -503,3 +509,84 @@
   border:none; border-radius:5px; background:transparent; font:inherit; cursor:pointer; }
 .readStatusButton:hover { background:rgba(255,255,255,.08); }
 .readStatusButton:focus-visible { outline:2px solid var(--qz-online); outline-offset:2px; }
+
+/* Лоток картинок над полем ввода: уйдут одним сообщением по «Отправить». */
+.attachTray {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  padding: 10px 12px 0;
+  overflow-x: auto;
+  background: var(--qz-glass-bg);
+  backdrop-filter: var(--qz-glass-filter);
+  -webkit-backdrop-filter: var(--qz-glass-filter);
+  border-top: 1px solid var(--qz-glass-border);
+}
+
+.attachTray + .composer {
+  border-top: none;
+}
+
+.attachThumb {
+  position: relative;
+  flex: 0 0 auto;
+  width: 64px;
+  height: 64px;
+  border-radius: 10px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.attachThumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.attachRemove {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  font-size: 16px;
+  line-height: 22px;
+  cursor: pointer;
+}
+
+.attachRemove:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.attachAdd {
+  flex: 0 0 auto;
+  width: 64px;
+  height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px dashed var(--qz-border-strong, rgba(255, 255, 255, 0.3));
+  border-radius: 10px;
+  background: transparent;
+  color: var(--qz-text-muted);
+  cursor: pointer;
+}
+
+.attachAdd:hover:not(:disabled) {
+  color: #fff;
+}
+
+.attachCount {
+  flex: 0 0 auto;
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--qz-text-muted);
+}

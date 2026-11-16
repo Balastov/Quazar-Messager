@@ -1,0 +1,20 @@
+.grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 3px;
+  /* Ровно 320: без этого пузырь растягивается по исходной ширине картинок. */
+  width: 320px;
+  max-width: 100%;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.cell {
+  aspect-ratio: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.cell > * {
+  border-radius: 0;
+}

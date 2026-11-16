@@ -40,9 +40,9 @@ import StickerPicker from "./StickerPicker";
 import { messagePreview, useStickersStore } from "../store/stickers";
 import { stickerFileUrl, type StickerInfo } from "../api/stickers";
 import { encodeSticker, parseSticker } from "../stickers/format";
-import ChatImage from "./ChatImage";
 import ChatBackgroundDialog from "./ChatBackgroundDialog";
-import { AttachmentError, parseImage } from "../attachments/image";
+import { AttachmentError, MAX_ALBUM_IMAGES, parseAlbum } from "../attachments/image";
+import ChatAlbum from "./ChatAlbum";
 import { parseTicket } from "../support/ticket";
 import TicketCard from "./support/TicketCard";
 import SupportAvatar from "./support/SupportAvatar";
@@ -98,10 +98,17 @@ interface Props {
   showBack?: boolean;
 }
 
+interface PendingImage {
+  key: string;
+  file: File;
+  /** blob: для превью в лотке. */
+  url: string;
+}
+
 /** Обычный текст (не картинка, не стикер, расшифровался) — его можно исправить и скопировать. */
 function isPlainText(payload: string): boolean {
   return (
-    !parseImage(payload) &&
+    !parseAlbum(payload) &&
     !parseSticker(payload) &&
     !parseVoice(payload) &&
     !parseFile(payload) &&
@@ -123,7 +130,7 @@ export default function MessageView({ showBack = false }: Props) {
     messages,
     loadingMessages,
     sendMessage,
-    sendImage,
+    sendImages,
     sendVoice,
     sendFile,
     editMessage,
@@ -155,7 +162,18 @@ export default function MessageView({ showBack = false }: Props) {
   const { text, setText } = draft;
   const [sendError, setSendError] = useState<string | null>(null);
   const [stickersOpen, setStickersOpen] = useState(false);
-  const [uploading, setUploading] = useState(0);
+  /** Картинки, приготовленные к отправке: уйдут одним сообщением вместе с текстом, когда нажмут «Отправить». */
+  const [pendingImages, setPendingImages] = useState<PendingImage[]>([]);
+  const pendingRef = useRef(pendingImages);
+  pendingRef.current = pendingImages;
+  /** Загрузка альбома: сколько картинок уже на сервере. */
+  const [albumProgress, setAlbumProgress] = useState<{ done: number; total: number } | null>(null);
+  // Другой чат — лоток пустеет; ссылки на превью освобождаем.
+  useEffect(() => () => {
+    pendingRef.current.forEach((item) => URL.revokeObjectURL(item.url));
+    pendingRef.current = [];
+    setPendingImages([]);
+  }, [activeChatId]);
   /** Загрузка файла: название и доля 0…1. */
   const [fileUpload, setFileUpload] = useState<{ name: string; share: number } | null>(null);
   const [attachMenu, setAttachMenu] = useState<{ x: number; y: number } | null>(null);
@@ -382,7 +400,12 @@ export default function MessageView({ showBack = false }: Props) {
   const handleSend = async (e?: React.FormEvent) => {
     e?.preventDefault();
     const payload = text.trim();
-    if (!payload || !activeChatId || inputDisabled) return;
+    if (!activeChatId || inputDisabled) return;
+    if (!editing && pendingImages.length) {
+      await sendAlbum(activeChatId, payload);
+      return;
+    }
+    if (!payload) return;
     setSendError(null);
 
     if (editing) {
@@ -427,26 +450,60 @@ export default function MessageView({ showBack = false }: Props) {
     }
   };
 
-  const handleImages = async (files: File[]) => {
-    if (!activeChatId || inputDisabled || !files.length) return;
+  /** Добавить картинки к будущему сообщению (вставка, перетаскивание, выбор). Сами они не отправляются. */
+  const addImages = (files: File[]) => {
+    if (!activeChatId || inputDisabled || editing || !files.length) return;
     setSendError(null);
     setStickersOpen(false);
-    // Ответом становится первая картинка из выбранных.
-    let reply = replyTo?.id;
-    setReplyTo(null);
-    // По одной, в порядке выбора: так они и лягут в чат.
-    for (const file of files) {
-      setUploading((n) => n + 1);
-      try {
-        await sendImage(activeChatId, file, reply);
-        reply = undefined;
-      } catch (err) {
-        reportError(err, "Не удалось отправить картинку");
-      } finally {
-        setUploading((n) => n - 1);
-      }
+    const room = MAX_ALBUM_IMAGES - pendingRef.current.length;
+    const taken = files.slice(0, Math.max(0, room));
+    if (taken.length < files.length) {
+      setSendError(`В одном сообщении — не больше ${MAX_ALBUM_IMAGES} картинок${taken.length ? ", лишние не добавлены" : ""}`);
+    }
+    if (!taken.length) return;
+    const added = taken.map((file) => ({ key: crypto.randomUUID(), file, url: URL.createObjectURL(file) }));
+    pendingRef.current = [...pendingRef.current, ...added];
+    setPendingImages(pendingRef.current);
+    inputRef.current?.focus();
+  };
+
+  const removeImage = (key: string) => {
+    const gone = pendingRef.current.find((item) => item.key === key);
+    if (gone) URL.revokeObjectURL(gone.url);
+    pendingRef.current = pendingRef.current.filter((item) => item.key !== key);
+    setPendingImages(pendingRef.current);
+  };
+
+  /** Картинки из лотка и текст подписи — одним сообщением. При ошибке всё остаётся в лотке и поле. */
+  const sendAlbum = async (chatId: string, caption: string) => {
+    const items = pendingRef.current;
+    const reply = replyTo;
+    setSendError(null);
+    setStickersOpen(false);
+    resetTypingThrottle(chatTypingKey(chatId));
+    let ran = false;
+    try {
+      await draft.send(async () => {
+        ran = true;
+        setAlbumProgress({ done: 0, total: items.length });
+        await sendImages(chatId, items.map((item) => item.file), caption, reply?.id, (done) =>
+          setAlbumProgress({ done, total: items.length }));
+      });
+      if (!ran || useChatStore.getState().activeChatId !== chatId) return;
+      const sent = new Set(items.map((item) => item.key));
+      items.forEach((item) => URL.revokeObjectURL(item.url));
+      pendingRef.current = pendingRef.current.filter((item) => !sent.has(item.key));
+      setPendingImages(pendingRef.current);
+      setReplyTo((current) => (current?.id === reply?.id ? null : current));
+      composerPreview.reset();
+    } catch (err) {
+      if (useChatStore.getState().activeChatId !== chatId || useAuthStore.getState().user?.id !== currentUser?.id) return;
+      reportError(err, items.length > 1 ? "Не удалось отправить картинки" : "Не удалось отправить картинку");
+    } finally {
+      setAlbumProgress(null);
     }
   };
+
 
   const handleFiles = async (files: File[]) => {
     if (!activeChatId || inputDisabled || !files.length) return;
@@ -467,11 +524,11 @@ export default function MessageView({ showBack = false }: Props) {
     }
   };
 
-  /** Перетащили или вставили: картинки — как фото, остальное — файлами. */
+  /** Перетащили или вставили: картинки — в лоток к сообщению (уйдут по «Отправить»), остальное — файлами. */
   const handleDropped = (files: File[]) => {
     const images = files.filter((f) => /^image\/(jpeg|png|gif|webp)$/.test(f.type));
     const others = files.filter((f) => !images.includes(f));
-    if (images.length) void handleImages(images);
+    if (images.length) addImages(images);
     if (others.length) void handleFiles(others);
   };
 
@@ -675,7 +732,7 @@ export default function MessageView({ showBack = false }: Props) {
     >
       {dragging && (
         <div className={c.dropZone}>
-          Отпустите, чтобы отправить
+          Отпустите, чтобы прикрепить
         </div>
       )}
       <div className={s.header}>
@@ -841,9 +898,11 @@ export default function MessageView({ showBack = false }: Props) {
             onShowReaders={chat?.type === "group" && msg.sender_id === currentUser?.id ? () => setReadersFor(msg.id) : undefined}
           />
         ))}
-        {uploading > 0 && (
+        {albumProgress && (
           <div className={s.hint}>
-            {uploading > 1 ? `Отправка картинок: ${uploading}…` : "Отправка картинки…"}
+            {albumProgress.total > 1
+              ? `Отправка картинок: ${albumProgress.done} из ${albumProgress.total}…`
+              : "Отправка картинки…"}
           </div>
         )}
         {sendingVoice && <div className={s.hint}>Отправка голосового…</div>}
@@ -914,6 +973,40 @@ export default function MessageView({ showBack = false }: Props) {
       {formatOpen && (
         <FormatBar onFormat={(kind) => composerHandle.current?.format(kind)} disabled={inputDisabled} />
       )}
+      {pendingImages.length > 0 && !editing && (
+        <div className={s.attachTray} role="group" aria-label="Картинки к отправке">
+          {pendingImages.map((item, i) => (
+            <div key={item.key} className={s.attachThumb}>
+              <img src={item.url} alt={`Картинка ${i + 1}`} />
+              <button
+                type="button"
+                className={s.attachRemove}
+                aria-label={`Убрать картинку ${i + 1}`}
+                title="Убрать"
+                disabled={draft.sending}
+                onClick={() => removeImage(item.key)}
+              >
+                ×
+              </button>
+            </div>
+          ))}
+          {pendingImages.length < MAX_ALBUM_IMAGES && (
+            <button
+              type="button"
+              className={s.attachAdd}
+              aria-label="Добавить картинку"
+              title="Добавить картинку"
+              disabled={draft.sending}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <IconPlus size={18} />
+            </button>
+          )}
+          <span className={s.attachCount}>
+            {pendingImages.length} из {MAX_ALBUM_IMAGES}
+          </span>
+        </div>
+      )}
       <form className={s.composer} onSubmit={(e) => void handleSend(e)} style={{ position: "relative" }}>
         {mention.popup}
         <button
@@ -940,7 +1033,7 @@ export default function MessageView({ showBack = false }: Props) {
           onChange={(e) => {
             const files = Array.from(e.target.files ?? []);
             e.target.value = "";
-            void handleImages(files);
+            addImages(files);
           }}
         />
         <input
@@ -962,7 +1055,9 @@ export default function MessageView({ showBack = false }: Props) {
             placeholder={
               inputDisabled
                 ? !draft.ready ? "Восстанавливаем черновик…" : "Ожидание ключей шифрования..."
-                : isSupport
+                : pendingImages.length && !editing
+                  ? "Добавить подпись..."
+                  : isSupport
                   ? "Дописать к обращению или задать вопрос..."
                   : "Написать сообщение..."
             }
@@ -1000,13 +1095,13 @@ export default function MessageView({ showBack = false }: Props) {
             <IconSmile size={20} />
           </button>
         </div>
-        {text.trim() ? (
+        {text.trim() || (pendingImages.length > 0 && !editing) ? (
           <button
             className={s.sendBtn}
             type="submit"
-            disabled={!text.trim() || inputDisabled || draft.sending}
+            disabled={inputDisabled || draft.sending}
             aria-label={editing ? "Сохранить" : "Отправить"}
-            {...(editing ? {} : sendTrigger)}
+            {...(editing || pendingImages.length ? {} : sendTrigger)}
           >
             {editing ? "✓" : <IconSend size={18} />}
           </button>
@@ -1176,9 +1271,9 @@ function ChatMessage({
   const trigger = useMessageMenuTrigger(onOpenMenu);
   const unavailable = msg.payload.startsWith("Сообщение недоступно");
   const ticket = unavailable ? null : parseTicket(msg.payload);
-  const image = unavailable ? null : parseImage(msg.payload);
+  const album = unavailable ? null : parseAlbum(msg.payload);
   const voice = unavailable ? null : parseVoice(msg.payload);
-  const file = unavailable || image || voice ? null : parseFile(msg.payload);
+  const file = unavailable || album || voice ? null : parseFile(msg.payload);
   const stickerRef = unavailable ? null : parseSticker(msg.payload);
   const sticker = stickerRef ? stickerOf(stickerRef.pack, stickerRef.id) : undefined;
   // Стикер без пузыря; неизвестный (пак убрали с сервера) — обычной строкой.
@@ -1187,7 +1282,24 @@ function ChatMessage({
 
   const bubbleClass = asSticker
     ? isOwn ? s.ownSticker : s.otherSticker
-    : `${isOwn ? s.ownBubble : s.otherBubble}${image ? ` ${s.imageBubble}` : ""}`;
+    : `${isOwn ? s.ownBubble : s.otherBubble}${album ? ` ${s.imageBubble}` : ""}`;
+  const richText = (text: string) => (
+    <div className={s.text}>
+      <FormattedText
+        text={text}
+        leaf={(chunk, key) => (
+          <LinkifiedText
+            key={key}
+            text={chunk}
+            linkClassName={s.link}
+            mention={mention}
+            mentionClassName={w.mention}
+            mentionMeClassName={w.mentionMe}
+          />
+        )}
+      />
+    </div>
+  );
 
   return (
     <div data-mid={msg.id} className={`${bubbleClass} ${m.menuHost}`} {...trigger}>
@@ -1212,8 +1324,11 @@ function ChatMessage({
       )}
       {ticket ? (
         <TicketCard chatId={msg.chat_id} ticket={ticket} />
-      ) : image ? (
-        <ChatImage chatId={msg.chat_id} image={image} />
+      ) : album ? (
+        <>
+          <ChatAlbum chatId={msg.chat_id} images={album.images} />
+          {album.text && <div className={s.albumCaption}>{richText(album.text)}</div>}
+        </>
       ) : voice ? (
         <VoiceMessage chatId={msg.chat_id} voice={voice} tone={isOwn ? "own" : "other"} />
       ) : file ? (
@@ -1230,21 +1345,7 @@ function ChatMessage({
         unavailable ? (
           <span className={s.textMuted}>{msg.payload}</span>
         ) : (
-          <div className={s.text}>
-            <FormattedText
-              text={msg.payload}
-              leaf={(chunk, key) => (
-                <LinkifiedText
-                  key={key}
-                  text={chunk}
-                  linkClassName={s.link}
-                  mention={mention}
-                  mentionClassName={w.mention}
-                  mentionMeClassName={w.mentionMe}
-                />
-              )}
-            />
-          </div>
+          richText(msg.payload)
         )
       )}
       {msg.link_preview && !unavailable && <LinkPreviewCard preview={msg.link_preview} tone={isOwn ? "own" : "other"} />}

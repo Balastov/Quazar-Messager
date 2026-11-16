@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  albumPreview,
+  encodeAlbum,
+  MAX_ALBUM_IMAGES,
+  parseAlbum,
   decryptFile,
   detectImageMime,
   encodeImage,
@@ -83,5 +87,37 @@ describe("fitSize", () => {
     expect(fitSize(4000, 3000, 320, 360)).toEqual({ width: 320, height: 240 });
     expect(fitSize(1000, 4000, 320, 360)).toEqual({ width: 90, height: 360 });
     expect(fitSize(100, 50, 320, 360)).toEqual({ width: 100, height: 50 });
+  });
+});
+
+describe("album message format", () => {
+  const second: ImageRef = { ...REF, id: "1b6f3c1e-2a4d-4f5e-9a8b-7c6d5e4f3a2b", mime: "image/png" };
+
+  it("keeps a lone picture without caption in the old format older apps understand", () => {
+    expect(encodeAlbum([REF])).toBe(encodeImage(REF));
+    expect(parseAlbum(encodeImage(REF))).toEqual({ images: [REF], text: "" });
+  });
+
+  it("carries several pictures and a caption in one message", () => {
+    const payload = encodeAlbum([REF, second], "Смотри, @bob");
+    expect(payload.startsWith("IMG2:")).toBe(true);
+    expect(parseImage(payload)).toBeNull();
+    expect(parseAlbum(payload)).toEqual({ images: [REF, second], text: "Смотри, @bob" });
+    // Одна картинка с подписью — тоже альбом.
+    expect(parseAlbum(encodeAlbum([REF], "подпись"))).toEqual({ images: [REF], text: "подпись" });
+  });
+
+  it("rejects empty, oversized and tampered albums", () => {
+    expect(parseAlbum("IMG2:" + JSON.stringify({ images: [], text: "x" }))).toBeNull();
+    const seven = Array.from({ length: MAX_ALBUM_IMAGES + 1 }, () => REF);
+    expect(parseAlbum("IMG2:" + JSON.stringify({ images: seven, text: "" }))).toBeNull();
+    expect(parseAlbum("IMG2:" + JSON.stringify({ images: [REF, { ...REF, id: "../x" }], text: "" }))).toBeNull();
+    expect(parseAlbum("IMG2:{broken")).toBeNull();
+    expect(parseAlbum("привет")).toBeNull();
+  });
+
+  it("previews as photos with the caption", () => {
+    expect(albumPreview({ images: [REF], text: "" })).toBe("📷 Фото");
+    expect(albumPreview({ images: [REF, second, REF], text: "  Отпуск " })).toBe("📷 3 фото · Отпуск");
   });
 });

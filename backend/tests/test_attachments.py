@@ -196,6 +196,30 @@ class AttachmentsTest(unittest.IsolatedAsyncioTestCase):
             user="alice",
         )
 
+    async def test_album_links_up_to_six_images_to_one_message(self):
+        ups = [await self.upload(os.urandom(100)) for _ in range(7)]
+        msg = await self.call(
+            messages_api.send_message,
+            self.chat.id,
+            SendMessage(payload="ENC2:...", attachment_ids=[u.id for u in ups[:6]]),
+            user="alice",
+        )
+        async with self.Session() as db:
+            linked = (await db.execute(select(Attachment.id).where(Attachment.message_id == msg.id))).scalars().all()
+        self.assertEqual(sorted(linked), sorted(u.id for u in ups[:6]))
+        # Седьмую к тому же сообщению не прикрепить: схема не пропустит больше шести.
+        with self.assertRaises(ValueError):
+            SendMessage(payload="x", attachment_ids=[u.id for u in ups])
+        # Чужая или уже отправленная картинка в альбоме — всё сообщение отклоняется, свободная остаётся свободной.
+        bob = await self.upload(os.urandom(100), user="bob")
+        for bad in (bob.id, ups[0].id):
+            await self.expect_error(
+                422, messages_api.send_message, self.chat.id,
+                SendMessage(payload="x", attachment_ids=[ups[6].id, bad]), user="alice",
+            )
+        async with self.Session() as db:
+            self.assertIsNone((await db.get(Attachment, ups[6].id)).message_id)
+
     async def test_cannot_attach_someone_elses_upload(self):
         out = await self.upload(os.urandom(100), user="bob")
         await self.expect_error(

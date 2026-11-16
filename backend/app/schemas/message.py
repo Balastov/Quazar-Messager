@@ -5,6 +5,8 @@ from pydantic import BaseModel, Field
 
 # Зашифрованный ENC2 текст в ~2.8 раза длиннее исходного; картинка «IMG1:{…}» — короткая.
 MAX_PAYLOAD_LENGTH = 64_000
+# Картинок в одном сообщении.
+MAX_MESSAGE_ATTACHMENTS = 6
 # Реакция в личном чате — зашифрованный эмодзи (ENC2 ≈ 200 символов).
 MAX_REACTION_PAYLOAD_LENGTH = 1024
 NotificationTarget = Annotated[str, Field(min_length=1, max_length=36)]
@@ -14,6 +16,8 @@ class SendMessage(BaseModel):
     payload: str = Field(min_length=1, max_length=MAX_PAYLOAD_LENGTH)  # в личных чатах — ENC2
     # Картинка, загруженная заранее в /chats/{chat_id}/attachments; ключ к ней — в payload.
     attachment_id: str | None = None
+    # Несколько картинок одним сообщением (альбом «IMG2:…»), до MAX_MESSAGE_ATTACHMENTS.
+    attachment_ids: list[str] = Field(default_factory=list, max_length=MAX_MESSAGE_ATTACHMENTS)
     # Ответ на сообщение этого же чата.
     reply_to_id: str | None = None
     # Только адресаты @упоминания: текст личного сообщения остаётся зашифрованным.

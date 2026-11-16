@@ -33,6 +33,7 @@ BOT_USERNAME = "Quazar_Admin_bot"
 BOT_PHONE = "bot:quazar-admin"
 TICKET_PREFIX = "TKT1:"
 IMAGE_PREFIX = "IMG1:"
+ALBUM_PREFIX = "IMG2:"
 
 KINDS = {"idea": "Предложение", "question": "Вопрос", "bug": "Ошибка"}
 STATUSES = {"queued": "В очереди", "in_progress": "В работе", "done": "Готово"}
@@ -106,6 +107,24 @@ def image_ref(payload: str) -> dict | None:
     except ValueError:
         return None
     return raw if isinstance(raw, dict) and isinstance(raw.get("id"), str) else None
+
+
+def album_ref(payload: str) -> tuple[list[dict], str] | None:
+    """Картинки и подпись сообщения: «IMG1:{…}» — одна без подписи, «IMG2:{images, text}» — альбом."""
+    image = image_ref(payload)
+    if image:
+        return [image], ""
+    if not payload.startswith(ALBUM_PREFIX):
+        return None
+    try:
+        raw = json.loads(payload[len(ALBUM_PREFIX):])
+    except ValueError:
+        return None
+    if not isinstance(raw, dict) or not isinstance(raw.get("images"), list):
+        return None
+    images = [i for i in raw["images"] if isinstance(i, dict) and isinstance(i.get("id"), str)]
+    text = raw.get("text") if isinstance(raw.get("text"), str) else ""
+    return (images, text) if images else None
 
 
 async def superuser_ids(db: AsyncSession) -> list[str]:
@@ -239,14 +258,14 @@ async def on_user_message(db: AsyncSession, chat: Chat, message: Message, reply_
         await notify_team(db, ticket)
         return
 
-    image = image_ref(message.payload)
+    album = album_ref(message.payload)
     ticket = SupportTicket(
         user_id=message.sender_id,
         chat_id=chat.id,
         message_id=message.id,
         kind="question",
-        text="" if image else message.payload,
-        images=[image] if image else [],
+        text=album[1] if album else message.payload,
+        images=album[0] if album else [],
     )
     db.add(ticket)
     await db.flush()

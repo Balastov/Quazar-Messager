@@ -48,20 +48,59 @@ export function encodeImage(ref: ImageRef): string {
   return IMAGE_PREFIX + JSON.stringify(ref);
 }
 
+/** Картинка из разобранного (недоверенного) JSON; null — что-то не так. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function imageRef(raw: any): ImageRef | null {
+  if (
+    typeof raw?.id !== "string" || !ID_RE.test(raw.id) ||
+    typeof raw.key !== "string" ||
+    !MIMES.includes(raw.mime) ||
+    !Number.isFinite(raw.w) || !Number.isFinite(raw.h) || raw.w <= 0 || raw.h <= 0 ||
+    !Number.isFinite(raw.size)
+  ) {
+    return null;
+  }
+  return { id: raw.id, key: raw.key, mime: raw.mime, w: raw.w, h: raw.h, size: raw.size };
+}
+
 export function parseImage(payload: string): ImageRef | null {
   if (!payload.startsWith(IMAGE_PREFIX)) return null;
   try {
-    const raw = JSON.parse(payload.slice(IMAGE_PREFIX.length));
-    if (
-      typeof raw?.id !== "string" || !ID_RE.test(raw.id) ||
-      typeof raw.key !== "string" ||
-      !MIMES.includes(raw.mime) ||
-      !Number.isFinite(raw.w) || !Number.isFinite(raw.h) || raw.w <= 0 || raw.h <= 0 ||
-      !Number.isFinite(raw.size)
-    ) {
-      return null;
-    }
-    return { id: raw.id, key: raw.key, mime: raw.mime, w: raw.w, h: raw.h, size: raw.size };
+    return imageRef(JSON.parse(payload.slice(IMAGE_PREFIX.length)));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Несколько картинок и подпись одним сообщением — «IMG2:{"images":[…],"text":"…"}».
+ * Одна картинка без подписи по-прежнему уходит как «IMG1:» — её понимают и старые версии.
+ */
+export const ALBUM_PREFIX = "IMG2:";
+export const MAX_ALBUM_IMAGES = 6;
+
+export interface Album {
+  images: ImageRef[];
+  /** Подпись; "" — без подписи. */
+  text: string;
+}
+
+export function encodeAlbum(images: ImageRef[], text = ""): string {
+  if (images.length === 1 && !text) return encodeImage(images[0]);
+  return ALBUM_PREFIX + JSON.stringify({ images, text });
+}
+
+/** Картинки сообщения: одиночная «IMG1:» — альбом из одной без подписи. null — не картинки. */
+export function parseAlbum(payload: string): Album | null {
+  const single = parseImage(payload);
+  if (single) return { images: [single], text: "" };
+  if (!payload.startsWith(ALBUM_PREFIX)) return null;
+  try {
+    const raw = JSON.parse(payload.slice(ALBUM_PREFIX.length));
+    if (!Array.isArray(raw?.images) || raw.images.length > MAX_ALBUM_IMAGES) return null;
+    const images = raw.images.map(imageRef);
+    if (!images.length || images.some((i: ImageRef | null) => !i)) return null;
+    return { images, text: typeof raw.text === "string" ? raw.text : "" };
   } catch {
     return null;
   }
@@ -101,3 +140,10 @@ export function fitSize(w: number, h: number, maxW: number, maxH: number): { wid
 }
 
 export const IMAGE_PREVIEW = "📷 Фото";
+
+/** Превью альбома в списке чатов и цитатах: «📷 3 фото» и подпись. */
+export function albumPreview(album: Album, stripText: (text: string) => string = (text) => text): string {
+  const head = album.images.length > 1 ? `📷 ${album.images.length} фото` : IMAGE_PREVIEW;
+  const caption = stripText(album.text).trim();
+  return caption ? `${head} · ${caption}` : head;
+}

@@ -16,14 +16,17 @@ interface Props {
   /** Свои пределы размера превью. */
   maxW?: number;
   maxH?: number;
+  /** Ячейка альбома: занимает её целиком, картинка обрезается по краям. */
+  fill?: boolean;
 }
 
 /** Картинка из сообщения: скачивает шифротекст, расшифровывает, по клику — на весь экран. */
-export default function ChatImage({ chatId, image, download, maxW = MAX_W, maxH = MAX_H }: Props) {
+export default function ChatImage({ chatId, image, download, maxW = MAX_W, maxH = MAX_H, fill = false }: Props) {
   const [url, setUrl] = useState<string | null>(null);
   const [failed, setFailed] = useState<"expired" | "error" | null>(null);
   const [open, setOpen] = useState(false);
-  const box = fitSize(image.w, image.h, maxW, maxH);
+  const fitted = fitSize(image.w, image.h, maxW, maxH);
+  const box = fill ? { width: "100%", height: "100%" } : fitted;
 
   useEffect(() => {
     let alive = true;
@@ -48,7 +51,7 @@ export default function ChatImage({ chatId, image, download, maxW = MAX_W, maxH 
 
   if (failed) {
     return (
-      <div className={s.failed} style={{ width: box.width, height: Math.min(box.height, 120) }}>
+      <div className={s.failed} style={fill ? box : { width: fitted.width, height: Math.min(fitted.height, 120) }}>
         {failed === "expired" ? "Фото удалено — они хранятся 30 дней" : "Картинка недоступна"}
       </div>
     );

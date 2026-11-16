@@ -97,6 +97,13 @@ def chat_mention_text(payload: str) -> str:
                 and isinstance(preview.get("title"), str) and preview["title"] and isinstance(preview.get("url"), str)
                 and preview["url"].startswith(("http://", "https://"))): payload = value["body"]
         except (ValueError, TypeError, AttributeError): pass
+    if payload.startswith("IMG2:"):
+        # Альбом: упоминания — только в подписи.
+        try:
+            value = json.loads(payload[5:])
+            return value["text"] if isinstance(value, dict) and isinstance(value.get("text"), str) else ""
+        except ValueError:
+            return ""
     if payload.startswith(("ENC1:", "ENC2:", "IMG1:", "FIL1:", "VOC1:", "STK1:", "TKT1:")): return ""
     return payload
 

@@ -20,11 +20,12 @@ export const messagesApi = {
       })
       .then((r) => r.data),
 
-  send: (chatId: string, payload: string, attachmentId?: string, replyToId?: string, notificationMentions?: string[]) =>
+  /** attachmentId — одно вложение или все картинки альбома. */
+  send: (chatId: string, payload: string, attachmentId?: string | string[], replyToId?: string, notificationMentions?: string[]) =>
     http
       .post<Message>(base(chatId), {
         payload,
-        attachment_id: attachmentId,
+        ...(Array.isArray(attachmentId) ? { attachment_ids: attachmentId } : { attachment_id: attachmentId }),
         reply_to_id: replyToId,
         notification_mentions: notificationMentions,
       })

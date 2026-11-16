@@ -13,7 +13,7 @@ export function premiumLabel(u: AdminUser): string {
   return u.premium_until ? `Premium ${kind} до ${premiumDate(u.premium_until)}` : `Premium ${kind}, бессрочно`;
 }
 
-const OPTIONS: [number | null, string][] = [[1, "1 месяц"], [3, "3 месяца"], [12, "12 месяцев"], [null, "Бессрочно"]];
+const OPTIONS: [number | null, string][] = [[1, "1 месяц"], [12, "1 год"], [null, "Бессрочно"]];
 
 /** Выдать или снять Quazar Premium — подарок или проверка. */
 export default function PremiumGrantDialog({ user, onClose, onDone }: { user: AdminUser; onClose(): void; onDone(next: AdminUser): void }) {
@@ -32,8 +32,8 @@ export default function PremiumGrantDialog({ user, onClose, onDone }: { user: Ad
   return createPortal(
     <Dialog title={`Quazar Premium · @${user.username}`} onClose={onClose}>
       <p className={s.hint}>
-        {user.premium_kind ? `Сейчас: ${premiumLabel(user)}.` : "Сейчас Premium нет."} Новый срок
-        отсчитывается от конца действующего Premium; пробный месяц при этом заканчивается.
+        {user.premium_kind ? `Сейчас: ${premiumLabel(user)}.` : "Сейчас Premium нет."} Подарок добавляется к концу
+        действующего Premium; пробный месяц при этом заканчивается и подарок считается с сегодняшнего дня.
       </p>
       <div className={s.actions}>
         {OPTIONS.map(([months, label]) => (

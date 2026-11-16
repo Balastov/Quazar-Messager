@@ -43,7 +43,8 @@ class AdminUserOut(BaseModel):
     username: str
     first_name: str | None = None
     last_name: str | None = None
-    phone: str
+    # Старые аккаунты (времён входа по почте) могут быть без номера — одна такая строка не должна ронять весь список.
+    phone: str | None = None
     created_at: datetime | None = None
     last_seen_at: datetime | None = None
     is_superuser: bool
@@ -117,9 +118,10 @@ async def list_users(
     db: Db,
     q: str = Query("", max_length=100),
     filter: Literal["all", "blocked", "superusers"] = "all",
-    before: datetime | None = None,
-    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=200),
 ):
+    """Постранично, новые сверху; клиент догружает страницы, пока не получит весь список."""
     # Quazar_Admin_bot — не человек: ни блокировать, ни давать роль.
     query = select(User).where(User.is_official.is_(False))
     if q.strip():
@@ -136,9 +138,7 @@ async def list_users(
         query = query.where(User.blocked_at.is_not(None))
     elif filter == "superusers":
         query = query.where(User.is_superuser.is_(True))
-    if before:
-        query = query.where(User.created_at < before)
-    rows = await db.execute(query.order_by(User.created_at.desc()).limit(limit))
+    rows = await db.execute(query.order_by(User.created_at.desc(), User.id).offset(offset).limit(limit))
     return [_user_out(u) for u in rows.scalars()]
 
 
@@ -186,7 +186,7 @@ async def unblock_user(user_id: str, me: Super, db: Db):
 
 
 class PremiumGrantBody(BaseModel):
-    # Месяцев по 30 дней; None — бессрочный.
+    # Календарных месяцев (12 — ровно год); None — бессрочный.
     months: int | None = Field(default=None, ge=1, le=120)
 
 

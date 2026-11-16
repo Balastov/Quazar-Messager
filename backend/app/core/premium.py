@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass
+import calendar
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
@@ -28,6 +29,13 @@ MONTHS = ("января", "февраля", "марта", "апреля", "ма�
 
 def now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def add_months(value: datetime, months: int) -> datetime:
+    """Календарные месяцы: 31 января + 1 → 28/29 февраля, 16 ноября + 12 → 16 ноября следующего года."""
+    index = value.month - 1 + months
+    year, month = value.year + index // 12, index % 12 + 1
+    return value.replace(year=year, month=month, day=min(value.day, calendar.monthrange(year, month)[1]))
 
 
 def human_date(value: datetime) -> str:
@@ -117,14 +125,14 @@ async def start_trial(db: AsyncSession, user: User) -> None:
 
 
 async def grant(db: AsyncSession, user: User, months: int | None, by: User) -> None:
-    """Выдача из «Чёрной дыры»: на N месяцев (по 30 дней) от текущего конца Premium или бессрочно."""
+    """Выдача из «Чёрной дыры»: на N календарных месяцев от текущего конца Premium или бессрочно."""
     at = now()
     current = state(user)
     if months is None:
         ends = None
     else:
         start = current.until if current.active and current.kind != "trial" and current.until else at
-        ends = start + timedelta(days=30 * months)
+        ends = add_months(start, months)
     db.add(PremiumGrant(user_id=user.id, kind="gift", starts_at=at, ends_at=ends, created_by_id=by.id))
     await db.flush()
     await recompute(db, user)

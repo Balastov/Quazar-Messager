@@ -20,15 +20,7 @@ import s from "./BlackHole.module.css";
 import { newPasswordProblem } from "../../auth/password";
 import { useAuthStore } from "../../store/auth";
 
-/** Дата и время целиком: «28.10.2026, 14:05». */
-const stamp = (iso: string) =>
-  new Date(iso).toLocaleString("ru-RU", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+import { stamp } from "./stamp";
 
 const who = (u: AdminUser | null) =>
   u ? [u.first_name, u.last_name].filter(Boolean).join(" ") || u.username : "удалённый аккаунт";

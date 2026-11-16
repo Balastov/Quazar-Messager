@@ -62,8 +62,24 @@ class AdminTest(StarsTestBase):
         with self.assertRaises(HTTPException) as ctx:  # последний
             await self.sup(admin.revoke_superuser, self.uid("alice"), user="alice")
         self.assertEqual(ctx.exception.status_code, 400)
-        listed = await self.sup(admin.list_users, user="alice", q="", filter="superusers", before=None, limit=50)
+        listed = await self.sup(admin.list_users, user="alice", q="", filter="superusers", offset=0, limit=50)
         self.assertEqual([u.username for u in listed], ["alice"])
+
+    async def test_user_list_survives_accounts_without_phone_and_pages(self):
+        # Старый аккаунт времён входа по почте: номера нет. Раньше весь список падал с 500.
+        from sqlalchemy import text
+        async with self.Session() as db:
+            await db.execute(text("ALTER TABLE users ALTER COLUMN phone DROP NOT NULL"))
+            await db.execute(update(User).where(User.username == "bob").values(phone=None))
+            await db.commit()
+        listed = await self.sup(admin.list_users, q="", filter="all", offset=0, limit=100)
+        bob = next(u for u in listed if u.username == "bob")
+        self.assertIsNone(bob.phone)
+        everyone = [u.id for u in listed]
+        paged = []
+        for offset in range(0, len(everyone), 2):
+            paged += [u.id for u in await self.sup(admin.list_users, q="", filter="all", offset=offset, limit=2)]
+        self.assertEqual(paged, everyone)
 
     async def test_block_account(self):
         async with self.Session() as db:

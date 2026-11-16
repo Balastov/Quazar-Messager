@@ -126,7 +126,14 @@ class PremiumTest(StarsTestBase):
         await self.gift("alice", 3)
         info = await self.info()
         self.assertEqual((info.kind, info.star_limit), ("gift", 5))
-        self.assertAlmostEqual((info.until - datetime.now(timezone.utc)).total_seconds(), 90 * 86400, delta=60)
+        self.assertAlmostEqual((info.until - premium.add_months(datetime.now(timezone.utc), 3)).total_seconds(), 0, delta=60)
+
+    def test_gift_terms_are_calendar_months(self):
+        at = datetime(2026, 1, 31, 12, tzinfo=timezone.utc)
+        self.assertEqual(premium.add_months(at, 1), datetime(2026, 2, 28, 12, tzinfo=timezone.utc))
+        self.assertEqual(premium.add_months(at, 12), datetime(2027, 1, 31, 12, tzinfo=timezone.utc))
+        self.assertEqual(premium.add_months(datetime(2028, 2, 29, tzinfo=timezone.utc), 12), datetime(2029, 2, 28, tzinfo=timezone.utc))
+        self.assertEqual(premium.add_months(datetime(2026, 11, 16, tzinfo=timezone.utc), 14), datetime(2028, 1, 16, tzinfo=timezone.utc))
 
     async def test_an_expired_trial_brings_the_free_limit_back(self):
         await self.trial()

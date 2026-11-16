@@ -11,6 +11,7 @@ import PremiumBadge from "../premium/PremiumBadge";
 import PremiumGrantDialog, { premiumLabel } from "./PremiumGrantDialog";
 import News from "./News";
 import { compareUsers } from "../../utils/profile";
+import { stamp } from "./stamp";
 import s from "./BlackHole.module.css";
 
 type Section = "users" | "stars" | "reports" | "tickets" | "news";
@@ -18,6 +19,9 @@ type Section = "users" | "stars" | "reports" | "tickets" | "news";
 const REASON: Record<string, string> = { spam: "Спам", abuse: "Оскорбления", fraud: "Мошенничество", other: "Другое" };
 
 const fullName = (u: AdminUser) => [u.first_name, u.last_name].filter(Boolean).join(" ");
+
+/** Когда человек был в сети: сейчас, дата и время ухода или «ещё не заходил». */
+const lastSeen = (u: AdminUser) => (u.online ? "сейчас" : u.last_seen_at ? stamp(u.last_seen_at) : "ещё не заходил");
 
 /** «Чёрная дыра»: администрирование всего ресурса. Видна только его владельцам. */
 export default function BlackHoleView() {
@@ -96,16 +100,23 @@ function Users({ onChange }: { onChange: () => void }) {
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState<"all" | "blocked" | "superusers">("all");
   const [users, setUsers] = useState<AdminUser[] | null>(null);
+  const [loading, setLoading] = useState(true);
   const [premiumFor, setPremiumFor] = useState<AdminUser | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let alive = true;
+    setLoading(true);
     const timer = setTimeout(() => {
       adminApi
-        .users({ q: q.trim() || undefined, filter })
-        .then((list) => alive && setUsers(list))
-        .catch((err) => alive && setError(apiError(err)));
+        .allUsers({ q: q.trim() || undefined, filter })
+        .then((list) => {
+          if (!alive) return;
+          setUsers(list);
+          setError(null);
+        })
+        .catch((err) => alive && setError(apiError(err)))
+        .finally(() => alive && setLoading(false));
     }, 250);
     return () => {
       alive = false;
@@ -135,6 +146,12 @@ function Users({ onChange }: { onChange: () => void }) {
         </select>
       </div>
       {error && <div className={s.error}>{error}</div>}
+      {users && (
+        <p className={s.hint}>
+          {loading ? "Обновляем список…" : `${q.trim() || filter !== "all" ? "Найдено" : "Всего"}: ${users.length.toLocaleString("ru-RU")}`}
+        </p>
+      )}
+      {!users && loading && <p className={s.hint}>Загружаем пользователей…</p>}
       <div className={s.list}>
         {users?.slice().sort((a, b) => compareUsers(
           { username: a.username, display_name: fullName(a) },
@@ -144,7 +161,7 @@ function Users({ onChange }: { onChange: () => void }) {
             <span className={u.online ? `${s.dot} ${s.dotOn}` : s.dot} title={u.online ? "в сети" : "не в сети"} />
             <div className={s.main}>
               <span className={s.name}>
-                {fullName(u) || u.username} <span className={s.nick}>@{u.username}</span>
+                {fullName(u) || <span className={s.nick}>имя не указано</span>} <span className={s.nick}>@{u.username}</span>
                 {u.is_superuser && <span className={s.badge}>владелец ресурса</span>}
                 {u.premium_kind && (
                   <span className={s.premiumBadge}>
@@ -154,7 +171,9 @@ function Users({ onChange }: { onChange: () => void }) {
                 {u.blocked_at && <span className={`${s.badge} ${s.badgeDanger}`}>заблокирован</span>}
               </span>
               <span className={s.meta}>
-                {u.phone} · с {u.created_at ? formatWhen(u.created_at) : "—"}
+                Регистрация: {u.created_at ? stamp(u.created_at) : "—"} · В сети: {lastSeen(u)}
+                {u.premium_kind ? "" : " · Premium нет"}
+                {u.phone ? ` · ${u.phone}` : ""}
                 {u.blocked_at ? ` · заблокирован ${formatWhen(u.blocked_at)}${u.blocked_reason ? `: ${u.blocked_reason}` : ""}` : ""}
               </span>
             </div>

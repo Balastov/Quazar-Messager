@@ -45,7 +45,8 @@ export interface AdminUser {
   username: string;
   first_name: string | null;
   last_name: string | null;
-  phone: string;
+  /** У старых аккаунтов (времён входа по почте) номера может не быть. */
+  phone: string | null;
   created_at: string | null;
   last_seen_at: string | null;
   is_superuser: boolean;
@@ -116,8 +117,19 @@ export const adminApi = {
   testNews: (version: string, text: NewsText) => http.post(`/admin/news/${version}/test`, { ...text, revision: 0 }),
   /** Сводка; 404 — не владелец ресурса. */
   me: () => http.get<AdminStats>("/admin/me").then((r) => r.data),
-  users: (params: { q?: string; filter?: "all" | "blocked" | "superusers"; before?: string }) =>
+  /** Страница списка: новые сверху. */
+  users: (params: { q?: string; filter?: "all" | "blocked" | "superusers"; offset?: number; limit?: number }) =>
     http.get<AdminUser[]>("/admin/users", { params }).then((r) => r.data),
+  /** Весь список — страница за страницей, пока не придёт неполная. */
+  allUsers: async (params: { q?: string; filter?: "all" | "blocked" | "superusers" }) => {
+    const limit = 200;
+    const all: AdminUser[] = [];
+    for (;;) {
+      const page = await adminApi.users({ ...params, offset: all.length, limit });
+      all.push(...page);
+      if (page.length < limit) return all;
+    }
+  },
   block: (userId: string, reason: string) =>
     http.post<AdminUser>(`/admin/users/${userId}/block`, { reason }).then((r) => r.data),
   unblock: (userId: string) => http.delete<AdminUser>(`/admin/users/${userId}/block`).then((r) => r.data),

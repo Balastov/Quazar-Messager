@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import PremiumBadge from "../premium/PremiumBadge";
 import { starsApi, type StarDetail, type StarMember } from "../../api/stars";
 import { useAuthStore } from "../../store/auth";
@@ -29,6 +29,9 @@ import s from "./Constellation.module.css";
 import { displayName } from "../../utils/profile";
 import PseudonymDialog, { canEditPseudonym } from "./PseudonymDialog";
 import { showOpenedChat } from "../../chat/showOpenedChat";
+import { usersApi } from "../../api/users";
+import { IconSearch } from "../icons";
+import { isPartialPhone, matchesMember, phoneQuery } from "./memberSearch";
 
 interface Props {
   detail: StarDetail;
@@ -40,6 +43,7 @@ interface Props {
 /** Участники Звезды со статусами: кто в сети, кто отошёл, кто где сейчас. */
 export default function MembersPanel({ detail, onClose, fullscreen = false }: Props) {
   const myId = useAuthStore((st) => st.user?.id);
+  const myPhone = useAuthStore((st) => st.user?.phone);
   const byId = usePresenceStore((st) => st.byId);
   const minute = usePresenceStore((st) => st.minute);
   const openDirectChat = useChatStore((st) => st.openDirectChat);
@@ -48,6 +52,32 @@ export default function MembersPanel({ detail, onClose, fullscreen = false }: Pr
   const [pseudonymFor, setPseudonymFor] = useState<StarMember | null>(null);
   const [error, setError] = useState<string | null>(null);
   const closeMenu = useCallback(() => setMenu(null), []);
+  const [query, setQuery] = useState("");
+  // Кого сервер нашёл по полному номеру (только тех, кто не скрыл номер).
+  const [byPhone, setByPhone] = useState<{ phone: string; ids: string[] } | null>(null);
+  const phone = phoneQuery(query);
+  // Другая Звезда — поиск с чистого листа.
+  useEffect(() => setQuery(""), [detail.id]);
+  useEffect(() => {
+    if (!phone) return;
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      void usersApi
+        .search(phone)
+        .then((users) => users.map((u) => u.id))
+        .catch(() => [] as string[])
+        .then((ids) => {
+          // Свой номер сервер в поиске не отдаёт — себя узнаём сами.
+          if (myId && myPhone === phone) ids.push(myId);
+          if (!cancelled) setByPhone({ phone, ids });
+        });
+    }, 280);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [phone, myId, myPhone]);
+  const phoneLookupPending = !!phone && byPhone?.phone !== phone;
   const isAdmin = detail.my_role === "owner" || detail.my_role === "admin";
   const hasTags = (detail.tags ?? []).length > 0;
 
@@ -75,7 +105,14 @@ export default function MembersPanel({ detail, onClose, fullscreen = false }: Pr
   };
 
   // eslint-disable-next-line react-hooks/exhaustive-deps -- minute: «12 мин назад» пересчитывается
-  const groups = useMemo(() => groupMembers(detail.members, byId, myId), [detail.members, byId, myId, minute]);
+  const groups = useMemo(() => {
+    const searching = query.trim();
+    const found = byPhone && byPhone.phone === phone ? byPhone.ids : [];
+    const members = searching
+      ? detail.members.filter((m) => matchesMember(m, searching) || found.includes(m.user.id))
+      : detail.members;
+    return groupMembers(members, byId, myId);
+  }, [detail.members, byId, myId, minute, query, phone, byPhone]);
 
   // Кто на какой Планете / в какой Комнате прямо сейчас.
   const nouns = placeNouns(detail.kind);
@@ -105,12 +142,42 @@ export default function MembersPanel({ detail, onClose, fullscreen = false }: Pr
           </button>
         )}
       </div>
+      <div className={s.membersSearch}>
+        <IconSearch size={16} />
+        <input
+          type="search"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Ник, имя, псевдоним, телефон"
+          aria-label="Поиск участников"
+          enterKeyHint="search"
+        />
+        {query && (
+          <button type="button" onClick={() => setQuery("")} aria-label="Очистить поиск">
+            ✕
+          </button>
+        )}
+      </div>
       <div className={s.membersList}>
-        <div style={{ padding: "4px 12px 8px" }}>
+        {query.trim() && (
+          <div className={s.membersSearchHint}>
+            {phoneLookupPending
+              ? "Ищем по номеру…"
+              : groups.length === 0
+                ? phone
+                  ? "Никого не нашли. Человек мог скрыть номер — попробуйте никнейм или имя"
+                  : "Никого не нашли"
+                : null}
+            {isPartialPhone(query) && (
+              <span>Номер вводите целиком — по части номера не ищем</span>
+            )}
+          </div>
+        )}
+        {!query.trim() && <div style={{ padding: "4px 12px 8px" }}>
           <MyTags detail={detail} />
           {detail.members.find(member => member.user.id === myId) && <button type="button" className={s.secondary}
             onClick={() => setPseudonymFor(detail.members.find(member => member.user.id === myId)!)}>Мой псевдоним</button>}
-        </div>
+        </div>}
         {error && <div className={s.error} style={{ padding: "0 12px 8px" }}>{error}</div>}
         {groups.map((group) => (
           <section key={group.key} className={s.membersGroup}>

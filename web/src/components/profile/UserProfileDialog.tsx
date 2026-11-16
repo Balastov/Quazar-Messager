@@ -1,6 +1,9 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { usersApi } from "../../api/users";
+import { chatsApi } from "../../api/chats";
+import { useIsBlocked } from "../../store/blocks";
+import { useCallStore } from "../../store/call";
 import type { User } from "../../api/types";
 import { useAuthStore } from "../../store/auth";
 import { useChatStore } from "../../store/chat";
@@ -16,7 +19,7 @@ import PremiumBadge from "../premium/PremiumBadge";
 import OfficialBadge from "../support/OfficialBadge";
 import CustomStatusBadge from "../status/CustomStatusBadge";
 import UserAvatar from "../UserAvatar";
-import { IconChat } from "../icons";
+import { IconChat, IconPhone, IconVideo } from "../icons";
 import c from "../constellation/Constellation.module.css";
 import s from "./UserProfile.module.css";
 
@@ -51,6 +54,9 @@ function UserProfileDialog({ target, onClose }: { target: ProfileTarget; onClose
   const presenceText = usePresenceText(userId);
   const [user, setUser] = useState<User | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [calling, setCalling] = useState(false);
+  const blocked = useIsBlocked(userId);
+  const callBusy = useCallStore((st) => st.phase !== "idle" && st.phase !== "ended");
 
   useEffect(() => {
     let cancelled = false;
@@ -79,6 +85,25 @@ function UserProfileDialog({ target, onClose }: { target: ProfileTarget; onClose
   const premium = user?.is_premium ?? member?.user.is_premium ?? hint?.is_premium ?? false;
   const isMe = userId === myId;
   const tone = presenceTone(presence);
+  const canWrite = !isMe && !user?.is_official && !(inHisChat && (tab === "chats" || tab === "contacts"));
+  const canCall = !isMe && !user?.is_official;
+
+  // Звонок идёт в личном чате; его нет — заводим. Окно звонка общее, переходить в чат не нужно.
+  const call = async (video: boolean) => {
+    setCalling(true);
+    setError(null);
+    try {
+      const chat = await chatsApi.createDirect(userId);
+      useChatStore.setState((st) => (st.chats.some((c) => c.id === chat.id) ? {} : { chats: [chat, ...st.chats] }));
+      const calls = useCallStore.getState();
+      onClose();
+      await (video ? calls.startVideoCall(chat.id, userId) : calls.startAudioCall(chat.id, userId));
+    } catch {
+      setError("Не удалось позвонить");
+      setCalling(false);
+    }
+  };
+  const callTitle = blocked ? "Вы заблокировали этого человека" : callBusy ? "Сейчас идёт другой звонок" : undefined;
 
   return (
     <Dialog title="Профиль" onClose={onClose} className={s.dialog}>
@@ -111,7 +136,7 @@ function UserProfileDialog({ target, onClose }: { target: ProfileTarget; onClose
         <CustomStatusBadge userId={userId} />
       </div>
 
-      {error && !user && <p className={c.error}>{error}</p>}
+      {error && <p className={c.error}>{error}</p>}
 
       {(user?.phone || user?.created_at) && (
         <dl className={s.facts}>
@@ -130,18 +155,46 @@ function UserProfileDialog({ target, onClose }: { target: ProfileTarget; onClose
         </dl>
       )}
 
-      {!isMe && !user?.is_official && !(inHisChat && (tab === "chats" || tab === "contacts")) && (
-        <button
-          type="button"
-          className={`${c.primary} ${s.write}`}
-          onClick={() => {
-            onClose();
-            void showOpenedChat(() => openDirectChat(userId));
-          }}
-        >
-          <IconChat size={18} />
-          Написать
-        </button>
+      {(canWrite || canCall) && (
+        <div className={s.actions}>
+          {canWrite && (
+            <button
+              type="button"
+              className={`${s.action} ${s.actionPrimary}`}
+              onClick={() => {
+                onClose();
+                void showOpenedChat(() => openDirectChat(userId));
+              }}
+            >
+              <IconChat size={18} />
+              Написать
+            </button>
+          )}
+          {canCall && (
+            <>
+              <button
+                type="button"
+                className={s.action}
+                disabled={calling || callBusy || blocked}
+                title={callTitle ?? "Аудиозвонок"}
+                onClick={() => void call(false)}
+              >
+                <IconPhone size={18} />
+                Звонок
+              </button>
+              <button
+                type="button"
+                className={s.action}
+                disabled={calling || callBusy || blocked}
+                title={callTitle ?? "Видеозвонок"}
+                onClick={() => void call(true)}
+              >
+                <IconVideo size={18} />
+                Видео
+              </button>
+            </>
+          )}
+        </div>
       )}
     </Dialog>
   );

@@ -14,6 +14,7 @@ import { desktop } from "../platform/desktop";
 import { startDesktopYandexLogin } from "../auth/desktopYandex";
 import DesktopDownloadButton from "../components/DesktopDownloadButton";
 import DeviceReceiver from "../components/devices/DeviceReceiver";
+import CodeLogin from "../components/auth/CodeLogin";
 
 export default function AuthPage() {
   const [screen, setScreen] = useState<"welcome" | "login" | "register" | "profile" | "device">("welcome");
@@ -87,7 +88,7 @@ export default function AuthPage() {
   return <div className={s.root}><div className={s.card}><div className={s.formCard}>
     <button type="button" className={s.back} onClick={() => go(screen === "profile" ? "register" : "welcome")}>← Назад</button>
     <h2 className={s.formTitle}>{screen === "login" ? "Вход" : screen === "profile" ? "Как вас представить?" : "Регистрация"}</h2>
-    {screen === "login" && !legacy && <p className={s.lead}>Введите номер телефона и нажмите «Войти звонком». Если вы уже подтвердили номер, для входа нужен новый звонок.</p>}
+    {screen === "login" && !legacy && <p className={s.lead}>Введите номер телефона и войдите звонком. Уже вошли в Quazar на другом устройстве — получите туда код.</p>}
     {screen === "login" && !legacy && <button type="button" className={s.ghost} onClick={() => go("device")}>Войти по QR-коду</button>}
     {screen === "register" && <p className={s.lead}>Сначала подтвердите телефон. Пароль для регистрации не нужен.</p>}
     <form className={s.form} onSubmit={event => void submit(event)}>
@@ -124,6 +125,7 @@ export default function AuthPage() {
                 }).finally(() => setBusy(false));
               }
             }} />
+          {screen === "login" && <CodeLogin key={e164 ?? ""} phone={e164} disabled={busy} onToken={finish} />}
           {!e164 && <p className={s.hint}>Введите номер полностью, чтобы продолжить.</p>}
           {screen === "register" && proof && <button className={s.submit} type="button" onClick={() => go("profile")}>Продолжить</button>}
           {screen === "login" && passwordAllowed && <button type="button" className={s.skip} onClick={() => setLegacy(true)}>Войти паролем — старый аккаунт</button>}

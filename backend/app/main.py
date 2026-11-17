@@ -21,6 +21,7 @@ from app.models import Attachment, Call, PushSubscription, Star  # noqa: F401
 from app.models.premium import PremiumGrant  # noqa: F401 — register the table for create_all
 from app.api.auth import router as auth_router
 from app.api.device_pairing import router as device_pairing_router
+from app.api.login_codes import router as login_codes_router
 from app.api.premium import router as premium_router
 from app.api.connection_check import router as connection_check_router
 from app.api.phone_verification import router as phone_verification_router
@@ -391,6 +392,7 @@ app.add_middleware(SecurityHeadersMiddleware)
 
 app.include_router(auth_router)
 app.include_router(device_pairing_router)
+app.include_router(login_codes_router)
 app.include_router(premium_router)
 app.include_router(connection_check_router)
 app.include_router(phone_verification_router)

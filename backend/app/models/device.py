@@ -56,3 +56,22 @@ class DevicePairLimit(Base):
     key: Mapped[str] = mapped_column(String(96), primary_key=True)
     bucket: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True)
     hits: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
+class LoginCode(Base):
+    """Вход по коду от Quazar_Admin_bot: код приходит на устройства, где уже вошли."""
+    __tablename__ = "login_codes"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    # Токен попытки знает только устройство, которое просило код: чужой код к нему не подойдёт.
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    code_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    device_name: Mapped[str] = mapped_column(String(160), nullable=False)
+    ip_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    message_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    state: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")  # pending / used / locked / replaced / failed
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)  # неверные вводы
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

@@ -312,3 +312,30 @@ async def queued_count(db: AsyncSession) -> int:
     return (
         await db.execute(select(func.count()).select_from(SupportTicket).where(SupportTicket.status == "queued"))
     ).scalar_one()
+
+
+async def bot_notice(db: AsyncSession, user: User, text: str) -> Message:
+    """Служебное сообщение бота в чат человека — не про обращение (например, код для входа).
+    Команда его не видит: в «Чёрную дыру» попадают только сообщения обращений."""
+    from app.api.messages import deliver
+
+    chat = await support_chat(db, user)
+    bot = await bot_user(db)
+    return await deliver(db, chat, bot.id, text)
+
+
+async def rewrite_bot_notice(db: AsyncSession, message_id: str, text: str) -> None:
+    """Заменить текст служебного сообщения бота — без пометки «изменено»."""
+    from app.api.messages import _get_chat_member_ids
+
+    message = await db.get(Message, message_id)
+    bot = await bot_user(db)
+    if not message or message.sender_id != bot.id:
+        return
+    message.payload = text
+    await db.commit()
+    await manager.broadcast_to_users(
+        await _get_chat_member_ids(message.chat_id, db),
+        {"type": "message_edited", "chat_id": message.chat_id, "message_id": message.id,
+         "payload": text, "edited_at": None},
+    )

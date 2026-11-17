@@ -9,7 +9,7 @@ vi.mock("../../../store/auth", () => ({ useAuthStore: Object.assign(
   (selector: (state: typeof auth) => unknown) => selector(auth), { getState: () => auth },
 ) }));
 vi.mock("../../../api/phoneVerification", () => ({ phoneVerificationApi: { start: vi.fn(), status: vi.fn(), completeLogin: vi.fn() } }));
-vi.mock("../../../api/auth", () => ({ authApi: { providers: vi.fn(), register: vi.fn(), login: vi.fn(), phoneOptions: vi.fn(), signInMethods: vi.fn() } }));
+vi.mock("../../../api/auth", () => ({ authApi: { providers: vi.fn(), register: vi.fn(), login: vi.fn(), phoneOptions: vi.fn(), signInMethods: vi.fn(), codeLoginStart: vi.fn(), codeLoginComplete: vi.fn() } }));
 vi.mock("../../../api/users", () => ({ usersApi: { me: vi.fn() } }));
 vi.mock("../../../auth/reauth", () => ({ reauthCode: () => null }));
 vi.mock("../useUsernameCheck", () => ({ useUsernameCheck: () => ({ state: "ok" }) }));
@@ -149,7 +149,7 @@ it("keeps call login visible before the phone is complete and enables it only fo
   await act(async () => root.render(createElement(MemoryRouter, {future: {v7_startTransition: true, v7_relativeSplatPath: true}}, createElement(AuthPage))));
   await act(async () => button("Войти").click());
   expect(button("Войти звонком").disabled).toBe(true);
-  expect(host.textContent).toContain("для входа нужен новый звонок");
+  expect(host.textContent).toContain("войдите звонком");
   await act(async () => button("Войти звонком").click());
   await change('input[type="tel"]', "+7 (916) 000");
   expect(button("Войти звонком").disabled).toBe(true);
@@ -159,6 +159,27 @@ it("keeps call login visible before the phone is complete and enables it only fo
   expect(button("Войти звонком").disabled).toBe(false);
   await act(async () => button("Войти звонком").click());
   expect(phoneVerificationApi.start).toHaveBeenCalledWith(phone, "login");
+});
+
+it("signs in with a code from Quazar_Admin_bot", async () => {
+  vi.mocked(authApi.codeLoginStart).mockResolvedValue({ login_token: token,
+    expires_at: new Date(Date.now() + 300_000).toISOString(), resend_at: new Date(Date.now() + 60_000).toISOString() });
+  vi.mocked(authApi.codeLoginComplete).mockResolvedValue({ access_token: "session-token", token_type: "bearer" });
+  await act(async () => root.render(createElement(MemoryRouter, {future: {v7_startTransition: true, v7_relativeSplatPath: true}}, createElement(AuthPage))));
+  await act(async () => button("Войти").click());
+  expect(button("Получить код в Quazar").disabled).toBe(true);
+  await change('input[type="tel"]', phone);
+  await act(async () => button("Получить код в Quazar").click());
+  expect(authApi.codeLoginStart).toHaveBeenCalledWith(phone);
+  expect(host.textContent).toContain("Quazar_Admin_bot");
+  expect(button("Новый код — через 60 с").disabled).toBe(true);
+  await change('input[aria-label="Код из сообщения"]', "12 34");
+  expect(authApi.codeLoginComplete).not.toHaveBeenCalled();
+  await change('input[aria-label="Код из сообщения"]', "12 345");
+  expect(authApi.codeLoginComplete).toHaveBeenCalledWith(token, "12345");
+  expect(auth.setToken).toHaveBeenCalledWith("session-token");
+  await act(async () => vi.advanceTimersByTimeAsync(60_000));
+  expect(button("Отправить код ещё раз").disabled).toBe(false);
 });
 
 it("returns to call login when password access was disabled after checking the login options", async () => {

@@ -35,6 +35,13 @@ export interface SignInMethods {
   providers: { yandex: boolean };
 }
 
+export interface CodeLoginStart {
+  login_token: string;
+  expires_at: string;
+  /** Раньше этого времени новый код не отправить. */
+  resend_at: string;
+}
+
 export const authApi = {
   /** Какие внешние входы включены на сервере. */
   providers: () => http.get<{ yandex: boolean; phone_verification?: boolean }>("/auth/providers").then((r) => r.data),
@@ -56,6 +63,11 @@ export const authApi = {
   yandexReauth: async () => http.post<{ url: string }>("/auth/yandex/reauth", undefined, { params: await desktopYandexParams() }).then((r) => r.data),
   signInMethods: () => http.get<SignInMethods>("/users/me/sign-in").then((r) => r.data),
   unlink: (provider: string, proof: {password?: string; phone_proof?: string; reauth_code?: string}) => http.delete(`/users/me/identities/${provider}`, {data: proof}),
+  /** Вход по коду: Quazar_Admin_bot присылает его на устройства, где уже вошли. */
+  codeLoginStart: (phone: string) =>
+    http.post<CodeLoginStart>("/auth/code-login/start", { phone }).then((r) => r.data),
+  codeLoginComplete: (loginToken: string, code: string) =>
+    http.post<TokenResponse>("/auth/code-login/complete", { login_token: loginToken, code }).then((r) => r.data),
   phoneOptions: (phone: string) => http.post<{password_login_allowed: boolean}>("/auth/phone-login/options", {phone}).then(r => r.data),
   setPassword: (newPassword: string, opts: { currentPassword?: string; reauthCode?: string; confirmPassword?: string } = {}) =>
     http.put<TokenResponse>("/users/me/password", {

@@ -819,7 +819,7 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
       )}
       {openForm && <FormDialog detail={detail} form={openForm} onClose={() => setOpenForm(null)} />}
       {dialog === "poll" && <PollDialog starId={detail.id} channelId={channel.id} onClose={() => setDialog(null)} />}
-      {dialog === "lfg" && <LfgDialog starId={detail.id} channelId={channel.id} onClose={() => setDialog(null)} />}
+      {dialog === "lfg" && <LfgDialog detail={detail} channelId={channel.id} onClose={() => setDialog(null)} />}
       {acksOf && <AcksDialog message={acksOf} onClose={() => setAcksOf(null)} />}
       {notifyOpen && (
         <NotifyDialog

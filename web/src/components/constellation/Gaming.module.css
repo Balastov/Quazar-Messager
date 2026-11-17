@@ -473,3 +473,131 @@ span.tagActive {
   font-size: 12px;
   color: var(--qz-text-muted);
 }
+
+/* --- Сбор группы: «Кто администрирует сбор?» и выбор организаторов --- */
+
+.switch {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--qz-online);
+  border-radius: 999px;
+  box-shadow: 0 0 12px rgba(52, 211, 153, 0.18);
+}
+
+.switchOption {
+  padding: 9px 10px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: none;
+  color: var(--qz-text-muted);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, box-shadow 0.15s;
+}
+
+.switchOption:hover:not(.switchOn) {
+  color: var(--qz-text);
+}
+
+.switchOn {
+  background: var(--qz-online);
+  border-color: var(--qz-online);
+  color: #06281c;
+  box-shadow: 0 0 12px rgba(52, 211, 153, 0.45);
+}
+
+.switchOption:focus-visible {
+  outline: 2px solid var(--qz-online);
+  outline-offset: 2px;
+}
+
+.picker {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chip {
+  padding: 4px 10px;
+  border: 1px solid var(--qz-online);
+  border-radius: 999px;
+  background: rgba(52, 211, 153, 0.12);
+  color: var(--qz-text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.pickList {
+  display: flex;
+  flex-direction: column;
+  max-height: 200px;
+  overflow-y: auto;
+  border: 1px solid var(--qz-border);
+  border-radius: 12px;
+}
+
+.pickRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 7px 10px;
+  border: none;
+  background: none;
+  color: var(--qz-text);
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.pickRow + .pickRow {
+  border-top: 1px solid var(--qz-border);
+}
+
+.pickRow:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.pickRowOn {
+  background: rgba(52, 211, 153, 0.1);
+}
+
+.pickName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pickNick {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--qz-text-muted);
+  font-size: 12px;
+}
+
+.pickMark {
+  width: 16px;
+  color: var(--qz-online);
+  font-weight: 700;
+}
+
+.pickEmpty {
+  padding: 10px;
+  color: var(--qz-text-muted);
+  font-size: 13px;
+}

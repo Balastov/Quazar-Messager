@@ -124,7 +124,7 @@ export default function ChannelSidebar({
           <span className={`${s.channelName} ${count ? s.channelUnread : ""}`}>
             {c.room_kind === "lobby" ? "🛋 " : ""}
             {c.name}
-            {c.room_kind !== "lobby" && c.access === "invite" ? " 🔒" : ""}
+            {c.room_kind !== "lobby" && (c.access === "invite" || c.access === "gathering") ? " 🔒" : ""}
             {c.room_kind !== "lobby" && c.access === "personal" ? " 🔑" : ""}
             {c.listen_only ? " 🎧" : ""}
             {c.temporary ? " ⏳" : ""}

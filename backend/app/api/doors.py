@@ -6,7 +6,9 @@
   главным; пока внутри кто-то есть, войти можно по приглашению или постучавшись. Впускает и зовёт
   главный, а также те, у кого есть право «Впускать» (они же входят без стука);
 - personal («Личный кабинет», Звёзды «Работа») — без стука входит только хозяин кабинета;
-  впускает и зовёт хозяин, админы и владелец Звезды.
+  впускает и зовёт хозяин, админы и владелец Звезды;
+- gathering (временная комната «Сбора группы») — без стука входят записавшиеся, организаторы
+  сбора и те, у кого есть право «Впускать»; они же (кроме записавшихся) впускают и зовут.
 
 Кто в сети — получает событие по WebSocket, кто нет — push-уведомление.
 """
@@ -77,13 +79,17 @@ def can_admit(star: Star, member: StarMember) -> bool:
     return rules.has_perm(member.role, Perm.ADMIT, star.role_permissions)
 
 
-OPEN, INVITE, PERSONAL = "open", "invite", "personal"
+OPEN, INVITE, PERSONAL, GATHERING = "open", "invite", "personal", "gathering"
 
 
 def door(channel: StarChannel) -> str:
     if channel.kind != "planet" or channel.room_kind == LOBBY_KIND:
         return OPEN
-    return channel.access if channel.access in (INVITE, PERSONAL) else OPEN
+    return channel.access if channel.access in (INVITE, PERSONAL, GATHERING) else OPEN
+
+
+def gathering_admin(user_id: str, channel: StarChannel) -> bool:
+    return user_id in (channel.gathering_admins or [])
 
 
 def is_closed(channel: StarChannel) -> bool:
@@ -97,6 +103,10 @@ def enters_freely(star: Star, member: StarMember, channel: StarChannel, occupied
         return True
     if kind == PERSONAL:
         return member.user_id == channel.cabinet_owner_id
+    if kind == GATHERING:
+        # Пустая комната сбора не открывается всем подряд — в отличие от «По приглашениям».
+        return (member.user_id in (channel.gathering_members or []) or gathering_admin(member.user_id, channel)
+                or can_admit(star, member))
     if occupied is None:
         occupied = bool(voice.participants(channel.id))
     return not occupied or can_admit(star, member)
@@ -109,6 +119,8 @@ def can_answer(star: Star, member: StarMember, channel: StarChannel) -> bool:
         return member.user_id == channel.cabinet_owner_id or member.role in ("owner", "admin")
     if kind == INVITE:
         return voice.host(channel.id) == member.user_id or can_admit(star, member)
+    if kind == GATHERING:
+        return gathering_admin(member.user_id, channel) or can_admit(star, member)
     return False
 
 
@@ -135,6 +147,8 @@ def enter_words(star: Star, room_name: str) -> dict[str, str]:
 def _who_answers(channel: StarChannel) -> str:
     if door(channel) == PERSONAL:
         return "Звать и впускать в личный кабинет могут его хозяин, админы и владелец Звезды"
+    if door(channel) == GATHERING:
+        return "Звать и впускать сюда могут организаторы сбора"
     return "Звать и впускать сюда может главный (и те, у кого есть право впускать)"
 
 

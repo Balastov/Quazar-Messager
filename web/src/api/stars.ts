@@ -12,7 +12,8 @@ export type MyStarRole = StarRole | "visitor";
 export type ChannelKind = "satellite" | "planet";
 export type RoomKind = "coworking" | "meeting" | "smoking" | "kitchen" | "custom" | "lobby";
 /** Вход в Планету: свободный, по приглашениям (стучаться) или личный кабинет (Звёзды «Работа»). */
-export type RoomAccess = "open" | "invite" | "personal";
+/** gathering — временная комната «Сбора группы» (её не выбирают в настройках комнаты). */
+export type RoomAccess = "open" | "invite" | "personal" | "gathering";
 export type StarPerm =
   | "invite"
   | "delete_messages"
@@ -217,6 +218,10 @@ export interface StarLfg {
   /** Временная Планета, когда сбор начался. */
   planet_id: string | null;
   created_by: string | null;
+  /** Назначенные организаторы; автор — организатор и без этого списка. */
+  admins?: string[];
+  /** Этаж рабочей Звезды, где появится комната сбора. */
+  floor_id?: string | null;
 }
 
 export type AssetKind = "sticker" | "emoji" | "sound";
@@ -348,6 +353,9 @@ export interface StarChannel {
   slow_mode_sec?: number;
   /** Временная Планета: исчезнет, когда опустеет. */
   temporary?: boolean;
+  /** Комната сбора (access === "gathering"): кто входит без стука и кто впускает. */
+  gathering_members?: string[] | null;
+  gathering_admins?: string[] | null;
   created_by?: string | null;
   /** Спутник-объявления: пишут владелец и админы, остальные — в ветках. */
   announcement?: boolean;
@@ -999,8 +1007,14 @@ export const starsApi = {
   vote: (starId: string, pollId: string, options: number[]) =>
     http.put<StarPoll>(`${base(starId)}/polls/${pollId}/vote`, { options }).then((r) => r.data),
   closePoll: (starId: string, pollId: string) => http.post(`${base(starId)}/polls/${pollId}/close`),
-  createLfg: (starId: string, channelId: string, body: { title: string; slots: number; starts_at: string | null }) =>
-    http.post(`${base(starId)}/channels/${channelId}/lfg`, body),
+  createLfg: (
+    starId: string,
+    channelId: string,
+    body: { title: string; slots: number; starts_at: string | null; admin_ids?: string[]; floor_id?: string | null }
+  ) => http.post(`${base(starId)}/channels/${channelId}/lfg`, body),
+  /** Кто бывает на этаже — из них выбирают организаторов сбора. */
+  floorPeople: (starId: string, floorId: string) =>
+    http.get<string[]>(`${base(starId)}/floors/${floorId}/people`).then((r) => r.data),
   lfgAction: (starId: string, lfgId: string, action: "join" | "leave" | "start" | "cancel") =>
     http.post<StarLfg>(`${base(starId)}/lfg/${lfgId}/${action}`).then((r) => r.data),
   temporaryPlanet: (starId: string, name?: string) =>

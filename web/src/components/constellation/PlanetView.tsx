@@ -128,9 +128,11 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
         <span className={s.channelTitleSub}>
           {personal
             ? `🔑 кабинет ${cabinetOwnerName} · `
-            : closed
-              ? "🔒 по приглашениям · "
-              : `${nouns.one} · `}
+            : door.kind === "gathering"
+              ? "🔒 для участников сбора · "
+              : closed
+                ? "🔒 по приглашениям · "
+                : `${nouns.one} · `}
           {listenOnly ? "🎧 только слушать · " : ""}
           {room ? `${room} · ` : ""}
           {presence.length} из {capacity}
@@ -227,6 +229,12 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
             <p className={s.hint}>
               🔑 Личный кабинет {cabinetOwnerName}: постучитесь — впустить может хозяин кабинета,
               админ или владелец Звезды. Или попросите кого-то из них позвать вас.
+            </p>
+          )}
+          {door.kind === "gathering" && mustKnock && (
+            <p className={s.hint}>
+              🔒 Без стука сюда входят только записавшиеся на сбор и его организаторы. Постучитесь —
+              организатор впустит вас, отправит в зал ожидания или откажет. Или попросите позвать вас.
             </p>
           )}
           {door.kind === "invite" && mustKnock && (

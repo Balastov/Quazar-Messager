@@ -87,6 +87,8 @@ async def join_planet(star_id: str, channel_id: str, current_user: CurrentUser, 
                 status_code=423,
                 detail="Это личный кабинет — постучитесь, чтобы вас впустили"
                 if channel.access == "personal"
+                else "Сюда без стука входят только записавшиеся на сбор — постучитесь, организаторы впустят"
+                if channel.access == "gathering"
                 else "Комната по приглашениям — постучитесь, чтобы вас впустили",
             )
 

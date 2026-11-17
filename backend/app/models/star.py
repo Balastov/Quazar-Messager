@@ -144,6 +144,10 @@ class StarChannel(Base):
     created_by: Mapped[str | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
+    # Планета сбора (access == "gathering"): без стука входят записавшиеся и организаторы,
+    # впускают и зовут организаторы (автор сбора и назначенные им). Списки — на момент начала сбора.
+    gathering_members: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    gathering_admins: Mapped[list | None] = mapped_column(JSON, nullable=True)
     # Этаж и положение на карте офиса в клетках сетки.
     floor_id: Mapped[str | None] = mapped_column(
         ForeignKey("star_floors.id", ondelete="SET NULL"), nullable=True, index=True
@@ -381,6 +385,12 @@ class StarLfg(Base):
     planet_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     created_by: Mapped[str | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    # Назначенные автором организаторы (у автора права остаются); пусто — организатор только автор.
+    admin_ids: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    # Этаж рабочей Звезды, на котором появится комната сбора (и из чьих участников организаторы).
+    floor_id: Mapped[str | None] = mapped_column(
+        ForeignKey("star_floors.id", ondelete="SET NULL"), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 

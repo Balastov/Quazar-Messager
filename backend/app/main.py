@@ -280,6 +280,11 @@ async def lifespan(app: FastAPI):
             "ALTER TABLE star_members ADD COLUMN IF NOT EXISTS rules_accepted_at TIMESTAMP WITH TIME ZONE",
             "ALTER TABLE star_channels ADD COLUMN IF NOT EXISTS slow_mode_sec INTEGER NOT NULL DEFAULT 0",
             "ALTER TABLE star_channels ADD COLUMN IF NOT EXISTS temporary BOOLEAN NOT NULL DEFAULT false",
+            "ALTER TABLE star_channels ADD COLUMN IF NOT EXISTS gathering_members JSON",
+            "ALTER TABLE star_channels ADD COLUMN IF NOT EXISTS gathering_admins JSON",
+            "ALTER TABLE star_lfg ADD COLUMN IF NOT EXISTS admin_ids JSON",
+            "ALTER TABLE star_lfg ADD COLUMN IF NOT EXISTS floor_id VARCHAR(36) "
+            "REFERENCES star_floors(id) ON DELETE SET NULL",
             "ALTER TABLE star_channels ADD COLUMN IF NOT EXISTS created_by VARCHAR(36) "
             "REFERENCES users(id) ON DELETE SET NULL",
             "ALTER TABLE star_messages ADD COLUMN IF NOT EXISTS kind VARCHAR(16) NOT NULL DEFAULT 'text'",

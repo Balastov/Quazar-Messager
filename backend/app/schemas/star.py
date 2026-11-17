@@ -271,6 +271,9 @@ class StarChannelOut(BaseModel):
     door_sign_kind: str | None = None
     door_sign_text: str | None = None
     door_sign_until: datetime | None = None
+    # Планета сбора: кто входит без стука и кто впускает.
+    gathering_members: list[str] | None = None
+    gathering_admins: list[str] | None = None
     floor_id: str | None = None
     map_x: int | None
     map_y: int | None
@@ -402,6 +405,9 @@ class LfgOut(BaseModel):
     members: list[str]
     planet_id: str | None
     created_by: str | None
+    # Назначенные организаторы (автор — тоже организатор, в список не входит).
+    admins: list[str] = []
+    floor_id: str | None = None
 
 
 class StarFileOut(BaseModel):

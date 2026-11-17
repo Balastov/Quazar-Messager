@@ -19,9 +19,14 @@ export default function LfgCard({ message, detail }: { message: StarMessage; det
   const [error, setError] = useState<string | null>(null);
   const joined = !!myId && lfg.members.includes(myId);
   const full = lfg.members.length >= lfg.slots;
-  const manage = lfg.created_by === myId || isStaff(detail.my_role);
+  const organizer = !!myId && (lfg.created_by === myId || (lfg.admins ?? []).includes(myId));
+  const manage = organizer || isStaff(detail.my_role);
   const planet = lfg.planet_id ? detail.channels.find((c) => c.id === lfg.planet_id) : undefined;
   const member = (id: string) => detail.members.find((m) => m.user.id === id)?.user;
+  // Назначили организаторов — показываем всех, вместе с автором (он остаётся организатором).
+  const organizers = (lfg.admins?.length ? [...(lfg.created_by ? [lfg.created_by] : []), ...lfg.admins] : [])
+    .map(member)
+    .filter((u): u is NonNullable<typeof u> => !!u);
 
   const act = (action: "join" | "leave" | "start" | "cancel") =>
     void lfgAction(message, action).catch((err) => setError(apiError(err)));
@@ -37,6 +42,9 @@ export default function LfgCard({ message, detail }: { message: StarMessage; det
             : `${lfg.members.length} из ${lfg.slots}${full ? " — группа собрана" : ""}`}
         {lfg.status === "open" && lfg.starts_at ? ` · начало ${formatWhen(lfg.starts_at)}` : ""}
       </div>
+      {organizers.length > 0 && (
+        <div className={g.cardMeta}>Организаторы: {organizers.map((u) => displayName(u)).join(", ")}</div>
+      )}
       <div className={g.slots}>
         {Array.from({ length: lfg.slots }, (_, i) => {
           const user = lfg.members[i] ? member(lfg.members[i]) : undefined;
@@ -70,7 +78,7 @@ export default function LfgCard({ message, detail }: { message: StarMessage; det
             </button>
           </>
         )}
-        {lfg.status === "started" && planet && joined && (
+        {lfg.status === "started" && planet && (joined || organizer) && (
           <button
             type="button"
             className={g.cardAction}
@@ -81,7 +89,7 @@ export default function LfgCard({ message, detail }: { message: StarMessage; det
               void doors.enterRoom(detail, planet);
             }}
           >
-            {roomWords("gaming", planet.name).enter}
+            {roomWords(detail.kind, planet.name).enter}
           </button>
         )}
         {lfg.status === "started" && !planet && <span>Планета уже закрылась</span>}

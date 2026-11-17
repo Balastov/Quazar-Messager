@@ -3,6 +3,7 @@ import { roomWords } from "./words";
 import { createPortal } from "react-dom";
 import type { StarChannel, StarDetail } from "../../api/stars";
 import { useAuthStore } from "../../store/auth";
+import { useOfficeFloorStore } from "../../store/officeFloor";
 import { useDoorsStore } from "../../store/doors";
 import { useStarsStore } from "../../store/stars";
 import { useVoiceStore } from "../../store/voice";
@@ -19,7 +20,7 @@ import {
   type Rect,
 } from "./office";
 import { ActiveTime, activeSince } from "./ActiveTime";
-import { apiError, can, doorKind, initials, passUntil, presenceName, roomDoor } from "./rules";
+import { apiError, can, doorKind, doorLabel, initials, passUntil, presenceName, roomDoor } from "./rules";
 import s from "./Constellation.module.css";
 import w from "./Work.module.css";
 import { currentBooking, doorSign, hhmm, useBookings } from "./work";
@@ -57,7 +58,11 @@ export default function OfficeMap({ detail, onBack, onOpenPlanet, onAddRoom }: P
   const { bookings, now } = useBookings(detail);
 
   const floors = detail.floors;
-  const [floorId, setFloorId] = useState<string | null>(floors[0]?.id ?? null);
+  const floorId = useOfficeFloorStore((st) => st.byStar[detail.id]) ?? floors[0]?.id ?? null;
+  const setOfficeFloor = useOfficeFloorStore((st) => st.setFloor);
+  const setFloorId = (id: string | null) => {
+    if (id) setOfficeFloor(detail.id, id);
+  };
   const floor = floors.find((f) => f.id === floorId) ?? floors[0];
   const [zoomIndex, setZoomIndex] = useState(() =>
     window.matchMedia("(max-width: 767px)").matches ? 1 : 2
@@ -387,7 +392,7 @@ export default function OfficeMap({ detail, onBack, onOpenPlanet, onAddRoom }: P
                         : knocking
                           ? `${c.name} — вы постучались, ждём ответа`
                           : locked
-                            ? `${c.name} — ${doorKind(c) === "personal" ? "личный кабинет" : "по приглашениям"}, нажмите, чтобы постучаться`
+                            ? `${c.name} — ${doorLabel(doorKind(c))}, нажмите, чтобы постучаться`
                             : `${roomWords("work", c.name).enter} «${c.name}»`) + (editing ? "" : extra)
                 }
                 onPointerDown={(e) => onPointerDown(e, c, "move")}
@@ -404,7 +409,7 @@ export default function OfficeMap({ detail, onBack, onOpenPlanet, onAddRoom }: P
                   {isClosed(c) && (
                     <span
                       className={s.lock}
-                      aria-label={doorKind(c) === "personal" ? "личный кабинет" : "по приглашениям"}
+                      aria-label={doorLabel(doorKind(c))}
                     >
                       {knocking ? "✊" : doorKind(c) === "personal" ? "🔑" : "🔒"}
                     </span>

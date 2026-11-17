@@ -99,11 +99,18 @@ export function assignableRoles(me: MyStarRole, target: StarRole): Exclude<StarR
   return roles.filter((r) => r !== target);
 }
 
-export type DoorKind = "open" | "invite" | "personal";
+export type DoorKind = "open" | "invite" | "personal" | "gathering";
 
 export function doorKind(channel: StarChannel): DoorKind {
   if (channel.kind !== "planet" || channel.room_kind === "lobby") return "open";
-  return channel.access === "invite" || channel.access === "personal" ? channel.access : "open";
+  return channel.access === "invite" || channel.access === "personal" || channel.access === "gathering"
+    ? channel.access
+    : "open";
+}
+
+/** Подпись закрытой двери: «личный кабинет», «по приглашениям», «для участников сбора». */
+export function doorLabel(kind: DoorKind): string {
+  return kind === "personal" ? "личный кабинет" : kind === "gathering" ? "для участников сбора" : "по приглашениям";
 }
 
 export interface RoomDoor {
@@ -135,6 +142,13 @@ function baseDoor(detail: StarDetail, channel: StarChannel, myId: string | undef
       entersFreely: isOwner,
       canAnswer: isOwner || detail.my_role === "owner" || detail.my_role === "admin",
     };
+  }
+  if (kind === "gathering") {
+    // Пустая комната сбора не открывается всем: без стука — записавшиеся и организаторы.
+    const admit = can(detail, "admit");
+    const organizer = !!myId && (channel.gathering_admins ?? []).includes(myId);
+    const signedUp = !!myId && (channel.gathering_members ?? []).includes(myId);
+    return { kind, hostId, entersFreely: admit || organizer || signedUp, canAnswer: admit || organizer };
   }
   if (kind === "invite") {
     const admit = can(detail, "admit");

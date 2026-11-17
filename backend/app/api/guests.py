@@ -23,7 +23,7 @@ from sqlalchemy import delete, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.doors import INVITE, PERSONAL, can_admit, door
+from app.api.doors import GATHERING, INVITE, PERSONAL, can_admit, door, gathering_admin
 from app.api.stars import _channel, _is_superuser, _load_membership, assert_room_access, passes_changed
 from app.core import floors as floors_svc
 from app.core import livekit, voice
@@ -53,12 +53,15 @@ def _now() -> datetime:
 
 def can_invite_guests(star: Star, member: StarMember, channel: StarChannel) -> bool:
     """Кто может звать гостей: в открытую комнату — кто может приглашать в Звезду,
-    в «по приглашениям» — главный и те, кто впускает, в кабинет — хозяин, админы, владелец."""
+    в «по приглашениям» — главный и те, кто впускает, в кабинет — хозяин, админы, владелец,
+    в комнату сбора — организаторы сбора и те, кто впускает."""
     kind = door(channel)
     if kind == PERSONAL:
         return member.user_id == channel.cabinet_owner_id or member.role in ("owner", "admin")
     if kind == INVITE:
         return voice.host(channel.id) == member.user_id or can_admit(star, member)
+    if kind == GATHERING:
+        return gathering_admin(member.user_id, channel) or can_admit(star, member)
     return rules.has_perm(member.role, Perm.INVITE, star.role_permissions)
 
 

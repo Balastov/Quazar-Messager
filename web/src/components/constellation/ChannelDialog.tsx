@@ -114,7 +114,8 @@ export default function ChannelDialog({
       ? {
           capacity,
           ...(isWork && !isLobby ? { room_kind: roomKind } : {}),
-          ...(isLobby ? {} : { access }),
+          // Дверь сбора выставляет сам сбор: её не отправляем, пока её не сменили на другую.
+          ...(isLobby || access === "gathering" ? {} : { access }),
           ...(!isLobby && access === "personal" ? { cabinet_owner_id: cabinetOwnerId } : {}),
           listen_only: listenOnly,
           ...(floorChanged && floorEditable ? { floor_id: floorId } : {}),
@@ -156,12 +157,15 @@ export default function ChannelDialog({
               onChange={(e) => setAccess(e.target.value as RoomAccess)}
               disabled={busy}
             >
+              {channel?.access === "gathering" && <option value="gathering">Участники сбора — остальные стучатся</option>}
               <option value="open">Свободный вход</option>
               <option value="invite">По приглашениям — стучаться</option>
               {isWork && <option value="personal">Личный кабинет</option>}
             </select>
             <span className={s.checkHint}>
-              {access === "invite"
+              {access === "gathering"
+                ? "Без стука входят записавшиеся на сбор и организаторы, они же впускают и зовут остальных."
+                : access === "invite"
                 ? `${isWork ? "В пустую Комнату" : "На пустую Планету"} заходит кто угодно и становится главным. Пока внутри кто-то есть, остальные стучатся — впускает и зовёт главный.`
                 : access === "personal"
                   ? "Без стука входит только хозяин кабинета. Звать и впускать могут хозяин, админы и владелец Звезды."

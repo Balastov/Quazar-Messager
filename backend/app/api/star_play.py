@@ -23,7 +23,9 @@ from app.api.stars import (
     assert_can_post,
     assert_clean_text,
     assert_slow_mode,
+    floors_event,
 )
+from app.core import floors as floors_svc
 from app.core import star_assets, voice
 from app.core import stars as rules
 from app.core import shares
@@ -35,8 +37,10 @@ from app.models.star import (
     Star,
     StarAsset,
     StarChannel,
+    StarFloor,
     StarLfg,
     StarLfgMember,
+    StarMember,
     StarMessage,
     StarPoll,
     StarPollVote,
@@ -231,8 +235,11 @@ class TempPlanetBody(BaseModel):
 
 
 async def create_temporary_planet(
-    db: AsyncSession, star_id: str, creator_id: str | None, name: str, capacity: int = rules.DEFAULT_PLANET_CAPACITY
+    db: AsyncSession, star_id: str, creator_id: str | None, name: str, capacity: int = rules.DEFAULT_PLANET_CAPACITY,
+    *, floor_id: str | None = None, gathering: tuple[list[str], list[str]] | None = None,
 ) -> StarChannel:
+    """gathering — (записавшиеся, организаторы): комната сбора с дверью «gathering».
+    floor_id — этаж рабочей Звезды, на который поставить комнату (иначе — первый, при открытии карты)."""
     await db.execute(select(Star.id).where(Star.id == star_id).with_for_update())
     count, top = (
         await db.execute(
@@ -257,9 +264,17 @@ async def create_temporary_planet(
         temporary=True,
         created_by=creator_id,
     )
+    if gathering:
+        channel.access = "gathering"
+        channel.gathering_members, channel.gathering_admins = gathering
     db.add(channel)
+    floor = await floors_svc.lock_floor(db, star_id, floor_id) if floor_id else None
+    if floor:
+        await floors_svc.place_room(db, channel, floor)
     await db.commit()
     await _broadcast(db, star_id, _channel_event(channel))
+    if floor:
+        await _broadcast(db, star_id, floors_event(await floors_svc.list_floors(db, star_id)))
     return channel
 
 
@@ -298,10 +313,17 @@ async def sweep_temporary_planets(db: AsyncSession, now: datetime | None = None)
 # --- Сбор группы ---------------------------------------------------------------
 
 
+MAX_LFG_ADMINS = 10
+
+
 class LfgBody(BaseModel):
     title: str = Field(min_length=1, max_length=100)
     slots: int = Field(ge=2, le=rules.PLANET_MAX_CAPACITY)
     starts_at: datetime | None = None
+    # «Кто администрирует сбор?» — «Другой пользователь»: назначенные организаторы (автор остаётся).
+    admin_ids: list[str] = Field(default_factory=list, max_length=MAX_LFG_ADMINS)
+    # Рабочая Звезда: этаж, где появится комната сбора и из чьих участников выбирают организаторов.
+    floor_id: str | None = None
 
     @field_validator("title")
     @classmethod
@@ -334,6 +356,8 @@ async def lfgs_out(db: AsyncSession, ids: list[str]) -> dict[str, LfgOut]:
             members=by_lfg[g.id],
             planet_id=g.planet_id,
             created_by=g.created_by,
+            admins=list(g.admin_ids or []),
+            floor_id=g.floor_id,
         )
         for g in groups
     }
@@ -360,6 +384,36 @@ async def _lfg(db: AsyncSession, star_id: str, lfg_id: str) -> StarLfg:
     return lfg
 
 
+def lfg_admins(lfg: StarLfg) -> list[str]:
+    """Организаторы сбора: автор и назначенные им."""
+    return list(dict.fromkeys([*([lfg.created_by] if lfg.created_by else []), *(lfg.admin_ids or [])]))
+
+
+def manages_lfg(lfg: StarLfg, me: StarMember) -> bool:
+    return me.user_id in lfg_admins(lfg) or rules.is_staff(me.role)
+
+
+async def floor_people(db: AsyncSession, star: Star, floor_id: str | None) -> set[str]:
+    """Участники Звезды (не посетители), которым виден этаж; без этажей — все участники."""
+    members = list((await db.execute(select(StarMember).where(StarMember.star_id == star.id))).scalars())
+    if star.kind != "work" or not floor_id:
+        return {m.user_id for m in members}
+    seen = await floors_svc.views(db, star, members)
+    return {m.user_id for m in members if seen[m.user_id].sees_floor(floor_id)}
+
+
+@router.get("/{star_id}/floors/{floor_id}/people", response_model=list[str])
+async def floor_people_list(star_id: str, floor_id: str, current_user: CurrentUser, db: Db):
+    """Кто бывает на этаже — для выбора организаторов сбора."""
+    star, me = await _load_membership(db, star_id, current_user.id)
+    floor = await db.get(StarFloor, floor_id)
+    if star.kind != "work" or not floor or floor.star_id != star_id:
+        raise HTTPException(status_code=404, detail="Этаж не найден")
+    if not (await floors_svc.view_of(db, star, me)).sees_floor(floor_id):
+        raise _forbid("У вас нет доступа к этому этажу")
+    return sorted(await floor_people(db, star, floor_id))
+
+
 @router.post("/{star_id}/channels/{channel_id}/lfg", status_code=status.HTTP_201_CREATED)
 async def create_lfg(star_id: str, channel_id: str, body: LfgBody, current_user: CurrentUser, db: Db) -> dict:
     star, me = await _load_membership(db, star_id, current_user.id)
@@ -373,9 +427,27 @@ async def create_lfg(star_id: str, channel_id: str, body: LfgBody, current_user:
             raise HTTPException(status_code=422, detail="Время нужно с часовым поясом")
         if not _now() < body.starts_at < _now() + timedelta(days=30):
             raise HTTPException(status_code=422, detail="Начало — в ближайшие 30 дней")
+    floor_id = None
+    if star.kind == "work":
+        floors = await floors_svc.list_floors(db, star_id)
+        floor_id = body.floor_id or (floors[0].id if floors else None)
+        if floor_id and (not any(f.id == floor_id for f in floors)
+                         or not (await floors_svc.view_of(db, star, me)).sees_floor(floor_id)):
+            raise HTTPException(status_code=422, detail="Выберите этаж, на котором вы бываете")
+    admin_ids = [uid for uid in dict.fromkeys(body.admin_ids) if uid != current_user.id]
+    if admin_ids:
+        people = await floor_people(db, star, floor_id)
+        if any(uid not in people for uid in admin_ids):
+            raise HTTPException(
+                status_code=422,
+                detail="Организатором можно назначить только участника с этого этажа" if floor_id
+                else "Организатором можно назначить только участника Звезды",
+            )
+    elif body.admin_ids:
+        raise HTTPException(status_code=422, detail="Выберите другого пользователя — вы организатор и так")
     lfg = StarLfg(
         star_id=star_id, channel_id=channel_id, title=body.title, slots=body.slots,
-        starts_at=body.starts_at, created_by=current_user.id,
+        starts_at=body.starts_at, created_by=current_user.id, admin_ids=admin_ids or None, floor_id=floor_id,
     )
     db.add(lfg)
     await db.flush()
@@ -392,6 +464,8 @@ async def join_lfg(star_id: str, lfg_id: str, current_user: CurrentUser, db: Db)
     lfg = await _lfg(db, star_id, lfg_id)
     if lfg.status != "open":
         raise HTTPException(status_code=409, detail="Сбор уже начался или отменён")
+    if lfg.floor_id and not (await floors_svc.view_of(db, star, me)).sees_floor(lfg.floor_id):
+        raise _forbid("Сбор проходит на этаже, куда у вас нет доступа")
     members = (
         await db.execute(select(StarLfgMember.user_id).where(StarLfgMember.lfg_id == lfg_id))
     ).scalars().all()
@@ -426,13 +500,18 @@ async def start_lfg(db: AsyncSession, lfg: StarLfg) -> StarChannel | None:
         await db.commit()
         await _lfg_event(db, lfg)
         return None
-    planet = await create_temporary_planet(db, lfg.star_id, lfg.created_by, f"🎮 {lfg.title}", lfg.slots)
+    admins = lfg_admins(lfg)
+    planet = await create_temporary_planet(
+        db, lfg.star_id, lfg.created_by, f"🎮 {lfg.title}", lfg.slots,
+        floor_id=lfg.floor_id, gathering=(list(members), admins),
+    )
     lfg.status = "started"
     lfg.planet_id = planet.id
     await db.commit()
     await _lfg_event(db, lfg)
     star_name = (await db.execute(select(Star.name).where(Star.id == lfg.star_id))).scalar_one()
-    for user_id in members:
+    # Зовём записавшихся и организаторов (организатор мог и не записываться).
+    for user_id in dict.fromkeys([*members, *admins]):
         await manager.send_to_user(
             user_id,
             {"type": "star_lfg_start", "star_id": lfg.star_id, "lfg_id": lfg.id, "channel_id": planet.id,
@@ -450,8 +529,8 @@ async def start_lfg(db: AsyncSession, lfg: StarLfg) -> StarChannel | None:
 async def start_lfg_now(star_id: str, lfg_id: str, current_user: CurrentUser, db: Db):
     _, me = await _load_membership(db, star_id, current_user.id)
     lfg = await _lfg(db, star_id, lfg_id)
-    if lfg.created_by != current_user.id and not rules.is_staff(me.role):
-        raise _forbid("Начать сбор может его автор или модератор")
+    if not manages_lfg(lfg, me):
+        raise _forbid("Начать сбор может его организатор или модератор")
     if lfg.status != "open":
         raise HTTPException(status_code=409, detail="Сбор уже начался или отменён")
     await start_lfg(db, lfg)
@@ -462,8 +541,8 @@ async def start_lfg_now(star_id: str, lfg_id: str, current_user: CurrentUser, db
 async def cancel_lfg(star_id: str, lfg_id: str, current_user: CurrentUser, db: Db):
     _, me = await _load_membership(db, star_id, current_user.id)
     lfg = await _lfg(db, star_id, lfg_id)
-    if lfg.created_by != current_user.id and not rules.is_staff(me.role):
-        raise _forbid("Отменить сбор может его автор или модератор")
+    if not manages_lfg(lfg, me):
+        raise _forbid("Отменить сбор может его организатор или модератор")
     if lfg.status == "open":
         lfg.status = "cancelled"
         await db.commit()

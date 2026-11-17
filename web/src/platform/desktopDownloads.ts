@@ -6,11 +6,11 @@ export interface BrowserPlatform {
 }
 
 // Указатель на опубликованный релиз: версия сайта может быть новее десктопной сборки.
-export const DESKTOP_RELEASE = { version: "2.0.0", tag: "desktop-v2.0.0-pilot.1" };
+export const DESKTOP_RELEASE = { version: "2.1.0", tag: "desktop-v2.1.0-pilot.1" };
 const RELEASE_BASE = `https://github.com/Balastov/Quazar-Messager/releases/download/${DESKTOP_RELEASE.tag}`;
 // Опубликованная сборка для Android; null — ещё не выпускали (сайт пишет «почти готово»).
 // Ставится после публикации, как и DESKTOP_RELEASE.
-export const ANDROID_RELEASE: { version: string } | null = { version: "2.0.0" };
+export const ANDROID_RELEASE: { version: string } | null = { version: "2.1.0" };
 export function androidApkUrl(release: { version: string }): string {
   return `https://quazar-msg.ru/desktop-updates/android/Quazar-${release.version}-android.apk`;
 }

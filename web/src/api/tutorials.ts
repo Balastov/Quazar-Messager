@@ -1,6 +1,6 @@
 import { http } from "./client";
 
-export type TourId = "main" | "stars" | "settings";
+export type TourId = "main" | "stars" | "star" | "star_work" | "star_game" | "settings";
 export type TourState = { state: "done" | "dismissed"; at: string };
 export type TourProgress = Partial<Record<TourId, TourState>>;
 

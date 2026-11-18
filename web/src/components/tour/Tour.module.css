@@ -113,6 +113,14 @@
   margin-top: 14px;
 }
 
+/* «Дальше: …» — главной кнопкой, под ней — «Хватит на сегодня». */
+.congratsActions {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
 .ok:hover {
   filter: brightness(1.08);
 }

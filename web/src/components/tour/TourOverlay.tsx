@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTourStore } from "../../tour/store";
-import { REPLAY_PLACE, stepApplies, stepPosition, tourById } from "../../tour/tours";
+import { REPLAY_PLACE, stepApplies, stepPosition, tourAvailable, tourById } from "../../tour/tours";
 import { usePhoneLayout } from "../../navigation/usePhoneLayout";
 import { findTarget, placeCard, spotlight, type Box, type Insets } from "../../tour/geometry";
 import s from "./Tour.module.css";
@@ -29,6 +29,8 @@ export default function TourOverlay() {
   const next = useTourStore((st) => st.next);
   const skip = useTourStore((st) => st.skip);
   const closeFinished = useTourStore((st) => st.closeFinished);
+  const progress = useTourStore((st) => st.progress);
+  const start = useTourStore((st) => st.start);
   const tour = active ? tourById(active.id) : undefined;
   const step = tour && active ? tour.steps[active.index] : undefined;
   const phone = usePhoneLayout();
@@ -43,19 +45,20 @@ export default function TourOverlay() {
     setTarget(null);
     setCard(null);
     // Шаг для другой раскладки (например, «Контакты» есть только на телефоне) — сразу дальше.
-    if (!stepApplies(step, phone)) {
+    if (!stepApplies(step, phone) || (step.when && !step.when())) {
       next();
       return;
     }
     step.prepare?.();
     const started = performance.now();
+    const patience = step.wait ?? WAIT_TARGET_MS;
     let frame = 0;
     let scrolled = false;
     let last: Box | null = null;
     const tick = () => {
       const el = findTarget(step.target);
       if (!el) {
-        if (performance.now() - started > WAIT_TARGET_MS) {
+        if (performance.now() - started > patience) {
           next(); // Этого элемента на таком экране нет (например, только на компьютере).
           return;
         }
@@ -104,6 +107,10 @@ export default function TourOverlay() {
 
   if (finished) {
     const done = tourById(finished);
+    // Следующее по теме обучение (например, после «Внутри Звезды» — про рабочую Звезду).
+    const nextId = done?.next?.() ?? null;
+    const following = nextId ? tourById(nextId) : undefined;
+    const offerNext = !!following && tourAvailable(following) && progress?.[following.id]?.state !== "done";
     return createPortal(
       <div className={s.layer}>
         <div className={s.dim} />
@@ -113,9 +120,20 @@ export default function TourOverlay() {
           <p className={s.text}>
             Вы теперь знаете {done?.subject ?? "Quazar"}. Повторно эту информацию можно просмотреть в {REPLAY_PLACE}.
           </p>
-          <button type="button" className={s.ok} onClick={closeFinished} autoFocus>
-            Отлично
-          </button>
+          {offerNext && following ? (
+            <div className={s.congratsActions}>
+              <button type="button" className={s.ok} onClick={() => start(following.id)} autoFocus>
+                Дальше: {following.title}
+              </button>
+              <button type="button" className={s.skip} onClick={closeFinished}>
+                Хватит на сегодня
+              </button>
+            </div>
+          ) : (
+            <button type="button" className={s.ok} onClick={closeFinished} autoFocus>
+              Отлично
+            </button>
+          )}
         </div>
       </div>,
       document.body

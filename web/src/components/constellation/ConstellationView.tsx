@@ -158,7 +158,7 @@ export default function ConstellationView() {
 
   return (
     <StarProfiles detail={detail}><div className={s.root}>
-      <nav className={s.rail} aria-label="Звёзды">
+      <nav className={s.rail} aria-label="Звёзды" data-tour="star-rail">
         {stars.map((star) => {
           const count = unreadForStar(unread, star.id);
           const mentions = mentionsForStar(unread, star.id);
@@ -186,6 +186,7 @@ export default function ConstellationView() {
           type="button"
           className={s.railAction}
           onClick={() => setCreateOpen(true)}
+          data-tour="star-create"
           title="Создать Звезду"
           aria-label="Создать Звезду"
         >
@@ -195,6 +196,7 @@ export default function ConstellationView() {
           type="button"
           className={s.railAction}
           onClick={() => openJoinDialog()}
+          data-tour="star-join"
           title="Вступить по приглашению"
           aria-label="Вступить по приглашению"
           style={{ fontSize: 18 }}

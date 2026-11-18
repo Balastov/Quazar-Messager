@@ -688,6 +688,7 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
         <button
           type="button"
           className={g.composerExtra}
+          data-tour="composer-plus"
           aria-label={compactComposer ? "Действия с сообщением" : "Файл, опрос или сбор группы"}
           aria-haspopup="menu"
           aria-expanded={!!plusMenu}

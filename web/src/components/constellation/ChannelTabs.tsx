@@ -45,7 +45,7 @@ export function ChannelTabs({
     { id: "files", label: "Файлы" },
   ];
   return (
-    <div className={t.tabs} role="tablist" aria-label="Разделы Спутника">
+    <div className={t.tabs} role="tablist" aria-label="Разделы Спутника" data-tour="satellite-tabs">
       {tabs.map((x) => (
         <button
           key={x.id}

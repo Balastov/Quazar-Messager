@@ -242,7 +242,7 @@ export default function OfficeMap({ detail, onBack, onOpenPlanet, onAddRoom }: P
       </div>
 
       <div className={s.mapToolbar}>
-        <div className={s.floorTabs} role="tablist" aria-label="Этажи">
+        <div className={s.floorTabs} role="tablist" aria-label="Этажи" data-tour="office-floors">
           {floors.map((f) => (
             <button
               key={f.id}
@@ -332,7 +332,7 @@ export default function OfficeMap({ detail, onBack, onOpenPlanet, onAddRoom }: P
         </div>
       </div>
 
-      <div className={s.mapViewport}>
+      <div className={s.mapViewport} data-tour="office-map">
         <div
           className={s.mapGrid}
           style={{

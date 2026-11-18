@@ -20,7 +20,7 @@ vi.mock("../../../store/auth", () => ({
   useAuthStore: Object.assign((selector: (value: typeof auth) => unknown) => selector(auth), { getState: () => auth }),
 }));
 const ws = vi.hoisted(() => ({ handlers: new Set<(event: unknown) => void>() }));
-vi.mock("../../../ws/socket", () => ({ socket: { on: (handler: (event: unknown) => void) => { ws.handlers.add(handler); return () => ws.handlers.delete(handler); } } }));
+vi.mock("../../../ws/socket", () => ({ socket: { on: (handler: (event: unknown) => void) => { ws.handlers.add(handler); return () => ws.handlers.delete(handler); }, onStatus: () => () => {} } }));
 vi.mock("../../../api/devices", () => ({ devicesApi: { requestKeys: vi.fn(), status: vi.fn(), consumeKeys: vi.fn(), cancel: vi.fn(), claim: vi.fn(), approve: vi.fn(), reject: vi.fn() } }));
 const { devicesApi } = await import("../../../api/devices");
 const { pairBinding, pairKeys } = await import("../../../crypto/deviceTransfer");

@@ -1,5 +1,18 @@
 import type { TourId } from "../api/tutorials";
 import { useUiStore } from "../store/ui";
+import { useStarsStore } from "../store/stars";
+import { isPhoneLayout } from "../navigation/usePhoneLayout";
+import {
+  activeStar,
+  canInvite,
+  closeChannel,
+  hasSatellite,
+  hasStar,
+  openFirstSatellite,
+  openOfficeMap,
+  openStar,
+  openStarsTab,
+} from "./starNav";
 
 export interface TourStep {
   /** data-tour элемента, который подсвечиваем. Нет на этом экране — шаг пропускается. */
@@ -10,8 +23,12 @@ export interface TourStep {
   phoneText?: string;
   /** Шаг только для телефонной или только для компьютерной раскладки — на другой его нет. */
   only?: "phone" | "desktop";
+  /** Есть ли что показывать (например, у Звезды нет Спутников) — если нет, шаг пропускается сразу. */
+  when?: () => boolean;
   /** Открыть нужный экран перед шагом. */
   prepare?: () => void;
+  /** Сколько ждать элемент, мс: Звезда может ещё загружаться. */
+  wait?: number;
 }
 
 export interface Tour {
@@ -21,6 +38,16 @@ export interface Tour {
   /** В списке «Настройки → Обучение». */
   title: string;
   description: string;
+  /** Заголовок карточки-предложения. */
+  inviteTitle: string;
+  /** Почему пройти нельзя (нет нужной Звезды), или null — можно. */
+  unavailable?: () => string | null;
+  /** Предлагать сейчас: человек как раз на нужном экране. */
+  offerHere?: () => boolean;
+  /** Предлагаем только после того, как с этим обучением разобрались (прошли или отложили). */
+  after?: TourId;
+  /** Что предложить в поздравлении следующим. */
+  next?: () => TourId | null;
   steps: TourStep[];
 }
 
@@ -31,6 +58,7 @@ export const MAIN_TOUR: Tour = {
   subject: "главный экран Quazar",
   title: "Главный экран",
   description: "Где чаты, звонки, Созвездия и настройки, как начать переписку, закрепить важное и пригласить друзей.",
+  inviteTitle: "Показать, где что находится?",
   steps: [
     {
       target: "nav",
@@ -101,8 +129,224 @@ export const MAIN_TOUR: Tour = {
   ],
 };
 
-/** Все обучения — по порядку в «Настройки → Обучение». Созвездия и настройки появятся следом. */
-export const TOURS: Tour[] = [MAIN_TOUR];
+// В Созвездии, и на телефоне не открыт канал поверх списка (иначе карточка закрыла бы поле ввода).
+const inStars = () =>
+  useUiStore.getState().tab === "stars" && !(isPhoneLayout() && useStarsStore.getState().mobileChannelOpen);
+const memberOfActive = () => {
+  const detail = activeStar();
+  return !!detail && detail.my_role !== "visitor";
+};
+const WAIT_STAR_MS = 4000;
+
+export const STARS_TOUR: Tour = {
+  id: "stars",
+  subject: "Созвездие",
+  title: "Созвездие: основы",
+  description: "Что такое Звёзды, какими они бывают и как создать свою или вступить в чужую.",
+  inviteTitle: "Показать, как устроено Созвездие?",
+  offerHere: inStars,
+  after: "main",
+  next: () => (hasStar() ? "star" : null),
+  steps: [
+    {
+      target: "nav-stars",
+      title: "Созвездие",
+      text: "Здесь живут Звёзды — общие пространства для сообществ и команд: с текстовыми каналами и голосовыми комнатами. Пройдёмся — это займёт минуту.",
+      prepare: openStarsTab,
+    },
+    {
+      target: "star-rail",
+      title: "Ваши Звёзды",
+      text: "Звёзды, в которых вы состоите. Нажмите на Звезду, чтобы открыть её; число на значке — непрочитанные сообщения.",
+      prepare: openStarsTab,
+    },
+    {
+      target: "star-create",
+      title: "Создать Звезду",
+      text: "Звёзды бывают двух видов. 🎮 Игровая — как в Discord: до 3 текстовых Спутников и до 5 голосовых Планет. 💼 Рабочая — сколько угодно каналов и офис на карте: коворкинг, переговорные, кухня.",
+    },
+    {
+      target: "star-join",
+      title: "Вступить по приглашению",
+      text: "Вас пригласили в Звезду? Вставьте сюда ссылку или код приглашения — а можно просто открыть ссылку.",
+    },
+  ],
+};
+
+export const STAR_TOUR: Tour = {
+  id: "star",
+  subject: "устройство Звезды",
+  title: "Внутри Звезды",
+  description: "Спутники и их разделы, Планеты и Комнаты, участники, уведомления и приглашения.",
+  inviteTitle: "Показать, что внутри Звезды?",
+  unavailable: () => (hasStar() ? null : "Сначала создайте Звезду или вступите в неё."),
+  offerHere: () => inStars() && memberOfActive(),
+  after: "stars",
+  next: () => {
+    const kind = activeStar()?.kind;
+    return kind === "work" ? "star_work" : kind === "gaming" ? "star_game" : null;
+  },
+  steps: [
+    {
+      target: "star-header",
+      title: "Звезда",
+      text: "Название, вид Звезды — игровая или рабочая, — сколько в ней участников и ваша роль.",
+      prepare: () => openStar(),
+      wait: WAIT_STAR_MS,
+    },
+    {
+      target: "star-section-satellite",
+      title: "Спутники",
+      text: "Текстовые каналы Звезды — у каждого своя тема. Нажмите на Спутник, чтобы открыть переписку.",
+      prepare: closeChannel,
+    },
+    {
+      target: "satellite-tabs",
+      title: "Внутри Спутника",
+      text: "Сообщения; Заметки — общий текст Спутника для договорённостей, ссылок и правил; Закреплённые сообщения и Файлы этого Спутника.",
+      when: hasSatellite,
+      prepare: openFirstSatellite,
+      wait: WAIT_STAR_MS,
+    },
+    {
+      target: "composer-plus",
+      title: "Не только текст",
+      text: "Кнопка «+» — прикрепить файл, создать опрос или собрать группу: на игру, встречу или любое общее дело.",
+      when: hasSatellite,
+    },
+    {
+      target: "star-files",
+      title: "Файлы Звезды",
+      text: "Все файлы из всех Спутников — в одном месте, с поиском по названию.",
+      prepare: closeChannel,
+    },
+    {
+      target: "star-section-planet",
+      title: "Голосовые",
+      text: "В игровых Звёздах это Планеты, в рабочих — Комнаты. Нажмите, чтобы войти: голос, показ экрана, общая доска и видео. Под названием видно, кто уже внутри.",
+    },
+    {
+      target: "star-members",
+      title: "Участники",
+      text: "Кто в Звезде и кто сейчас на связи. Здесь же можно взять псевдоним — имя только для этой Звезды.",
+    },
+    {
+      target: "star-notify",
+      title: "Уведомления Звезды",
+      text: "Обо всём, только об упоминаниях или ничего — для всей Звезды. Для отдельного Спутника можно выбрать своё.",
+    },
+    {
+      target: "star-settings",
+      title: "Настройки Звезды",
+      text: "Участники и приглашения, а у владельца и админов — правила, роли, права и всё остальное.",
+    },
+    {
+      target: "star-invite",
+      title: "Пригласить людей",
+      text: "Ссылка-приглашение в Звезду — можно со сроком действия и ограничением по числу людей.",
+      when: canInvite,
+    },
+  ],
+};
+
+const activeWork = () => activeStar()?.kind === "work";
+const activeGaming = () => activeStar()?.kind === "gaming";
+
+export const WORK_TOUR: Tour = {
+  id: "star_work",
+  subject: "рабочие Звёзды",
+  title: "Рабочая Звезда",
+  description: "Карта офиса и этажи, двери комнат и стук, гостевые ссылки.",
+  inviteTitle: "Показать, как устроен офис?",
+  unavailable: () => (hasStar("work") ? null : "Откройте рабочую Звезду — создайте свою или вступите по приглашению."),
+  offerHere: () => inStars() && memberOfActive() && activeWork(),
+  after: "star",
+  steps: [
+    {
+      target: "star-map",
+      title: "Карта офиса",
+      text: "Офис как настоящий: этажи и комнаты — коворкинг, переговорные, кухня. Видно, кто где сидит.",
+      prepare: () => openStar("work"),
+      wait: WAIT_STAR_MS,
+    },
+    {
+      target: "office-map",
+      title: "Комнаты",
+      text: "Нажмите на комнату, чтобы войти: внутри голос, показ экрана и доска. На карточке — сколько людей внутри и кто они.",
+      prepare: openOfficeMap,
+      wait: WAIT_STAR_MS,
+    },
+    {
+      target: "office-map",
+      title: "Двери",
+      text: "🔒 — вход по приглашению: нажмите на комнату, чтобы постучаться, и вас впустят. 🔑 — чей-то личный кабинет. В остальные комнаты входите сразу.",
+    },
+    {
+      target: "office-floors",
+      title: "Этажи",
+      text: "Переключайтесь между этажами. 🔒 у этажа — доступ только выбранным участникам.",
+      when: () => (activeStar()?.floors.length ?? 0) > 1,
+    },
+    {
+      target: "star-section-planet",
+      title: "Комнаты списком",
+      text: "Те же комнаты — списком по этажам. Человеку без аккаунта можно дать гостевую ссылку в комнату: кнопкой «Пригласить» внутри неё.",
+      prepare: () => {
+        const detail = activeStar();
+        if (detail) useStarsStore.getState().setView(detail.id, "channel");
+        closeChannel();
+      },
+    },
+  ],
+};
+
+export const GAME_TOUR: Tour = {
+  id: "star_game",
+  subject: "игровые Звёзды",
+  title: "Игровая Звезда",
+  description: "Лимиты Спутников и Планет, временные Планеты, сбор группы на игру, правила и роли.",
+  inviteTitle: "Показать, что есть в игровой Звезде?",
+  unavailable: () => (hasStar("gaming") ? null : "Откройте игровую Звезду — создайте свою или вступите по приглашению."),
+  offerHere: () => inStars() && memberOfActive() && activeGaming(),
+  after: "star",
+  steps: [
+    {
+      target: "star-section-satellite",
+      title: "Как в Discord",
+      text: "В игровой Звезде до 3 Спутников и до 5 Планет — счётчик рядом с заголовком.",
+      prepare: () => openStar("gaming"),
+      wait: WAIT_STAR_MS,
+    },
+    {
+      target: "star-temp",
+      title: "Временная Планета",
+      text: "Своя голосовая Планета на время: в лимит не входит и исчезает, когда все уйдут. Удобно, чтобы собраться отдельной компанией.",
+    },
+    {
+      target: "composer-plus",
+      title: "Сбор группы",
+      text: "«+» → «Сбор группы»: укажите игру и сколько нужно людей. Записавшиеся попадут во временную Планету, а остальных впустит организатор.",
+      when: hasSatellite,
+      prepare: openFirstSatellite,
+      wait: WAIT_STAR_MS,
+    },
+    {
+      target: "star-settings",
+      title: "Правила и роли",
+      text: "Владелец и админы задают в настройках правила Звезды и приветствие новичков, роли с цветными подписями и звуки для звуковой панели на Планетах.",
+      prepare: closeChannel,
+    },
+  ],
+};
+
+/** Все обучения — по порядку в «Настройки → Обучение» (и в этом же порядке их предлагаем).
+ * Обучение по настройкам появится следом. */
+export const TOURS: Tour[] = [MAIN_TOUR, STARS_TOUR, STAR_TOUR, WORK_TOUR, GAME_TOUR];
+
+/** Можно ли пройти обучение сейчас (есть ли нужная Звезда). */
+export function tourAvailable(tour: Tour): boolean {
+  return !tour.unavailable?.();
+}
 
 export function tourById(id: TourId): Tour | undefined {
   return TOURS.find((tour) => tour.id === id);

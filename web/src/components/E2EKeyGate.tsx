@@ -74,7 +74,7 @@ export default function E2EKeyGate() {
   // В настройках о ключах и копии говорит сама страница — плашка сверху её бы закрывала.
   const inSettings = useUiStore((st) => st.tab === "settings");
   // Во время обучения плашки сверху не нужны: они закрывают то, что обучение подсвечивает.
-  const touring = useTourStore((st) => !!st.active);
+  const touring = useTourStore((st) => !!st.active || !!st.finished);
 
   const run = async (fn: () => Promise<void>) => {
     setError(null);
@@ -107,6 +107,10 @@ export default function E2EKeyGate() {
       setError(errorMessage(err));
     }
   };
+
+  // Окно восстановления открывается само, когда выяснилось, что ключей нет, — если обучение уже
+  // идёт, оно подождёт: окно под рамкой обучения спутало бы экран. Покажется сразу после.
+  if (touring) return null;
 
   if (status === "needs_restore" && restorePromptOpen && helpOpen) {
     return (
@@ -347,8 +351,6 @@ export default function E2EKeyGate() {
       </div>
     );
   }
-
-  if (touring) return null;
 
   if (status === "needs_restore" && !inSettings && !bannerHidden) {
     return (

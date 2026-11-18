@@ -13,7 +13,7 @@ import s from "./NotifyPrompt.module.css";
 export default function NotifyPrompt() {
   const [visible, setVisible] = useState(false);
   // Обучение идёт — плашка внизу закрывала бы подсвеченное.
-  const touring = useTourStore((st) => !!st.active);
+  const touring = useTourStore((st) => !!st.active || !!st.finished);
 
   const refresh = () => {
     const prefs = getNotifyPrefs();

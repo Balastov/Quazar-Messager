@@ -16,8 +16,8 @@ router = APIRouter(prefix="/users/me/tutorials", tags=["tutorials"])
 CurrentUser = Annotated[User, Depends(get_current_user)]
 Db = Annotated[AsyncSession, Depends(get_db)]
 
-# Главный экран, Созвездия, настройки (с ключами шифрования).
-TOURS = ("main", "stars", "settings")
+# Главный экран; Созвездие: основы, внутри Звезды, рабочая и игровая Звёзды; настройки (с ключами).
+TOURS = ("main", "stars", "star", "star_work", "star_game", "settings")
 
 
 class TutorialMark(BaseModel):

@@ -238,7 +238,7 @@ export default function ChannelSidebar({
     const full = limit !== null && list.length >= limit;
     return (
       <>
-        <div className={s.section}>
+        <div className={s.section} data-tour={`star-section-${kind}`}>
           <span>
             {title}
             {limit !== null ? ` · ${list.length}/${limit}` : ""}
@@ -272,6 +272,7 @@ export default function ChannelSidebar({
           <button
             type="button"
             className={s.channel}
+            data-tour="star-temp"
             title="Своя Планета на время: исчезнет, когда все уйдут. В лимит Планет не входит."
             onClick={() =>
               void starsApi
@@ -296,7 +297,7 @@ export default function ChannelSidebar({
   return (
     <div className={s.sidebar}>
       <div className={s.sidebarHeader}>
-        <div className={s.starTitle}>
+        <div className={s.starTitle} data-tour="star-header">
           <span className={s.starName}>{detail.name}</span>
           <span className={s.starMeta}>
             {visitor
@@ -311,6 +312,7 @@ export default function ChannelSidebar({
           onClick={onToggleMembers}
           aria-label={`Участники: ${detail.member_count}, на связи ${onlineCount}`}
           aria-pressed={membersOpen}
+          data-tour="star-members"
           title="Участники и их статусы"
         >
           <IconContacts size={18} />
@@ -321,6 +323,7 @@ export default function ChannelSidebar({
           className={s.iconBtn}
           onClick={() => setNotifyOpen(true)}
           aria-label="Уведомления Звезды"
+          data-tour="star-notify"
           title="Уведомления Звезды"
         >
           {starQuiet ? "🔕" : "🔔"}
@@ -330,6 +333,7 @@ export default function ChannelSidebar({
           className={s.iconBtn}
           onClick={() => onOpenSettings()}
           aria-label="Настройки Звезды"
+          data-tour="star-settings"
           title="Настройки Звезды"
         >
           <IconGear />
@@ -349,6 +353,7 @@ export default function ChannelSidebar({
               type="button"
               className={filesActive ? s.channelActive : s.channel}
               style={{ marginTop: 10 }}
+              data-tour="star-files"
               onClick={onOpenFiles}
             >
               <span aria-hidden>📁</span>
@@ -360,6 +365,7 @@ export default function ChannelSidebar({
           <button
             type="button"
             className={mapActive ? s.channelActive : s.channel}
+            data-tour="star-map"
             onClick={onOpenMap}
           >
             <span aria-hidden>🗺</span>
@@ -377,6 +383,7 @@ export default function ChannelSidebar({
           <button
             type="button"
             className={`${s.secondary} ${s.wide}`}
+            data-tour="star-invite"
             onClick={() => onOpenSettings("invites")}
           >
             Пригласить людей

@@ -5,7 +5,7 @@ const { tutorialsApi } = await import("../../api/tutorials");
 const { useTourStore } = await import("../store");
 const { MAIN_TOUR, stepPosition } = await import("../tours");
 const { findTarget, placeCard, spotlight } = await import("../geometry");
-const { isNewAccount } = await import("../../components/tour/TourHost");
+const { isNewAccount, tourToOffer } = await import("../../components/tour/TourHost");
 
 const viewport = { width: 400, height: 800 };
 
@@ -31,6 +31,27 @@ describe("tour geometry", () => {
     bottom.getBoundingClientRect = () => ({ width: 300, height: 60 }) as DOMRect;
     expect(findTarget("nav")).toBe(bottom);
     expect(findTarget("missing")).toBeNull();
+  });
+});
+
+describe("which tour to offer", () => {
+  const tour = (id: string, extra: object = {}) => ({ id, subject: "", title: id, description: "", inviteTitle: "", steps: [], ...extra }) as never;
+  it("offers one untouched tour at a time, in order, on its own screen, once the previous one is dealt with", () => {
+    let onStars = false;
+    let hasWork = false;
+    const tours = [
+      tour("main"),
+      tour("stars", { after: "main", offerHere: () => onStars }),
+      tour("star_work", { after: "stars", offerHere: () => onStars, unavailable: () => (hasWork ? null : "нет") }),
+    ];
+    const ids = (p: object) => (tourToOffer(p as never, tours) as { id: string } | null)?.id ?? null;
+    expect(ids({})).toBe("main");
+    expect(ids({ main: { state: "dismissed" } })).toBeNull(); // не в Созвездии
+    onStars = true;
+    expect(ids({ main: { state: "dismissed" } })).toBe("stars");
+    expect(ids({ main: { state: "done" }, stars: { state: "done" } })).toBeNull(); // нет рабочей Звезды
+    hasWork = true;
+    expect(ids({ main: { state: "done" }, stars: { state: "dismissed" } })).toBe("star_work");
   });
 });
 

@@ -6,7 +6,8 @@ import { useUiStore, type SettingsSection } from "../store/ui";
 import SwipeBack from "../navigation/SwipeBack";
 import { orderedSections, sectionInfo } from "./settings/sections";
 import { useTourStore } from "../tour/store";
-import { TOURS } from "../tour/tours";
+import { TOURS, tourAvailable } from "../tour/tours";
+import { useStarsStore } from "../store/stars";
 import KeyWarning from "./settings/KeyWarning";
 import ProfileSection from "./settings/ProfileSection";
 import PremiumSection from "./settings/PremiumSection";
@@ -58,7 +59,9 @@ export default function SettingsView() {
   const rootRef = useRef<HTMLDivElement>(null);
   const progress = useTourStore((st) => st.progress);
   // Не всё пройдено — «Обучение» наверху в зелёной рамке. Пока не знаем — внизу, без рамки.
-  const learningPending = !!progress && TOURS.some((tour) => progress[tour.id]?.state !== "done");
+  // Обучения по Звёздам считаем, только если такая Звезда есть (без неё их не пройти).
+  useStarsStore((st) => st.stars);
+  const learningPending = !!progress && TOURS.some((tour) => tourAvailable(tour) && progress[tour.id]?.state !== "done");
   useEffect(() => {
     if (!useTourStore.getState().progress) void useTourStore.getState().load();
   }, []);

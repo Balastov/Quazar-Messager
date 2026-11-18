@@ -80,7 +80,7 @@ function summaryOf(detail: StarDetail): StarSummary {
   return { id, name, kind, owner_id, avatar_url, background_url, created_at, member_count, my_role };
 }
 
-function firstSatellite(detail: StarDetail | undefined): string | null {
+export function firstSatellite(detail: StarDetail | undefined): string | null {
   return sortChannels(detail?.channels ?? []).find((c) => c.kind === "satellite")?.id ?? null;
 }
 

@@ -14,13 +14,13 @@ from app.models.message import Message
 from app.models.star import Star, StarMember, StarChannel, StarMessage
 from app.schemas.user import MeOut
 from app.ws.router import router as ws_router
-from tests.device_pairing_browser import Spa
+from tests.device_pairing_browser import Spa, tours_done
 
 @asynccontextmanager
 async def lifespan(app):
     async with backend.router.lifespan_context(backend):
         async with AsyncSessionLocal() as db:
-            user = User(username="draft_tester", phone="+79990000201", password_hash=None, first_name="Тестовый", last_name="Пользователь", phone_discoverable=True, phone_verified_at=datetime.now(timezone.utc))
+            user = User(username="draft_tester", phone="+79990000201", password_hash=None, first_name="Тестовый", last_name="Пользователь", phone_discoverable=True, phone_verified_at=datetime.now(timezone.utc), tutorials=tours_done())
             other = User(username="draft_friend", phone="+79990000202", password_hash=None, first_name="Собеседник")
             db.add_all([user, other]); await db.flush()
             chats = [Chat(type="group", name=name) for name in ["Первый черновик", "Второй черновик"]]

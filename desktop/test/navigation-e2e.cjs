@@ -17,7 +17,7 @@ async function swipe(x1,y1,x2,y2){
  // A phone delivers touch moves every few ms; seconds per swipe means the harness, not the app, is under test.
  if(took>2000)throw Error(`Touch input too slow for a realistic swipe: ${took}ms`);
 }
-async function chat(){await click('Чат');await until(()=>run(`(()=>{const el=[...document.querySelectorAll('button,[role="button"]')].find(n=>n.textContent.includes('Первый черновик')&&n.getClientRects().length);if(!el)return false;el.click();return true})()`),'chat row');await until(async()=>await overlays()===1,'chat overlay')}
+async function chat(){await click('Чаты');await until(()=>run(`(()=>{const el=[...document.querySelectorAll('button,[role="button"]')].find(n=>n.textContent.includes('Первый черновик')&&n.getClientRects().length);if(!el)return false;el.click();return true})()`),'chat row');await until(async()=>await overlays()===1,'chat overlay')}
 const deadline=setTimeout(()=>{console.error('Navigation test timed out');app.exit(1)},100000);
 app.whenReady().then(async()=>{
  const ses=session.fromPartition('persist:navigation');

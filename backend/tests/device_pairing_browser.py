@@ -17,13 +17,19 @@ from app.schemas.user import MeOut
 from app.ws.router import router as ws_router
 
 
+def tours_done() -> dict:
+    """Обучение «пройдено»: иначе у свежего аккаунта оно начнётся само и закроет экран тесту."""
+    from app.api.tutorials import TOURS
+    return {tour: {"state": "done", "at": datetime.now(timezone.utc).isoformat()} for tour in TOURS}
+
+
 @asynccontextmanager
 async def lifespan(app):
     async with backend.router.lifespan_context(backend):
         async with AsyncSessionLocal() as db:
             user = User(username="device_test", phone="+79990000111", password_hash=None,
                 first_name="Тестовый", last_name="Пользователь", phone_discoverable=True,
-                phone_verified_at=datetime.now(timezone.utc))
+                phone_verified_at=datetime.now(timezone.utc), tutorials=tours_done())
             db.add(user)
             await db.commit()
             data = {"token": create_access_token(user.id), "user": MeOut.model_validate(user).model_dump(mode="json"),

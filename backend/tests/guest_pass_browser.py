@@ -15,7 +15,7 @@ from app.models.star import Star, StarChannel, StarFloor, StarGuestLink, StarMem
 from app.models.user import User
 from app.schemas.user import MeOut
 from app.ws.router import router as ws_router
-from tests.device_pairing_browser import Spa
+from tests.device_pairing_browser import Spa, tours_done
 
 
 @asynccontextmanager
@@ -25,7 +25,7 @@ async def lifespan(app):
             now = datetime.now(timezone.utc)
             people = {
                 name: User(username=name, phone=f"+7999000030{i}", password_hash=None, first_name=first,
-                           last_name=last, phone_discoverable=True, phone_verified_at=now)
+                           last_name=last, phone_discoverable=True, phone_verified_at=now, tutorials=tours_done())
                 for i, (name, first, last) in enumerate([
                     ("guest_owner", "Ольга", "Владелец"), ("guest_alice", "Алиса", "Участник"), ("guest_carol", "Карина", "Гость"),
                 ])

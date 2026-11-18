@@ -4,6 +4,7 @@ import { shortKeyId, StaleBackupError } from "../crypto/keys";
 import { useE2EStore } from "../store/e2e";
 import { useUiStore } from "../store/ui";
 import s from "./E2EKeyGate.module.css";
+import { useTourStore } from "../tour/store";
 import AccountProofInput from "./profile/AccountProofInput";
 import { clearReauth } from "../auth/reauth";
 import type { AccountProof } from "../crypto/keys";
@@ -72,6 +73,8 @@ export default function E2EKeyGate() {
   const keyRequest = useIncomingKeyRequest();
   // В настройках о ключах и копии говорит сама страница — плашка сверху её бы закрывала.
   const inSettings = useUiStore((st) => st.tab === "settings");
+  // Во время обучения плашки сверху не нужны: они закрывают то, что обучение подсвечивает.
+  const touring = useTourStore((st) => !!st.active);
 
   const run = async (fn: () => Promise<void>) => {
     setError(null);
@@ -344,6 +347,8 @@ export default function E2EKeyGate() {
       </div>
     );
   }
+
+  if (touring) return null;
 
   if (status === "needs_restore" && !inSettings && !bannerHidden) {
     return (

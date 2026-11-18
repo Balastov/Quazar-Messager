@@ -12,6 +12,7 @@ export type SettingsSection =
   | "calls"
   | "privacy"
   | "security"
+  | "learning"
   | "about";
 
 interface UiState {
@@ -20,6 +21,7 @@ interface UiState {
   mobileChatOpen: boolean;
   /** ПК: правая панель собеседника. */
   peerPanelOpen: boolean;
+  /** Старое «Избранное» этого браузера: читается из хранилища один раз и переносится в закреплённые. */
   favoriteChatIds: string[];
   /** Прозрачность liquid glass, 0..100 %. */
   glassTransparency: number;
@@ -50,13 +52,11 @@ interface UiState {
   setIdleMinutes: (minutes: number) => void;
   setStarMembersOpen: (open: boolean) => void;
   toggleFloor: (floorId: string) => void;
-  toggleFavorite: (chatId: string) => void;
-  isFavorite: (chatId: string) => boolean;
 }
 
 export const useUiStore = create<UiState>()(
   persist(
-    (set, get) => ({
+    (set) => ({
       tab: "chats",
       mobileChatOpen: false,
       peerPanelOpen: true,
@@ -88,21 +88,12 @@ export const useUiStore = create<UiState>()(
             : [...s.collapsedFloorIds, floorId],
         })),
 
-      toggleFavorite: (chatId) =>
-        set((s) => ({
-          favoriteChatIds: s.favoriteChatIds.includes(chatId)
-            ? s.favoriteChatIds.filter((id) => id !== chatId)
-            : [...s.favoriteChatIds, chatId],
-        })),
-
-      isFavorite: (chatId) => get().favoriteChatIds.includes(chatId),
     }),
     {
       name: "quazar-ui",
       partialize: (state) => ({
         tab: state.tab,
         peerPanelOpen: state.peerPanelOpen,
-        favoriteChatIds: state.favoriteChatIds,
         glassTransparency: state.glassTransparency,
         starSounds: state.starSounds,
         systemIdle: state.systemIdle,

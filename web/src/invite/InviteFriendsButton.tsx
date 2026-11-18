@@ -5,10 +5,12 @@ interface Props {
   className?: string;
   /** Короткое пояснение после копирования («Приглашение скопировано…»). */
   onNotice?: (text: string) => void;
+  /** Метка для обучения (подсветка кнопки). */
+  tour?: string;
 }
 
 /** «Пригласить друзей»: на телефоне — SMS с текстом и ссылкой, на компьютере — поделиться или скопировать. */
-export default function InviteFriendsButton({ className, onNotice }: Props) {
+export default function InviteFriendsButton({ className, onNotice, tour }: Props) {
   const content = (
     <>
       <IconStarInvite size={16} />
@@ -17,7 +19,7 @@ export default function InviteFriendsButton({ className, onNotice }: Props) {
   );
   if (canOpenSms()) {
     return (
-      <a className={className} href={smsHref()}>
+      <a className={className} href={smsHref()} data-tour={tour}>
         {content}
       </a>
     );
@@ -26,6 +28,7 @@ export default function InviteFriendsButton({ className, onNotice }: Props) {
     <button
       type="button"
       className={className}
+      data-tour={tour}
       onClick={async () => {
         const result = await shareInvite();
         if (result === "copied") onNotice?.("Приглашение скопировано — отправьте его другу");

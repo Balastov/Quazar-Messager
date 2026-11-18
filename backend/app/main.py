@@ -28,6 +28,8 @@ from app.api.phone_verification import router as phone_verification_router
 from app.api.phone_reminders import router as phone_reminders_router
 from app.api.password_recovery import router as password_recovery_router, admin_router as password_recovery_admin_router
 from app.api.users import router as users_router
+from app.api.tutorials import router as tutorials_router
+from app.api.pinned import router as pinned_router
 from app.api.chats import router as chats_router
 from app.api.messages import router as messages_router
 from app.api.later import reminders_router, scheduled_router
@@ -304,6 +306,8 @@ async def lifespan(app: FastAPI):
             "ALTER TABLE star_messages ADD COLUMN IF NOT EXISTS mentions JSON",
             "ALTER TABLE star_messages ADD COLUMN IF NOT EXISTS mention_all BOOLEAN NOT NULL DEFAULT false",
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS custom_status JSON",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS tutorials JSON",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS pins JSON",
             "ALTER TABLE star_messages ADD COLUMN IF NOT EXISTS link_preview JSON",
             "ALTER TABLE star_messages ADD COLUMN IF NOT EXISTS webhook_id VARCHAR(36) REFERENCES star_webhooks(id) ON DELETE SET NULL",
             "ALTER TABLE star_messages ADD COLUMN IF NOT EXISTS bot_name VARCHAR(48)",
@@ -412,6 +416,8 @@ app.include_router(notify_router)
 app.include_router(support_admin_router)
 app.include_router(admin_router)
 app.include_router(support_router)
+app.include_router(tutorials_router)
+app.include_router(pinned_router)
 app.include_router(users_router)
 app.include_router(chats_router)
 app.include_router(messages_router)

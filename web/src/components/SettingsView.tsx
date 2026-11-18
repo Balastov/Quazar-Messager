@@ -1,10 +1,12 @@
-import { useEffect, useRef, useState, type ComponentType } from "react";
+import { useEffect, useRef, type ComponentType } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useAuthStore } from "../store/auth";
 import { useE2EStore } from "../store/e2e";
 import { useUiStore, type SettingsSection } from "../store/ui";
 import SwipeBack from "../navigation/SwipeBack";
-import { SETTINGS_SECTIONS, sectionInfo } from "./settings/sections";
+import { orderedSections, sectionInfo } from "./settings/sections";
+import { useTourStore } from "../tour/store";
+import { TOURS } from "../tour/tours";
 import KeyWarning from "./settings/KeyWarning";
 import ProfileSection from "./settings/ProfileSection";
 import PremiumSection from "./settings/PremiumSection";
@@ -15,8 +17,10 @@ import CallsSection from "./settings/CallsSection";
 import PrivacySection from "./settings/PrivacySection";
 import SecuritySection from "./settings/SecuritySection";
 import AboutSection from "./settings/AboutSection";
+import LearningSection from "./settings/LearningSection";
 import base from "./SettingsView.module.css";
 import s from "./settings/Settings.module.css";
+import { usePhoneLayout } from "../navigation/usePhoneLayout";
 
 const CONTENT: Record<SettingsSection, ComponentType> = {
   profile: ProfileSection,
@@ -27,23 +31,10 @@ const CONTENT: Record<SettingsSection, ComponentType> = {
   calls: CallsSection,
   privacy: PrivacySection,
   security: SecuritySection,
+  learning: LearningSection,
   about: AboutSection,
 };
 
-const PHONE_QUERY = "(max-width: 767px)";
-
-function useIsPhone(): boolean {
-  const [phone, setPhone] = useState(() => !!window.matchMedia?.(PHONE_QUERY).matches);
-  useEffect(() => {
-    const query = window.matchMedia?.(PHONE_QUERY);
-    if (!query) return;
-    const sync = () => setPhone(query.matches);
-    sync();
-    query.addEventListener?.("change", sync);
-    return () => query.removeEventListener?.("change", sync);
-  }, []);
-  return phone;
-}
 
 /** Точка у раздела «Безопасность»: красная — нет ключа, жёлтая — нет резервной копии. */
 function useSecurityMark(): "alert" | "warn" | null {
@@ -62,9 +53,15 @@ export default function SettingsView() {
   const user = useAuthStore((st) => st.user);
   const stored = useUiStore((st) => st.settingsSection);
   const setSection = useUiStore((st) => st.setSettingsSection);
-  const phone = useIsPhone();
+  const phone = usePhoneLayout();
   const mark = useSecurityMark();
   const rootRef = useRef<HTMLDivElement>(null);
+  const progress = useTourStore((st) => st.progress);
+  // Не всё пройдено — «Обучение» наверху в зелёной рамке. Пока не знаем — внизу, без рамки.
+  const learningPending = !!progress && TOURS.some((tour) => progress[tour.id]?.state !== "done");
+  useEffect(() => {
+    if (!useTourStore.getState().progress) void useTourStore.getState().load();
+  }, []);
   // Сохранённый раздел мог исчезнуть в новой версии.
   const known = sectionInfo(stored) ? stored : null;
   const section: SettingsSection | null = known ?? (phone ? null : "profile");
@@ -77,11 +74,11 @@ export default function SettingsView() {
 
   const nav = (
     <nav className={s.nav} aria-label="Разделы настроек">
-      {SETTINGS_SECTIONS.map(({ id, title, subtitle, Icon }) => (
+      {orderedSections(learningPending).map(({ id, title, subtitle, Icon }) => (
         <button
           key={id}
           type="button"
-          className={s.navItem}
+          className={`${s.navItem} ${id === "learning" && learningPending ? s.navItemLearn : ""}`}
           data-settings-section={id}
           aria-current={!phone && section === id ? "page" : undefined}
           onClick={() => setSection(id)}

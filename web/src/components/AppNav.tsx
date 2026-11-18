@@ -29,7 +29,7 @@ import { DesktopDownloadContext } from "./DesktopDownloadContext";
 
 const ITEMS: { id: AppTab; label: string; Icon: typeof IconChat }[] = [
   { id: "contacts", label: "Контакты", Icon: IconContacts },
-  { id: "chats", label: "Чат", Icon: IconChat },
+  { id: "chats", label: "Чаты", Icon: IconChat },
   { id: "stars", label: "Созвездие", Icon: IconConstellation },
   { id: "calls", label: "Звонки", Icon: IconCalls },
   { id: "settings", label: "Настройки", Icon: IconSettings },
@@ -94,8 +94,9 @@ export default function AppNav() {
     (sum, [chatId, n]) => (chatLevel(notifySettings, chatId) === "none" ? sum : sum + n),
     0
   );
+  // «Контакты» — только в нижнем меню (телефон): на компьютере людей ищут поиском и «Новым чатом».
   const renderItems = (variant: "side" | "bottom") =>
-    items.map(({ id, label, Icon }) => {
+    items.filter(({ id }) => variant === "bottom" || id !== "contacts").map(({ id, label, Icon }) => {
       const active = tab === id;
       const cls =
         variant === "side"
@@ -110,6 +111,7 @@ export default function AppNav() {
           key={id}
           type="button"
           className={cls}
+          data-tour={`nav-${id}`}
           onClick={() => setTab(id)}
           aria-label={id === "chats" && totalUnread ? `${label}, непрочитанных: ${totalUnread}` : undefined}
         >
@@ -136,11 +138,12 @@ export default function AppNav() {
           <img className={s.logo} src="/logo-mark.png?v=neon-q-2" alt="Quazar" />
           <AppVersion />
         </div>
-        <nav className={s.navItems}>{renderItems("side")}</nav>
+        <nav className={s.navItems} data-tour="nav">{renderItems("side")}</nav>
         {downloads && downloads.os !== "windows" && downloads.os !== "mac" && <DesktopDownloadButton variant="nav" />}
         <button
           type="button"
           className={f.navButton}
+          data-tour="feedback"
           onClick={() => useUiStore.getState().setFeedbackOpen(true)}
           title="Обратная связь: предложение, вопрос или ошибка"
           aria-label="Обратная связь"
@@ -152,6 +155,7 @@ export default function AppNav() {
             <button
               type="button"
               className={s.profileBtn}
+              data-tour="profile"
               onClick={() => setStatusOpen((open) => !open)}
               aria-expanded={statusOpen}
               title="Статус: свой, на встрече, не беспокоить"
@@ -194,7 +198,7 @@ export default function AppNav() {
           </div>
         )}
       </aside>
-      {!hideBottomNav && <nav className={s.bottom}>{renderItems("bottom")}</nav>}
+      {!hideBottomNav && <nav className={s.bottom} data-tour="nav">{renderItems("bottom")}</nav>}
     </>
   );
 }

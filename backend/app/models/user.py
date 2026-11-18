@@ -46,6 +46,10 @@ class User(Base):
     work_schedule: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     # Свой статус: {"icon": имя значка, "text": до 80 символов, "until": ISO | None}.
     custom_status: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    # Обучение: {"main": {"state": "done" | "dismissed", "at": ISO}} — что пройдено или отложено.
+    tutorials: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    # Закреплённые: {"chats": [chat_id, …], "contacts": [user_id, …]}, сверху — закреплённый последним.
+    pins: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     # Владелец ресурса: «Чёрная дыра», власть в любой Звезде, без лимитов. Никому, кроме таких же,
     # не показывается: в ответах API о других людях этого поля нет.
     # Quazar Premium сейчас: trial / purchase / gift и до какого момента (null при виде — бессрочный).

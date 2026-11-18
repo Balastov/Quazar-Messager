@@ -1,5 +1,6 @@
 import type { StarEvent, WorkSchedule } from "./stars";
 import type { RoomActivityEvent } from "./roomActivities";
+import type { Pinned } from "./pinned";
 
 export type CallMedia = {
   audio: boolean;
@@ -142,6 +143,8 @@ export type WsEvent =
   | { type: "chat_ttl"; chat_id: string; ttl_seconds: number | null; changed_by: string }
   /** Я заблокировал или разблокировал кого-то (в том числе на другом устройстве). */
   | { type: "blocks_changed"; user_id: string; blocked: boolean }
+  /** Закреплённые чаты или контакты поменялись (в том числе на другом устройстве). */
+  | { type: "pins_changed"; pins: Pinned }
   /** Мои отложенные сообщения в чате изменились (запланировал, отменил, отправилось). */
   | { type: "scheduled_changed"; chat_id: string }
   /** Пора напомнить о сообщении. */

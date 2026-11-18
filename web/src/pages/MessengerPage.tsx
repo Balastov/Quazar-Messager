@@ -40,6 +40,8 @@ import PhoneVisibilityGate from "../components/profile/PhoneVisibilityGate";
 import PhoneVerificationPrompt from "../components/profile/PhoneVerificationPrompt";
 import FeedbackDialog from "../components/support/FeedbackDialog";
 import SwipeBack from "../navigation/SwipeBack";
+import TourHost from "../components/tour/TourHost";
+import { usePhoneLayout } from "../navigation/usePhoneLayout";
 
 type CallEventDetail = {
   callId?: string | null;
@@ -52,8 +54,13 @@ type CallEventDetail = {
 export default function MessengerPage() {
   const isSuper = useAdminStore((st) => st.isSuper);
   const storedTab = useUiStore((st) => st.tab);
+  const phone = usePhoneLayout();
   // Раздел «Чёрная дыра» запомнился, а роли уже нет — открываем чаты.
-  const tab = storedTab === "blackhole" && isSuper === false ? "chats" : storedTab;
+  // «Контакты» есть только на телефоне; окно расширили — переходим в чаты.
+  const tab = (storedTab === "blackhole" && isSuper === false) || (storedTab === "contacts" && !phone) ? "chats" : storedTab;
+  useEffect(() => {
+    if (storedTab === "contacts" && !phone) useUiStore.setState({ tab: "chats" });
+  }, [storedTab, phone]);
   const mobileChatOpen = useUiStore((st) => st.mobileChatOpen);
   const setMobileChatOpen = useUiStore((st) => st.setMobileChatOpen);
   const peerPanelOpen = useUiStore((st) => st.peerPanelOpen);
@@ -305,6 +312,7 @@ export default function MessengerPage() {
       <DoorToasts />
       <CallOverlay />
       <WallpaperHost />
+      <TourHost />
       {feedbackOpen && <FeedbackDialog onClose={() => useUiStore.getState().setFeedbackOpen(false)} />}
     </div>
   );

@@ -7,10 +7,13 @@ import {
 } from "../notifications/prefs";
 import { requestNotifyPermission } from "../notifications/notify";
 import { ensurePushSubscription } from "../notifications/push";
+import { useTourStore } from "../tour/store";
 import s from "./NotifyPrompt.module.css";
 
 export default function NotifyPrompt() {
   const [visible, setVisible] = useState(false);
+  // Обучение идёт — плашка внизу закрывала бы подсвеченное.
+  const touring = useTourStore((st) => !!st.active);
 
   const refresh = () => {
     const prefs = getNotifyPrefs();
@@ -23,7 +26,7 @@ export default function NotifyPrompt() {
     return subscribeNotifyPrefs(refresh);
   }, []);
 
-  if (!visible) return null;
+  if (!visible || touring) return null;
 
   return (
     <div className={s.banner} data-notify-prompt>

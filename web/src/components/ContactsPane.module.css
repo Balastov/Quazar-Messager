@@ -32,6 +32,38 @@
   font-weight: 700;
 }
 
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* «Новый чат» — зелёный контур и значок, без заливки (заливка — у «Пригласить друзей»). */
+.newChatBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 1.5px solid var(--qz-online);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--qz-online);
+  cursor: pointer;
+  transition: background 0.15s, box-shadow 0.15s;
+}
+
+.newChatBtn:hover {
+  background: rgba(52, 211, 153, 0.1);
+  box-shadow: 0 0 12px rgba(52, 211, 153, 0.35);
+}
+
+.newChatBtn:focus-visible {
+  outline: 2px solid var(--qz-online);
+  outline-offset: 2px;
+}
+
 /* «Пригласить друзей» — фирменным зелёным, как счётчики непрочитанных. */
 .inviteBtn,
 .inviteInline {
@@ -274,17 +306,46 @@
   box-shadow: 0 0 12px rgba(52, 211, 153, 0.45);
 }
 
-.starBtn {
-  border: none;
-  background: transparent;
+/* Закрепить сверху: на компьютере видна при наведении, на телефоне — всегда (бледно). */
+.pinBtn {
+  display: inline-flex;
+  padding: 2px;
+  border-radius: 6px;
   color: var(--qz-text-dim);
   cursor: pointer;
-  padding: 0;
-  display: inline-flex;
+  opacity: 0.55;
+  transition: opacity 0.15s, color 0.15s;
 }
 
-.starBtnOn {
-  color: #fbbf24;
+@media (hover: hover) {
+  .pinBtn {
+    opacity: 0;
+  }
+
+  .item:hover .pinBtn,
+  .itemActive:hover .pinBtn,
+  .pinBtn:focus-visible {
+    opacity: 0.8;
+  }
+}
+
+.pinBtn:hover {
+  color: var(--qz-text);
+}
+
+.pinBtn.pinBtnOn {
+  color: var(--qz-online);
+  opacity: 1;
+}
+
+.pinBtn:focus-visible {
+  outline: 2px solid var(--qz-online);
+}
+
+.asideRow {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .hint {

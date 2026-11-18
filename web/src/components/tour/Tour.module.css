@@ -1,0 +1,152 @@
+/* Обучение: поверх всего приложения, включая диалоги. */
+.layer {
+  position: fixed;
+  inset: 0;
+  z-index: 3000;
+}
+
+/* Пока элемент шага не найден — просто затемняем экран. */
+.dim {
+  position: absolute;
+  inset: 0;
+  background: rgba(3, 2, 10, 0.62);
+}
+
+/* Рамка сама затемняет всё вокруг (тенью), а этот слой только ловит клики. */
+.blocker {
+  position: absolute;
+  inset: 0;
+}
+
+.spotlight {
+  position: absolute;
+  border: 2px solid var(--qz-online);
+  border-radius: 14px;
+  box-shadow:
+    0 0 0 9999px rgba(3, 2, 10, 0.62),
+    0 0 22px rgba(52, 211, 153, 0.55),
+    inset 0 0 12px rgba(52, 211, 153, 0.25);
+  pointer-events: none;
+  transition: top 0.25s ease, left 0.25s ease, width 0.25s ease, height 0.25s ease;
+}
+
+.card,
+.congrats {
+  position: absolute;
+  width: min(320px, calc(100vw - 32px));
+  padding: 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(52, 211, 153, 0.55);
+  background: rgba(16, 13, 30, 0.97);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5), 0 0 18px rgba(52, 211, 153, 0.2);
+  color: var(--qz-text);
+}
+
+.congrats {
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+}
+
+.congratsIcon {
+  font-size: 34px;
+  margin-bottom: 4px;
+}
+
+.counter {
+  margin-bottom: 4px;
+  font-size: 12px;
+  color: var(--qz-online);
+  font-weight: 600;
+}
+
+.title {
+  margin: 0 0 6px;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.text {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--qz-text-muted);
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.skip {
+  padding: 6px 2px;
+  border: none;
+  background: none;
+  color: var(--qz-text-muted);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.skip:hover {
+  color: var(--qz-text);
+}
+
+.ok {
+  padding: 9px 20px;
+  border: 1px solid var(--qz-online);
+  border-radius: 999px;
+  background: var(--qz-online);
+  color: #06281c;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 0 12px rgba(52, 211, 153, 0.35);
+}
+
+.congrats .ok {
+  margin-top: 14px;
+}
+
+.ok:hover {
+  filter: brightness(1.08);
+}
+
+.ok:focus-visible,
+.skip:focus-visible {
+  outline: 2px solid var(--qz-online);
+  outline-offset: 2px;
+}
+
+/* Предложение пройти обучение — небольшая карточка внизу. */
+.invite {
+  position: fixed;
+  z-index: 90;
+  right: calc(16px + var(--qz-safe-right));
+  bottom: calc(16px + var(--qz-safe-bottom));
+  width: min(340px, calc(100vw - 32px));
+  padding: 14px 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(52, 211, 153, 0.55);
+  background: rgba(16, 13, 30, 0.96);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.45);
+}
+
+@media (max-width: 767px) {
+  /* Над нижним меню. */
+  .invite {
+    left: calc(16px + var(--qz-safe-left));
+    right: calc(16px + var(--qz-safe-right));
+    width: auto;
+    bottom: calc(96px + var(--qz-safe-bottom));
+  }
+}
+
+.laterTitle {
+  color: var(--qz-online);
+}

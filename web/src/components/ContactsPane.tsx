@@ -20,7 +20,8 @@ import {
   pickPhoneFromDeviceContacts,
 } from "../utils/contactsPicker";
 import UserAvatar from "./UserAvatar";
-import { IconAddressBook, IconSearch, IconStar } from "./icons";
+import { IconAddressBook, IconNewChat, IconSearch } from "./icons";
+import { Pin } from "lucide-react";
 import s from "./ContactsPane.module.css";
 import { messagePreview, useStickersStore } from "../store/stickers";
 import { useContactsStore } from "../store/contacts";
@@ -36,6 +37,13 @@ import { listTimestamp } from "../chat/listTimestamp";
 import UnreadBadge from "./chat/UnreadBadge";
 import { showOpenedChat } from "../chat/showOpenedChat";
 import InviteFriendsButton from "../invite/InviteFriendsButton";
+import { chatsByLastMessage, contactRows } from "../chat/lists";
+import { usePinnedStore } from "../store/pinned";
+import { usePhoneLayout } from "../navigation/usePhoneLayout";
+import NewChatDialog from "./chat/NewChatDialog";
+import type { PinKind } from "../api/pinned";
+
+const EMPTY: readonly string[] = [];
 
 /** Строка под именем чата: последнее сообщение, а пока кто-то набирает — «печатает…». */
 function PreviewLine({ chat, className, children }: { chat: Chat; className: string; children: string }) {
@@ -48,16 +56,20 @@ function PreviewLine({ chat, className, children }: { chat: Chat; className: str
   return <span className={`${className} ${m.typing}`}>{label}</span>;
 }
 
-type Filter = "all" | "favorites" | "phonebook";
+type Filter = "all" | "phonebook";
 
 export default function ContactsPane() {
   const { chats, activeChatId, loadChats, selectChat, openDirectChat, openSavedChat, messages } =
     useChatStore();
+  const pinned = usePinnedStore((st) => st.pinned);
+  const togglePin = usePinnedStore((st) => st.toggle);
+  const loadPinned = usePinnedStore((st) => st.load);
+  const pinnedChats = pinned?.chats ?? EMPTY;
+  const pinnedContacts = pinned?.contacts ?? EMPTY;
+  const [newChatOpen, setNewChatOpen] = useState(false);
   const currentUser = useAuthStore((st) => st.user);
   // Превью «Стикер 😂» обновится, когда загрузится каталог стикеров.
   useStickersStore((st) => st.loaded);
-  const favoriteChatIds = useUiStore((st) => st.favoriteChatIds);
-  const toggleFavorite = useUiStore((st) => st.toggleFavorite);
   const unreadCounts = useUnreadStore((st) => st.counts);
   const unreadMentions = useUnreadStore((st) => st.mentions);
   const notifySettings = useNotifyStore((st) => st.settings);
@@ -66,7 +78,13 @@ export default function ContactsPane() {
   const phonebookNames = useContactsStore((st) => st.names);
 
   const [search, setSearch] = useState("");
-  const [filter, setFilter] = useState<Filter>("all");
+  const [chosenFilter, setFilter] = useState<Filter>("all");
+  // «Контакты» и «Чаты» — одна панель: люди по алфавиту или переписки по свежести.
+  // «Контакты» есть только на телефоне; на компьютере людей ищут поиском и «Новым чатом».
+  const phone = usePhoneLayout();
+  const peopleTab = useUiStore((st) => st.tab) === "contacts" && phone;
+  // «Из телефона» — подборка людей, она только в «Контактах».
+  const filter: Filter = peopleTab ? chosenFilter : "all";
   const [results, setResults] = useState<User[]>([]);
   const [searching, setSearching] = useState(false);
   const [pickerHint, setPickerHint] = useState<string | null>(null);
@@ -88,6 +106,15 @@ export default function ContactsPane() {
   useEffect(() => {
     void loadChats();
   }, [loadChats]);
+
+  useEffect(() => {
+    void loadPinned().catch(() => undefined);
+  }, [loadPinned, currentUser?.id]);
+
+  const pin = async (kind: PinKind, id: string) => {
+    const error = await togglePin(kind, id);
+    setPickerHint(error);
+  };
 
   useEffect(() => {
     if (!canSearchUsers(search)) {
@@ -149,16 +176,15 @@ export default function ContactsPane() {
   };
 
   const savedChat = chats.find((c) => c.type === "saved");
+  // «Записная книжка» — сверху и в «Чатах», и в «Контактах»; в лимит закреплённых не входит.
   const showSaved =
     filter === "all" &&
     (!search.trim() || SAVED_CHAT_TITLE.toLowerCase().includes(search.trim().toLowerCase()));
 
   const filtered = useMemo(() => {
-    // «Записная книжка» — отдельной строкой сверху.
-    let list = chats.filter((c) => c.type !== "saved");
-    if (filter === "favorites") {
-      list = list.filter((c) => favoriteChatIds.includes(c.id));
-    }
+    // «Записная книжка» — отдельной строкой сверху, под ней закреплённые; личные чаты без
+    // сообщений — только в «Контактах».
+    const list = chatsByLastMessage(chats, lastMessage, pinnedChats);
     const q = search.trim().toLowerCase();
     if (!q) return list;
     const digits = extractRuLocalDigits(search);
@@ -170,7 +196,16 @@ export default function ContactsPane() {
     });
     // chatPeer depends on currentUser; chats/messages identity is enough here
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chats, filter, favoriteChatIds, search, currentUser?.id, phonebookNames]);
+  }, [chats, messages, pinnedChats, search, currentUser?.id, phonebookNames]);
+
+  const contacts = useMemo(() => {
+    const rows = contactRows(chats, phonebook, currentUser?.id, phonebookNames, pinnedContacts);
+    const q = search.trim().toLowerCase();
+    if (!q) return rows;
+    const digits = extractRuLocalDigits(search);
+    return rows.filter((row) => row.name.toLowerCase().includes(q) || row.user.username.toLowerCase().includes(q)
+      || (digits.length >= 3 && !!row.user.phone?.includes(digits)));
+  }, [chats, phonebook, currentUser?.id, phonebookNames, search, pinnedContacts]);
 
   const phonebookFiltered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -186,6 +221,49 @@ export default function ContactsPane() {
   };
 
   const openChat = (chatId: string) => showOpenedChat(() => selectChat(chatId));
+
+  /** Кнопка «закрепить» в строке списка (кнопка внутри кнопки нельзя — поэтому span). */
+  const pinButton = (kind: PinKind, id: string, on: boolean) => (
+    <span
+      className={on ? `${s.pinBtn} ${s.pinBtnOn}` : s.pinBtn}
+      role="button"
+      tabIndex={0}
+      title={on ? "Открепить" : "Закрепить сверху"}
+      aria-label={on ? "Открепить" : "Закрепить сверху"}
+      aria-pressed={on}
+      onClick={(e) => {
+        e.stopPropagation();
+        void pin(kind, id);
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          e.stopPropagation();
+          void pin(kind, id);
+        }
+      }}
+    >
+      <Pin size={14} fill={on ? "currentColor" : "none"} />
+    </span>
+  );
+
+  const savedRow = showSaved && (
+    <button
+      type="button"
+      className={savedChat && savedChat.id === activeChatId ? s.itemActive : s.item}
+      onClick={() => void showOpenedChat(openSavedChat)}
+    >
+      <SavedAvatar />
+      <div className={s.meta}>
+        <div className={s.nameRow}>
+          <span className={s.name}>{SAVED_CHAT_TITLE}</span>
+        </div>
+        <span className={s.preview}>
+          {savedChat && lastMessage(savedChat) ? lastPreview(savedChat) : "Заметки и пересланное"}
+        </span>
+      </div>
+    </button>
+  );
 
   const pickFromPhone = async () => {
     setPickerHint(null);
@@ -213,12 +291,26 @@ export default function ContactsPane() {
   return (
     <div className={s.root}>
       <div className={s.header}>
-        <h2 className={s.title}>Контакты</h2>
-        <InviteFriendsButton className={s.inviteBtn} onNotice={setPickerHint} />
+        <h2 className={s.title}>{peopleTab ? "Контакты" : "Чаты"}</h2>
+        <div className={s.headerActions}>
+          {!peopleTab && (
+            <button
+              type="button"
+              className={s.newChatBtn}
+              data-tour="new-chat"
+              onClick={() => setNewChatOpen(true)}
+              title="Новый чат"
+              aria-label="Новый чат"
+            >
+              <IconNewChat size={20} />
+            </button>
+          )}
+          <InviteFriendsButton className={s.inviteBtn} onNotice={setPickerHint} tour="invite" />
+        </div>
       </div>
 
       <div className={s.searchRow}>
-        <div className={s.searchWrap}>
+        <div className={s.searchWrap} data-tour="search">
           <IconSearch />
           <input
             className={s.search}
@@ -252,22 +344,15 @@ export default function ContactsPane() {
       </div>
       {pickerHint && <div className={s.pickerHint}>{pickerHint}</div>}
 
-      <div className={s.filters}>
-        <button
-          type="button"
-          className={filter === "all" ? s.chipActive : s.chip}
-          onClick={() => setFilter("all")}
-        >
-          Все {chats.length}
-        </button>
-        <button
-          type="button"
-          className={filter === "favorites" ? s.chipActive : s.chip}
-          onClick={() => setFilter("favorites")}
-        >
-          Избранные
-        </button>
-        {phonebook.length > 0 && (
+      {peopleTab && phonebook.length > 0 && (
+        <div className={s.filters}>
+          <button
+            type="button"
+            className={filter === "all" ? s.chipActive : s.chip}
+            onClick={() => setFilter("all")}
+          >
+            Все {contacts.length}
+          </button>
           <button
             type="button"
             className={filter === "phonebook" ? s.chipActive : s.chip}
@@ -276,8 +361,8 @@ export default function ContactsPane() {
           >
             Из телефона {phonebook.length}
           </button>
-        )}
-      </div>
+        </div>
+      )}
 
       {showSearchPanel && (
         <div className={s.searchSection}>
@@ -343,37 +428,55 @@ export default function ContactsPane() {
             </button>
           ))}
         </div>
-      ) : (
-      <div className={s.list}>
-        {showSaved && (
-          <button
-            type="button"
-            className={savedChat && savedChat.id === activeChatId ? s.itemActive : s.item}
-            onClick={() => void showOpenedChat(openSavedChat)}
-          >
-            <SavedAvatar />
-            <div className={s.meta}>
-              <div className={s.nameRow}>
-                <span className={s.name}>{SAVED_CHAT_TITLE}</span>
-              </div>
-              <span className={s.preview}>
-                {savedChat && lastMessage(savedChat)
-                  ? lastPreview(savedChat)
-                  : "Заметки и пересланное"}
-              </span>
+      ) : peopleTab ? (
+        <div className={s.list} data-tour="contact-list">
+          {savedRow}
+          {contacts.length === 0 && !showSaved && (
+            <div className={s.hint}>
+              {search.trim() ? "Никого не найдено" : "Найдите человека по нику, имени или телефону — он появится здесь"}
             </div>
-          </button>
-        )}
+          )}
+          {contacts.map((row) => {
+            const active = !!row.chatId && row.chatId === activeChatId;
+            const chatId = row.chatId;
+            return (
+              <button
+                key={row.user.id}
+                type="button"
+                className={active ? s.itemActive : s.item}
+                // У бота свой чат (поддержка, новости) — его и открываем.
+                onClick={() => void (row.bot && chatId ? openChat(chatId) : openContact(row.user.id))}
+              >
+                {row.bot ? (
+                  <SupportAvatar kind={row.bot} />
+                ) : (
+                  <UserAvatar username={row.name} avatarUrl={row.user.avatar_url} userId={row.user.id} />
+                )}
+                <div className={s.meta}>
+                  <div className={s.nameRow}>
+                    <span className={s.name}>{row.name}</span>
+                    {row.bot && <OfficialBadge />}
+                    {!row.bot && row.user.is_premium && <PremiumBadge />}
+                    {!row.bot && <CustomStatusBadge userId={row.user.id} compact />}
+                  </div>
+                  <span className={s.preview}>@{row.user.username}</span>
+                </div>
+                <div className={s.aside}>{pinButton("contacts", row.user.id, pinnedContacts.includes(row.user.id))}</div>
+              </button>
+            );
+          })}
+        </div>
+      ) : (
+      <div className={s.list} data-tour="chat-list">
+        {savedRow}
         {filtered.length === 0 && !showSaved && (
           <div className={s.hint}>
-            {filter === "favorites"
-              ? "Нет избранных чатов — отметьте звездой"
-              : "Найдите пользователя по имени или телефону"}
+            Найдите пользователя по имени или телефону
           </div>
         )}
         {filtered.map((chat) => {
           const peer = chatPeer(chat);
-          const fav = favoriteChatIds.includes(chat.id);
+          const isPinned = pinnedChats.includes(chat.id);
           const unread = unreadCounts[chat.id] ?? 0;
           const hasUnread = unread > 0;
           const quiet = chat.type !== "saved" && chatLevel(notifySettings, chat.id) === "none";
@@ -409,32 +512,24 @@ export default function ContactsPane() {
                 <span className={hasUnread ? s.timeUnread : s.time}>
                   {lastTime(chat)}
                 </span>
-                {hasUnread ? (
-                  <UnreadBadge count={unread} mentions={unreadMentions[chat.id] ?? 0} quiet={quiet} />
-                ) : (
-                  <span
-                    className={fav ? `${s.starBtn} ${s.starBtnOn}` : s.starBtn}
-                    role="button"
-                    tabIndex={0}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      toggleFavorite(chat.id);
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.stopPropagation();
-                        toggleFavorite(chat.id);
-                      }
-                    }}
-                  >
-                    <IconStar size={15} />
-                  </span>
-                )}
+                <span className={s.asideRow}>
+                  {pinButton("chats", chat.id, isPinned)}
+                  {hasUnread && <UnreadBadge count={unread} mentions={unreadMentions[chat.id] ?? 0} quiet={quiet} />}
+                </span>
               </div>
             </button>
           );
         })}
       </div>
+      )}
+      {newChatOpen && (
+        <NewChatDialog
+          onClose={() => setNewChatOpen(false)}
+          onOpen={(userId) => {
+            setNewChatOpen(false);
+            void openContact(userId);
+          }}
+        />
       )}
     </div>
   );

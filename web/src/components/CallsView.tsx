@@ -5,6 +5,7 @@ import { useCallStore } from "../store/call";
 import UserAvatar from "./UserAvatar";
 import { IconPhone, IconVideo } from "./icons";
 import s from "./CallsView.module.css";
+import { useAdminStore } from "../store/admin";
 import { compareNames, displayName } from "../utils/profile";
 
 function formatWhen(iso: string) {
@@ -80,6 +81,8 @@ export default function CallsView() {
     return peers.find((x) => x.userId === userId)?.avatar_url ?? null;
   };
 
+  const isSuper = useAdminStore((st) => st.isSuper);
+
   return (
     <div className={s.root}>
       <div className={s.header}>
@@ -102,10 +105,13 @@ export default function CallsView() {
         </button>
       </div>
 
-      <div className={s.banner}>
-        MVP: аудио- и видеозвонки 1:1 через WebRTC. Для стабильной связи за NAT нужен TURN.
-        Push на входящий — в «Настройки → Уведомления и звуки».
-      </div>
+      {/* Техническая заметка — только владельцам ресурса. */}
+      {isSuper && (
+        <div className={s.banner}>
+          MVP: аудио- и видеозвонки 1:1 через WebRTC. Для стабильной связи за NAT нужен TURN.
+          Push на входящий — в «Настройки → Уведомления и звуки».
+        </div>
+      )}
 
       {filteredHistory.length > 0 && (
         <div className={s.list}>

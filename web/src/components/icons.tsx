@@ -294,3 +294,11 @@ export const IconStarVolume = ({ volume, ...p }: IconProps & { volume: number })
     )}
   </Svg>
 );
+
+/** «Новый чат»: облачко, как у «Чатов» в меню, с плюсом в правом верхнем углу. */
+export const IconNewChat = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M13 3H5a2 2 0 0 0-2 2v16l4-4h12a2 2 0 0 0 2-2v-4" />
+    <path d="M19 1v6M16 4h6" />
+  </Svg>
+);

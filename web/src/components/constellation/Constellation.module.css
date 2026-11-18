@@ -1621,6 +1621,9 @@
 
 .screenFrame {
   position: relative;
+  /* Панель показа — строкой над картинкой, видео занимает остальное. */
+  display: flex;
+  flex-direction: column;
   width: 100%;
   aspect-ratio: 16 / 9;
   max-height: 62vh;
@@ -1650,8 +1653,8 @@
 
 .screenMedia {
   position: relative;
+  flex: 1;
   width: 100%;
-  height: 100%;
   min-height: 0;
 }
 
@@ -1690,10 +1693,9 @@
 
 .screenBar {
   z-index: 3;
-  position: absolute;
-  left: 10px;
-  right: 10px;
-  bottom: 10px;
+  position: relative;
+  flex-shrink: 0;
+  margin: 8px 8px 0;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -1707,6 +1709,47 @@
   box-shadow: var(--qz-glass-shine);
   opacity: 0.92;
   transition: opacity 0.2s;
+}
+
+/* «Свернуть» / «Панель» — фирменным зелёным. */
+.screenBarToggle {
+  flex-shrink: 0;
+  padding: 5px 11px;
+  border-radius: 999px;
+  border: 1px solid rgba(52, 211, 153, 0.6);
+  background: rgba(52, 211, 153, 0.12);
+  color: var(--qz-online);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.screenBarToggle:hover {
+  background: rgba(52, 211, 153, 0.22);
+  box-shadow: 0 0 10px rgba(52, 211, 153, 0.35);
+}
+
+.screenBarToggle:focus-visible {
+  outline: 2px solid var(--qz-online);
+  outline-offset: 2px;
+}
+
+/* Свёрнутая панель — маленькая кнопка в углу картинки. */
+.screenBarRestore {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 4;
+  background: rgba(6, 40, 28, 0.75);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  opacity: 0.85;
+}
+
+.screenBarRestore:hover {
+  opacity: 1;
 }
 
 .screenLabel {

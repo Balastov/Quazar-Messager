@@ -160,3 +160,38 @@ describe("screen sharing fullscreen controls", () => {
     expect(host.textContent).not.toContain("Боб");
   });
 });
+
+describe("screen sharing bar", () => {
+  beforeEach(() => {
+    const store = new Map<string, string>();
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => void store.set(key, value),
+      removeItem: (key: string) => void store.delete(key),
+    });
+  });
+
+  it("sits above the picture, collapses to a corner button and remembers it", async () => {
+    const { props } = fixture();
+    await act(async () => root.render(createElement(ScreenStage, props)));
+    const media = host.querySelector("video")!.parentElement!;
+    const bar = button("Свернуть панель показа").parentElement!;
+    // Панель — отдельной строкой над картинкой, не поверх неё.
+    expect(media.contains(bar)).toBe(false);
+    expect(bar.nextElementSibling).toBe(media);
+
+    await act(async () => button("Свернуть панель показа").click());
+    expect(host.textContent).not.toContain("🖥 Анна");
+    expect(host.querySelector('button[aria-label="На весь экран"]')).toBeNull();
+    expect(media.contains(button("Показать панель показа"))).toBe(true);
+
+    // Выбор запоминается.
+    await act(async () => root.unmount());
+    root = createRoot(host);
+    await act(async () => root.render(createElement(ScreenStage, props)));
+    await act(async () => button("Показать панель показа").click());
+    expect(host.textContent).toContain("🖥 Анна");
+    expect(button("На весь экран")).toBeDefined();
+    expect(localStorage.getItem("quazar-screen-bar-collapsed")).toBe("0");
+  });
+});

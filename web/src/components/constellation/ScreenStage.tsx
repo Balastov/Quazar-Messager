@@ -25,7 +25,14 @@ interface Props {
   onTogglePointers?: () => void;
 }
 
-/** Сцена Планеты: трансляция экрана на всю ширину, с полноэкранным режимом. */
+const BAR_KEY = "quazar-screen-bar-collapsed";
+
+function readBarCollapsed(): boolean {
+  try { return localStorage.getItem(BAR_KEY) === "1"; } catch { return false; }
+}
+
+/** Сцена Планеты: трансляция экрана на всю ширину, с полноэкранным режимом. Панель показа —
+ * строкой над картинкой (ничего не закрывает) и сворачивается. */
 export default function ScreenStage({ sharerName, placeInside, screen, isMine, onStop, controls,
   audioControls, pointersEnabled = false, pointers = [], onPoint, onTogglePointers }: Props) {
   const frameRef = useRef<HTMLDivElement>(null);
@@ -34,6 +41,12 @@ export default function ScreenStage({ sharerName, placeInside, screen, isMine, o
   const [expanded, setExpanded] = useState(false);
   const [previewMine, setPreviewMine] = useState(false);
   const [pointMode, setPointMode] = useState(false);
+  // Панель показа можно свернуть — в углу останется кнопка, чтобы вернуть её. Выбор помним.
+  const [barCollapsed, setBarCollapsed] = useState(readBarCollapsed);
+  const collapseBar = (value: boolean) => {
+    setBarCollapsed(value);
+    try { localStorage.setItem(BAR_KEY, value ? "1" : "0"); } catch { /* только на этот раз */ }
+  };
   const [pointerNow, setPointerNow] = useState(Date.now);
   const mediaRef = useRef<HTMLDivElement>(null);
   const [bounds, setBounds] = useState<ReturnType<typeof containedVideo>>(null);
@@ -137,7 +150,41 @@ export default function ScreenStage({ sharerName, placeInside, screen, isMine, o
       aria-modal={expanded ? true : undefined}
       aria-label={expanded ? "Демонстрация экрана" : undefined}
     >
+      {!barCollapsed && <div className={s.screenBar}>
+        <span className={s.screenLabel}>🖥 {sharerName}</span>
+        {pointerToggle}
+        {onPoint && track && <button type="button" className={`${s.secondary} ${s.small}`} aria-pressed={pointMode}
+          onClick={() => setPointMode(!pointMode)}>{pointMode ? "Указатель включён" : "Указатель"}</button>}
+        {isMine && <button type="button" className={`${s.secondary} ${s.small}`} onClick={() => {
+          setExpanded(false); setPreviewMine(false);
+          if (nativeFullscreen) void document.exitFullscreen().catch(() => {});
+        }}>Скрыть миниатюру</button>}
+        {onStop && (
+          <button type="button" className={`${s.danger} ${s.small}`} onClick={onStop}>
+            Остановить показ
+          </button>
+        )}
+        {(track || fullscreen) && (
+          <button
+            type="button"
+            className={`${s.secondary} ${s.small}`}
+            onClick={toggleFullscreen}
+            aria-label={fullscreen ? "Выйти из полноэкранного режима" : "На весь экран"}
+            title={fullscreen ? "Выйти из полноэкранного режима" : "На весь экран"}
+          >
+            {fullscreen ? "↙" : "⛶"}
+          </button>
+        )}
+        <button type="button" className={s.screenBarToggle} onClick={() => collapseBar(true)}
+          aria-label="Свернуть панель показа" title="Свернуть панель — картинке больше места">
+          ▴ Свернуть
+        </button>
+      </div>}
       <div ref={mediaRef} className={s.screenMedia}>
+        {barCollapsed && <button type="button" className={`${s.screenBarToggle} ${s.screenBarRestore}`}
+          onClick={() => collapseBar(false)} aria-label="Показать панель показа" title={`🖥 ${sharerName} — показать панель`}>
+          ▾ Панель
+        </button>}
         {track ? (
           <video ref={videoRef} className={s.screenVideo} autoPlay playsInline muted />
         ) : (
@@ -157,32 +204,6 @@ export default function ScreenStage({ sharerName, placeInside, screen, isMine, o
             <span>{pointer.name}</span>
           </div>)}
         </div>}
-        <div className={s.screenBar}>
-          <span className={s.screenLabel}>🖥 {sharerName}</span>
-          {pointerToggle}
-          {onPoint && track && <button type="button" className={`${s.secondary} ${s.small}`} aria-pressed={pointMode}
-            onClick={() => setPointMode(!pointMode)}>{pointMode ? "Указатель включён" : "Указатель"}</button>}
-          {isMine && <button type="button" className={`${s.secondary} ${s.small}`} onClick={() => {
-            setExpanded(false); setPreviewMine(false);
-            if (nativeFullscreen) void document.exitFullscreen().catch(() => {});
-          }}>Скрыть миниатюру</button>}
-          {onStop && (
-            <button type="button" className={`${s.danger} ${s.small}`} onClick={onStop}>
-              Остановить показ
-            </button>
-          )}
-          {(track || fullscreen) && (
-            <button
-              type="button"
-              className={`${s.secondary} ${s.small}`}
-              onClick={toggleFullscreen}
-              aria-label={fullscreen ? "Выйти из полноэкранного режима" : "На весь экран"}
-              title={fullscreen ? "Выйти из полноэкранного режима" : "На весь экран"}
-            >
-              {fullscreen ? "↙" : "⛶"}
-            </button>
-          )}
-        </div>
       </div>
       {fullscreen && (controls || audioControls) && <div className={s.screenControls}>{controls}{audioControls}</div>}
     </div>

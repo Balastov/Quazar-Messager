@@ -6,13 +6,15 @@
   align-items: center;
   justify-content: center;
   z-index: 110;
-  padding: 20px;
+  /* PWA на весь экран: не заезжаем под вырез, шторку и полоску «домой». */
+  padding: calc(20px + var(--qz-safe-top)) calc(20px + var(--qz-safe-right)) calc(20px + var(--qz-safe-bottom))
+    calc(20px + var(--qz-safe-left));
 }
 
 .panel {
   width: 100%;
   max-width: 440px;
-  max-height: 90vh;
+  max-height: 100%;
   overflow-y: auto;
   background: #1a1d27;
   border: 1px solid #2a2d3a;
@@ -160,9 +162,10 @@
 
 .banner {
   position: fixed;
-  top: 12px;
-  left: 12px;
-  right: 12px;
+  /* Ниже выреза камеры и строки состояния — иначе в PWA кнопки не достать. */
+  top: calc(12px + var(--qz-safe-top));
+  left: calc(12px + var(--qz-safe-left));
+  right: calc(12px + var(--qz-safe-right));
   z-index: 60;
   display: flex;
   align-items: center;
@@ -193,6 +196,18 @@
 
 .bannerWrap .bannerText {
   flex-basis: 220px;
+}
+
+/* Крестик — в правом верхнем углу баннера, кнопки остаются под текстом. */
+.bannerWrap {
+  padding-right: 34px;
+}
+
+.bannerClose {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  line-height: 1;
 }
 
 .bannerSecondary {

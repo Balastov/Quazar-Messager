@@ -67,6 +67,8 @@ export default function E2EKeyGate() {
   const fileRef = useRef<HTMLInputElement>(null);
   const [receiving, setReceiving] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
+  // Баннер закрывает верх экрана (поиск, заголовки) — его можно убрать до следующего запуска.
+  const [bannerHidden, setBannerHidden] = useState(false);
   const keyRequest = useIncomingKeyRequest();
   // В настройках о ключах и копии говорит сама страница — плашка сверху её бы закрывала.
   const inSettings = useUiStore((st) => st.tab === "settings");
@@ -343,7 +345,7 @@ export default function E2EKeyGate() {
     );
   }
 
-  if (status === "needs_restore" && !inSettings) {
+  if (status === "needs_restore" && !inSettings && !bannerHidden) {
     return (
       <div className={`${s.banner} ${s.bannerWarn} ${s.bannerWrap}`}>
         <span className={s.bannerText}>
@@ -358,6 +360,9 @@ export default function E2EKeyGate() {
           onClick={() => setRestorePromptOpen(true)}
         >
           Восстановить
+        </button>
+        <button type="button" className={`${s.close} ${s.bannerClose}`} aria-label="Скрыть" title="Скрыть" onClick={() => setBannerHidden(true)}>
+          ✕
         </button>
         {helpOpen && <KeyHelpDialog onClose={() => setHelpOpen(false)} />}
       </div>

@@ -24,6 +24,66 @@ function openOrFocus(url, message) {
   });
 }
 
+// Браузер долго был офлайн — push-сервис отдаёт накопленное пачкой. Чтобы не звенело на каждое:
+// сообщения одного чата (канала) складываются в одно уведомление «Новых сообщений: N»,
+// звук — не чаще раза в QUIET_GAP_MS, а пролежавшие в очереди дольше STALE_MS — без звука.
+const QUIET_GAP_MS = 5000;
+const STALE_MS = 2 * 60 * 1000;
+let lastAudibleAt = 0;
+
+function isStale(data, now = Date.now()) {
+  const sentAt = Date.parse(data.sent_at || "");
+  return Number.isFinite(sentAt) && now - sentAt > STALE_MS;
+}
+
+function audible(data) {
+  if (data.silent || isStale(data)) return false;
+  const now = Date.now();
+  if (now - lastAudibleAt < QUIET_GAP_MS) return false;
+  lastAudibleAt = now;
+  return true;
+}
+
+/** Одно уведомление на чат/канал: сколько сообщений в нём уже накопилось (с этим). */
+async function groupCount(tag) {
+  try {
+    const [existing] = await self.registration.getNotifications({ tag });
+    return existing ? (existing.data && existing.data.count ? existing.data.count : 1) + 1 : 1;
+  } catch {
+    return 1;
+  }
+}
+
+/** Уведомление, которое страница уже показала об этом сообщении (своим тегом), или null. */
+async function shownByPage(tag) {
+  if (!tag) return null;
+  try {
+    return (await self.registration.getNotifications({ tag }))[0] || null;
+  } catch {
+    return null;
+  }
+}
+
+async function showGroupedMessage(data, title, groupTag, pageTag, body, options) {
+  const page = await shownByPage(pageTag);
+  if (page) {
+    // Второе уведомление не нужно, но push обязан что-то показать (Safari): тихо обновляем то же.
+    await showMessageNotification(data, page.title, { ...options, body: page.body, tag: pageTag, renotify: false, silent: true });
+    return;
+  }
+  const count = await groupCount(groupTag);
+  const sound = audible(data);
+  await showMessageNotification(data, title, {
+    ...options,
+    body: body(count),
+    tag: groupTag,
+    // Та же метка: заменяем прежнее уведомление; звенит, только если звук сейчас уместен.
+    renotify: sound,
+    silent: !sound,
+    data: { ...options.data, count },
+  });
+}
+
 async function showMessageNotification(data, title, options) {
   // Push должен всегда завершаться видимым уведомлением (в том числе в Safari).
   // Тег сообщения совпадает с WS-уведомлением; повторная доставка не тревожит снова.
@@ -124,25 +184,26 @@ self.addEventListener("push", (event) => {
 
   if (data.type === "star_message") {
     // Сообщение Спутника: упоминание, ответ мне или всё подряд — по уровню уведомлений.
-    const options = {
-      body: data.body || "",
-      tag: data.tag || `quazar-star-${data.channel_id || "x"}`,
-      icon: "/icons/icon-192.png?v=neon-q-2",
-      badge: "/icons/icon-48.png?v=neon-q-2",
-      renotify: false,
-      silent: !!data.silent,
-      data: { kind: "star", starId: data.star_id || null, channelId: data.channel_id || null, messageId: data.message_id || null, threadId: data.thread_id || null },
-    };
-    event.waitUntil(showMessageNotification(data, data.title || "Quazar", options));
+    const text = data.body || "";
+    event.waitUntil(showGroupedMessage(data, data.title || "Quazar", `quazar-star-${data.channel_id || "x"}`,
+      data.message_id ? `quazar-star-message-${data.message_id}` : null,
+      (count) => (count > 1 ? `${text}\nи ещё ${count - 1}` : text), {
+        icon: "/icons/icon-192.png?v=neon-q-2",
+        badge: "/icons/icon-48.png?v=neon-q-2",
+        data: { kind: "star", starId: data.star_id || null, channelId: data.channel_id || null, messageId: data.message_id || null, threadId: data.thread_id || null },
+      }));
     return;
   }
 
   if (data.type === "chat_message") {
-    event.waitUntil(showMessageNotification(data, data.title || "Quazar", {
-      body: data.body || "Новое сообщение", tag: data.tag || `quazar-message-${data.message_id || data.chat_id}`,
-      icon: "/icons/icon-192.png?v=neon-q-2", badge: "/icons/icon-48.png?v=neon-q-2",
-      renotify: false, silent: !!data.silent, data: {kind: "message", chatId: data.chat_id || null},
-    }));
+    // Текст личных сообщений зашифрован — в уведомлении только «Новое сообщение», поэтому пачку
+    // из одного чата показываем одним уведомлением со счётчиком.
+    event.waitUntil(showGroupedMessage(data, data.title || "Quazar", `quazar-chat-${data.chat_id || data.message_id}`,
+      data.message_id ? `quazar-message-${data.message_id}` : null,
+      (count) => (count > 1 ? `Новых сообщений: ${count}` : data.body || "Новое сообщение"), {
+        icon: "/icons/icon-192.png?v=neon-q-2", badge: "/icons/icon-48.png?v=neon-q-2",
+        data: { kind: "message", chatId: data.chat_id || null },
+      }));
     return;
   }
 

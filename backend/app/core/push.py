@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import select
@@ -73,7 +74,9 @@ async def send_push_to_user(user_id: str, payload: dict[str, Any]) -> int:
             if not current or not current.enabled or (payload.get("message_id") and payload["message_id"] in (current.recent_message_ids or [])):
                 return False, None
             subscription_info = {"endpoint": current.endpoint, "keys": {"p256dh": current.p256dh, "auth": current.auth}}
-            body = json.dumps({**payload, "recipient_user_id": user_id,
+            # sent_at: сервис-воркер узнаёт пуши, пролежавшие в очереди, пока браузер был офлайн, —
+            # их показывает тихо и группирует, а не звонит на каждый.
+            body = json.dumps({**payload, "recipient_user_id": user_id, "sent_at": datetime.now(timezone.utc).isoformat(),
                 "silent": not current.sound if payload.get("type") in ("chat_message", "star_message") else False}, ensure_ascii=False)
             try:
                 # Синхронный HTTP SDK не должен останавливать WebSocket и обработку сообщений.

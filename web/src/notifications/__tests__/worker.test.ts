@@ -1,11 +1,17 @@
 import source from "../../../public/sw.js?raw";
-import {expect, it, vi} from "vitest";
+import {afterEach, expect, it, vi} from "vitest";
 
 function worker() {
   const handlers: Record<string, (event: any) => void> = {};
-  const show = vi.fn().mockResolvedValue(undefined), post = vi.fn(), focus = vi.fn().mockResolvedValue(undefined);
+  // Уведомления в системе по тегу: новое с тем же тегом заменяет прежнее.
+  const shown = new Map<string, {title: string; body: string; data: any}>();
+  const show = vi.fn(async (title: string, options: any) => {
+    if (options?.tag) shown.set(options.tag, {title, body: options.body, data: options.data});
+  });
+  const post = vi.fn(), focus = vi.fn().mockResolvedValue(undefined);
+  const getNotifications = async ({tag}: {tag: string}) => (shown.has(tag) ? [shown.get(tag)] : []);
   const self = {addEventListener: (name: string, handler: (event: any) => void) => {handlers[name] = handler;},
-    registration: {scope: "https://quazar-msg.ru/", showNotification: show},
+    registration: {scope: "https://quazar-msg.ru/", showNotification: show, getNotifications},
     clients: {matchAll: vi.fn().mockResolvedValue([{url: "https://quazar-msg.ru/", postMessage: post, focus}])}};
   new Function("self", source)(self);
   const push = async (data: object) => {
@@ -13,7 +19,7 @@ function worker() {
     handlers.push({data: {json: () => data}, waitUntil: (promise: Promise<unknown>) => pending.push(promise)});
     await Promise.all(pending);
   };
-  return {handlers, show, post, focus, push};
+  return {handlers, show, post, focus, push, shown};
 }
 
 it("always displays incoming star push, honors silence and reports the message id", async () => {
@@ -22,7 +28,7 @@ it("always displays incoming star push, honors silence and reports the message i
     tag: "quazar-star-message-m1", recipient_user_id: "me", silent: true};
   await w.push(payload); await w.push(payload);
   expect(w.show).toHaveBeenCalledTimes(2);
-  expect(w.show).toHaveBeenLastCalledWith("Звезда", expect.objectContaining({tag: payload.tag, silent: true, renotify: false,
+  expect(w.show).toHaveBeenLastCalledWith("Звезда", expect.objectContaining({tag: "quazar-star-channel", silent: true, renotify: false,
     data: expect.objectContaining({kind: "star", starId: "star", channelId: "channel", messageId: "m1"})}));
   expect(w.post).toHaveBeenCalledWith({type: "quazar-push-shown", messageId: "m1", userId: "me"});
 });
@@ -31,7 +37,7 @@ it("displays closed-app chat push and opens the correct conversation", async () 
   const w = worker();
   await w.push({type: "chat_message", title: "Боб", body: "Новое сообщение", message_id: "m2", chat_id: "chat", tag: "quazar-message-m2"});
   const options = w.show.mock.calls[0][1];
-  expect(options.data).toEqual({kind: "message", chatId: "chat"});
+  expect(options.data).toEqual({kind: "message", chatId: "chat", count: 1});
   const pending: Promise<unknown>[] = [];
   w.handlers.notificationclick({notification: {data: options.data, close: vi.fn()}, waitUntil: (p: Promise<unknown>) => pending.push(p)});
   await Promise.all(pending);
@@ -66,4 +72,39 @@ it("does not report a diagnostic as displayed if showNotification fails", async 
     await expect(w.push({ type: "connection_test", test_id: "12345678-1234-4321-8123-123456789abc", receipt_secret: "s".repeat(43) })).rejects.toThrow();
     expect(send).not.toHaveBeenCalled();
   } finally { vi.unstubAllGlobals(); }
+});
+
+afterEach(() => vi.useRealTimers());
+
+const chatPush = (id: string, sentAt: string) => ({type: "chat_message", title: "Боб", body: "Новое сообщение", message_id: id,
+  chat_id: "chat", tag: `quazar-message-${id}`, sent_at: sentAt});
+
+it("folds a backlog burst into one notification per chat and rings at most once", async () => {
+  vi.useFakeTimers(); vi.setSystemTime(new Date("2026-11-18T10:00:00Z"));
+  const w = worker();
+  for (let i = 0; i < 10; i++) await w.push(chatPush(`m${i}`, "2026-11-18T09:59:59Z"));
+  await w.push({...chatPush("other", "2026-11-18T09:59:59Z"), chat_id: "chat2", title: "Ева"});
+  const calls = w.show.mock.calls.map(([, options]) => options);
+  expect(new Set(calls.map((o) => o.tag))).toEqual(new Set(["quazar-chat-chat", "quazar-chat-chat2"]));
+  expect(calls.filter((o) => !o.silent)).toHaveLength(1);
+  expect(w.shown.get("quazar-chat-chat")).toMatchObject({body: "Новых сообщений: 10", data: {count: 10}});
+  // Через паузу новое сообщение снова звенит — и заменяет то же уведомление.
+  vi.setSystemTime(new Date("2026-11-18T10:00:10Z"));
+  await w.push(chatPush("m10", "2026-11-18T10:00:10Z"));
+  expect(w.show).toHaveBeenLastCalledWith("Боб", expect.objectContaining({tag: "quazar-chat-chat", silent: false, renotify: true}));
+});
+
+it("shows pushes that waited in the queue silently", async () => {
+  vi.useFakeTimers(); vi.setSystemTime(new Date("2026-11-18T10:00:00Z"));
+  const w = worker();
+  await w.push(chatPush("old", "2026-11-18T07:00:00Z"));
+  expect(w.show).toHaveBeenCalledWith("Боб", expect.objectContaining({silent: true, renotify: false}));
+});
+
+it("does not duplicate a message the open page already notified about", async () => {
+  const w = worker();
+  w.shown.set("quazar-message-m5", {title: "Боб", body: "Новое сообщение", data: {kind: "message", chatId: "chat"}});
+  await w.push(chatPush("m5", new Date().toISOString()));
+  expect(w.shown.has("quazar-chat-chat")).toBe(false);
+  expect(w.show).toHaveBeenCalledWith("Боб", expect.objectContaining({tag: "quazar-message-m5", silent: true}));
 });

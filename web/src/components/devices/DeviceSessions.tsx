@@ -48,11 +48,14 @@ export default function DeviceSessions() {
     finally { setBusy(false); }
   };
   return <section className={settings.card} aria-label="Устройства">
-    <h3 className={settings.sectionTitle}>Устройства</h3>
-    <p className={s.hint}>Войдите на телефоне или компьютере через уже открытый Quazar — без номера и пароля.</p>
-    <div className={s.actions}>
-      <button type="button" className={s.primary} onClick={() => setMode("invite")}>Подключить телефон</button>
-      <button type="button" className={s.secondary} onClick={() => setMode("claim")}>Подключить по QR или коду</button>
+    {/* Шапка — отдельным блоком: обучение подсвечивает её, а не весь (часто длинный) список. */}
+    <div className={settings.cardHead} data-tour="security-devices">
+      <h3 className={settings.sectionTitle}>Устройства</h3>
+      <p className={s.hint}>Войдите на телефоне или компьютере через уже открытый Quazar — без номера и пароля.</p>
+      <div className={s.actions}>
+        <button type="button" className={s.primary} onClick={() => setMode("invite")}>Подключить телефон</button>
+        <button type="button" className={s.secondary} onClick={() => setMode("claim")}>Подключить по QR или коду</button>
+      </div>
     </div>
     {devices.map(device => <div className={s.device} key={device.id}>
       <div className={s.deviceInfo}><strong>{device.name}</strong>

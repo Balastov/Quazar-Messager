@@ -8,6 +8,8 @@ import s from "./Tour.module.css";
 
 /** Сколько ждать, пока элемент шага появится (экран переключается), прежде чем пропустить шаг. */
 const WAIT_TARGET_MS = 1500;
+/** Сколько снизу экрана может закрывать нижнее меню телефона (с полоской «домой»). */
+const BOTTOM_RESERVE_PX = 120;
 
 function safeInsets(): Insets {
   const css = getComputedStyle(document.documentElement);
@@ -64,7 +66,11 @@ export default function TourOverlay() {
         }
       } else {
         if (!scrolled) {
-          el.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+          // Внизу экрана элемент ушёл бы под нижнее меню телефона — небольшой ставим в середину.
+          const r = el.getBoundingClientRect();
+          const clipped = r.top < 0 || r.bottom > window.innerHeight - BOTTOM_RESERVE_PX;
+          const center = clipped && r.height < window.innerHeight / 2;
+          el.scrollIntoView?.({ block: center ? "center" : "nearest", inline: "nearest" });
           scrolled = true;
         }
         const r = el.getBoundingClientRect();

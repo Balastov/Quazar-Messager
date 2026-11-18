@@ -83,6 +83,7 @@ export default function SettingsView() {
           type="button"
           className={`${s.navItem} ${id === "learning" && learningPending ? s.navItemLearn : ""}`}
           data-settings-section={id}
+          data-tour={`settings-${id}`}
           aria-current={!phone && section === id ? "page" : undefined}
           onClick={() => setSection(id)}
         >

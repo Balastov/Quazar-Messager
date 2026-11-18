@@ -4,7 +4,7 @@ import { TOURS } from "../../tour/tours";
 import { useStarsStore } from "../../store/stars";
 import s from "../SettingsView.module.css";
 
-/** «Обучение»: пройти подсказки снова — по главному экрану и по Созвездию. */
+/** «Обучение»: пройти подсказки снова — по главному экрану, Созвездию и настройкам. */
 export default function LearningSection() {
   const progress = useTourStore((st) => st.progress);
   const start = useTourStore((st) => st.start);
@@ -34,10 +34,6 @@ export default function LearningSection() {
           </section>
         );
       })}
-      <section className={s.card}>
-        <h3 className={s.sectionTitle}>Скоро</h3>
-        <p className={s.hint}>Обучение по настройкам — с отдельным рассказом о ключах шифрования.</p>
-      </section>
     </>
   );
 }

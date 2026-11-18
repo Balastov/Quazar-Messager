@@ -27,7 +27,7 @@ export default function SecuritySection() {
 
   return (
     <>
-      <section className={s.card} aria-label="Шифрование переписки">
+      <section className={s.card} aria-label="Шифрование переписки" data-tour="security-e2e">
         <h3 className={s.sectionTitle}>Шифрование переписки</h3>
         <p className={s.hint}>
           Личные сообщения шифруются прямо на ваших устройствах — прочитать их можете только вы и
@@ -60,7 +60,7 @@ export default function SecuritySection() {
       </section>
 
       {ready && (
-        <section className={s.card} aria-label="Восстановление переписки">
+        <section className={s.card} aria-label="Восстановление переписки" data-tour="security-backup">
           <h3 className={s.sectionTitle}>Восстановление переписки</h3>
           <p className={s.hint}>
             Пароль для восстановления пригодится, если все ваши устройства окажутся недоступны.
@@ -122,7 +122,7 @@ export default function SecuritySection() {
 
       <DeviceSessions />
 
-      <section className={s.card}>
+      <section className={s.card} data-tour="security-more">
         <details className={s.details}>
           <summary>Подробнее о ключах шифрования</summary>
           <p className={s.hint}>

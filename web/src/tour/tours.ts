@@ -1,6 +1,7 @@
 import type { TourId } from "../api/tutorials";
 import { useUiStore } from "../store/ui";
 import { useStarsStore } from "../store/stars";
+import { useE2EStore } from "../store/e2e";
 import { isPhoneLayout } from "../navigation/usePhoneLayout";
 import {
   activeStar,
@@ -339,9 +340,92 @@ export const GAME_TOUR: Tour = {
   ],
 };
 
-/** Все обучения — по порядку в «Настройки → Обучение» (и в этом же порядке их предлагаем).
- * Обучение по настройкам появится следом. */
-export const TOURS: Tour[] = [MAIN_TOUR, STARS_TOUR, STAR_TOUR, WORK_TOUR, GAME_TOUR];
+// Список разделов: на компьютере он всегда слева, на телефоне — отдельный экран до входа в раздел.
+const showSettingsList = () => {
+  const ui = useUiStore.getState();
+  if (ui.tab !== "settings") ui.setTab("settings");
+  if (isPhoneLayout()) ui.setSettingsSection(null);
+};
+const openSecurity = () => {
+  if (useUiStore.getState().settingsSection !== "security") useUiStore.getState().openSettings("security");
+};
+const inSettings = () => useUiStore.getState().tab === "settings";
+
+export const SETTINGS_TOUR: Tour = {
+  id: "settings",
+  subject: "настройки Quazar и то, как защищена ваша переписка",
+  title: "Настройки и безопасность",
+  description: "Что где в настройках, как защищены личные сообщения и как открыть переписку на новом устройстве.",
+  inviteTitle: "Показать, что есть в настройках?",
+  offerHere: inSettings,
+  after: "main",
+  steps: [
+    {
+      target: "nav-settings",
+      title: "Настройки",
+      text: "Здесь всё о вашем аккаунте и приложении. Пройдёмся по разделам, а подробнее — о том, как защищена ваша переписка.",
+      prepare: showSettingsList,
+    },
+    {
+      target: "settings-profile",
+      title: "Профиль",
+      text: "Фото, имя и статус — то, что видят о вас другие. Здесь же рабочее время для рабочих Звёзд: вне ваших часов стуки и приглашения придут без звука.",
+      prepare: showSettingsList,
+    },
+    {
+      target: "settings-account",
+      title: "Аккаунт и вход",
+      text: "Номер телефона, способы входа — пароль и Яндекс ID — и выход из аккаунта.",
+      prepare: showSettingsList,
+    },
+    {
+      target: "settings-notifications",
+      title: "Уведомления и звуки",
+      text: "О чём присылать уведомления и с каким звуком. Не приходят уведомления — «Проверка» подскажет, в чём дело. Ниже — «Звонки»: шумоподавление, микрофон и динамики.",
+      prepare: showSettingsList,
+    },
+    {
+      target: "settings-privacy",
+      title: "Конфиденциальность",
+      text: "Кто может найти вас по номеру телефона, показывать ли превью ссылок и кто из ваших контактов уже в Quazar.",
+      prepare: showSettingsList,
+    },
+    {
+      target: "security-e2e",
+      title: "Шифрование переписки",
+      text: "Личные сообщения шифруются прямо на ваших устройствах: прочитать их можете только вы и собеседник — даже Quazar их не видит. Здесь видно, читается ли переписка на этом устройстве.",
+      prepare: openSecurity,
+    },
+    {
+      target: "security-backup",
+      title: "Пароль для восстановления",
+      text: "Вернёт переписку, если все ваши устройства окажутся недоступны: телефон потерялся, компьютер сломался. Это не пароль от аккаунта — придумайте отдельный и сохраните его. Без него старые сообщения на новом устройстве не открыть.",
+      when: () => useE2EStore.getState().status === "ready",
+      prepare: openSecurity,
+    },
+    {
+      target: "security-devices",
+      title: "Устройства",
+      text: "Здесь можно подключить новое устройство — без номера и пароля, а ниже — все устройства, где вы вошли в Quazar. Незнакомое — завершите его сеанс; не уверены — «Завершить остальные сеансы».",
+      prepare: openSecurity,
+    },
+    {
+      target: "security-more",
+      title: "Вход на новом устройстве",
+      text: "Вошли в Quazar на новом телефоне или компьютере — на устройстве, где вы уже в Quazar, появится вопрос «Это вы входите?». Нажмите «Да, это я», а затем то же число, что на новом устройстве, — и переписка откроется. Входите не вы — нажмите «Это не я»: тот вход сразу завершится. Подробнее — здесь.",
+      prepare: openSecurity,
+    },
+    {
+      target: "settings-learning",
+      title: "Обучение",
+      text: "Здесь можно снова пройти любое обучение — по главному экрану, Созвездию и настройкам.",
+      prepare: showSettingsList,
+    },
+  ],
+};
+
+/** Все обучения — по порядку в «Настройки → Обучение» (и в этом же порядке их предлагаем). */
+export const TOURS: Tour[] = [MAIN_TOUR, STARS_TOUR, STAR_TOUR, WORK_TOUR, GAME_TOUR, SETTINGS_TOUR];
 
 /** Можно ли пройти обучение сейчас (есть ли нужная Звезда). */
 export function tourAvailable(tour: Tour): boolean {

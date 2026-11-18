@@ -38,6 +38,13 @@
   font-weight: 700;
 }
 
+/* Шапка карточки отдельным блоком — с теми же отступами, что внутри карточки. */
+.cardHead {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
 .card {
   border-radius: var(--qz-radius);
   border: 1px solid var(--qz-glass-border);

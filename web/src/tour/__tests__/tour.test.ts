@@ -1,9 +1,26 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+// Стор интерфейса сохраняет вкладку и раздел — ему нужен localStorage до импорта.
+const memory = new Map<string, string>();
+vi.stubGlobal("localStorage", { getItem: (k: string) => memory.get(k) ?? null, setItem: (k: string, v: string) => void memory.set(k, v), removeItem: (k: string) => void memory.delete(k) });
+// Хранилище чатов перечитывает список при смене статуса шифрования — сеть здесь ни к чему.
+vi.mock("../../store/chat", async () => {
+  const { create } = await import("zustand");
+  return { useChatStore: create(() => ({})) };
+});
+vi.mock("../../store/e2e", async () => {
+  const { create } = await import("zustand");
+  return { useE2EStore: create(() => ({ status: "idle" })) };
+});
 vi.mock("../../api/tutorials", () => ({ tutorialsApi: { list: vi.fn(), mark: vi.fn() } }));
 const { tutorialsApi } = await import("../../api/tutorials");
 const { useTourStore } = await import("../store");
-const { MAIN_TOUR, stepPosition } = await import("../tours");
+const { MAIN_TOUR, SETTINGS_TOUR, TOURS, stepPosition } = await import("../tours");
+const { useUiStore } = await import("../../store/ui");
+const { useE2EStore } = await import("../../store/e2e");
+const { SETTINGS_SECTIONS } = await import("../../components/settings/sections");
+const { default: securitySource } = await import("../../components/settings/SecuritySection.tsx?raw");
+const { default: devicesSource } = await import("../../components/devices/DeviceSessions.tsx?raw");
 const { findTarget, placeCard, spotlight } = await import("../geometry");
 const { isNewAccount, tourToOffer } = await import("../../components/tour/TourHost");
 
@@ -66,6 +83,38 @@ describe("main tour per layout", () => {
     // На компьютере шага «Контакты» нет: следующий за ним — второй из всех.
     expect(stepPosition(MAIN_TOUR, contacts + 1, false)).toEqual({ n: 2, total: targets(false).length });
     expect(stepPosition(MAIN_TOUR, contacts + 1, true)).toEqual({ n: 3, total: targets(true).length });
+  });
+});
+
+describe("settings tour", () => {
+  it("is offered in settings once the main tour is dealt with", () => {
+    useUiStore.setState({ tab: "chats" });
+    expect(tourToOffer({ main: { state: "done", at: "" } })).toBeNull();
+    useUiStore.setState({ tab: "settings" });
+    expect(tourToOffer({ main: { state: "done", at: "" } })?.id).toBe("settings");
+    expect(tourToOffer({})?.id).toBe("main");
+    expect(TOURS[TOURS.length - 1]).toBe(SETTINGS_TOUR);
+  });
+
+  it("points only at elements that exist", () => {
+    const sections = new Set(SETTINGS_SECTIONS.map((section) => `settings-${section.id}`));
+    const source = securitySource + devicesSource;
+    for (const { target } of SETTINGS_TOUR.steps) {
+      if (target === "nav-settings") continue;
+      if (target.startsWith("settings-")) expect(sections.has(target), target).toBe(true);
+      else expect(source.includes(`data-tour="${target}"`), target).toBe(true);
+    }
+  });
+
+  it("opens Security for its cards and skips the recovery password while chats are not readable here", () => {
+    useUiStore.setState({ tab: "chats", settingsSection: null });
+    const backup = SETTINGS_TOUR.steps.find((step) => step.target === "security-backup")!;
+    SETTINGS_TOUR.steps.find((step) => step.target === "security-e2e")!.prepare!();
+    expect(useUiStore.getState()).toMatchObject({ tab: "settings", settingsSection: "security" });
+    useE2EStore.setState({ status: "needs_restore" });
+    expect(backup.when!()).toBe(false);
+    useE2EStore.setState({ status: "ready" });
+    expect(backup.when!()).toBe(true);
   });
 });
 

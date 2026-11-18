@@ -344,6 +344,9 @@ async def lifespan(app: FastAPI):
         await conn.execute(text("ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS password_reset_at TIMESTAMP WITH TIME ZONE"))
         await conn.execute(text("ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS password_reset_by_id VARCHAR(36) REFERENCES users(id) ON DELETE SET NULL"))
         await conn.execute(text("ALTER TABLE device_sessions ADD COLUMN IF NOT EXISTS e2e_public_key VARCHAR(128)"))
+        # Срок сессии стал скользящим; срок самого токена храним отдельно, чтобы его можно было восстановить.
+        await conn.execute(text("ALTER TABLE device_sessions ADD COLUMN IF NOT EXISTS token_expires_at TIMESTAMP WITH TIME ZONE"))
+        await conn.execute(text("UPDATE device_sessions SET token_expires_at = expires_at WHERE token_expires_at IS NULL"))
         await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS premium_kind VARCHAR(16)"))
         await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS premium_until TIMESTAMP WITH TIME ZONE"))
         # Новости об обновлениях публикуются после одобрения; прежние уже разосланы.

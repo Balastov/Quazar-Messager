@@ -37,19 +37,23 @@ def create_access_token(user_id: str, session_id: str | None = None, *, issued_a
     return jwt.encode(payload, settings.JWT_SECRET, algorithm=settings.JWT_ALGORITHM)
 
 
-def token_claims(token: str) -> dict | None:
+# Срок жизни решает запись сессии в базе (device_sessions.ensure): он сдвигается с каждым заходом.
+# Срок в самом токене проверяется только там, где записи сессии ещё нет.
+_SESSION_OPTIONS = {"verify_exp": False}
+
+
+def token_claims(token: str, *, verify_exp: bool = True) -> dict | None:
     try:
-        return jwt.decode(token, settings.JWT_SECRET, algorithms=[settings.JWT_ALGORITHM])
+        return jwt.decode(token, settings.JWT_SECRET, algorithms=[settings.JWT_ALGORITHM],
+                          options=None if verify_exp else _SESSION_OPTIONS)
     except JWTError:
         return None
 
 
 def decode_token(token: str) -> Optional[str]:
-    try:
-        payload = jwt.decode(token, settings.JWT_SECRET, algorithms=[settings.JWT_ALGORITHM])
-        return payload.get("sub")
-    except JWTError:
-        return None
+    """Владелец токена по подписи. Действует ли сессия — проверяет device_sessions.ensure."""
+    payload = token_claims(token, verify_exp=False)
+    return payload.get("sub") if payload else None
 
 
 def token_is_current(token: str, user) -> bool:
@@ -58,7 +62,7 @@ def token_is_current(token: str, user) -> bool:
     if changed is None:
         return True
     try:
-        claims = jwt.decode(token, settings.JWT_SECRET, algorithms=[settings.JWT_ALGORITHM])
+        claims = jwt.decode(token, settings.JWT_SECRET, algorithms=[settings.JWT_ALGORITHM], options=_SESSION_OPTIONS)
         issued = claims.get("iat")
         return (isinstance(issued, (int, float)) and not isinstance(issued, bool) and math.isfinite(issued)
                 and issued >= changed.timestamp())

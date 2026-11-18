@@ -15,7 +15,7 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.core.push import send_push_to_user
-from app.core.security import create_access_token, token_claims
+from app.core.security import create_access_token
 from app.models.device import DevicePairing, DeviceSession
 from app.models.user import User
 from app.ws.hub import manager
@@ -376,7 +376,8 @@ async def revoke_others(me: Me, device: CurrentDevice, db: Db):
     user.sessions_revoked_at = sessions.now()
     await db.execute(update(DeviceSession).where(DeviceSession.user_id == user.id, DeviceSession.id != row.id, DeviceSession.revoked_at.is_(None)).values(revoked_at=sessions.now()))
     row.issued_at, row.token_jti = sessions.now(), secrets.token_urlsafe(24)
-    token = create_access_token(user.id, row.id, issued_at=row.issued_at, expires_at=row.expires_at, jti=row.token_jti)
+    row.token_expires_at, row.expires_at = sessions.token_deadline(row.issued_at), max(row.expires_at, sessions.idle_deadline())
+    token = create_access_token(user.id, row.id, issued_at=row.issued_at, expires_at=row.token_expires_at, jti=row.token_jti)
     row.token_hash = sessions.digest(token)
     await db.commit()
     await sessions.close_connections(user.id, except_id=row.id)

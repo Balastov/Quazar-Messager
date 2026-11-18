@@ -19,7 +19,10 @@ class DeviceSession(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     issued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    # Сессия завершается после SESSION_IDLE_DAYS без заходов; каждый заход сдвигает срок.
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    # Срок, записанный в самом токене: по нему токен восстанавливается (token_for), сессию он не ограничивает.
+    token_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # Какой ключ переписки устройство сообщило в последний раз (публичный, не секрет);
     # null при e2e_reported_at — сообщило, что ключа аккаунта у него нет.

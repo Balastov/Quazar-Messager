@@ -124,21 +124,61 @@ export const useAuthStore = create<AuthState>()(
         if (state?.token) {
           const token = state.token;
           setAuthToken(token);
-          usersApi
-            .me()
-            .then((user) => {
-              if (useAuthStore.getState().token !== token) return;
-              useAuthStore.setState({ user });
-              afterAuth(token, user.id);
-            })
-            .catch(() => {
-              if (useAuthStore.getState().token === token) state.logout();
-            });
+          // Хранилище читается синхронно, ещё внутри create(): проверяем сессию, когда стор уже готов.
+          void Promise.resolve().then(() => restoreSession(token));
         } else { setNotificationUser(null); void dropPushSubscription(); }
       },
     }
   )
 );
+
+/** Сервер отказал сессии — а не просто не ответил. Только тогда выходим из аккаунта. */
+export function sessionRejected(err: unknown): boolean {
+  return axios.isAxiosError(err) && err.response?.status === 401;
+}
+
+/** Паузы между повторными проверками сессии, пока нет связи с сервером. */
+export const RESTORE_RETRY_MS = [2000, 5000, 10000, 20000, 30000];
+
+/**
+ * Проверяет сохранённую сессию при запуске. Нет сети, телефон только проснулся, сервер
+ * перезапускается — остаёмся в аккаунте и пробуем снова (сразу, как появится сеть или приложение
+ * откроют). Выходим, только если сервер ответил, что сессия завершена.
+ */
+function restoreSession(token: string) {
+  let attempt = 0, inFlight = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const ours = () => useAuthStore.getState().token === token;
+  const stop = () => {
+    clearTimeout(timer);
+    window.removeEventListener("online", retryNow);
+    document.removeEventListener("visibilitychange", onVisible);
+  };
+  const check = async () => {
+    if (!ours()) { stop(); return; }
+    if (inFlight) return;
+    inFlight = true;
+    try {
+      const user = await usersApi.me();
+      stop();
+      if (!ours()) return;
+      useAuthStore.setState({ user });
+      afterAuth(token, user.id);
+    } catch (err) {
+      if (!ours()) { stop(); return; }
+      if (sessionRejected(err)) { stop(); useAuthStore.getState().logout(); return; }
+      clearTimeout(timer);
+      timer = setTimeout(() => void check(), RESTORE_RETRY_MS[Math.min(attempt++, RESTORE_RETRY_MS.length - 1)]);
+    } finally {
+      inFlight = false;
+    }
+  };
+  function retryNow() { clearTimeout(timer); void check(); }
+  function onVisible() { if (document.visibilityState === "visible") retryNow(); }
+  window.addEventListener("online", retryNow);
+  document.addEventListener("visibilitychange", onVisible);
+  void check();
+}
 
 let sessionCheck: ReturnType<typeof setTimeout> | undefined;
 if (typeof window !== "undefined") {
@@ -149,7 +189,12 @@ if (typeof window !== "undefined") {
       if (!token || useAuthStore.getState().token !== token) return;
       void usersApi.me().then(() => {
         if (useAuthStore.getState().token === token) socket.connect(token);
-      }).catch(() => {});
+      }).catch(err => {
+        // На 401 выйдет перехватчик; без связи проверим ещё раз, иначе сокет так и останется закрытым.
+        if (!sessionRejected(err) && useAuthStore.getState().token === token) {
+          window.dispatchEvent(new CustomEvent("quazar-session-check", { detail: { token } }));
+        }
+      });
     }, 5000);
   });
   window.addEventListener("storage", event => {

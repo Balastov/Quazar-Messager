@@ -28,6 +28,16 @@ def cutoff(user: User) -> datetime | None:
     return max((value for value in (user.password_changed_at, user.sessions_revoked_at) if value), default=None)
 
 
+def idle_deadline() -> datetime:
+    """До какого момента сессия живёт без заходов."""
+    return now() + timedelta(days=settings.SESSION_IDLE_DAYS)
+
+
+def token_deadline(issued_at: datetime) -> datetime:
+    """Срок в самом токене — целые секунды, как его хранит JWT."""
+    return (issued_at + timedelta(minutes=settings.JWT_ACCESS_EXPIRE_MINUTES)).replace(microsecond=0)
+
+
 def stamp(user: User) -> str:
     value = cutoff(user)
     epoch = hashlib.sha256((settings.JWT_ALGORITHM + ":" + settings.JWT_SECRET).encode()).hexdigest()[:16]
@@ -41,7 +51,8 @@ def device_name(agent: str) -> str:
 
 
 async def ensure(db: AsyncSession, token: str, user: User, agent: str = "") -> DeviceSession:
-    claims = token_claims(token)
+    # Срок в токене не проверяем: сессия живёт, пока устройством пользуются (см. ниже).
+    claims = token_claims(token, verify_exp=False)
     if not claims or claims.get("sub") != user.id or not token_is_current(token, user):
         raise HTTPException(status_code=401, detail="Сессия завершена. Войдите снова")
     try:
@@ -55,15 +66,21 @@ async def ensure(db: AsyncSession, token: str, user: User, agent: str = "") -> D
     sid = claims.get("sid")
     row = (await db.execute(select(DeviceSession).where(DeviceSession.token_hash == token_hash).execution_options(populate_existing=True))).scalar_one_or_none()
     if row is None and not sid:
+        # Токен без записи сессии (вход паролем, Яндексом…) регистрируется, только пока не истёк сам.
+        if expires_at <= now():
+            raise HTTPException(status_code=401, detail="Сессия завершена. Войдите снова")
         await db.execute(insert(DeviceSession).values(id=str(uuid.uuid4()), user_id=user.id, token_hash=token_hash,
-            name=device_name(agent[:1024]), created_at=issued_at, issued_at=issued_at, last_seen_at=now(), expires_at=expires_at)
+            name=device_name(agent[:1024]), created_at=issued_at, issued_at=issued_at, last_seen_at=now(),
+            expires_at=idle_deadline(), token_expires_at=expires_at)
             .on_conflict_do_nothing(index_elements=[DeviceSession.token_hash]))
         await db.commit()
         row = (await db.execute(select(DeviceSession).where(DeviceSession.token_hash == token_hash))).scalar_one()
     if row is None or row.user_id != user.id or (sid and row.id != sid) or row.revoked_at or row.expires_at <= now():
         raise HTTPException(status_code=401, detail="Сессия завершена. Войдите снова")
     if row.last_seen_at < now() - timedelta(minutes=1):
+        # Заход продлевает сессию: выйти придётся, только если устройством не пользовались SESSION_IDLE_DAYS.
         row.last_seen_at = now()
+        row.expires_at = max(row.expires_at, idle_deadline())
         await db.commit()
     return row
 
@@ -71,14 +88,13 @@ async def ensure(db: AsyncSession, token: str, user: User, agent: str = "") -> D
 async def create(db: AsyncSession, user: User, name: str, expires_at: datetime | None = None) -> tuple[DeviceSession, str]:
     sid = str(uuid.uuid4())
     issued_at = now()
-    expires_at = min(expires_at or issued_at + timedelta(minutes=settings.JWT_ACCESS_EXPIRE_MINUTES),
-                     issued_at + timedelta(minutes=settings.JWT_ACCESS_EXPIRE_MINUTES))
+    expires_at = min(expires_at or idle_deadline(), idle_deadline())
     jti = secrets.token_urlsafe(24)
-    token = create_access_token(user.id, sid, issued_at=issued_at, expires_at=expires_at, jti=jti)
+    token = create_access_token(user.id, sid, issued_at=issued_at, expires_at=token_deadline(issued_at), jti=jti)
     claims = token_claims(token)
     row = DeviceSession(id=sid, user_id=user.id, token_hash=digest(token), token_jti=jti, name=name,
         created_at=now(), issued_at=datetime.fromtimestamp(claims["iat"], timezone.utc), last_seen_at=now(),
-        expires_at=datetime.fromtimestamp(claims["exp"], timezone.utc))
+        expires_at=expires_at, token_expires_at=datetime.fromtimestamp(claims["exp"], timezone.utc))
     db.add(row)
     return row, token
 
@@ -86,7 +102,8 @@ async def create(db: AsyncSession, user: User, name: str, expires_at: datetime |
 def token_for(row: DeviceSession) -> str:
     if not row.token_jti:
         raise HTTPException(status_code=410, detail="Подключение больше недоступно")
-    token = create_access_token(row.user_id, row.id, issued_at=row.issued_at, expires_at=row.expires_at, jti=row.token_jti)
+    token = create_access_token(row.user_id, row.id, issued_at=row.issued_at,
+                                expires_at=row.token_expires_at or row.expires_at, jti=row.token_jti)
     if digest(token) != row.token_hash:
         raise HTTPException(status_code=410, detail="Подключение больше недоступно")
     return token

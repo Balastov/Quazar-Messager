@@ -9,7 +9,9 @@ class Settings(BaseSettings):
 
     JWT_SECRET: str = "change-me-in-production"
     JWT_ALGORITHM: str = "HS256"
-    JWT_ACCESS_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7 дней
+    JWT_ACCESS_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7 дней — успеть зарегистрировать токен без записи сессии
+    # Сессия устройства живёт, пока им пользуются: каждый заход сдвигает срок на столько дней вперёд.
+    SESSION_IDLE_DAYS: int = 60
 
     # Comma-separated origins. Use "*" only for local/dev.
     CORS_ORIGINS: str = "*"

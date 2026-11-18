@@ -45,6 +45,11 @@ class DevicePairing(Base):
     security_stamp: Mapped[str] = mapped_column(String(64), nullable=False, default="")
     device_name: Mapped[str] = mapped_column(String(160), nullable=False)
     encrypted_keys: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    # Сверка числом (запрос ключей): новое устройство заранее фиксирует случайное число хэшем,
+    # подтверждающее присылает своё, и лишь потом новое раскрывает своё — подобрать совпадение нельзя.
+    commitment: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    approver_nonce: Mapped[str | None] = mapped_column(String(44), nullable=True)
+    receiver_nonce: Mapped[str | None] = mapped_column(String(44), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

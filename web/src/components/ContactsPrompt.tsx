@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useContactsStore } from "../store/contacts";
+import { useE2EStore } from "../store/e2e";
 import { isMobileDevice } from "../utils/device";
 import ContactsImport from "./ContactsImport";
 import s from "./ContactsPrompt.module.css";
@@ -34,11 +35,13 @@ export default function ContactsPrompt() {
   // Решаем один раз, когда пришёл список: уже загружали контакты (например, с другого
   // телефона) — не спрашиваем. Импорт в этом окне тоже задаёт syncedAt, но окно не закрывает.
   const [alreadyHad, setAlreadyHad] = useState<boolean | null>(null);
+  // Сначала — открыть переписку (окно «Откройте переписку»): одно окно за раз.
+  const restoring = useE2EStore((st) => st.status === "needs_restore" && st.restorePromptOpen);
   useEffect(() => {
     if (loaded && alreadyHad === null) setAlreadyHad(!!syncedAt);
   }, [loaded, syncedAt, alreadyHad]);
 
-  if (!open || alreadyHad !== false) return null;
+  if (!open || alreadyHad !== false || restoring) return null;
 
   const close = () => {
     markAsked();

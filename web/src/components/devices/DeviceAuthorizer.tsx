@@ -5,6 +5,7 @@ import { inspectTransfer, pairKeys, sealDeviceKeys, type PairKeys } from "../../
 import { useAuthStore } from "../../store/auth";
 import { apiErrorText } from "../../utils/profile";
 import DeviceQrScanner from "./DeviceQrScanner";
+import { KeyNumberApproval, type KeyOutcome } from "./KeyNumberApproval";
 import { PairAccount, PairCode, PairExpiry, PairQr, usePairLifetime } from "./PairWidgets";
 import s from "./Pairing.module.css";
 
@@ -31,6 +32,13 @@ function Approval({ flow, keys, onChange }: { flow: PairView; keys: PairKeys; on
     finally { setBusy(false); }
   };
   const keysOnly = flow.kind === "keys";
+  const [outcome, setOutcome] = useState<KeyOutcome | null>(null);
+  if (keysOnly && flow.commitment) {
+    if (outcome === "mismatch") return <p className={s.hint} role="status">Число не совпало, запрос отменён. Если это вы — начните заново на новом устройстве.</p>;
+    if (outcome === "denied") return <p className={s.hint} role="status">Мы завершили вход на «{flow.device_name}». Никому не сообщайте коды из сообщений Quazar.</p>;
+    if (outcome === "done") return <p className={s.hint} role="status">Готово. На «{flow.device_name}» переписка откроется через пару секунд.</p>;
+    return <KeyNumberApproval flow={flow} keys={keys} onChange={onChange} onOutcome={setOutcome} />;
+  }
   if (keysOnly && ["approved", "consumed"].includes(flow.state)) return <p className={s.hint} role="status">Ключи переданы. На устройстве «{flow.device_name}» переписка откроется через несколько секунд.</p>;
   if (flow.state === "consumed") return <p className={s.hint} role="status">Устройство подключено. Его можно найти в списке устройств.</p>;
   if (flow.state === "approved") return <p className={s.hint} role="status">Подключение разрешено. Завершите вход на новом устройстве.</p>;
@@ -99,7 +107,7 @@ export function DeviceAuthorizer({ link }: { link?: Extract<DeviceLink, { kind: 
   };
   return <div className={s.stack}>
     {flow ? <><Approval flow={flow} keys={keys} onChange={accept} /><PairExpiry flow={flow} /></> : link ? <p className={s.hint}>Открываем запрос подключения…</p> : <>
-      <p className={s.hint}>На новом устройстве откройте «Войти по QR-коду», затем отсканируйте его QR или введите код. Так же передаются ключи переписки устройству, где вы уже вошли: код показан в его окне «Восстановите ключи шифрования».</p>
+      <p className={s.hint}>На новом устройстве откройте «Войти по QR-коду», затем отсканируйте его QR или введите код.</p>
       <button type="button" className={s.secondary} onClick={() => setScan(value => !value)}>{scan ? "Закрыть камеру" : "Сканировать QR-код"}</button>
       {scan && <DeviceQrScanner onScan={value => {
         const parsed = parseDeviceLink(value);

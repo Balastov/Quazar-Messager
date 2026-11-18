@@ -46,17 +46,37 @@ async function click(win, label) {
     if (!el) return false; el.scrollIntoView({block:'center'}); el.click(); return true;
   })()`), 'button ' + label);
 }
-async function code(win) {
+// Число на новом устройстве и такое же — нажатием на старом (там три числа на выбор).
+async function shownNumber(win) {
   return until(async () => {
-    const value = await js(win, "document.querySelector('[aria-label=\"Код сравнения\"]')?.textContent?.replace(/\\s/g,'')");
-    return /^[A-F0-9]{16}$/.test(value ?? '') ? value : false;
-  }, 'comparison code');
+    const value = await js(win, "document.querySelector('[aria-label=\"Число для подтверждения\"]')?.textContent");
+    return /^\d{2}$/.test(value ?? '') ? value : false;
+  }, 'number on the new device');
 }
-async function confirmAndPass(source, target) {
-  assert.equal(await code(source), await code(target));
-  await js(source, "(() => { const label=[...document.querySelectorAll('label')].find(el=>el.textContent.includes('Код на обоих устройствах совпадает'));label.querySelector('input').click(); })()");
-  await click(source, 'Передать ключи');
-  await until(async () => (await text(source)).includes('Ключи переданы'), 'source confirms transfer');
+async function choices(win) {
+  return until(async () => {
+    const values = await js(win, "[...document.querySelectorAll('[aria-label=\"Число с нового устройства\"] button')].map(el => el.textContent)");
+    return values.length === 3 ? values : false;
+  }, 'three numbers on the old device');
+}
+async function confirmAndPass(source, target, { wrongFirst = false } = {}) {
+  await until(async () => (await text(source)).includes('Это вы входите?'), 'question on the source');
+  await click(source, 'Да, это я');
+  let number = await shownNumber(target);
+  if (wrongFirst) {
+    // Неверное число отменяет запрос; новое устройство предлагает отправить его снова.
+    await click(source, (await choices(source)).find(value => value !== number));
+    await until(async () => (await text(source)).includes('Число не совпало'), 'mismatch on the source');
+    await click(source, 'Понятно');
+    await until(async () => (await text(target)).includes('Запрос отменён на другом устройстве'), 'mismatch on the target');
+    await click(target, 'Отправить запрос снова');
+    await until(async () => (await text(source)).includes('Это вы входите?'), 'question again');
+    await click(source, 'Да, это я');
+    number = await shownNumber(target);
+  }
+  assert.ok((await choices(source)).includes(number));
+  await click(source, number);
+  await until(async () => (await text(source)).includes('переписка откроется через пару секунд'), 'source confirms transfer');
 }
 // Ключ в IndexedDB этого браузера, совпадающий с ключом аккаунта на сервере, и хэш токена (сессия не менялась).
 async function proof(win) {
@@ -78,37 +98,24 @@ app.whenReady().then(async () => {
   const source = await make('source', bootstrap.token);
   const original = await until(() => proof(source), 'initial account key');
 
-  // 1. Второй вход без ключа: окно восстановления, запрос с другого устройства, всплывающее предложение.
+  // 1. Второй вход без ключа: запрос уходит сам, на старом устройстве — «Это вы входите?» и число.
   const desktop = await make('desktop', bootstrap.extra_tokens[0]);
-  await until(async () => (await text(desktop)).includes('Восстановите ключи шифрования'), 'restore dialog');
-  await click(desktop, 'Получить ключи с другого устройства');
-  await until(() => js(desktop, "/^[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(document.querySelector('[aria-label=\"Одноразовый код\"]')?.textContent ?? '')"), 'one-time code');
-  await until(async () => (await text(source)).includes('просит ключи шифрования'), 'key request banner on the source');
-  await click(source, 'Передать ключи');
+  await until(async () => (await text(desktop)).includes('Откройте переписку на этом устройстве'), 'restore dialog');
   await confirmAndPass(source, desktop);
   const received = await until(() => proof(desktop), 'desktop key import');
   assert.equal(received.seed, original.seed);
   assert.equal(received.token, bootstrap.extra_tokens[0]);
-  await until(async () => !(await text(desktop)).includes('Восстановите ключи шифрования'), 'restore dialog closes');
-  console.log('KEY_E2E_PROMPT_OK: signed-in device got the account key without signing out');
-  await js(source, "document.querySelector('[role=dialog] [aria-label=\"Закрыть\"]')?.click()");
+  await until(async () => !(await text(desktop)).includes('Откройте переписку на этом устройстве'), 'restore dialog closes');
+  console.log('KEY_E2E_PROMPT_OK: signed-in device got the account key by tapping the matching number');
 
-  // 2. Тот же перенос по одноразовому коду из настроек — без всплывающего предложения.
+  // 2. Цепочкой с только что подключённого устройства; сначала — неверное число.
   const laptop = await make('laptop', bootstrap.extra_tokens[1]);
-  await until(async () => (await text(laptop)).includes('Восстановите ключи шифрования'), 'second restore dialog');
-  await click(laptop, 'Получить ключи с другого устройства');
-  const short = await until(() => js(laptop, "document.querySelector('[aria-label=\"Одноразовый код\"]')?.textContent"), 'second one-time code');
-  await until(async () => (await text(desktop)).includes('просит ключи шифрования'), 'banner reaches the newly keyed device');
-  await click(desktop, 'Настройки');
-  await until(() => js(desktop, `(() => { if (document.querySelector('section[aria-label="Устройства"]')) return true; const el = [...document.querySelectorAll('[data-settings-section="security"]')].find(node => node.getClientRects().length); el?.click(); return false; })()`), 'device settings');
-  await click(desktop, 'Подключить по QR или коду');
-  await js(desktop, `(() => { const input=document.querySelector('[role=dialog] [aria-label="Одноразовый код"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,${JSON.stringify(short)});input.dispatchEvent(new Event('input',{bubbles:true})); })()`);
-  await click(desktop, 'Продолжить');
-  await confirmAndPass(desktop, laptop);
+  await until(async () => (await text(laptop)).includes('Откройте переписку на этом устройстве'), 'second restore dialog');
+  await confirmAndPass(desktop, laptop, { wrongFirst: true });
   const chained = await until(() => proof(laptop), 'laptop key import');
   assert.equal(chained.seed, original.seed);
   assert.equal(chained.token, bootstrap.extra_tokens[1]);
-  console.log('KEY_E2E_CODE_OK: key passed on by one-time code from settings');
+  console.log('KEY_E2E_CHAIN_OK: a wrong number cancels, the retry passes the key on');
 
   // 3. Сервер знает, где ключ: все устройства сообщили, что он у них есть.
   const devices = `fetch('/api/auth/devices',{headers:{Authorization:'Bearer '+JSON.parse(localStorage.getItem('quazar-auth')).state.token}}).then(r=>r.json())`;

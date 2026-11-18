@@ -1,3 +1,4 @@
+import { forgetLoginMethod } from "../auth/loginVia";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import axios from "axios";
@@ -106,6 +107,7 @@ export const useAuthStore = create<AuthState>()(
         socket.disconnect();
         void import("./call").then(({ useCallStore }) => useCallStore.getState().hangup()).catch(() => {});
         useE2EStore.getState().reset();
+        forgetLoginMethod();
         void useVoiceStore.getState().leave();
         useDoorsStore.getState().reset();
         useStarsStore.getState().reset();

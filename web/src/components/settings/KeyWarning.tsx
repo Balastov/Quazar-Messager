@@ -44,12 +44,12 @@ export default function KeyWarning() {
   const missing = useE2EStore((st) => st.status === "needs_restore");
   if (!missing) return null;
   return (
-    <section className={s.keyWarning} role="alert" aria-label="Нет ключей шифрования">
+    <section className={s.keyWarning} role="alert" aria-label="Переписка не читается">
       <ShieldAlert size={22} className={s.keyWarningIcon} aria-hidden />
       <div className={s.keyWarningBody}>
-        <div className={s.keyWarningTitle}>На этом устройстве нет ключей шифрования</div>
+        <div className={s.keyWarningTitle}>Личные сообщения на этом устройстве пока не читаются</div>
         <p className={base.hint}>
-          Личные сообщения здесь не открываются и не отправляются. Остальное работает как обычно.
+          Подтвердите вход на другом своём устройстве — и переписка откроется. Остальное работает как обычно.
         </p>
         <div className={base.rowBtns}>
           <button
@@ -57,7 +57,7 @@ export default function KeyWarning() {
             className={base.primary}
             onClick={() => useE2EStore.getState().setRestorePromptOpen(true)}
           >
-            Восстановить ключи
+            Открыть переписку
           </button>
           <KeyHelpButton />
         </div>

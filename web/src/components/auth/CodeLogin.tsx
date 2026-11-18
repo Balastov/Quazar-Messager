@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { authApi, type CodeLoginStart } from "../../api/auth";
 import { apiErrorText } from "../../utils/profile";
+import { markLoginByCode } from "../../auth/loginVia";
 import { CODE_LENGTH, normalizeCode, secondsUntil } from "./loginCode";
 import settings from "../SettingsView.module.css";
 import s from "./CodeLogin.module.css";
@@ -45,6 +46,8 @@ export default function CodeLogin({ phone, disabled = false, onToken }: {
     setBusy(true); setError("");
     try {
       const { access_token } = await authApi.codeLoginComplete(attempt.login_token, value);
+      // Окно «Откройте переписку» подскажет подтвердить вход там, куда пришёл код.
+      markLoginByCode();
       await onToken(access_token);
     } catch (err) {
       setError(apiErrorText(err, "Не удалось войти"));

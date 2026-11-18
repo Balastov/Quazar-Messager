@@ -1,5 +1,6 @@
 import axios from "axios";
 import { http } from "./client";
+import type { WsEvent } from "./types";
 
 const anonymous = axios.create({ baseURL: "/api" });
 
@@ -13,6 +14,8 @@ export interface PairView {
   receiver_public_key: string | null; approver_public_key: string | null; account_public_key: string | null;
   account: { id: string; username: string; display_name: string; avatar_url: string | null } | null;
   device_name: string; created_at: string; expires_at: string; transferred_keys: boolean;
+  /** Сверка числом (запрос ключей): хэш числа нового устройства и сами числа, когда их раскрыли. */
+  commitment?: string | null; approver_nonce?: string | null; receiver_nonce?: string | null;
 }
 export interface EncryptedDeviceKeys { nonce: string; ciphertext: string }
 export interface ReceiverRequest { public_key: string; receiver_secret: string; device_name: string }
@@ -28,7 +31,15 @@ export const devicesApi = {
   revokeOthers: () => http.delete<{ access_token: string }>("/auth/devices/others").then(r => r.data),
   create: (body: ReceiverRequest) => anonymous.post<{ request: PairView; code: string }>(`${base}/requests`, body).then(r => r.data),
   /** Это устройство уже вошло, но без ключа переписки: просим его у другого своего устройства. */
-  requestKeys: (body: ReceiverRequest) => http.post<{ request: PairView; code: string }>(`${base}/key-requests`, body).then(r => r.data),
+  requestKeys: (body: ReceiverRequest & { commitment?: string }) => http.post<{ request: PairView; code: string }>(`${base}/key-requests`, body).then(r => r.data),
+  /** Запросы ключей от других моих устройств, ещё никем не занятые: приложение только что открыли. */
+  pendingKeyRequests: () => http.get<Extract<WsEvent, { type: "device_key_request" }>[]>(`${base}/key-requests/pending`).then(r => r.data),
+  /** Подтверждающее устройство присылает своё случайное число. */
+  approverNonce: (id: string, nonce: string) => http.post<PairView>(`${base}/owned/${id}/nonce`, { nonce }).then(r => r.data),
+  /** Новое устройство раскрывает своё число — после того как увидело число подтверждающего. */
+  reveal: (id: string, receiver_secret: string, nonce: string) => http.post<PairView>(`${base}/key-requests/${id}/reveal`, { receiver_secret, nonce }).then(r => r.data),
+  /** «Это не я»: отклонить запрос и завершить сеанс, который просил ключи. */
+  deny: (id: string) => http.post(`${base}/key-requests/${id}/deny`),
   consumeKeys: (id: string, receiver_secret: string) => http.post<KeyConsumption>(`${base}/key-requests/${id}/consume`, { receiver_secret }).then(r => r.data),
   invite: (public_key: string) => http.post<{ request: PairView; invite_secret: string }>(`${base}/invitations`, { public_key }).then(r => r.data),
   accept: (id: string, body: ReceiverRequest & { invite_secret: string; expected_key: string }) => anonymous.post<PairView>(`${base}/invitations/${id}/accept`, body).then(r => r.data),

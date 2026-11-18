@@ -57,14 +57,14 @@ it("shows sections side by side on a computer and remembers the open one", async
   expect(text()).toContain("content:Profile");
   expect(section("profile").getAttribute("aria-current")).toBe("page");
   // Нет ключа — предупреждение видно над разделом, а у «Безопасности» красная точка.
-  expect(text()).toContain("На этом устройстве нет ключей шифрования");
-  expect(section("security").querySelector('[aria-label="Нет ключей шифрования"]')).not.toBeNull();
+  expect(text()).toContain("Личные сообщения на этом устройстве пока не читаются");
+  expect(section("security").querySelector('[aria-label="Переписка не читается"]')).not.toBeNull();
   await act(async () => Simulate.click(section("security")));
   expect(text()).toContain("content:Security");
   expect(text()).not.toContain("content:Profile");
   expect(useUiStore.getState().settingsSection).toBe("security");
   // В самой «Безопасности» о ключе говорит её карточка — без повтора сверху.
-  expect(text()).not.toContain("На этом устройстве нет ключей шифрования");
+  expect(text()).not.toContain("Подтвердите вход на другом своём устройстве — и переписка откроется");
 });
 
 it("opens a section as its own screen on a phone and goes back to the list", async () => {
@@ -88,7 +88,9 @@ it("opens plain-language help from the missing key warning", async () => {
   const dialog = document.querySelector('[role="dialog"]')!;
   expect(dialog.textContent).toContain("Зачем нужны ключи");
   expect(dialog.textContent).toContain("группы, Звёзды и Планеты, звонки");
-  await act(async () => Simulate.click(button("Открыть восстановление ключей")!));
+  // Та же кнопка есть и в предупреждении под окном — нажимаем ту, что в справке.
+  const open = [...dialog.querySelectorAll("button")].find((node) => node.textContent === "Открыть переписку")!;
+  await act(async () => Simulate.click(open));
   expect(e2e.setRestorePromptOpen).toHaveBeenCalledWith(true);
   expect(document.querySelector('[role="dialog"]')).toBeNull();
 });
@@ -121,7 +123,7 @@ it("does not promise a way out when there is neither a backup nor another device
   await act(async () => root.render(createElement(KeyHelp)));
   await flush();
   expect(text()).not.toContain("Ваш вариант");
-  expect(text()).toContain("Копии на сервере нет");
+  expect(text()).toContain("копии на сервере нет");
   expect(text()).toContain("Если ключа нет нигде");
 });
 
@@ -136,7 +138,7 @@ it("only explains encryption when the key is here", async () => {
   e2e.status = "ready";
   await act(async () => root.render(createElement(KeyHelp)));
   expect(text()).toContain("На этом устройстве ключ есть");
-  expect(text()).toContain("Резервной копии пока нет");
+  expect(text()).toContain("Пароль для восстановления не задан");
   expect(text()).not.toContain("Что делать");
 });
 
@@ -165,7 +167,7 @@ it("warns before wiping the only copy of the key and wipes on request", async ()
   await flush();
   const box = document.querySelector<HTMLInputElement>('[role="dialog"] input[type="checkbox"]')!;
   await act(async () => Simulate.change(box, { target: { checked: true } } as never));
-  expect(text()).toContain("Ключ есть только на этом устройстве, а резервной копии нет");
+  expect(text()).toContain("Ключ есть только на этом устройстве, а пароль для восстановления не задан");
   await act(async () => Simulate.click(button("Удалить ключи и выйти")!));
   expect(logoutAndForgetDevice).toHaveBeenCalledWith("alice");
   expect(auth.logout).not.toHaveBeenCalled();

@@ -1,4 +1,5 @@
 from datetime import datetime
+import asyncio
 import base64
 import ipaddress
 import secrets
@@ -13,6 +14,7 @@ from app.core import device_pairing as pairing, device_sessions as sessions
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.deps import get_current_user
+from app.core.push import send_push_to_user
 from app.core.security import create_access_token, token_claims
 from app.models.device import DevicePairing, DeviceSession
 from app.models.user import User
@@ -65,6 +67,23 @@ class ReceiverBody(KeyBody):
         if not value or any(ord(ch) < 32 or ch in "\u2028\u2029" for ch in value):
             raise ValueError("Укажите название устройства одной строкой")
         return value
+
+
+class KeyRequestBody(ReceiverBody):
+    # Хэш случайного числа нового устройства (сверка числом); без него — прежняя сверка кодом.
+    commitment: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+
+
+class NonceBody(BaseModel):
+    nonce: str = Field(min_length=44, max_length=44)
+    @field_validator("nonce")
+    @classmethod
+    def valid(cls, value: str):
+        return pairing.validate_nonce(value)
+
+
+class RevealBody(NonceBody):
+    receiver_secret: str = Field(pattern=r"^[A-Za-z0-9_-]{43}$")
 
 
 class InviteAccept(ReceiverBody):
@@ -128,6 +147,9 @@ class PairView(BaseModel):
     created_at: datetime
     expires_at: datetime
     transferred_keys: bool
+    commitment: str | None = None
+    approver_nonce: str | None = None
+    receiver_nonce: str | None = None
 
 
 async def view(db: AsyncSession, row: DevicePairing) -> PairView:
@@ -136,7 +158,8 @@ async def view(db: AsyncSession, row: DevicePairing) -> PairView:
     return PairView(id=row.id, kind=row.kind, state=state, receiver_public_key=row.receiver_public_key,
         approver_public_key=row.approver_public_key, account_public_key=row.account_public_key,
         account=PairAccount(id=user.id, username=user.username, display_name=user.display_name, avatar_url=user.avatar_url) if user else None,
-        device_name=row.device_name, created_at=row.created_at, expires_at=row.expires_at, transferred_keys=bool(row.encrypted_keys))
+        device_name=row.device_name, created_at=row.created_at, expires_at=row.expires_at, transferred_keys=bool(row.encrypted_keys),
+        commitment=row.commitment, approver_nonce=row.approver_nonce, receiver_nonce=row.receiver_nonce)
 
 
 @router.post("/device-pairing/requests")
@@ -152,14 +175,68 @@ async def key_request_closed(row: DevicePairing) -> None:
         await manager.send_to_user(row.user_id, {"type": "device_key_request_closed", "id": row.id})
 
 
+def key_request_event(row: DevicePairing) -> dict:
+    return {"type": "device_key_request", "id": row.id, "receiver_public_key": row.receiver_public_key,
+        "commitment": row.commitment, "device_name": row.device_name, "created_at": row.created_at.isoformat(),
+        "expires_at": row.expires_at.isoformat()}
+
+
+async def key_request_changed(row: DevicePairing) -> None:
+    """Оба устройства ждут друг друга — подталкиваем их проверить запрос сразу, а не на следующем опросе."""
+    await manager.send_to_user(row.user_id, {"type": "device_key_request_changed", "id": row.id})
+
+
+_push_tasks: set[asyncio.Task] = set()
+
+
+def push_key_request(row: DevicePairing) -> None:
+    # Закрытое приложение на телефоне узнает о входе из уведомления; открытое покажет вопрос само.
+    task = asyncio.create_task(send_push_to_user(row.user_id, {"type": "device_key_request", "request_id": row.id,
+        "title": "Вход в Quazar на новом устройстве", "body": f"{row.device_name}. Откройте Quazar, чтобы подтвердить, что это вы.",
+        "ttl": int((row.expires_at - pairing.now()).total_seconds())}))
+    _push_tasks.add(task)
+    task.add_done_callback(_push_tasks.discard)
+
+
 @router.post("/device-pairing/key-requests")
-async def start_key_request(body: ReceiverBody, me: Me, device: CurrentDevice, db: Db):
+async def start_key_request(body: KeyRequestBody, me: Me, device: CurrentDevice, db: Db):
     await pairing.rate_limit(db, "keys", me.id)
-    row, code = await pairing.start_key_request(db, me.id, device.id, body.public_key, body.receiver_secret, body.device_name)
-    # Другие открытые устройства сразу предложат передать ключ. Код сравнения всё равно сверяют глазами.
-    await manager.send_to_user(me.id, {"type": "device_key_request", "id": row.id, "receiver_public_key": row.receiver_public_key,
-        "device_name": row.device_name, "expires_at": row.expires_at.isoformat()})
+    superseded = await pairing.supersede_key_requests(db, device.id)
+    row, code = await pairing.start_key_request(db, me.id, device.id, body.public_key, body.receiver_secret, body.device_name,
+        body.commitment)
+    for old_id in superseded:
+        await manager.send_to_user(me.id, {"type": "device_key_request_closed", "id": old_id})
+    # Другие открытые устройства сразу спросят «Это вы входите?». Число всё равно сверяют глазами.
+    await manager.send_to_user(me.id, key_request_event(row))
+    push_key_request(row)
     return {"request": await view(db, row), "code": code}
+
+
+@router.get("/device-pairing/key-requests/pending")
+async def pending_key_requests(me: Me, device: CurrentDevice, db: Db):
+    return [key_request_event(row) for row in await pairing.pending_key_requests(db, me.id, device.id)]
+
+
+@router.post("/device-pairing/owned/{pair_id}/nonce", response_model=PairView)
+async def approver_nonce(pair_id: str, body: NonceBody, me: Me, device: CurrentDevice, db: Db):
+    row = await pairing.approver_nonce(db, pair_id, me.id, device.id, body.nonce)
+    await key_request_changed(row)
+    return await view(db, row)
+
+
+@router.post("/device-pairing/key-requests/{pair_id}/reveal", response_model=PairView)
+async def reveal(pair_id: str, body: RevealBody, me: Me, device: CurrentDevice, db: Db):
+    row = await pairing.reveal(db, pair_id, body.receiver_secret, me.id, device.id, body.nonce)
+    await key_request_changed(row)
+    return await view(db, row)
+
+
+@router.post("/device-pairing/key-requests/{pair_id}/deny", status_code=204)
+async def deny(pair_id: str, me: Me, device: CurrentDevice, db: Db):
+    row = await pairing.deny(db, pair_id, me.id, device.id)
+    await key_request_closed(row)
+    if row.target_session_id:
+        await sessions.close_connections(me.id, row.target_session_id)
 
 
 @router.post("/device-pairing/key-requests/{pair_id}/consume")
@@ -209,6 +286,8 @@ async def owned(pair_id: str, me: Me, device: CurrentDevice, db: Db):
 async def approve(pair_id: str, body: ApproveBody, me: Me, device: CurrentDevice, db: Db):
     row = await pairing.approve(db, pair_id, me.id, device.id, body.binding,
         body.encrypted_keys.model_dump() if body.encrypted_keys else None, body.allow_without_keys)
+    if row.kind == "keys":
+        await key_request_changed(row)
     return await view(db, row)
 
 
@@ -238,6 +317,8 @@ async def reject(pair_id: str, me: Me, device: CurrentDevice, db: Db):
         raise HTTPException(status_code=409, detail="Устройство уже подключено. Завершите его сессию в настройках")
     row.state, row.encrypted_keys = "rejected", None
     await db.commit()
+    if row.kind == "keys":
+        await key_request_changed(row)
 
 
 class SessionOut(BaseModel):

@@ -67,9 +67,13 @@ export type WsEvent =
   | { type: "message_read_ack"; message_ids: string[] }
   | { type: "key_changed"; user_id: string; public_key: string; updated_at: string }
   /** Моё другое устройство уже вошло, но просит ключ переписки. */
-  | { type: "device_key_request"; id: string; receiver_public_key: string; device_name: string; expires_at: string }
+  | { type: "device_key_request"; id: string; receiver_public_key: string; device_name: string; expires_at: string;
+      /** Хэш числа нового устройства (сверка числом); null — старая версия со сверкой кодом. */
+      commitment?: string | null; created_at?: string }
   /** Запрос ключей занят другим экраном или отменён. */
   | { type: "device_key_request_closed"; id: string }
+  /** Второе устройство ответило по запросу ключей — пора проверить его, не дожидаясь опроса. */
+  | { type: "device_key_request_changed"; id: string }
   /** Собеседник (или я на другом устройстве) сменил имя или никнейм. */
   | { type: "user_updated"; user: User }
   | {

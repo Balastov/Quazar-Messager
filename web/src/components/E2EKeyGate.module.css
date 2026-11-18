@@ -263,3 +263,16 @@
 .more[open] summary {
   margin-bottom: 6px;
 }
+
+.links {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px 18px;
+  font-size: 13px;
+}
+
+.panel > .link {
+  align-self: center;
+  font-size: 13px;
+}

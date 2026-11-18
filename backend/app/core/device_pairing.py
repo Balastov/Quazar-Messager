@@ -19,7 +19,7 @@ from app.models.user import User
 
 TTL = timedelta(minutes=2)
 # Ключи просит устройство, где уже вошли: второе устройство ещё нужно найти и открыть.
-KEYS_TTL = timedelta(minutes=5)
+KEYS_TTL = timedelta(minutes=10)
 APPROVED_TTL = timedelta(minutes=1)
 CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 
@@ -38,6 +38,21 @@ def validate_key(value: str) -> str:
     except (ValueError, TypeError):
         raise ValueError("Некорректный ключ устройства") from None
     return value
+
+
+def validate_nonce(value: str) -> str:
+    try:
+        raw = base64.b64decode(value, validate=True)
+        if len(raw) != 32 or base64.b64encode(raw).decode() != value:
+            raise ValueError()
+    except (ValueError, TypeError):
+        raise ValueError("Некорректное случайное число") from None
+    return value
+
+
+def commitment(receiver_public_key: str, nonce: str) -> str:
+    """Хэш, которым новое устройство заранее фиксирует своё случайное число (см. web/src/crypto/keyNumber.ts)."""
+    return hashlib.sha256(f"quazar-keys-commit-v1:{receiver_public_key}:{nonce}".encode()).hexdigest()
 
 
 def binding(row: DevicePairing) -> str:
@@ -107,18 +122,29 @@ async def start_request(db: AsyncSession, public_key: str, secret: str, name: st
 
 
 async def start_key_request(db: AsyncSession, user_id: str, session_id: str, public_key: str, secret: str,
-                            name: str) -> tuple[DevicePairing, str]:
-    """Устройство, где уже вошли, просит ключ переписки у другого своего устройства — без нового входа."""
+                            name: str, commit: str | None = None) -> tuple[DevicePairing, str]:
+    """Устройство, где уже вошли, просит ключ переписки у другого своего устройства — без нового входа.
+
+    commit — сверка числом: без него остаётся прежняя сверка кодом (старые версии приложения)."""
     user, session = await source(db, user_id, session_id)
     if not user.public_key:
         raise HTTPException(status_code=409, detail="У аккаунта ещё нет ключа шифрования")
     code = "".join(secrets.choice(CODE_ALPHABET) for _ in range(8))
     row = DevicePairing(kind="keys", state="pending", code_hash=sessions.digest(code), user_id=user.id,
         target_session_id=session.id, receiver_public_key=public_key, receiver_secret_hash=sessions.digest(secret),
-        device_name=name, expires_at=now() + KEYS_TTL)
+        device_name=name, commitment=commit, expires_at=now() + KEYS_TTL)
     db.add(row)
     await db.commit()
     return row, code
+
+
+async def supersede_key_requests(db: AsyncSession, session_id: str) -> list[str]:
+    """Прежние запросы ключей этого устройства (например, до перезагрузки страницы) больше не ждут ответа."""
+    rows = await db.execute(update(DevicePairing).where(DevicePairing.kind == "keys", DevicePairing.target_session_id == session_id,
+        DevicePairing.state.in_(("pending", "claimed"))).values(state="rejected", encrypted_keys=None).returning(DevicePairing.id))
+    ids = list(rows.scalars())
+    await db.commit()
+    return ids
 
 
 async def create_invite(db: AsyncSession, user_id: str, session_id: str, public_key: str) -> tuple[DevicePairing, str]:
@@ -196,6 +222,8 @@ async def approve(db: AsyncSession, pair_id: str, user_id: str, session_id: str,
     user = await bound_source(db, row)
     if not hmac.compare_digest(code_binding, binding(row)):
         raise HTTPException(status_code=409, detail="Код сравнения не совпадает. Начните заново")
+    if row.commitment and not row.receiver_nonce:
+        raise HTTPException(status_code=409, detail="Новое устройство ещё не показало число. Подождите пару секунд")
     if row.kind == "keys" and encrypted_keys is None:
         raise HTTPException(status_code=422, detail="На этом устройстве нет ключа переписки — передать нечего")
     if user.public_key and encrypted_keys is None and not allow_without_keys:
@@ -243,6 +271,66 @@ async def consume_keys(db: AsyncSession, pair_id: str, secret: str, user_id: str
     if row.state == "approved":
         row.consumed_at, row.state = now(), "consumed"
         await db.commit()
+    return row
+
+
+async def pending_key_requests(db: AsyncSession, user_id: str, session_id: str) -> list[DevicePairing]:
+    """Ещё не занятые запросы ключей от других моих устройств — их покажет только что открытое приложение."""
+    # Запрос от завершённого сеанса никому не нужен: подтверждать его некому.
+    rows = await db.execute(select(DevicePairing).join(DeviceSession, DeviceSession.id == DevicePairing.target_session_id)
+        .where(DevicePairing.kind == "keys", DevicePairing.user_id == user_id, DevicePairing.state == "pending",
+            DevicePairing.expires_at > now(), DevicePairing.target_session_id != session_id,
+            DeviceSession.revoked_at.is_(None), DeviceSession.expires_at > now())
+        .order_by(DevicePairing.created_at.desc()).limit(5))
+    return list(rows.scalars())
+
+
+async def approver_nonce(db: AsyncSession, pair_id: str, user_id: str, session_id: str, nonce: str) -> DevicePairing:
+    """Подтверждающее устройство присылает своё число — уже после того, как увидело хэш нового."""
+    row = await get_pair(db, pair_id, lock=True)
+    if row.kind != "keys" or row.user_id != user_id or row.approver_session_id != session_id or not row.commitment:
+        raise HTTPException(status_code=404, detail="Запрос ключей не найден")
+    active(row)
+    if row.state != "claimed":
+        raise HTTPException(status_code=409, detail="Запрос уже обработан")
+    if row.approver_nonce and row.approver_nonce != nonce:
+        raise HTTPException(status_code=409, detail="Число уже выбрано. Начните заново")
+    row.approver_nonce = nonce
+    await db.commit()
+    return row
+
+
+async def reveal(db: AsyncSession, pair_id: str, secret: str, user_id: str, session_id: str, nonce: str) -> DevicePairing:
+    """Новое устройство раскрывает своё число: теперь оба знают, какое число показать."""
+    row = await get_pair(db, pair_id, lock=True)
+    receiver(row, secret)
+    if row.kind != "keys" or row.user_id != user_id or row.target_session_id != session_id or not row.commitment:
+        raise HTTPException(status_code=404, detail="Запрос ключей не найден")
+    active(row)
+    if row.state != "claimed" or not row.approver_nonce:
+        raise HTTPException(status_code=409, detail="Другое устройство ещё не ответило")
+    if not hmac.compare_digest(commitment(row.receiver_public_key, nonce), row.commitment):
+        raise HTTPException(status_code=409, detail="Число не совпадает с запросом. Начните заново")
+    if row.receiver_nonce and row.receiver_nonce != nonce:
+        raise HTTPException(status_code=409, detail="Число уже раскрыто")
+    row.receiver_nonce = nonce
+    await db.commit()
+    return row
+
+
+async def deny(db: AsyncSession, pair_id: str, user_id: str, session_id: str) -> DevicePairing:
+    """«Это не я»: запрос отклоняется, а сеанс, который просил ключи, завершается."""
+    row = await get_pair(db, pair_id, lock=True)
+    if row.kind != "keys" or row.user_id != user_id or row.target_session_id == session_id:
+        raise HTTPException(status_code=404, detail="Запрос ключей не найден")
+    await source(db, user_id, session_id)
+    if row.state != "consumed":
+        row.state, row.encrypted_keys = "rejected", None
+    target = (await db.execute(select(DeviceSession).where(DeviceSession.id == row.target_session_id,
+        DeviceSession.user_id == user_id).with_for_update())).scalar_one_or_none()
+    if target and not target.revoked_at:
+        target.revoked_at = now()
+    await db.commit()
     return row
 
 

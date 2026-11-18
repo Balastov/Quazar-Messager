@@ -265,8 +265,7 @@ class DevicePairingTest(PairingTestBase):
             self.assertEqual(caught.exception.status_code, 429)
 
 
-class KeyRequestTest(PairingTestBase):
-    """Устройство уже вошло, но без ключа переписки: ключ передаёт другое устройство того же аккаунта."""
+class KeyRequestBase(PairingTestBase):
 
     async def asyncSetUp(self):
         await super().asyncSetUp()
@@ -284,6 +283,10 @@ class KeyRequestTest(PairingTestBase):
     async def sessions_count(self):
         async with self.Session() as db:
             return (await db.execute(select(func.count()).select_from(DeviceSession))).scalar_one()
+
+
+class KeyRequestTest(KeyRequestBase):
+    """Устройство уже вошло, но без ключа переписки: ключ передаёт другое устройство того же аккаунта."""
 
     async def test_keys_move_to_a_signed_in_device_without_a_new_session(self):
         before = await self.sessions_count()
@@ -371,6 +374,120 @@ class KeyRequestTest(PairingTestBase):
             self.assertEqual(response.status_code, 204, response.text)
         closed = {"type": "device_key_request_closed", "id": pair_id}
         self.assertEqual([call.args for call in send.await_args_list], [(self.users["alice"].id, closed)] * 2)
+
+
+class KeyNumberTest(KeyRequestBase):
+    """Сверка числом: новое устройство фиксирует своё число хэшем раньше, чем узнаёт число подтверждающего."""
+
+    def nonce(self):
+        return base64.b64encode(secrets.token_bytes(32)).decode()
+
+    async def http_flow(self):
+        self.rnonce = self.nonce()
+        body = {"public_key": self.rkey, "receiver_secret": self.secret, "device_name": "Chrome · Windows",
+                "commitment": pairing.commitment(self.rkey, self.rnonce)}
+        with mock.patch.object(api.manager, "send_to_user", mock.AsyncMock()) as send, \
+                mock.patch.object(api, "send_push_to_user", mock.AsyncMock()) as push:
+            response = await self.client.post("/auth/device-pairing/key-requests", json=body, headers=self.phone_headers)
+            await asyncio.sleep(0)
+        self.assertEqual(response.status_code, 200, response.text)
+        pair_id = response.json()["request"]["id"]
+        event = send.await_args.args[1]
+        self.assertEqual((event["type"], event["commitment"]), ("device_key_request", body["commitment"]))
+        # Телефон с закрытым приложением узнаёт о входе из уведомления.
+        self.assertEqual(push.await_args.args[1]["type"], "device_key_request")
+        return pair_id
+
+    async def asyncSetUp(self):
+        await super().asyncSetUp()
+        self.phone_headers = {"Authorization": f"Bearer {self.phone_token}"}
+
+    async def test_number_flow_reveals_only_after_the_approver_commits(self):
+        pair_id = await self.http_flow()
+        # Открытое позже приложение видит запрос в списке ожидающих; само устройство-просящий — нет.
+        pending = (await self.client.get("/auth/device-pairing/key-requests/pending", headers=self.headers)).json()
+        self.assertEqual([row["id"] for row in pending], [pair_id])
+        mine = (await self.client.get("/auth/device-pairing/key-requests/pending", headers=self.phone_headers)).json()
+        self.assertEqual(mine, [])
+        reveal = f"/auth/device-pairing/key-requests/{pair_id}/reveal"
+        # Раскрыть число до ответа другого устройства нельзя.
+        response = await self.client.post(reveal, json={"receiver_secret": self.secret, "nonce": self.rnonce}, headers=self.phone_headers)
+        self.assertEqual(response.status_code, 409)
+        response = await self.client.post("/auth/device-pairing/claim", json={"public_key": self.akey, "request_id": pair_id, "expected_key": self.rkey}, headers=self.headers)
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertIsNone(response.json()["receiver_nonce"])
+        anonce = self.nonce()
+        response = await self.client.post(f"/auth/device-pairing/owned/{pair_id}/nonce", json={"nonce": anonce}, headers=self.headers)
+        self.assertEqual(response.status_code, 200, response.text)
+        # Подменить своё число после этого нельзя.
+        response = await self.client.post(f"/auth/device-pairing/owned/{pair_id}/nonce", json={"nonce": self.nonce()}, headers=self.headers)
+        self.assertEqual(response.status_code, 409)
+        # Подтвердить, пока новое устройство не раскрыло число, нельзя.
+        async with self.Session() as db:
+            row = await pairing.get_pair(db, pair_id)
+            with self.assertRaises(HTTPException) as caught:
+                await pairing.approve(db, pair_id, self.users["alice"].id, self.source.id, pairing.binding(row), self.cipher, False)
+            self.assertEqual(caught.exception.status_code, 409)
+        # Чужое число не подходит к хэшу.
+        response = await self.client.post(reveal, json={"receiver_secret": self.secret, "nonce": self.nonce()}, headers=self.phone_headers)
+        self.assertEqual(response.status_code, 409)
+        response = await self.client.post(reveal, json={"receiver_secret": self.secret, "nonce": self.rnonce}, headers=self.phone_headers)
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual((response.json()["approver_nonce"], response.json()["receiver_nonce"]), (anonce, self.rnonce))
+        async with self.Session() as db:
+            row = await pairing.get_pair(db, pair_id)
+            await pairing.approve(db, pair_id, self.users["alice"].id, self.source.id, pairing.binding(row), self.cipher, False)
+        response = await self.client.post(f"/auth/device-pairing/key-requests/{pair_id}/consume", json={"receiver_secret": self.secret}, headers=self.phone_headers)
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["encrypted_keys"], self.cipher)
+
+    async def test_not_me_rejects_the_request_and_signs_that_device_out(self):
+        pair_id = await self.http_flow()
+        # Новое устройство не может «отклонить» собственный запрос, завершив себя по ошибке.
+        response = await self.client.post(f"/auth/device-pairing/key-requests/{pair_id}/deny", headers=self.phone_headers)
+        self.assertEqual(response.status_code, 404)
+        with mock.patch.object(api.manager, "send_to_user", mock.AsyncMock()) as send, \
+                mock.patch.object(api.sessions, "close_connections", mock.AsyncMock()) as close:
+            response = await self.client.post(f"/auth/device-pairing/key-requests/{pair_id}/deny", headers=self.headers)
+        self.assertEqual(response.status_code, 204, response.text)
+        self.assertEqual(send.await_args.args[1], {"type": "device_key_request_closed", "id": pair_id})
+        self.assertEqual(close.await_args.args, (self.users["alice"].id, self.phone.id))
+        async with self.Session() as db:
+            self.assertEqual((await pairing.get_pair(db, pair_id)).state, "rejected")
+            self.assertIsNotNone((await db.get(DeviceSession, self.phone.id)).revoked_at)
+        response = await self.client.get("/auth/devices", headers=self.phone_headers)
+        self.assertEqual(response.status_code, 401)
+
+    async def test_a_new_request_replaces_the_old_one_and_dead_sessions_are_not_offered(self):
+        first = await self.http_flow()
+        # Новое устройство перезагрузило страницу и спросило снова — старый запрос закрывается у всех.
+        with mock.patch.object(api.manager, "send_to_user", mock.AsyncMock()) as send, mock.patch.object(api, "send_push_to_user", mock.AsyncMock()):
+            response = await self.client.post("/auth/device-pairing/key-requests", headers=self.phone_headers, json={
+                "public_key": key(), "receiver_secret": secrets.token_urlsafe(32), "device_name": "Chrome · Windows",
+                "commitment": pairing.commitment(self.rkey, self.nonce())})
+        second = response.json()["request"]["id"]
+        self.assertEqual(send.await_args_list[0].args[1], {"type": "device_key_request_closed", "id": first})
+        async with self.Session() as db:
+            self.assertEqual((await pairing.get_pair(db, first)).state, "rejected")
+        pending = (await self.client.get("/auth/device-pairing/key-requests/pending", headers=self.headers)).json()
+        self.assertEqual([row["id"] for row in pending], [second])
+        # Сеанс, который просил ключи, завершили — спрашивать о нём больше некого.
+        async with self.Session() as db:
+            (await db.get(DeviceSession, self.phone.id)).revoked_at = pairing.now()
+            await db.commit()
+        self.assertEqual((await self.client.get("/auth/device-pairing/key-requests/pending", headers=self.headers)).json(), [])
+
+    async def test_another_account_cannot_deny_or_see_my_requests(self):
+        pair_id = await self.http_flow()
+        bob_token = create_access_token(self.users["bob"].id)
+        async with self.Session() as db:
+            await sessions.ensure(db, bob_token, self.users["bob"], "Chrome")
+        bob = {"Authorization": f"Bearer {bob_token}"}
+        self.assertEqual((await self.client.get("/auth/device-pairing/key-requests/pending", headers=bob)).json(), [])
+        response = await self.client.post(f"/auth/device-pairing/key-requests/{pair_id}/deny", headers=bob)
+        self.assertEqual(response.status_code, 404)
+        async with self.Session() as db:
+            self.assertIsNone((await db.get(DeviceSession, self.phone.id)).revoked_at)
 
 
 class DeviceKeyReportTest(PairingTestBase):

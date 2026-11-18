@@ -37,7 +37,7 @@ const CONTENT: Record<SettingsSection, ComponentType> = {
 };
 
 
-/** Точка у раздела «Безопасность»: красная — нет ключа, жёлтая — нет резервной копии. */
+/** Точка у раздела «Безопасность»: красная — переписка не читается, жёлтая — не задан пароль для восстановления. */
 function useSecurityMark(): "alert" | "warn" | null {
   const status = useE2EStore((st) => st.status);
   const hasServerBackup = useE2EStore((st) => st.hasServerBackup);
@@ -96,7 +96,7 @@ export default function SettingsView() {
           {id === "security" && mark && (
             <span
               className={`${s.mark} ${mark === "alert" ? s.markAlert : s.markWarn}`}
-              aria-label={mark === "alert" ? "Нет ключей шифрования" : "Нет резервной копии ключа"}
+              aria-label={mark === "alert" ? "Переписка не читается" : "Не задан пароль для восстановления"}
             />
           )}
           {phone && <ChevronRight size={18} className={s.chevron} aria-hidden />}

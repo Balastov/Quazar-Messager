@@ -182,6 +182,25 @@ self.addEventListener("push", (event) => {
     return;
   }
 
+  if (data.type === "device_key_request") {
+    // Новое устройство просит открыть на нём переписку. Открытое приложение спросит «Это вы входите?»
+    // само — уведомление нужно, только когда Quazar закрыт или свёрнут.
+    event.waitUntil((async () => {
+      const clients = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+      if (clients.some((client) => client.visibilityState === "visible")) return;
+      await self.registration.showNotification(data.title || "Вход в Quazar на новом устройстве", {
+        body: data.body || "Откройте Quazar, чтобы подтвердить, что это вы.",
+        tag: `quazar-keys-${data.request_id || "x"}`,
+        icon: "/icons/icon-192.png?v=neon-q-2",
+        badge: "/icons/icon-48.png?v=neon-q-2",
+        requireInteraction: true,
+        renotify: true,
+        data: { kind: "keys" },
+      });
+    })());
+    return;
+  }
+
   if (data.type === "star_message") {
     // Сообщение Спутника: упоминание, ответ мне или всё подряд — по уровню уведомлений.
     const text = data.body || "";
@@ -269,6 +288,12 @@ self.addEventListener("notificationclick", (event) => {
     if (link.lobbyChannelId) params.set("lobby", link.lobbyChannelId);
     if (link.action) params.set("do", link.action);
     event.waitUntil(openOrFocus(`/?${params.toString()}`, { type: "quazar-star-door", link }));
+    return;
+  }
+
+  if (data.kind === "keys") {
+    // Приложение, вернувшись на экран, само подхватит запрос и спросит «Это вы входите?».
+    event.waitUntil(openOrFocus("/", null));
     return;
   }
 

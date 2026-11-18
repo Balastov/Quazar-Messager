@@ -22,3 +22,16 @@
 .device strong { font-size: 14px; }
 .current { color: var(--qz-online); font-size: 12px; }
 @media (max-width: 400px) { .device { flex-wrap: wrap; } .actions > button { flex: 1; } }
+/* Сверка числом: крупное число на новом устройстве и три кнопки-числа на старом. */
+.number { font: 700 56px/1 ui-monospace, monospace; letter-spacing: 2px; color: var(--qz-online); padding: 6px 0; }
+.waiting { margin: 0; color: var(--qz-text); font-size: 14px; }
+.done { margin: 0; padding: 18px 0; text-align: center; color: var(--qz-online); font-size: 16px; font-weight: 600; }
+.choices { display: flex; justify-content: center; gap: 12px; }
+.choice { width: 72px; height: 72px; border-radius: 50%; border: 1px solid var(--qz-border); background: var(--qz-bg-soft); color: var(--qz-text);
+  font: 700 26px/1 ui-monospace, monospace; cursor: pointer; }
+.choice:hover:not(:disabled) { border-color: var(--qz-online); color: var(--qz-online); }
+.choice:focus-visible, .linkBtn:focus-visible { outline: 2px solid var(--qz-online); outline-offset: 2px; }
+.choice:disabled { opacity: .5; cursor: not-allowed; }
+.linkBtn { align-self: center; background: none; border: none; padding: 4px; color: var(--qz-text-muted); font: inherit; font-size: 13px;
+  text-decoration: underline; cursor: pointer; }
+.linkBtn:disabled { opacity: .5; cursor: not-allowed; }

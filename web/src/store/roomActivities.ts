@@ -7,7 +7,9 @@ import {
 import { useAuthStore } from "./auth";
 import { socket } from "../ws/socket";
 import { notifyInfo } from "../notifications/notify";
-import { focusAt } from "../components/constellation/roomActivityMath";
+import { focusAt, focusSound } from "../components/constellation/roomActivityMath";
+import { playFocusSound } from "../notifications/sound";
+import { useVoiceStore } from "./voice";
 
 export interface RoomCache extends Omit<RoomSnapshot, "board"> {
   board: Record<string, BoardItem>;
@@ -91,7 +93,7 @@ interface RoomActivityState {
   putItem: (starId: string, channelId: string, id: string, body: BoardItemBody) => Promise<void>;
   deleteItem: (starId: string, channelId: string, item: BoardItem) => Promise<void>;
   clearBoard: (starId: string, channelId: string) => Promise<void>;
-  focus: (starId: string, channelId: string, action: FocusAction, workMinutes?: number, breakMinutes?: number) => Promise<void>;
+  focus: (starId: string, channelId: string, action: FocusAction, workMinutes?: number, breakMinutes?: number, loop?: boolean) => Promise<void>;
   video: (starId: string, channelId: string, action: VideoAction, extra?: {
     file_id?: string; position?: number; duration?: number; shared_controls?: boolean; version?: number;
   }) => Promise<void>;
@@ -178,11 +180,11 @@ export const useRoomActivities = create<RoomActivityState>((set, get) => {
         type: "room_board_reset", star_id: starId, channel_id: channelId, revision: out.revision,
       }));
     },
-    focus: (starId, channelId, action, workMinutes, breakMinutes) => change(starId, channelId,
+    focus: (starId, channelId, action, workMinutes, breakMinutes, loop) => change(starId, channelId,
       () => {
         const cache = get().rooms[channelId];
         return roomActivitiesApi.focus(starId, channelId, action,
-          focusAt(cache?.focus ?? null, Date.now() + (cache?.clockOffset ?? 0))?.version ?? 0, workMinutes, breakMinutes);
+          focusAt(cache?.focus ?? null, Date.now() + (cache?.clockOffset ?? 0))?.version ?? 0, workMinutes, breakMinutes, loop);
       }),
     video: (starId, channelId, action, extra) => change(starId, channelId,
       () => roomActivitiesApi.video(starId, channelId, { action, version: get().rooms[channelId]?.video?.version ?? 0, ...extra })),
@@ -190,3 +192,29 @@ export const useRoomActivities = create<RoomActivityState>((set, get) => {
     deleteVideo: (starId, channelId, id) => change(starId, channelId, () => roomActivitiesApi.deleteVideo(starId, channelId, id)),
   };
 });
+
+// Звуки «Орбиты фокуса»: начало работы, перерыв, конец сеанса — у всех, кто в комнате, точно по
+// общим часам (не дожидаясь события сервера). Только в комнате, где человек сейчас сидит; вошёл
+// посреди сеанса — первое состояние просто запоминаем, без звука.
+const FOCUS_SOUND_CHECK_MS = 500;
+let heard: { channelId: string; state: { phase: "work" | "break" | "done"; running: boolean } | null } | null = null;
+
+function checkFocusSounds() {
+  const voice = useVoiceStore.getState();
+  // Пока голос переподключается, человек всё ещё в комнате — помним, что уже слышали.
+  const channelId = voice.status === "connected" || voice.status === "reconnecting" ? voice.channelId : null;
+  const room = channelId ? useRoomActivities.getState().rooms[channelId] : undefined;
+  if (!channelId || !room?.ready) {
+    heard = null;
+    return;
+  }
+  const focus = focusAt(room.focus, Date.now() + room.clockOffset);
+  const state = focus ? { phase: focus.phase, running: focus.running } : null;
+  if (heard?.channelId === channelId) {
+    const sound = focusSound(heard.state, state);
+    if (sound) void playFocusSound(sound);
+  }
+  heard = { channelId, state };
+}
+
+if (typeof window !== "undefined") setInterval(checkFocusSounds, FOCUS_SOUND_CHECK_MS);

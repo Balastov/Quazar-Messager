@@ -22,6 +22,15 @@
 .focusTitle strong { font-size: 13px; }
 .countdown { font-size: 20px; line-height: 1; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--qz-online); }
 .focusActions { padding-top: 8px; }
+/* Цикл «работа — перерыв»: круглая зелёная стрелка, приглушённая — когда выключен. */
+.loop, .loopOn { display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px;
+  border-radius: 50%; cursor: pointer; transition: background .15s ease, color .15s ease, box-shadow .15s ease; }
+.loop { border: 1px solid var(--qz-border); background: var(--qz-bg-soft); color: var(--qz-text-muted); }
+.loopOn { border: 1px solid rgba(52, 211, 153, .55); background: rgba(52, 211, 153, .16); color: var(--qz-online);
+  box-shadow: 0 0 10px rgba(52, 211, 153, .25); }
+.loop:hover, .loopOn:hover { background: rgba(52, 211, 153, .24); color: var(--qz-online); }
+.loop:disabled, .loopOn:disabled { opacity: .45; cursor: not-allowed; }
+.loop:focus-visible, .loopOn:focus-visible { outline: 2px solid var(--qz-online); outline-offset: 2px; }
 .focusCompact { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px; padding: 4px 0;
   font-size: 12px; font-variant-numeric: tabular-nums; color: var(--qz-online); }
 .smallLabel { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--qz-text-muted); }

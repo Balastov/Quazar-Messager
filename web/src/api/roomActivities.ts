@@ -24,6 +24,8 @@ export interface FocusState {
   break_seconds: number;
   remaining_seconds: number;
   ends_at: string | null;
+  /** По кругу: после перерыва снова работа. Нет поля — сеанс до цикла, заканчивается после перерыва. */
+  loop?: boolean;
 }
 export interface RoomVideo {
   id: string; name: string; mime: string; size: number; uploader_id: string | null; duration?: number | null;
@@ -61,7 +63,7 @@ export type RoomActivityEvent =
   | { type: "room_board_reset"; star_id: string; channel_id: string; revision: number }
   | ({ type: "room_pointer"; star_id: string; channel_id: string } & ScreenPointer);
 
-export type FocusAction = "start" | "pause" | "resume" | "stop" | "break";
+export type FocusAction = "start" | "pause" | "resume" | "stop" | "break" | "loop";
 export type VideoAction = "select" | "play" | "pause" | "seek" | "share" | "next" | "stop";
 const base = (starId: string, channelId: string) => `/stars/${starId}/planets/${channelId}/activities`;
 
@@ -75,9 +77,9 @@ export const roomActivitiesApi = {
     http.delete<{ revision: number }>(`${base(starId, channelId)}/board/${item.id}`, { params: { revision: item.revision } }).then((r) => r.data),
   clearBoard: (starId: string, channelId: string) =>
     http.delete<{ revision: number }>(`${base(starId, channelId)}/board`).then((r) => r.data),
-  focus: (starId: string, channelId: string, action: FocusAction, version: number, workMinutes = 25, breakMinutes = 5) =>
+  focus: (starId: string, channelId: string, action: FocusAction, version: number, workMinutes = 25, breakMinutes = 5, loop = true) =>
     http.post<RoomSnapshot>(`${base(starId, channelId)}/focus`, {
-      action, version, work_minutes: workMinutes, break_minutes: breakMinutes,
+      action, version, work_minutes: workMinutes, break_minutes: breakMinutes, loop,
     }).then((r) => r.data),
   video: (starId: string, channelId: string, body: {
     action: VideoAction; version: number; file_id?: string; position?: number; duration?: number; shared_controls?: boolean;

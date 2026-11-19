@@ -125,7 +125,7 @@ class RoomActivitiesTest(StarsTestBase):
     async def test_focus_survives_reloads_and_automatically_enters_break_then_finishes(self):
         start = datetime.now(timezone.utc)
         with mock.patch.object(activity, "now", return_value=start):
-            first = await self.focus("start", work_minutes=1, break_minutes=1)
+            first = await self.focus("start", work_minutes=1, break_minutes=1, loop=False)
             self.assertEqual(first["focus"]["phase"], "work")
             self.assertEqual((await self.state("bob"))["focus"], first["focus"])
         async with self.Session() as db:
@@ -137,6 +137,42 @@ class RoomActivitiesTest(StarsTestBase):
         final = await self.state()
         self.assertEqual(final["focus"]["phase"], "done")
         self.assertFalse(final["focus"]["running"])
+
+    async def test_focus_loops_work_and_break_until_stopped(self):
+        start = datetime.now(timezone.utc)
+        with mock.patch.object(activity, "now", return_value=start):
+            first = await self.focus("start", work_minutes=1, break_minutes=1)
+        self.assertTrue(first["focus"]["loop"])
+        async with self.Session() as db:
+            await activity.tick(db, start + timedelta(seconds=61))
+            await activity.tick(db, start + timedelta(seconds=121))
+        with mock.patch.object(activity, "now", return_value=start + timedelta(seconds=121)):
+            again = (await self.state())["focus"]
+        # После перерыва — снова работа, отсчёт от конца перерыва (без сдвига).
+        self.assertEqual((again["phase"], again["running"]), ("work", True))
+        self.assertEqual(datetime.fromisoformat(again["ends_at"]), start + timedelta(minutes=3))
+        # Выключили цикл — после этого перерыва сеанс закончится.
+        with mock.patch.object(activity, "now", return_value=start + timedelta(seconds=130)):
+            off = await self.focus("loop", loop=False)
+        self.assertFalse(off["focus"]["loop"])
+        async with self.Session() as db:
+            await activity.tick(db, start + timedelta(seconds=181))
+            await activity.tick(db, start + timedelta(seconds=241))
+        self.assertEqual((await self.state())["focus"]["phase"], "done")
+
+    def test_focus_loop_skips_whole_cycles_and_old_sessions_still_finish(self):
+        start = datetime(2026, 11, 19, 12, 0, tzinfo=timezone.utc)
+        base = {"owner_id": "a", "phase": "work", "running": True, "work_seconds": 60, "break_seconds": 30,
+                "remaining_seconds": 60, "ends_at": (start + timedelta(seconds=60)).isoformat(), "version": 1}
+        # Круг 90 с: на 585-й секунде идёт работа седьмого круга (540–600 с), дальше перерыв до 630 с.
+        later = activity.advance_focus({**base, "loop": True}, start + timedelta(seconds=585))
+        self.assertEqual(later["phase"], "work")
+        self.assertEqual(datetime.fromisoformat(later["ends_at"]), start + timedelta(seconds=600))
+        rest = activity.advance_focus({**base, "loop": True}, start + timedelta(seconds=610))
+        self.assertEqual((rest["phase"], datetime.fromisoformat(rest["ends_at"])), ("break", start + timedelta(seconds=630)))
+        self.assertGreater(later["version"], 10)
+        # Сеансы, начатые до появления цикла, заканчиваются после перерыва, как раньше.
+        self.assertEqual(activity.advance_focus(base, start + timedelta(minutes=10))["phase"], "done")
 
     async def test_focus_pause_resume_permissions_and_takeover(self):
         start = datetime.now(timezone.utc)

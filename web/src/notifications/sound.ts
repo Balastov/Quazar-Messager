@@ -179,3 +179,62 @@ export function startConnectionLostTone(): () => void {
     if (timer) clearTimeout(timer);
   };
 }
+
+// --- Орбита фокуса: общий таймер комнаты ---------------------------------------------------
+//
+// Мягкие колокольчики на чистых синусах с плавной атакой — без щелчка в начале и тише сообщений.
+// Различаются направлением мелодии: вверх — начали работать, вниз — отдыхаем, три ноты вниз
+// с долгим хвостом — сеанс закончен.
+
+export type FocusSound = "work" | "break" | "end";
+
+/** Нота-колокольчик: атака 40 мс, долгое затухание, тихий обертон на октаву выше. */
+function softBell(ctx: BaseAudioContext, out: AudioNode, t: number, freq: number, peak: number, decay: number) {
+  for (const { mult, level } of [{ mult: 1, level: 1 }, { mult: 2, level: 0.12 }]) {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = "sine";
+    osc.frequency.value = freq * mult;
+    const end = t + 0.04 + decay;
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.exponentialRampToValueAtTime(peak * level, t + 0.04);
+    gain.gain.exponentialRampToValueAtTime(0.0001, end);
+    osc.connect(gain).connect(out);
+    osc.start(t);
+    osc.stop(end + 0.02);
+  }
+}
+
+/** Начало работы: две ноты вверх (C5 → G5). */
+export function synthFocusWork(ctx: BaseAudioContext, out: AudioNode, t: number): void {
+  softBell(ctx, out, t, 523.25, 0.16, 0.55);
+  softBell(ctx, out, t + 0.22, 783.99, 0.17, 0.9);
+}
+
+/** Перерыв: две ноты вниз, медленнее (E5 → C5) — «выдох». */
+export function synthFocusBreak(ctx: BaseAudioContext, out: AudioNode, t: number): void {
+  softBell(ctx, out, t, 659.25, 0.15, 0.7);
+  softBell(ctx, out, t + 0.32, 523.25, 0.15, 1.2);
+}
+
+/** Конец сеанса: три ноты вниз (G5 → E5 → C5), последняя долго звучит. */
+export function synthFocusEnd(ctx: BaseAudioContext, out: AudioNode, t: number): void {
+  softBell(ctx, out, t, 783.99, 0.14, 0.5);
+  softBell(ctx, out, t + 0.24, 659.25, 0.14, 0.5);
+  softBell(ctx, out, t + 0.48, 523.25, 0.15, 1.6);
+}
+
+const FOCUS_SYNTH: Record<FocusSound, typeof synthFocusWork> = {
+  work: synthFocusWork,
+  break: synthFocusBreak,
+  end: synthFocusEnd,
+};
+
+export async function playFocusSound(kind: FocusSound): Promise<void> {
+  const ctx = getCtx();
+  if (!ctx) return;
+  // В комнате звук уже разрешён (голос), но после долгого простоя браузер мог усыпить контекст.
+  if (ctx.state === "suspended") await ctx.resume().catch(() => {});
+  if (ctx.state !== "running") return;
+  FOCUS_SYNTH[kind](ctx, ctx.destination, ctx.currentTime + 0.02);
+}

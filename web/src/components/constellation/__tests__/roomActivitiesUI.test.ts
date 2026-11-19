@@ -112,10 +112,22 @@ describe("room activities interface", () => {
     vi.mocked(roomActivitiesApi.focus).mockResolvedValue(next);
     await act(async () => root.render(createElement(Focus)));
     await act(async () => button("Начать").click());
+    // Цикл «работа — перерыв» включён по умолчанию.
+    expect(host.querySelector('[aria-label="Цикл работы и перерыва включён"]')?.getAttribute("aria-pressed")).toBe("true");
     await act(async () => button("Запустить для комнаты").click());
-    expect(roomActivitiesApi.focus).toHaveBeenCalledWith("star", "room", "start", 0, 25, 5);
+    expect(roomActivitiesApi.focus).toHaveBeenCalledWith("star", "room", "start", 0, 25, 5, true);
     expect(host.textContent).toContain("Фокус");
     expect(button("Пауза").disabled).toBe(false);
+  });
+
+  it("starts a single round when the loop button is switched off", async () => {
+    vi.mocked(roomActivitiesApi.focus).mockResolvedValue({ ...state(), revision: 1 });
+    await act(async () => root.render(createElement(Focus)));
+    await act(async () => button("Начать").click());
+    await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="Цикл работы и перерыва включён"]')!.click());
+    expect(host.querySelector('[aria-label="Цикл работы и перерыва выключен"]')?.getAttribute("aria-pressed")).toBe("false");
+    await act(async () => button("Запустить для комнаты").click());
+    expect(roomActivitiesApi.focus).toHaveBeenCalledWith("star", "room", "start", 0, 25, 5, false);
   });
 
   it("keeps followers' playback controls locked while personal volume remains available", async () => {

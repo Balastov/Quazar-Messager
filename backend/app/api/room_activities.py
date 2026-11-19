@@ -170,7 +170,7 @@ async def focus_action(star_id: str, channel_id: str, body: FocusAction, current
     if body.action == "start":
         if focus and focus.get("phase") != "done":
             raise HTTPException(status_code=409, detail="В комнате уже идёт сеанс фокуса")
-        focus = {"owner_id": current_user.id, "phase": "work", "running": True,
+        focus = {"owner_id": current_user.id, "phase": "work", "running": True, "loop": body.loop,
                  "work_seconds": body.work_minutes * 60, "break_seconds": body.break_minutes * 60,
                  "remaining_seconds": body.work_minutes * 60, "ends_at": (at + timedelta(minutes=body.work_minutes)).isoformat()}
     elif not focus or focus.get("phase") == "done":
@@ -182,6 +182,8 @@ async def focus_action(star_id: str, channel_id: str, body: FocusAction, current
     elif body.action == "break":
         focus = {**focus, "phase": "break", "running": True, "remaining_seconds": focus["break_seconds"],
                  "ends_at": (at + timedelta(seconds=focus["break_seconds"])).isoformat()}
+    elif body.action == "loop":
+        focus = {**focus, "loop": body.loop}
     elif body.action == "stop":
         focus = {**focus, "phase": "done", "running": False, "remaining_seconds": 0, "ends_at": None}
     row.focus = {**focus, "version": version}

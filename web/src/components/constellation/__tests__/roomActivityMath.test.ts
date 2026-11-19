@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { FocusState, VideoState } from "../../../api/roomActivities";
-import { boardPoint, containedVideo, focusAt, remaining, videoTime, wrapBoardText } from "../roomActivityMath";
+import { boardPoint, containedVideo, focusAt, focusSound, remaining, videoTime, wrapBoardText } from "../roomActivityMath";
 
 const start = Date.parse("2026-11-01T12:00:00Z");
 const focus: FocusState = { owner_id: "alice", version: 1, phase: "work", running: true,
@@ -13,6 +13,28 @@ describe("shared activity clocks and coordinates", () => {
     expect(remaining(focusAt(focus, start + 61000)!, start + 61000)).toBe(29);
     expect(focusAt(focus, start + 90000)).toMatchObject({ phase: "done", version: 3, running: false });
     expect(focus.phase).toBe("work");
+  });
+
+  it("loops work and break like the server, skipping whole cycles at once", () => {
+    const looping = { ...focus, loop: true };
+    expect(focusAt(looping, start + 91000)).toMatchObject({ phase: "work", running: true, ends_at: new Date(start + 150000).toISOString() });
+    // Круг 90 с: на 585-й секунде — работа седьмого круга до 600 с; на 610-й — перерыв до 630 с.
+    expect(focusAt(looping, start + 585000)).toMatchObject({ phase: "work", ends_at: new Date(start + 600000).toISOString() });
+    expect(focusAt(looping, start + 610000)).toMatchObject({ phase: "break", ends_at: new Date(start + 630000).toISOString() });
+  });
+
+  it("chooses a soft sound for start, break and end — and stays quiet on pause or resume", () => {
+    const work = { phase: "work" as const, running: true };
+    const rest = { phase: "break" as const, running: true };
+    expect(focusSound(null, work)).toBe("work");
+    expect(focusSound({ phase: "done", running: false }, work)).toBe("work");
+    expect(focusSound(work, rest)).toBe("break");
+    expect(focusSound(rest, work)).toBe("work");
+    expect(focusSound(rest, { phase: "done", running: false })).toBe("end");
+    expect(focusSound(work, null)).toBe("end");
+    expect(focusSound(work, { phase: "work", running: false })).toBeNull();
+    expect(focusSound({ phase: "work", running: false }, work)).toBeNull();
+    expect(focusSound(null, null)).toBeNull();
   });
 
   it("preserves a paused clock regardless of elapsed wall time", () => {

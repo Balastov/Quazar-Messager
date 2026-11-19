@@ -1,16 +1,41 @@
 import type { FocusState, VideoState } from "../../api/roomActivities";
 
+/** Состояние таймера на момент serverNow: работа → перерыв → (по кругу — снова работа, иначе конец).
+ * Тот же расчёт на сервере — advance_focus в backend/app/core/room_activities.py. */
 export function focusAt(focus: FocusState | null, serverNow: number): FocusState | null {
   if (!focus?.running || !focus.ends_at || serverNow < Date.parse(focus.ends_at)) return focus;
-  let next = { ...focus };
-  if (next.phase === "work") {
-    next = { ...next, phase: "break", version: next.version + 1, remaining_seconds: next.break_seconds,
-      ends_at: new Date(Date.parse(next.ends_at!) + next.break_seconds * 1000).toISOString() };
-  }
-  if (serverNow >= Date.parse(next.ends_at!)) {
-    next = { ...next, phase: "done", running: false, ends_at: null, remaining_seconds: 0, version: next.version + 1 };
+  const next = { ...focus };
+  const work = next.work_seconds * 1000, rest = next.break_seconds * 1000;
+  let deadline = Date.parse(focus.ends_at);
+  while (serverNow >= deadline) {
+    if (next.phase === "work") {
+      Object.assign(next, { phase: "break", remaining_seconds: next.break_seconds, version: next.version + 1 });
+      deadline += rest;
+    } else if (next.loop) {
+      // Пропущенные целые круги — разом.
+      const skipped = Math.floor((serverNow - deadline) / (work + rest));
+      deadline += skipped * (work + rest) + work;
+      Object.assign(next, { phase: "work", remaining_seconds: next.work_seconds, version: next.version + 1 + 2 * skipped });
+    } else {
+      return { ...next, phase: "done", running: false, ends_at: null, remaining_seconds: 0, version: next.version + 1 };
+    }
+    next.ends_at = new Date(deadline).toISOString();
   }
   return next;
+}
+
+/** Какой звук сыграть, когда таймер комнаты сменил состояние (null — молчим: пауза, продолжение,
+ * то же самое). prev — состояние при прошлой проверке. */
+export function focusSound(
+  prev: Pick<FocusState, "phase" | "running"> | null,
+  next: Pick<FocusState, "phase" | "running"> | null
+): "work" | "break" | "end" | null {
+  const was = !!prev && prev.phase !== "done";
+  const is = !!next && next.phase !== "done";
+  if (next?.phase === "work" && next.running && prev?.phase !== "work") return "work";
+  if (next?.phase === "break" && prev?.phase === "work") return "break";
+  if (was && !is) return "end";
+  return null;
 }
 
 export function remaining(focus: FocusState, serverNow: number): number {

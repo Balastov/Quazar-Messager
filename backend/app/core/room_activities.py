@@ -32,18 +32,29 @@ async def broadcast(channel_id: str, event: dict) -> None:
 
 
 def advance_focus(focus: dict, at: datetime) -> dict:
+    """Время вышло: работа → перерыв; после перерыва — снова работа, если включён цикл, иначе конец.
+    Тот же расчёт на клиенте — focusAt в web/src/components/constellation/roomActivityMath.ts."""
     if not focus.get("running") or not focus.get("ends_at"):
         return focus
     deadline = datetime.fromisoformat(focus["ends_at"])
     if at < deadline:
         return focus
     out = dict(focus)
-    if out["phase"] == "work":
-        out.update(phase="break", ends_at=(deadline + timedelta(seconds=out["break_seconds"])).isoformat(),
-                   remaining_seconds=out["break_seconds"], version=out["version"] + 1)
-        deadline = datetime.fromisoformat(out["ends_at"])
-    if at >= deadline:
-        out.update(phase="done", running=False, ends_at=None, remaining_seconds=0, version=out["version"] + 1)
+    work, rest = timedelta(seconds=out["work_seconds"]), timedelta(seconds=out["break_seconds"])
+    while at >= deadline:
+        if out["phase"] == "work":
+            out.update(phase="break", remaining_seconds=out["break_seconds"], version=out["version"] + 1)
+            deadline += rest
+        elif out.get("loop"):
+            # Сервер долго не заглядывал (никто не трогал комнату) — целые круги пропускаем разом.
+            skipped = (at - deadline) // (work + rest)
+            deadline += skipped * (work + rest)
+            out.update(phase="work", remaining_seconds=out["work_seconds"], version=out["version"] + 1 + 2 * skipped)
+            deadline += work
+        else:
+            out.update(phase="done", running=False, ends_at=None, remaining_seconds=0, version=out["version"] + 1)
+            return out
+        out["ends_at"] = deadline.isoformat()
     return out
 
 

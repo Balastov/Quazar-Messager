@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { RefreshCw } from "lucide-react";
 import type { StarChannel, StarDetail } from "../../api/stars";
 import { useAuthStore } from "../../store/auth";
 import { useRoomActivities, type RoomCache } from "../../store/roomActivities";
@@ -17,6 +18,8 @@ export default function FocusOrbit({ detail, channel, room, readOnly, compact = 
   const [open, setOpen] = useState(false);
   const [work, setWork] = useState(25);
   const [rest, setRest] = useState(5);
+  // Цикл «работа — перерыв» по кругу: по умолчанию включён.
+  const [loopSetting, setLoopSetting] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
@@ -31,13 +34,24 @@ export default function FocusOrbit({ detail, channel, room, readOnly, compact = 
     ["owner", "admin", "moderator"].includes(detail.my_role) ||
     present.some((p) => p.user_id === myId && p.is_host) || !present.some((p) => p.user_id === focus.owner_id));
   const owner = displayName(detail.members.find((m) => m.user.id === focus?.owner_id)?.user) ?? "Ведущий";
-  const run = async (kind: FocusAction) => {
+  const run = async (kind: FocusAction, loop = loopSetting) => {
     setBusy(true); setError(null);
-    try { await action(detail.id, channel.id, kind, work, rest); }
+    try { await action(detail.id, channel.id, kind, work, rest, loop); }
     catch (err) { setError(apiError(err, "Не удалось изменить таймер")); }
     finally { setBusy(false); }
   };
   const seconds = focus ? remaining(focus, serverNow) : 0;
+  // До старта — выбор для нового сеанса, во время сеанса — его настройка (меняет тот, кто управляет).
+  const looping = active ? !!focus.loop : loopSetting;
+  const loopButton = (
+    <button type="button" className={looping ? s.loopOn : s.loop} aria-pressed={looping}
+      disabled={busy || (active && !canControl)}
+      title={looping ? "По кругу: после перерыва снова работа, пока сеанс не завершат" : "Один круг: после перерыва сеанс закончится"}
+      aria-label={looping ? "Цикл работы и перерыва включён" : "Цикл работы и перерыва выключен"}
+      onClick={() => (active ? void run("loop", !focus.loop) : setLoopSetting(!loopSetting))}>
+      <RefreshCw size={16} aria-hidden />
+    </button>
+  );
   const duration = focus?.phase === "work" ? focus.work_seconds : focus?.break_seconds ?? 1;
   const progress = active ? Math.min(1, seconds / duration) : 0;
   if (compact) return active ? <div className={s.focusCompact} role="timer">
@@ -57,10 +71,11 @@ export default function FocusOrbit({ detail, channel, room, readOnly, compact = 
         </svg>
         <div className={s.focusTitle}>
           <strong>{active ? focus.phase === "work" ? "Фокус" : "Общий перерыв" : "Орбита фокуса"}</strong>
-          <span className={s.hint}>{active ? `${owner} · ${focus.running ? "общий таймер комнаты" : "на паузе"}`
+          <span className={s.hint}>{active ? `${owner} · ${focus.running ? "общий таймер комнаты" : "на паузе"}${focus.loop ? " · по кругу" : ""}`
             : focus ? "Сеанс завершён. Можно начать новый." : "Работаем вместе, затем отдыхаем"}</span>
         </div>
         {active && <span className={s.countdown} role="timer" aria-label={`Осталось ${clock(seconds)}`}>{clock(seconds)}</span>}
+        {(active || open) && loopButton}
         <button type="button" className={s.button} onClick={() => setOpen(!open)} aria-expanded={open}>
           {active ? "Управление" : "Начать"}
         </button>

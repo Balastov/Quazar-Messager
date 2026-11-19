@@ -14,7 +14,8 @@ vi.mock("../../store/e2e", async () => {
 });
 vi.mock("../../api/tutorials", () => ({ tutorialsApi: { list: vi.fn(), mark: vi.fn() } }));
 const { tutorialsApi } = await import("../../api/tutorials");
-const { useTourStore } = await import("../store");
+const { useTourStore, mergeProgress } = await import("../store");
+const { useAuthStore } = await import("../../store/auth");
 const { MAIN_TOUR, SETTINGS_TOUR, TOURS, stepPosition } = await import("../tours");
 const { useUiStore } = await import("../../store/ui");
 const { useE2EStore } = await import("../../store/e2e");
@@ -147,10 +148,59 @@ describe("tour progress", () => {
     expect(useTourStore.getState().progress?.main?.state).toBe("done");
   });
 
+  it("does not offer the same tour twice in one tab", () => {
+    useUiStore.setState({ tab: "chats" });
+    expect(tourToOffer({}, TOURS)?.id).toBe("main");
+    expect(tourToOffer({}, TOURS, ["main"])).toBeNull();
+  });
+
   it("starts by itself only for new accounts", () => {
     const now = Date.parse("2026-11-18T12:00:00Z");
     expect(isNewAccount("2026-11-17T12:00:00Z", now)).toBe(true);
     expect(isNewAccount("2026-10-01T12:00:00Z", now)).toBe(false);
     expect(isNewAccount(undefined, now)).toBe(false);
+  });
+});
+
+describe("tour marks survive a lost request", () => {
+  beforeEach(() => {
+    memory.clear();
+    useAuthStore.setState({ user: { id: "u1" } as never });
+    useTourStore.getState().reset("u1");
+  });
+  afterEach(() => vi.clearAllMocks());
+
+  it("keeps «dismissed» after a reload when the server never got it, and sends it again", async () => {
+    vi.mocked(tutorialsApi.mark).mockRejectedValueOnce(new Error("offline"));
+    useTourStore.setState({ progress: {} });
+    useTourStore.getState().dismiss("stars");
+    await Promise.resolve();
+    // Перезагрузка страницы: сервер об отметке не знает.
+    useTourStore.getState().reset("u1");
+    vi.mocked(tutorialsApi.list).mockResolvedValue({ main: { state: "done", at: "2026-11-19T10:00:00Z" } });
+    vi.mocked(tutorialsApi.mark).mockImplementation(async (id, state) => ({ main: { state: "done", at: "x" }, [id]: { state, at: "y" } }));
+    await useTourStore.getState().load();
+    expect(useTourStore.getState().progress?.stars?.state).toBe("dismissed");
+    expect(tutorialsApi.mark).toHaveBeenLastCalledWith("stars", "dismissed");
+    await Promise.resolve(); await Promise.resolve();
+    // Сервер подтвердил — локальная копия больше не нужна.
+    expect(memory.get("quazar-tours:u1")).toBeUndefined();
+  });
+
+  it("a slow progress load does not bring back a tour just finished", async () => {
+    let answer!: (value: object) => void;
+    vi.mocked(tutorialsApi.list).mockReturnValue(new Promise((resolve) => { answer = resolve; }) as never);
+    vi.mocked(tutorialsApi.mark).mockImplementation(async (id, state) => ({ [id]: { state, at: "now" } }));
+    useTourStore.setState({ progress: {} });
+    const loading = useTourStore.getState().load();
+    useTourStore.getState().dismiss("settings");
+    answer({});
+    await loading;
+    expect(useTourStore.getState().progress?.settings?.state).toBe("dismissed");
+  });
+
+  it("«done» wins over «dismissed» whichever side has it", () => {
+    expect(mergeProgress({ star: { state: "done", at: "1" } }, { star: { state: "dismissed", at: "2" } }).star?.state).toBe("done");
+    expect(mergeProgress({ star: { state: "dismissed", at: "1" } }, { star: { state: "done", at: "0" } }).star?.state).toBe("done");
   });
 });

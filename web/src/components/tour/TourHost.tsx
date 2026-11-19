@@ -3,7 +3,7 @@ import { useAuthStore } from "../../store/auth";
 import { useCallStore } from "../../store/call";
 import { useTourStore } from "../../tour/store";
 import { TOURS, tourAvailable, type Tour } from "../../tour/tours";
-import type { TourProgress } from "../../api/tutorials";
+import type { TourId, TourProgress } from "../../api/tutorials";
 import { useUiStore } from "../../store/ui";
 import { useStarsStore } from "../../store/stars";
 import TourOverlay from "./TourOverlay";
@@ -24,10 +24,10 @@ function screenIsCalm(): boolean {
 
 /** Какое обучение предложить: ещё не тронутое, предыдущее по теме уже прошли или отложили,
  * и человек как раз на нужном экране. Одно за раз, по порядку. */
-export function tourToOffer(progress: TourProgress, tours: Tour[] = TOURS): Tour | null {
+export function tourToOffer(progress: TourProgress, tours: Tour[] = TOURS, offered: TourId[] = []): Tour | null {
   return (
-    tours.find((tour) => !progress[tour.id] && (!tour.after || !!progress[tour.after]) && tourAvailable(tour)
-      && (!tour.offerHere || tour.offerHere())) ?? null
+    tours.find((tour) => !progress[tour.id] && !offered.includes(tour.id) && (!tour.after || !!progress[tour.after])
+      && tourAvailable(tour) && (!tour.offerHere || tour.offerHere())) ?? null
   );
 }
 
@@ -56,15 +56,21 @@ export default function TourHost() {
   useStarsStore((st) => st.stars.length);
   useStarsStore((st) => st.mobileChannelOpen);
 
+  const offered = useTourStore((st) => st.offered);
+  // Карточка, которая сейчас на экране: она сама себя из-за «уже предлагали» не прячет.
+  const [showing, setShowing] = useState<TourId | null>(null);
+
   useEffect(() => {
-    useTourStore.getState().reset();
     setCalm(false);
     setQuiet(false);
     autoStarted.current = false;
-    if (user?.id) void useTourStore.getState().load();
+    const id = user?.id ?? null;
+    // Прогресс и «уже предлагали» живут в сторе: если экран пересоздан, тот же аккаунт не начинает с нуля.
+    if (useTourStore.getState().owner !== id) useTourStore.getState().reset(id);
+    if (id) void useTourStore.getState().load();
   }, [user?.id]);
 
-  const offer = !!user && !!progress && !active && !finished && !quiet ? tourToOffer(progress) : null;
+  const offer = !!user && !!progress && !active && !finished && !quiet ? tourToOffer(progress, TOURS, offered.filter((id) => id !== showing)) : null;
   const pending = !!offer;
   const offerId = offer?.id;
   // Другое предложение — снова дождаться спокойного экрана.
@@ -86,6 +92,14 @@ export default function TourHost() {
     const timer = setTimeout(() => setLater(false), LATER_NOTICE_MS);
     return () => clearTimeout(timer);
   }, [later]);
+
+  // Карточку показали (или обучение началось само) — второй раз в этой вкладке то же не предлагаем.
+  const shown = !!offer && calm;
+  useEffect(() => {
+    if (!shown || !offerId) return;
+    setShowing(offerId);
+    useTourStore.getState().markOffered(offerId);
+  }, [shown, offerId]);
 
   const fresh = isNewAccount(user?.created_at);
   useEffect(() => {

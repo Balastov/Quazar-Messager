@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const path = require('node:path');
 const fs = require('node:fs/promises');
 const os = require('node:os');
-const { APP_URL, requestTarget, isAppUrl, externalUrl, allowedNotification, authUrl, authReturn, updateUrl } = require('../src/policy.cjs');
+const { ALLOWED_PERMISSIONS, APP_URL, requestTarget, isAppUrl, externalUrl, allowedNotification, authUrl, authReturn, updateUrl } = require('../src/policy.cjs');
 const { createProtocolHandler } = require('../src/protocol.cjs');
 
 test('navigation and IPC origins cannot be confused with another host or protocol', () => {
@@ -66,4 +66,10 @@ test('API proxy preserves bearer and request body while removing browser cookies
 test('API redirects cannot serve external scripts through the privileged app origin', async () => {
   const handle = createProtocolHandler('/tmp/renderer', async () => Response.redirect('https://evil.test/', 302));
   assert.equal((await handle(new Request(APP_URL + '/api/redirect'))).status, 502);
+});
+
+test('the app window gets the permissions its features need, and nothing risky', () => {
+  // «Точнее определять, что я отошёл»: без idle-detection Electron молча отказывает — окна «Разрешить?» нет.
+  for (const permission of ['media', 'notifications', 'display-capture', 'idle-detection']) assert.ok(ALLOWED_PERMISSIONS.has(permission), permission);
+  for (const permission of ['geolocation', 'clipboard-read', 'openExternal', 'midiSysex', 'fileSystem']) assert.equal(ALLOWED_PERMISSIONS.has(permission), false, permission);
 });

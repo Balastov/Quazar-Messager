@@ -2,7 +2,7 @@ const { app, BrowserWindow, Menu, Tray, nativeImage, ipcMain, protocol, session,
 const path = require('node:path');
 const fs = require('node:fs');
 const { pathToFileURL } = require('node:url');
-const { APP_URL, SERVER_ORIGIN, isAppUrl, trustedMainFrame, externalUrl, allowedNotification, authUrl, authReturn, isUpdateLaunch } = require('./policy.cjs');
+const { ALLOWED_PERMISSIONS, APP_URL, SERVER_ORIGIN, isAppUrl, trustedMainFrame, externalUrl, allowedNotification, authUrl, authReturn, isUpdateLaunch } = require('./policy.cjs');
 const { createProtocolHandler } = require('./protocol.cjs');
 const { installCapture } = require('./capture.cjs');
 const { Updates } = require('./updates.cjs');
@@ -65,9 +65,8 @@ else {
     const root = path.join(app.getAppPath(), 'renderer');
     const ses = session.fromPartition('persist:quazar-v1');
     ses.protocol.handle('quazar-app', createProtocolHandler(root, (url, options) => net.fetch(url, options)));
-    const allowedPermissions = new Set(['media', 'notifications', 'clipboard-sanitized-write', 'fullscreen', 'display-capture', 'speaker-selection']);
-    ses.setPermissionCheckHandler((contents, permission, origin) => contents === window?.webContents && isAppUrl(origin) && allowedPermissions.has(permission));
-    ses.setPermissionRequestHandler((contents, permission, callback, details) => callback(contents === window?.webContents && isAppUrl(details.requestingUrl) && allowedPermissions.has(permission)));
+    ses.setPermissionCheckHandler((contents, permission, origin) => contents === window?.webContents && isAppUrl(origin) && ALLOWED_PERMISSIONS.has(permission));
+    ses.setPermissionRequestHandler((contents, permission, callback, details) => callback(contents === window?.webContents && isAppUrl(details.requestingUrl) && ALLOWED_PERMISSIONS.has(permission)));
     window = new BrowserWindow({ width: 1240, height: 820, minWidth: 380, minHeight: 560, show: false, backgroundColor: '#07060f', title: 'Quazar',
       icon: path.join(root, 'icons/icon-512.png'), autoHideMenuBar: true,
       webPreferences: { partition: 'persist:quazar-v1', preload: path.join(__dirname, 'preload.cjs'), sandbox: true, contextIsolation: true,

@@ -68,4 +68,7 @@ function isUpdateLaunch(value) {
       !u.username && !u.password && !u.port && !u.search && !u.hash;
   } catch { return false; }
 }
-module.exports = { APP_URL, SERVER_ORIGIN, UPDATE_URL, updateUrl, CSP, isAppUrl, trustedMainFrame, externalUrl, requestTarget, allowedNotification, authUrl, authReturn, isUpdateLaunch };
+// Разрешения, которые окно Quazar получает без вопросов (у Electron нет своих окон «Разрешить?»).
+// idle-detection — «Точнее определять, что я отошёл» (простой компьютера и блокировка экрана).
+const ALLOWED_PERMISSIONS = new Set(['media', 'notifications', 'clipboard-sanitized-write', 'fullscreen', 'display-capture', 'speaker-selection', 'idle-detection']);
+module.exports = { ALLOWED_PERMISSIONS, APP_URL, SERVER_ORIGIN, UPDATE_URL, updateUrl, CSP, isAppUrl, trustedMainFrame, externalUrl, requestTarget, allowedNotification, authUrl, authReturn, isUpdateLaunch };

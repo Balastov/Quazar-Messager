@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import InboxBell from "./InboxBell";
 import PremiumBadge from "./premium/PremiumBadge";
 import { usersApi } from "../api/users";
 import type { User } from "../api/types";
@@ -306,6 +307,7 @@ export default function ContactsPane() {
             </button>
           )}
           <InviteFriendsButton className={s.inviteBtn} onNotice={setPickerHint} tour="invite" />
+          <InboxBell variant="floating" />
         </div>
       </div>
 

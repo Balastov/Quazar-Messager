@@ -235,6 +235,18 @@ async function showPush(data) {
     return;
   }
 
+  if (data.type === "inbox") {
+    // Зелёный колокольчик (брони): нажатие откроет комнату и отметит уведомление прочитанным.
+    await self.registration.showNotification(data.title || "Quazar", {
+      body: data.body || "",
+      tag: data.tag || `quazar-inbox-${data.notification_id || "x"}`,
+      icon: "/icons/icon-192.png?v=neon-q-2",
+      badge: "/icons/icon-48.png?v=neon-q-2",
+      data: { kind: "inbox", starId: data.star_id || null, channelId: data.channel_id || null, messageId: data.notification_id || null },
+    });
+    return;
+  }
+
   if (data.type === "star_message") {
     // Сообщение Спутника: упоминание, ответ мне или всё подряд — по уровню уведомлений.
     const text = data.body || "";
@@ -328,6 +340,25 @@ self.addEventListener("notificationclick", (event) => {
   if (data.kind === "keys") {
     // Приложение, вернувшись на экран, само подхватит запрос и спросит «Это вы входите?».
     event.waitUntil(openOrFocus("/", null));
+    return;
+  }
+
+  if (data.kind === "inbox") {
+    // id уведомления — в messageId (так же его передаёт страница и десктоп).
+    const params = new URLSearchParams();
+    if (data.messageId) params.set("inbox", data.messageId);
+    if (data.starId && data.channelId) {
+      params.set("star", data.starId);
+      params.set("channel", data.channelId);
+    }
+    event.waitUntil(
+      openOrFocus(`/?${params.toString()}`, {
+        type: "quazar-open-inbox",
+        notificationId: data.messageId || null,
+        starId: data.starId || null,
+        channelId: data.channelId || null,
+      })
+    );
     return;
   }
 

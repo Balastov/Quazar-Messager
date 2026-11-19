@@ -12,6 +12,8 @@ export interface AppToast {
   starId?: string;
   channelId?: string;
   threadId?: string | null;
+  /** Уведомление зелёного колокольчика: нажатие отметит его прочитанным. */
+  inboxId?: string;
 }
 
 interface ToastState {

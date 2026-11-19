@@ -20,6 +20,7 @@ import ConstellationView from "../components/constellation/ConstellationView";
 import VoiceBarHost from "../components/constellation/VoiceBar";
 import DoorToasts from "../components/constellation/DoorToasts";
 import { useDoorsStore } from "../store/doors";
+import { useInboxStore } from "../store/inbox";
 import type { DoorLink } from "../notifications/notify";
 import { takePendingGuestLink, takePendingInvite } from "../api/stars";
 import { apiError } from "../components/constellation/rules";
@@ -116,9 +117,15 @@ export default function MessengerPage() {
       });
       window.history.replaceState({}, "", "/");
     }
-    // Открыли по уведомлению о сообщении Спутника: ?star=…&channel=…
+    // Открыли уведомление зелёного колокольчика (бронь): ?inbox=…&star=…&channel=…
+    const inboxId = params.get("inbox");
     const channelLink = params.get("channel");
-    if (!door && starId && channelLink) {
+    if (inboxId) {
+      void useInboxStore.getState().openLink({ notificationId: inboxId, starId, channelId: channelLink });
+      window.history.replaceState({}, "", "/");
+    }
+    // Открыли по уведомлению о сообщении Спутника: ?star=…&channel=…
+    if (!inboxId && !door && starId && channelLink) {
       const messageId = params.get("message");
       if (messageId) void useStarsStore.getState().jumpTo({id: messageId, star_id: starId, channel_id: channelLink, thread_id: params.get("thread")});
       else void useStarsStore.getState().openChannelLink(starId, channelLink);
@@ -132,6 +139,11 @@ export default function MessengerPage() {
       }
     };
     window.addEventListener("quazar-open-star", onOpenStar);
+    const onOpenInbox = (e: Event) => {
+      const detail = (e as CustomEvent<{ notificationId?: string; starId?: string; channelId?: string }>).detail;
+      if (detail) void useInboxStore.getState().openLink(detail);
+    };
+    window.addEventListener("quazar-open-inbox", onOpenInbox);
     const onDoor = (e: Event) => {
       const link = (e as CustomEvent<DoorLink>).detail;
       if (link?.starId && link.channelId) void useDoorsStore.getState().openDoorLink(link);
@@ -157,6 +169,7 @@ export default function MessengerPage() {
     return () => {
       window.removeEventListener("quazar-star-door", onDoor);
       window.removeEventListener("quazar-open-star", onOpenStar);
+      window.removeEventListener("quazar-open-inbox", onOpenInbox);
       activityTracker?.stop();
       unsubCall();
       unsubVoice();

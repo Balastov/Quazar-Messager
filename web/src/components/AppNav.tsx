@@ -24,6 +24,7 @@ import s from "./AppNav.module.css";
 import f from "./support/Support.module.css";
 import { displayName } from "../utils/profile";
 import AppVersion from "./AppVersion";
+import InboxBell from "./InboxBell";
 import DesktopDownloadButton from "./DesktopDownloadButton";
 import { DesktopDownloadContext } from "./DesktopDownloadContext";
 
@@ -138,6 +139,7 @@ export default function AppNav() {
           <img className={s.logo} src="/logo-mark.png?v=neon-q-2" alt="Quazar" />
           <AppVersion />
         </div>
+        <InboxBell variant="side" />
         <nav className={s.navItems} data-tour="nav">{renderItems("side")}</nav>
         {downloads && downloads.os !== "windows" && downloads.os !== "mac" && <DesktopDownloadButton variant="nav" />}
         <button

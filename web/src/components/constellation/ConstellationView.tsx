@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import InboxBell from "../InboxBell";
 import type { ChannelKind, StarChannel } from "../../api/stars";
 import { useDoorsStore } from "../../store/doors";
 import { mentionsForStar, unreadForStar, useStarsStore } from "../../store/stars";
@@ -159,6 +160,8 @@ export default function ConstellationView() {
   return (
     <StarProfiles detail={detail}><div className={s.root}>
       <nav className={s.rail} aria-label="Звёзды" data-tour="star-rail">
+        {/* Телефон: зелёный колокольчик (брони) — сверху; на компьютере он в левом меню. */}
+        <InboxBell variant="floating" />
         {stars.map((star) => {
           const count = unreadForStar(unread, star.id);
           const mentions = mentionsForStar(unread, star.id);

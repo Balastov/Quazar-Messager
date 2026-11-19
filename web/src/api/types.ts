@@ -1,6 +1,7 @@
 import type { StarEvent, WorkSchedule } from "./stars";
 import type { RoomActivityEvent } from "./roomActivities";
 import type { Pinned } from "./pinned";
+import type { InboxItem } from "./inbox";
 
 export type CallMedia = {
   audio: boolean;
@@ -149,6 +150,10 @@ export type WsEvent =
   | { type: "blocks_changed"; user_id: string; blocked: boolean }
   /** Закреплённые чаты или контакты поменялись (в том числе на другом устройстве). */
   | { type: "pins_changed"; pins: Pinned }
+  /** Новое уведомление в зелёном колокольчике и сколько теперь непрочитанных. */
+  | { type: "inbox_new"; notification: InboxItem; unread: number }
+  /** Прочитали (на этом или другом устройстве): ids — какие, null — все. */
+  | { type: "inbox_read"; ids: string[] | null; unread: number }
   /** Мои отложенные сообщения в чате изменились (запланировал, отменил, отправилось). */
   | { type: "scheduled_changed"; chat_id: string }
   /** Пора напомнить о сообщении. */

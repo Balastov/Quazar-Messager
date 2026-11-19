@@ -27,7 +27,7 @@ from app.api.stars import (
     broadcast_member,
 )
 from app.core import floors as floors_svc
-from app.core import presence, star_audit, work_hours
+from app.core import inbox, presence, star_audit, work_hours
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.core.push import send_push_to_user
@@ -55,6 +55,12 @@ def _local(star: Star | None, at: datetime) -> str:
     """ЧЧ:ММ в часовом поясе Звезды (из её графика; по умолчанию — Москва)."""
     tz = ((star.work_hours if star else None) or work_hours.DEFAULT_SCHEDULE)["tz"]
     return at.astimezone(ZoneInfo(tz)).strftime("%H:%M")
+
+
+def _span(star: Star | None, start: datetime, end: datetime) -> str:
+    """«20.11, 14:00–15:00» в часовом поясе Звезды."""
+    tz = ((star.work_hours if star else None) or work_hours.DEFAULT_SCHEDULE)["tz"]
+    return f"{start.astimezone(ZoneInfo(tz)).strftime('%d.%m')}, {_local(star, start)}–{_local(star, end)}"
 
 
 # --- Ветки ---------------------------------------------------------------------
@@ -256,6 +262,33 @@ async def _bookings_event(db: AsyncSession, star_id: str, channel_id: str) -> No
     await _broadcast(db, star_id, {"type": "star_bookings", "channel_id": channel_id})
 
 
+async def _tell(
+    db: AsyncSession, star: Star | None, booking: StarBooking, user_ids, kind: str, title: str, body: str, *, push: bool
+) -> None:
+    """Уведомление о брони в зелёный колокольчик (и push, если просили): нажатие откроет комнату."""
+    data = {
+        "star_id": booking.star_id,
+        "channel_id": booking.channel_id,
+        "booking_id": booking.id,
+        "title": booking.title,
+        "starts_at": booking.starts_at.isoformat(),
+        "ends_at": booking.ends_at.isoformat(),
+    }
+    rows = await inbox.notify(db, user_ids, kind, title, body, data)
+    if not push:
+        return
+    for row in rows:
+        await send_push_to_user(
+            row.user_id,
+            {"type": "inbox", "title": title, "body": body, "tag": f"quazar-inbox-{row.id}",
+             "star_id": booking.star_id, "channel_id": booking.channel_id, "notification_id": row.id},
+        )
+
+
+async def _room_name(db: AsyncSession, channel_id: str) -> str:
+    return (await db.execute(select(StarChannel.name).where(StarChannel.id == channel_id))).scalar_one_or_none() or "комната"
+
+
 @router.get("/{star_id}/bookings", response_model=list[BookingOut])
 async def list_bookings(
     star_id: str,
@@ -337,12 +370,20 @@ async def create_booking(star_id: str, channel_id: str, body: BookingBody, curre
     db.add(booking)
     await db.commit()
     await _bookings_event(db, star_id, channel_id)
+    if attendees:
+        who = await pseudonyms.name_in_star(db, star_id, current_user) or current_user.display_name
+        await _tell(
+            db, star, booking, attendees, "booking_invite",
+            f"{who} зовёт вас на встречу «{booking.title}»",
+            f"«{channel.name}» · {_span(star, booking.starts_at, booking.ends_at)} · {star.name}",
+            push=True,
+        )
     return booking
 
 
 @router.delete("/{star_id}/bookings/{booking_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def cancel_booking(star_id: str, booking_id: str, current_user: CurrentUser, db: Db):
-    _, me = await _load_membership(db, star_id, current_user.id)
+    star, me = await _load_membership(db, star_id, current_user.id)
     booking = (
         await db.execute(select(StarBooking).where(StarBooking.id == booking_id, StarBooking.star_id == star_id))
     ).scalar_one_or_none()
@@ -351,9 +392,21 @@ async def cancel_booking(star_id: str, booking_id: str, current_user: CurrentUse
     if booking.created_by != current_user.id and me.role not in ("owner", "admin"):
         raise _forbid("Отменить может автор брони, владелец или админ")
     channel_id = booking.channel_id
+    # Прошедшую встречу отменять не о чем сообщать — только ещё не закончившуюся.
+    tell = [uid for uid in {booking.created_by, *booking.attendees} if uid and uid != current_user.id] \
+        if booking.ends_at > _now() else []
+    room = await _room_name(db, channel_id)
+    who = await pseudonyms.name_in_star(db, star_id, current_user) or current_user.display_name
     await db.delete(booking)
     await db.commit()
     await _bookings_event(db, star_id, channel_id)
+    if tell:
+        await _tell(
+            db, star, booking, tell, "booking_cancelled",
+            f"Встреча «{booking.title}» отменена",
+            f"«{room}» · {_span(star, booking.starts_at, booking.ends_at)} · {star.name} · отменил(а) {who}",
+            push=True,
+        )
 
 
 async def booking_tick(db: AsyncSession, now: datetime | None = None) -> int:
@@ -372,17 +425,19 @@ async def booking_tick(db: AsyncSession, now: datetime | None = None) -> int:
         await db.commit()
         room = (await db.execute(select(StarChannel.name).where(StarChannel.id == b.channel_id))).scalar_one_or_none()
         star = (await db.execute(select(Star).where(Star.id == b.star_id))).scalar_one_or_none()
-        for uid in {b.created_by, *b.attendees} - {None}:
+        people = [uid for uid in {b.created_by, *b.attendees} if uid]
+        for uid in people:
             await manager.send_to_user(
                 uid,
                 {"type": "star_booking_soon", "star_id": b.star_id, "channel_id": b.channel_id, "booking_id": b.id,
                  "title": b.title, "room": room, "starts_at": b.starts_at.isoformat()},
             )
-            await send_push_to_user(
-                uid,
-                {"title": f"Встреча «{b.title}»", "body": f"в «{room}» в {_local(star, b.starts_at)}",
-                 "tag": f"quazar-booking-{b.id}"},
-            )
+        await _tell(
+            db, star, b, people, "booking_soon",
+            f"Скоро встреча «{b.title}»",
+            f"«{room}» в {_local(star, b.starts_at)} · {star.name if star else ''}".rstrip(" ·"),
+            push=True,
+        )
         done += 1
     starting = (
         await db.execute(
@@ -394,6 +449,14 @@ async def booking_tick(db: AsyncSession, now: datetime | None = None) -> int:
     for b in starting:
         b.started = True
         await db.commit()
+        star = (await db.execute(select(Star).where(Star.id == b.star_id))).scalar_one_or_none()
+        room = await _room_name(db, b.channel_id)
+        await _tell(
+            db, star, b, [uid for uid in {b.created_by, *b.attendees} if uid], "booking_started",
+            f"Началась встреча «{b.title}»",
+            f"«{room}» до {_local(star, b.ends_at)} · {star.name if star else ''}".rstrip(" ·"),
+            push=False,
+        )
         for uid in {b.created_by, *b.attendees} - {None}:
             current = (await db.execute(select(User.manual_status, User.manual_status_until).where(User.id == uid))).first()
             busy = current and current[0] and (current[1] is None or current[1] > now)

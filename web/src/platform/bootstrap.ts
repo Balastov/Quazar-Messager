@@ -19,6 +19,8 @@ export function startDesktop() {
   bridge.onNavigate(route => {
     if (route.kind === "resume") { socket.reconnectNow(); window.dispatchEvent(new Event("online")); }
     else if (route.kind === "door" && route.starId && route.channelId) window.dispatchEvent(new CustomEvent("quazar-star-door", { detail: route }));
+    // Зелёный колокольчик: id уведомления едет в messageId (десктоп пропускает только известные поля).
+    else if (route.kind === "inbox") window.dispatchEvent(new CustomEvent("quazar-open-inbox", { detail: { notificationId: route.messageId, starId: route.starId, channelId: route.channelId } }));
     else if (route.kind === "star" && route.starId && route.channelId) window.dispatchEvent(new CustomEvent("quazar-open-star", { detail: route }));
     else if (route.kind === "call" && route.callId) window.dispatchEvent(new CustomEvent("quazar-open-call", { detail: route }));
     else if (route.chatId) window.dispatchEvent(new CustomEvent("quazar-open-chat", { detail: route }));

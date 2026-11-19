@@ -206,3 +206,11 @@
   font-size: 14px;
   font-weight: 700;
 }
+
+/* Заголовок «Настройки» на телефоне и зелёный колокольчик справа. */
+.phoneTitleRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}

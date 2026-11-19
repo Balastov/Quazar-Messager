@@ -55,6 +55,11 @@ function handleCallMessage(data: SwCallMsg) {
     if (note.messageId) pushWasShown(note.messageId, note.userId);
     return;
   }
+  if (data.type === "quazar-open-inbox") {
+    const link = data as { notificationId?: string; starId?: string; channelId?: string };
+    window.dispatchEvent(new CustomEvent("quazar-open-inbox", { detail: link }));
+    return;
+  }
   if (data.type === "quazar-star-door") {
     window.dispatchEvent(
       new CustomEvent("quazar-star-door", { detail: (data as { link?: unknown }).link })

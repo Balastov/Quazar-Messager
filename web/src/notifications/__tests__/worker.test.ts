@@ -138,3 +138,15 @@ it("treats a page that does not answer as not sharing", async () => {
   await done;
   expect(w.show).toHaveBeenCalledOnce();
 });
+
+it("shows a bell notification and opens its room, marking it read", async () => {
+  const w = worker();
+  await w.push({type: "inbox", title: "Боб зовёт вас на встречу «Планёрка»", body: "«Переговорная»", star_id: "star",
+    channel_id: "room", notification_id: "n1", tag: "quazar-inbox-n1"});
+  const options = w.show.mock.calls[0][1];
+  expect(options.data).toEqual({kind: "inbox", starId: "star", channelId: "room", messageId: "n1"});
+  const pending: Promise<unknown>[] = [];
+  w.handlers.notificationclick({notification: {data: options.data, close: vi.fn()}, waitUntil: (p: Promise<unknown>) => pending.push(p)});
+  await Promise.all(pending);
+  expect(w.post).toHaveBeenCalledWith({type: "quazar-open-inbox", notificationId: "n1", starId: "star", channelId: "room"});
+});

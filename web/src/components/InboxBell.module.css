@@ -1,0 +1,195 @@
+/* Зелёный колокольчик: кнопка в левом меню (компьютер) или в правом верхнем углу (телефон). */
+
+.side,
+.floating {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(52, 211, 153, 0.35);
+  background: rgba(52, 211, 153, 0.12);
+  color: var(--qz-online);
+  cursor: pointer;
+  transition: background 0.15s ease, box-shadow 0.15s ease;
+}
+
+.side:hover,
+.floating:hover {
+  background: rgba(52, 211, 153, 0.22);
+  box-shadow: 0 0 14px rgba(52, 211, 153, 0.35);
+}
+
+.side {
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+}
+
+.floating {
+  width: 38px;
+  height: 38px;
+  flex-shrink: 0;
+  border-radius: 50%;
+}
+
+/* На компьютере колокольчик — в левом меню; в шапках экранов он только на телефоне. */
+@media (min-width: 768px) {
+  .floating {
+    display: none;
+  }
+}
+
+.count {
+  position: absolute;
+  top: -6px;
+  right: -8px;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--qz-online);
+  color: #06281c;
+  font-size: 11px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 12px rgba(52, 211, 153, 0.45);
+}
+
+.panel {
+  position: fixed;
+  z-index: 70;
+  width: 360px;
+  max-height: min(70vh, 560px);
+  overflow-y: auto;
+  padding: 12px;
+  border-radius: var(--qz-radius-lg);
+  border: 1px solid var(--qz-glass-border);
+  background: var(--qz-glass-bg-strong);
+  backdrop-filter: var(--qz-glass-filter);
+  -webkit-backdrop-filter: var(--qz-glass-filter);
+  box-shadow: var(--qz-glass-shine), 0 18px 48px rgba(0, 0, 0, 0.5);
+  text-align: left;
+}
+
+.panelFloating {
+  width: min(360px, calc(100vw - 16px));
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 2px 4px 10px;
+}
+
+.title {
+  font-weight: 700;
+  color: var(--qz-text);
+}
+
+.readAll,
+.more {
+  border: none;
+  background: none;
+  color: var(--qz-online);
+  font-size: 13px;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 8px;
+}
+
+.readAll:hover,
+.more:hover {
+  background: rgba(52, 211, 153, 0.12);
+}
+
+.more {
+  display: block;
+  margin: 6px auto 0;
+}
+
+.empty {
+  padding: 18px 8px;
+  color: var(--qz-text-muted);
+  font-size: 13px;
+  line-height: 1.5;
+  text-align: center;
+}
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.item {
+  width: 100%;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 8px;
+  border: none;
+  border-radius: 12px;
+  background: none;
+  color: var(--qz-text-muted);
+  text-align: left;
+  cursor: pointer;
+}
+
+.item:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.unread {
+  color: var(--qz-text);
+  background: rgba(52, 211, 153, 0.07);
+}
+
+.icon {
+  font-size: 18px;
+  line-height: 1.3;
+}
+
+.text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.itemTitle {
+  font-size: 14px;
+  line-height: 1.35;
+}
+
+.unread .itemTitle {
+  font-weight: 600;
+}
+
+.itemBody {
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--qz-text-muted);
+}
+
+.time {
+  font-size: 11.5px;
+  color: var(--qz-text-dim);
+}
+
+.dot {
+  width: 9px;
+  height: 9px;
+  margin-top: 6px;
+  border-radius: 50%;
+  background: var(--qz-online);
+  box-shadow: 0 0 8px rgba(52, 211, 153, 0.6);
+  flex-shrink: 0;
+}

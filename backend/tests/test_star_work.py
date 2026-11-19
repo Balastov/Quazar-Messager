@@ -240,7 +240,7 @@ class StarWorkTest(StarsTestBase):
             self.assertEqual(await work.booking_tick(db, b.starts_at - timedelta(minutes=4)), 0)  # уже напомнили
         reminded = {uid for uid, e in self.events if e["type"] == "star_booking_soon"}
         self.assertEqual(reminded, {self.uid("alice"), self.uid("bob"), self.uid("mod")})
-        self.assertEqual(len(self.pushes), 3)
+        self.assertEqual(len([p for _, p in self.pushes if p["title"].startswith("Скоро встреча")]), 3)
 
         async with self.Session() as db:
             self.assertEqual(await work.booking_tick(db, b.starts_at + timedelta(minutes=1)), 1)

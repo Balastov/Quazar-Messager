@@ -112,6 +112,7 @@ export const useAuthStore = create<AuthState>()(
         useDoorsStore.getState().reset();
         useStarsStore.getState().reset();
         useNotifyStore.getState().reset();
+        void import("./inbox").then(({ useInboxStore }) => useInboxStore.getState().reset()).catch(() => {});
         useUnreadStore.getState().replace({});
         useAdminStore.getState().reset();
         useWallpaperStore.getState().reset();

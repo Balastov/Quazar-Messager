@@ -19,6 +19,7 @@ from app.models.call import Call
 from app.models.push import PushSubscription
 from app.models.contact import ContactSync, UserContact
 from app.models.notify import NotifySetting
+from app.models.inbox import InboxNotification
 from app.models.pin import ChatPin, StarPin
 from app.models.star import (
     ScheduledStarMessage,
@@ -70,6 +71,7 @@ __all__ = [
     "Attachment",
     "Call",
     "PushSubscription",
+    "InboxNotification",
     "UserContact",
     "ContactSync",
     "Star",

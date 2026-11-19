@@ -42,7 +42,7 @@ async function showSystemNotification(opts: {
   tag: string;
   requireInteraction?: boolean;
   silent?: boolean;
-  kind?: "message" | "call" | "star";
+  kind?: "message" | "call" | "star" | "inbox";
   callId?: string;
   callerId?: string;
   actions?: { action: string; title: string }[];
@@ -105,6 +105,10 @@ async function showSystemNotification(opts: {
           new CustomEvent("quazar-open-call", {
             detail: { callId: opts.callId, chatId: opts.chatId },
           })
+        );
+      } else if (opts.kind === "inbox") {
+        window.dispatchEvent(
+          new CustomEvent("quazar-open-inbox", { detail: { notificationId: opts.messageId, starId: opts.starId, channelId: opts.channelId } })
         );
       } else if (opts.kind === "star" && opts.starId && opts.channelId) {
         window.dispatchEvent(
@@ -239,6 +243,26 @@ export async function notifyStarMessage(info: {
     tag: info.messageId ? `quazar-star-message-${info.messageId}` : `quazar-star-${info.channelId}`});
   if (generation !== notificationGeneration()) return;
   if (shown && info.messageId) acknowledgeMessage(info.messageId, true);
+  if (!shown && prefs.sound) void playSoftChime();
+}
+
+/** Новое в зелёном колокольчике (брони): всплывашка в приложении, в фоне — системное уведомление.
+ * Тег тот же, что у push от сервера: одно и то же не покажется дважды. id едет в поле messageId —
+ * десктопное приложение пропускает в данных уведомления только известные поля. */
+export async function notifyInbox(info: { id: string; title: string; body: string; starId?: string; channelId?: string }): Promise<void> {
+  const prefs = getNotifyPrefs();
+  if (!prefs.enabled || isDoNotDisturb()) return;
+  if (isPresenting()) {
+    if (prefs.sound) void playSoftChime();
+    return;
+  }
+  if (isAppFocused()) {
+    useToastStore.getState().push({ title: info.title, body: truncate(info.body), starId: info.starId, channelId: info.channelId, inboxId: info.id });
+    if (prefs.sound) void playSoftChime();
+    return;
+  }
+  const shown = await showSystemNotification({ title: info.title, body: truncate(info.body), kind: "inbox", starId: info.starId,
+    channelId: info.channelId, messageId: info.id, tag: `quazar-inbox-${info.id}`, silent: !prefs.sound });
   if (!shown && prefs.sound) void playSoftChime();
 }
 

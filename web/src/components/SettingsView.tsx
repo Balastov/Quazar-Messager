@@ -1,4 +1,5 @@
 import { useEffect, useRef, type ComponentType } from "react";
+import InboxBell from "./InboxBell";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useAuthStore } from "../store/auth";
 import { useE2EStore } from "../store/e2e";
@@ -110,7 +111,10 @@ export default function SettingsView() {
     return (
       <div className={base.root} ref={rootRef}>
         <div className={s.phoneList}>
-          <h2 className={base.title}>Настройки</h2>
+          <div className={s.phoneTitleRow}>
+            <h2 className={base.title}>Настройки</h2>
+            <InboxBell variant="floating" />
+          </div>
           <KeyWarning />
           {nav}
         </div>

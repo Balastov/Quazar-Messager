@@ -70,6 +70,7 @@ from app.api.stickers import FILES_PATH as STICKER_FILES_PATH
 from app.api.stickers import StickerFiles
 from app.api.stickers import router as stickers_router
 from app.api.contacts import router as contacts_router
+from app.api.inbox import router as inbox_router
 from app.api.support import admin_router as support_admin_router
 from app.api.support import router as support_router
 from app.core.stickers import STICKERS_DIR
@@ -459,6 +460,7 @@ app.include_router(doors_router)
 app.include_router(livekit_webhook_router)
 app.include_router(stickers_router)
 app.include_router(contacts_router)
+app.include_router(inbox_router)
 app.include_router(ws_router)
 
 # Публично — только аватары и фоны (приложения и Звёзд). Картинки и фоны чатов (MEDIA_ROOT/attachments) отдаёт API участникам.

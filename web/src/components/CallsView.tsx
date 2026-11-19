@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import InboxBell from "./InboxBell";
 import { useAuthStore } from "../store/auth";
 import { useChatStore } from "../store/chat";
 import { useCallStore } from "../store/call";
@@ -87,6 +88,7 @@ export default function CallsView() {
     <div className={s.root}>
       <div className={s.header}>
         <h2 className={s.title}>Звонки</h2>
+        <InboxBell variant="floating" />
       </div>
       <div className={s.tabs}>
         <button

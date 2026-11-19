@@ -121,15 +121,20 @@ def _active(setting: NotifySetting | None, now: datetime) -> bool:
 
 
 def star_level(
-    star_setting: NotifySetting | None, channel_setting: NotifySetting | None, now: datetime
+    star_setting: NotifySetting | None, channel_setting: NotifySetting | None, now: datetime, *, room: bool = False
 ) -> str:
-    """Итоговый уровень в Спутнике с учётом временной тишины ("none", пока она идёт)."""
+    """Итоговый уровень в Спутнике с учётом временной тишины ("none", пока она идёт).
+
+    room — чат комнаты: без своей настройки «Все сообщения» Звезды там значат «Упоминания и ответы мне»."""
     if _active(star_setting, now) or _active(channel_setting, now):
         return "none"
-    for s in (channel_setting, star_setting):
-        if s and s.level:
-            return s.level
-    return STAR_DEFAULT
+    if channel_setting and channel_setting.level:
+        return channel_setting.level
+    level = star_setting.level if star_setting and star_setting.level else STAR_DEFAULT
+    if room:
+        from app.core import room_chat
+        return room_chat.default_level(level)
+    return level
 
 
 def wants(level: str, mentioned: bool, replied: bool = False) -> bool:
@@ -160,6 +165,12 @@ async def star_push_targets(
         if uid not in star_of or star_ids.index(sid) < star_ids.index(star_of[uid]):
             star_of[uid] = sid
     member_ids = list(star_of)
+    room = channel.kind == "planet"
+    if room:
+        # Чат комнаты — только тем, кто может в неё войти.
+        from app.core import room_chat
+        readers = await room_chat.audience(db, star, channel)
+        member_ids = [uid for uid in member_ids if uid in readers]
     if not member_ids:
         return []
     rows = (
@@ -180,7 +191,7 @@ async def star_push_targets(
     replied = set(also_mentioned)
     wanted = []
     for uid in member_ids:
-        level = star_level(by_user.get(uid, {}).get("star"), by_user.get(uid, {}).get("channel"), now)
+        level = star_level(by_user.get(uid, {}).get("star"), by_user.get(uid, {}).get("channel"), now, room=room)
         if wants(level, message.mention_all or uid in mentioned, uid in replied):
             wanted.append(uid)
     # WebSocket может оставаться подключённым в свёрнутой/замороженной PWA.

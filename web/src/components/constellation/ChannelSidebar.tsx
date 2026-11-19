@@ -83,7 +83,7 @@ export default function ChannelSidebar({
   const row = (c: StarChannel, kind: ChannelKind) => {
     const count = unread[c.id]?.count ?? 0;
     const mentionCount = unread[c.id]?.mentions ?? 0;
-    const quiet = kind === "satellite" && channelLevel(notifySettings, detail.id, c.id) === "none";
+    const quiet = channelLevel(notifySettings, detail.id, c.id, Date.now(), kind === "planet") === "none";
     const inside = kind === "planet" ? [...(detail.voice?.[c.id] ?? [])].sort((a, b) =>
       compareNames(presenceName(detail, a), presenceName(detail, b))
     ) : [];

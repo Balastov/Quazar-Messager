@@ -50,8 +50,11 @@ async def _assert_target(db: AsyncSession, user_id: str, scope: str, target_id: 
         query = select(StarMember.user_id).where(StarMember.star_id == target_id, StarMember.user_id == user_id)
     else:
         from app.core import shares
+        from app.core import room_chat
         channel = await db.get(StarChannel, target_id)
-        if not channel or channel.kind != "satellite":
+        # Спутник или чат комнаты (уровень сохраняется участнику Звезды, даже если сейчас он
+        # в закрытую комнату не входит: доставку всё равно решает доступ к чату).
+        if not channel or not (channel.kind == "satellite" or room_chat.has_chat(channel)):
             raise HTTPException(status_code=404, detail="Не найдено")
         audience = await shares.audience_star_ids(db, channel.id, channel.star_id)
         query = (

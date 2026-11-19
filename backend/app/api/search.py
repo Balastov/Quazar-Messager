@@ -1,4 +1,4 @@
-"""Поиск по сообщениям Спутников. Личные чаты сервер прочитать не может — их ищет клиент."""
+"""Поиск по сообщениям Спутников и чатов комнат. Личные чаты сервер прочитать не может — их ищет клиент."""
 
 from datetime import datetime
 from typing import Annotated
@@ -8,7 +8,7 @@ from sqlalchemy import exists, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.stars import _as_star, _load_membership, _messages_out
-from app.core import shares
+from app.core import room_chat, shares
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.models.star import StarChannel, StarFile, StarMessage
@@ -38,7 +38,7 @@ async def search_messages(
 ):
     """Все слова запроса — в тексте сообщения или в названии его файла (без учёта регистра).
     Свежие первыми; ответы в ветках — тоже (у них есть thread_id)."""
-    await _load_membership(db, star_id, current_user.id)
+    star, me = await _load_membership(db, star_id, current_user.id)
     query = (
         select(StarMessage, User)
         .outerjoin(User, User.id == StarMessage.sender_id)
@@ -46,10 +46,14 @@ async def search_messages(
         .where(
             # Свои Спутники и общие, подключённые к этой Звезде.
             or_(StarMessage.star_id == star_id, StarMessage.channel_id.in_(await shares.shared_channel_ids(db, star_id))),
-            StarChannel.kind == "satellite",
+            StarChannel.kind.in_(("satellite", "planet")),
             StarMessage.kind != "system",
         )
     )
+    # Чаты комнат, куда человек не может войти, в поиск не попадают.
+    hidden = await room_chat.hidden_rooms(db, star, me)
+    if hidden:
+        query = query.where(StarMessage.channel_id.not_in(hidden))
     for word in q.split()[:8]:
         pattern = _like(word)
         has_file = exists().where(StarFile.message_id == StarMessage.id, StarFile.name.ilike(pattern, escape="\\"))

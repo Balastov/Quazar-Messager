@@ -16,11 +16,11 @@ from app.api.stars import (
     _broadcast,
     _channel,
     _channel_event,
+    _chat,
     _forbid,
     _load_membership,
     _messages_out,
     _require_perm,
-    _satellite,
     _star_message,
     _user_out,
     assert_room_access,
@@ -70,8 +70,7 @@ async def thread_messages(
     limit: int = Query(100, ge=1, le=200),
 ):
     """Корень ветки и ответы в ней (последние limit), по времени."""
-    await _load_membership(db, star_id, current_user.id)
-    await _satellite(db, star_id, channel_id)
+    await _chat(db, star_id, channel_id, current_user.id)
     root = await _star_message(db, star_id, channel_id, root_id)
     rows = (
         await db.execute(

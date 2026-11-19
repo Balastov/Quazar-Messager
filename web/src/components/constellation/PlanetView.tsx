@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { starsApi, type StarChannel, type StarDetail } from "../../api/stars";
 import { useAuthStore } from "../../store/auth";
 import { useCallStore } from "../../store/call";
@@ -17,6 +17,10 @@ import { keyLabel } from "../../voice/keys";
 import { apiError, can, canStopScreen, outranks, passUntil, presenceAvatar, presenceName, ROOM_LABEL, roomDoor, screenLimit } from "./rules";
 import { placeNouns, roomWords } from "./words";
 import RoomTools from "./RoomTools";
+import RoomChat from "./RoomChat";
+import UnreadBadge from "../chat/UnreadBadge";
+import { hasRoomChat, useStarsStore } from "../../store/stars";
+import w from "./Work.module.css";
 import { confirmKnock } from "./work";
 import s from "./Constellation.module.css";
 import { usePresence, usePresenceText } from "../../store/presence";
@@ -57,6 +61,10 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
   const myKnockHere = myKnock?.channelId === channel.id ? myKnock : null;
   const knocksHere = Object.values(allKnocks).filter((k) => k.knock.channel_id === channel.id);
   const iAmHost = door.kind === "invite" && door.hostId === myId;
+  const chatAvailable = hasRoomChat(channel);
+  const chatOpen = useStarsStore((st) => st.roomChatOpen) && chatAvailable;
+  const setChatOpen = useStarsStore((st) => st.setRoomChatOpen);
+  const chatUnread = useStarsStore((st) => st.unread[channel.id]);
 
   const member = (userId: string) => detail.members.find((m) => m.user.id === userId);
   const userName = (userId: string, fallback?: string | null) =>
@@ -144,6 +152,18 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
           )}
         </span>
       </div>
+      {chatAvailable && !chatOpen && (
+        <button
+          type="button"
+          className={`${s.iconBtn} ${w.roomChatToggle}`}
+          onClick={() => setChatOpen(true)}
+          aria-label="Открыть чат"
+          title="Чат"
+        >
+          💬
+          <UnreadBadge count={chatUnread?.count ?? 0} mentions={chatUnread?.mentions ?? 0} className={w.roomChatBadge} />
+        </button>
+      )}
       {can(detail, "manage_channels") && (
         <button
           type="button"
@@ -158,8 +178,23 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
     </div>
   );
 
+  /** Комната слева, её чат справа (на телефоне — чат вместо комнаты). */
+  const withChat = (room: ReactNode, footer?: ReactNode) => (
+    <>
+      <div className={`${w.roomLayout} ${chatOpen ? w.roomLayoutChat : ""}`}>
+        <div className={w.roomMain}>{room}</div>
+        {chatOpen && (
+          <aside className={w.roomChat} aria-label="Чат">
+            <RoomChat key={channel.id} detail={detail} channel={channel} inside={iAmInside} onClose={() => setChatOpen(false)} />
+          </aside>
+        )}
+      </div>
+      {footer}
+    </>
+  );
+
   if (!here) {
-    return (
+    return withChat(
       <>
         {header}
         <div className={s.planet}>
@@ -311,7 +346,7 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
     return { text: "на связи", muted: false };
   };
 
-  return (
+  return withChat(
     <>
       {header}
       <div className={s.voice}>
@@ -450,9 +485,9 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
         </div>
         {modError && <div className={s.error}>{modError}</div>}
       </div>
-
-      <RoomControls detail={detail} channel={channel} />
-    </>
+    </>,
+    // Панель управления разговором — под комнатой и чатом: на телефоне видна и из чата.
+    <RoomControls detail={detail} channel={channel} />
   );
 }
 

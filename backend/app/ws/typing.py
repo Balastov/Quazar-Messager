@@ -13,8 +13,9 @@ from sqlalchemy import select
 from app.core.blocks import block_state, direct_peer
 from app.core.database import AsyncSessionLocal
 from app.models.chat import ChatMember
-from app.core import shares
-from app.models.star import StarChannel, StarMember
+from app.core import floors as floors_svc
+from app.core import room_chat, shares
+from app.models.star import Star, StarChannel, StarMember
 from app.ws.hub import manager
 
 # Чаще этого одному человеку в одно место не рассылаем, сколько бы клиент ни слал.
@@ -72,16 +73,45 @@ async def _chat_typing(chat_id: str, user_id: str) -> None:
     )
 
 
+async def _viewer(db, star: Star, user_id: str) -> StarMember | None:
+    """Участник Звезды или посетитель по гостевой ссылке (его «участие» в базу не пишется)."""
+    member = (
+        await db.execute(select(StarMember).where(StarMember.star_id == star.id, StarMember.user_id == user_id))
+    ).scalar_one_or_none()
+    if member:
+        return member
+    if (await floors_svc.room_passes(db, star.id, [user_id])).get(user_id):
+        return StarMember(star_id=star.id, user_id=user_id, role=floors_svc.VISITOR)
+    return None
+
+
 async def _star_typing(star_id: str, channel_id: str, user_id: str) -> None:
     if not _allow(user_id, channel_id):
         return
     async with session_factory() as db:
         channel = (
             await db.execute(
-                select(StarChannel).where(StarChannel.id == channel_id, StarChannel.kind == "satellite")
+                select(StarChannel).where(StarChannel.id == channel_id, StarChannel.kind.in_(("satellite", "planet")))
             )
         ).scalar_one_or_none()
-        if not channel or (channel.star_id != star_id and not await shares.is_shared_into(db, channel_id, star_id)):
+        if not channel:
+            return
+        if channel.kind == "planet":
+            # Чат комнаты: «печатает…» — тем, кто может его читать.
+            star = await db.get(Star, star_id)
+            if not star or channel.star_id != star_id:
+                return
+            member = await _viewer(db, star, user_id)
+            if not member or not await room_chat.can_read(db, star, member, channel):
+                return
+            ids = list(await room_chat.audience(db, star, channel))
+            await manager.broadcast_to_users(
+                ids,
+                {"type": "star_typing", "star_id": star_id, "channel_id": channel_id, "user_id": user_id},
+                exclude_user=user_id,
+            )
+            return
+        if channel.star_id != star_id and not await shares.is_shared_into(db, channel_id, star_id):
             return
         if not (
             await db.execute(

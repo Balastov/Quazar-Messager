@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import delete, func, select
 
 from app.api.later import MAX_PENDING_PER_USER, CurrentUser, Db, _check_time
-from app.api.stars import _load_membership, _satellite, prepare_message
+from app.api.stars import _chat, prepare_message
 from app.core.stars import MAX_MESSAGE_LENGTH
 from app.models.star import ScheduledStarMessage
 from app.schemas.star import LinkPreview, SendStarMessage
@@ -57,8 +57,7 @@ async def scheduled_changed(user_id: str, star_id: str, channel_id: str, error: 
 
 @router.get("", response_model=list[ScheduledStarOut])
 async def list_scheduled(star_id: str, channel_id: str, current_user: CurrentUser, db: Db):
-    await _load_membership(db, star_id, current_user.id)
-    await _satellite(db, star_id, channel_id)
+    await _chat(db, star_id, channel_id, current_user.id)
     rows = await db.execute(
         select(ScheduledStarMessage)
         .where(

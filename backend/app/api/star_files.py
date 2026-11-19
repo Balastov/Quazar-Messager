@@ -11,13 +11,14 @@ from pydantic import BaseModel
 from sqlalchemy import func, select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.stars import _load_membership, _satellite, _user_out, assert_can_post
+from app.api.stars import _chat, _load_membership, _load_viewer, _user_out, assert_can_post
+from app.core import room_chat
 from app.core import star_files, pseudonyms
 from app.core.config import settings
 from app.core import shares
 from app.core.database import get_db
 from app.core.deps import get_current_user
-from app.models.star import StarFile
+from app.models.star import StarChannel, StarFile
 from app.models.user import User
 from app.schemas.star import StarFileListItem, StarFileOut
 
@@ -49,8 +50,7 @@ async def upload_file(
     name: str = Query(..., min_length=1, max_length=1024),
 ):
     """Тело — сам файл, Content-Type — его тип. Потом файл уходит в сообщении (file_id)."""
-    star, me = await _load_membership(db, star_id, current_user.id)
-    channel = await _satellite(db, star_id, channel_id)
+    star, me, channel = await _chat(db, star_id, channel_id, current_user.id)
     assert_can_post(star, me)
     # Файлы общего Спутника хранятся у Звезды-хозяина и занимают её место.
     owner_star_id = channel.star_id
@@ -117,7 +117,7 @@ async def list_files(
     limit: int = Query(50, ge=1, le=100),
 ):
     """Отправленные файлы Звезды, свежие первыми. q — часть названия."""
-    await _load_membership(db, star_id, current_user.id)
+    star, me = await _load_membership(db, star_id, current_user.id)
     query = (
         select(StarFile, User)
         .outerjoin(User, User.id == StarFile.uploader_id)
@@ -126,6 +126,10 @@ async def list_files(
             StarFile.message_id.is_not(None),
         )
     )
+    # Файлы из чатов комнат, куда человек не может войти, не показываем.
+    hidden = await room_chat.hidden_rooms(db, star, me)
+    if hidden:
+        query = query.where(StarFile.channel_id.not_in(hidden))
     words = q.split()
     for word in words:
         escaped = word.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
@@ -158,14 +162,25 @@ async def list_files(
     ))
 
 
+async def _room_ids(db: AsyncSession, star_id: str) -> set[str]:
+    rows = await db.execute(select(StarChannel.id).where(StarChannel.star_id == star_id, StarChannel.kind == "planet"))
+    return set(rows.scalars())
+
+
 @router.get("/{star_id}/files/{file_id}")
 async def download_file(star_id: str, file_id: str, current_user: CurrentUser, db: Db):
-    await _load_membership(db, star_id, current_user.id)
+    # Посетитель по гостевой ссылке скачивает файлы из чата своей Комнаты.
+    star, me = await _load_viewer(db, star_id, current_user.id)
     file = (
         await db.execute(select(StarFile).where(StarFile.id == file_id))
     ).scalar_one_or_none()
     # Файл своей Звезды или общего Спутника, подключённого к ней.
     if file and file.star_id != star_id and not await shares.is_shared_into(db, file.channel_id, star_id):
+        file = None
+    if file and file.channel_id in await room_chat.hidden_rooms(db, star, me):
+        file = None
+    # Посетителю Спутники не видны.
+    if file and me.role == "visitor" and file.channel_id not in await _room_ids(db, star_id):
         file = None
     # Не отправленный файл виден только тому, кто его загрузил.
     if not file or (file.message_id is None and file.uploader_id != current_user.id):

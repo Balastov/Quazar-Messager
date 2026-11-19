@@ -63,6 +63,14 @@ describe("notify levels", () => {
     expect(chatLevel({}, "x", now)).toBe("all");
   });
 
+  it("keeps room chats quiet by default: mentions and replies, unless set otherwise", () => {
+    expect(channelLevel({}, "s", "room", now, true)).toBe("mentions");
+    expect(channelLevel(set("star", "s", "mentions_only"), "s", "room", now, true)).toBe("mentions_only");
+    expect(channelLevel(set("star", "s", "none"), "s", "room", now, true)).toBe("none");
+    expect(channelLevel({ ...set("star", "s", "all"), ...set("channel", "room", "all") }, "s", "room", now, true)).toBe("all");
+    expect(channelLevel(set("star", "s", "all", "2026-10-27T13:00:00Z"), "s", "room", now, true)).toBe("none");
+  });
+
   it("decides and describes", () => {
     expect([wants("all", false), wants("mentions", false), wants("mentions", true), wants("none", true)]).toEqual([
       true,

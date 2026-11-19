@@ -178,7 +178,9 @@ class StarsApiTest(StarsTestBase):
         await self.call(api.delete_message, star.id, satellite.id, first.id, user="alice")
         await self.call(api.delete_message, star.id, satellite.id, second.id, user="mod")
 
-        await self.expect_error(400, api.send_message, star.id, planet.id, SendStarMessage(text="x"), user="alice")
+        # У Планеты свой чат: открытая — для всех, кто может войти.
+        in_room = await self.call(api.send_message, star.id, planet.id, SendStarMessage(text="x"), user="alice")
+        self.assertEqual(in_room.channel_id, planet.id)
         await self.expect_error(404, api.send_message, star.id, satellite.id, SendStarMessage(text="x"), user="carol")
 
     async def test_messages_reach_all_members(self):

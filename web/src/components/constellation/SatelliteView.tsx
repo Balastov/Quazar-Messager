@@ -29,7 +29,7 @@ import w from "./Work.module.css";
 import AcksDialog from "./AcksDialog";
 import StarFileView from "./StarFileView";
 import NotifyDialog from "../NotifyDialog";
-import { channelLevel, levelSummary, settingKey, starLevel, useNotifyStore } from "../../notifications/levels";
+import { channelLevel, levelSummary, roomDefaultLevel, settingKey, starLevel, useNotifyStore } from "../../notifications/levels";
 import { useMentionSuggest } from "../messages/MentionSuggest";
 import { useStarMentions } from "./starMentions";
 import { MAX_FILE_BYTES } from "../../attachments/file";
@@ -91,10 +91,14 @@ interface Props {
   detail: StarDetail;
   channel: StarChannel;
   onBack?: () => void;
-  onEdit: () => void;
+  onEdit?: () => void;
+  /** Чат комнаты: только лента и ввод, без вкладок, закладок, опросов и форм. */
+  room?: boolean;
+  /** Чат комнаты: скрыть панель. */
+  onClose?: () => void;
 }
 
-export default function SatelliteView({ detail, channel, onBack, onEdit }: Props) {
+export default function SatelliteView({ detail, channel, onBack, onEdit, room = false, onClose }: Props) {
   const compactComposer = useCompactComposer();
   const displayName = useStarDisplayName(detail);
   const myId = useAuthStore((st) => st.user?.id);
@@ -129,6 +133,8 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
   const [forms, setForms] = useState<StarForm[]>([]);
   const [openForm, setOpenForm] = useState<StarForm | null>(null);
   useEffect(() => {
+    // Формы сценариев шлют карточки в Спутники — в чате комнаты их нет.
+    if (room) return;
     let alive = true;
     starsApi
       .forms(detail.id)
@@ -137,7 +143,7 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
     return () => {
       alive = false;
     };
-  }, [detail.id]);
+  }, [detail.id, room]);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [plusMenu, setPlusMenu] = useState<{ x: number; y: number } | null>(null);
   const emoji = useMemo(
@@ -193,7 +199,8 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
     allowAll: isStaff(detail.my_role),
     options: starMentions.options,
   });
-  const level = channelLevel(notifySettings, detail.id, channel.id);
+  const level = channelLevel(notifySettings, detail.id, channel.id, Date.now(), room);
+  const inheritedLevel = room ? roomDefaultLevel(starLevel(notifySettings, detail.id)) : starLevel(notifySettings, detail.id);
   const composerPreview = useComposerPreview(text, !editing);
   // Закрепляют те, кто может удалять чужие сообщения (модераторы и выше).
   const canPin = can(detail, "delete_messages") && !guestHere;
@@ -226,8 +233,8 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
   }, [detail.id, channel.id, pins, loadPins]);
 
   useEffect(() => {
-    if (!bookmarks) void loadBookmarks(detail.id, channel.id).catch(() => {});
-  }, [detail.id, channel.id, bookmarks, loadBookmarks]);
+    if (!bookmarks && !room) void loadBookmarks(detail.id, channel.id).catch(() => {});
+  }, [detail.id, channel.id, bookmarks, loadBookmarks, room]);
 
   // Из поиска или закрепа: прокрутить к сообщению, когда оно в ленте.
   useEffect(() => {
@@ -462,6 +469,30 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
       }}
     >
       {dragging && <div className={c.dropZone}>Отпустите, чтобы отправить в «{channel.name}»</div>}
+      {room ? (
+        <div className={s.channelHeader}>
+          <div className={s.channelTitle}>
+            <span className={s.channelTitleName}>💬 Чат</span>
+            <span className={s.channelTitleSub}>
+              {channel.access && channel.access !== "open" ? "🔒 " : ""}для тех, кто может войти · без сквозного шифрования
+            </span>
+          </div>
+          <button
+            type="button"
+            className={s.iconBtn}
+            onClick={() => setNotifyOpen(true)}
+            aria-label="Уведомления чата"
+            title={`Уведомления: ${levelSummary(level, notifySettings[settingKey("channel", channel.id)])}`}
+          >
+            {level === "none" ? "🔕" : "🔔"}
+          </button>
+          {onClose && (
+            <button type="button" className={s.iconBtn} onClick={onClose} aria-label="Скрыть чат" title="Скрыть чат">
+              ✕
+            </button>
+          )}
+        </div>
+      ) : (
       <div className={s.channelHeader}>
         {onBack && (
           <button type="button" className={s.iconBtn} onClick={onBack} aria-label="Назад">
@@ -500,7 +531,7 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
         >
           {level === "none" ? "🔕" : "🔔"}
         </button>
-        {can(detail, "manage_channels") && !guestHere && (
+        {can(detail, "manage_channels") && !guestHere && onEdit && (
           <button
             type="button"
             className={s.iconBtn}
@@ -525,20 +556,25 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
           </button>
         )}
       </div>
+      )}
 
-      {searchOpen && <StarSearchPanel detail={detail} channelId={channel.id} onClose={() => setSearchOpen(false)} />}
-      <ChannelTabs
-        tab={tab}
-        onTab={setTab}
-        pinCount={pins?.length ?? 0}
-        onAddBookmark={canAddBookmark(detail, channel) ? () => setBookmarkDialog({}) : undefined}
-      />
-      <BookmarksBar
-        detail={detail}
-        bookmarks={bookmarks ?? []}
-        myId={myId}
-        onEdit={(bookmark) => setBookmarkDialog({ bookmark })}
-      />
+      {searchOpen && !room && <StarSearchPanel detail={detail} channelId={channel.id} onClose={() => setSearchOpen(false)} />}
+      {!room && (
+        <>
+          <ChannelTabs
+            tab={tab}
+            onTab={setTab}
+            pinCount={pins?.length ?? 0}
+            onAddBookmark={canAddBookmark(detail, channel) ? () => setBookmarkDialog({}) : undefined}
+          />
+          <BookmarksBar
+            detail={detail}
+            bookmarks={bookmarks ?? []}
+            myId={myId}
+            onEdit={(bookmark) => setBookmarkDialog({ bookmark })}
+          />
+        </>
+      )}
       {bookmarkDialog && (
         <BookmarkDialog
           detail={detail}
@@ -608,7 +644,9 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
         {!loading && messages.length === 0 && (
           <div className={s.empty}>
             <div className={s.emptyTitle}>Здесь пока тихо</div>
-            Напишите первое сообщение — его увидят все участники Звезды.
+            {room
+              ? "Напишите первое сообщение — его увидят все, кто может войти сюда."
+              : "Напишите первое сообщение — его увидят все участники Звезды."}
           </div>
         )}
         {messages.map((msg) => (
@@ -802,14 +840,14 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
             ...(editing ? [] : [
               { label: "📎 Файл (до 50 МБ)", onClick: () => fileInputRef.current?.click() },
               // Опросы и сборы живут внутри одной Звезды — в общем Спутнике их нет.
-              ...(shared
+              ...(shared || room
                 ? []
                 : [
                     { label: "📊 Опрос", onClick: () => setDialog("poll") },
                     { label: "🎮 Сбор группы", onClick: () => setDialog("lfg") },
                   ]),
               // Формы сценариев Звезды: карточка уйдёт в Спутник, указанный в сценарии.
-              ...forms.map((form) => ({ label: `📝 ${form.name}`, onClick: () => setOpenForm(form) })),
+              ...(room ? [] : forms.map((form) => ({ label: `📝 ${form.name}`, onClick: () => setOpenForm(form) }))),
             ]),
             ...(compactComposer ? [
               { label: formatOpen ? "Скрыть форматирование" : "Форматирование", onClick: toggleFormat },
@@ -826,9 +864,11 @@ export default function SatelliteView({ detail, channel, onBack, onEdit }: Props
         <NotifyDialog
           scope="channel"
           targetId={channel.id}
-          title={`Уведомления: #${channel.name}`}
-          inherited={starLevel(notifySettings, detail.id)}
-          inheritLabel={`Как во всей Звезде (${levelSummary(starLevel(notifySettings, detail.id), notifySettings[settingKey("star", detail.id)]).toLowerCase()})`}
+          title={room ? `Уведомления: чат «${channel.name}»` : `Уведомления: #${channel.name}`}
+          inherited={inheritedLevel}
+          inheritLabel={room
+            ? `По умолчанию (${levelSummary(inheritedLevel, notifySettings[settingKey("star", detail.id)]).toLowerCase()})`
+            : `Как во всей Звезде (${levelSummary(inheritedLevel, notifySettings[settingKey("star", detail.id)]).toLowerCase()})`}
           onClose={() => setNotifyOpen(false)}
         />
       )}

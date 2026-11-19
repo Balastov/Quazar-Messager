@@ -131,6 +131,8 @@ interface StarsState {
   assets: Record<string, StarAsset[]>;
   loadingMessages: boolean;
   unread: Record<string, Unread>;
+  /** Чат комнаты не открылся: почему (обычно — в закрытую комнату вам не войти). */
+  roomChatError: Record<string, string>;
   /** На телефоне канал открыт поверх списка. */
   mobileChannelOpen: boolean;
   notice: string | null;
@@ -161,6 +163,11 @@ interface StarsState {
   selectStar: (starId: string) => Promise<void>;
   refreshStar: (starId: string) => Promise<void>;
   selectChannel: (channelId: string) => Promise<void>;
+  /** Заново загрузить чат комнаты (вошли в закрытую комнату или вышли из неё). */
+  reloadRoomChat: (starId: string, channelId: string) => Promise<void>;
+  /** Панель чата на экране комнаты открыта (запоминается на устройстве). */
+  roomChatOpen: boolean;
+  setRoomChatOpen: (open: boolean) => void;
   loadOlder: (channelId: string) => Promise<void>;
   sendMessage: (text: string, replyToId?: string, ackRequired?: boolean, linkPreview?: LinkPreview | null) => Promise<void>;
   loadScheduled: (starId: string, channelId: string) => Promise<void>;
@@ -274,6 +281,7 @@ const initialState = {
   assets: {} as Record<string, StarAsset[]>,
   loadingMessages: false,
   unread: {} as Record<string, Unread>,
+  roomChatError: {} as Record<string, string>,
   mobileChannelOpen: false,
   notice: null,
   joinDialog: null,
@@ -288,8 +296,60 @@ const initialState = {
   revealRequest: null as { channelId: string; messageId: string } | null,
 };
 
+const ROOM_CHAT_KEY = "quazar-room-chat-open";
+
+/** Свой выбор на устройстве; по умолчанию чат открыт на компьютере и скрыт на телефоне (он там вместо комнаты). */
+function readRoomChatOpen(): boolean {
+  let saved: string | null = null;
+  try {
+    saved = localStorage.getItem(ROOM_CHAT_KEY);
+  } catch {
+    // Приватный режим — как по умолчанию.
+  }
+  if (saved === "1" || saved === "0") return saved === "1";
+  return typeof window === "undefined" || !window.matchMedia?.("(max-width: 767px)").matches;
+}
+
+/** У комнаты (Планеты) свой чат; в зале ожидания его нет. */
+export function hasRoomChat(channel: Pick<StarChannel, "kind" | "room_kind"> | undefined): boolean {
+  return channel?.kind === "planet" && channel.room_kind !== "lobby";
+}
+
 export const useStarsStore = create<StarsState>((set, get) => {
   const myId = () => useAuthStore.getState().user?.id ?? null;
+
+  /** Лента канала с начала. Ошибку чата комнаты запоминаем для панели, Спутника — бросаем дальше. */
+  async function loadFeed(starId: string, channelId: string, room: boolean) {
+    set({ loadingMessages: true });
+    try {
+      const page = await starsApi.messages(starId, channelId);
+      set((s) => {
+        const roomChatError = { ...s.roomChatError };
+        delete roomChatError[channelId];
+        return {
+          messages: { ...s.messages, [channelId]: page },
+          hasMore: { ...s.hasMore, [channelId]: page.length >= PAGE_SIZE },
+          roomChatError,
+        };
+      });
+    } catch (err) {
+      if (!room) throw err;
+      const status = axios.isAxiosError(err) ? err.response?.status : undefined;
+      set((s) => {
+        const messages = { ...s.messages };
+        delete messages[channelId];
+        return {
+          messages,
+          roomChatError: {
+            ...s.roomChatError,
+            [channelId]: status === 403 ? "denied" : "Не удалось загрузить чат — проверьте интернет",
+          },
+        };
+      });
+    } finally {
+      set({ loadingMessages: false });
+    }
+  }
   let scheduledRevision = 0;
   const scheduledRequests = new Map<string, number>();
 
@@ -506,6 +566,8 @@ export const useStarsStore = create<StarsState>((set, get) => {
           useUiStore.getState().tab === "stars" &&
           activeChannelId() === message.channel_id &&
           channelOnScreen(starId) &&
+          // Чат комнаты читают, только пока его панель открыта.
+          (get().roomChatOpen || !hasRoomChat(get().details[starId]?.channels.find((c) => c.id === message.channel_id))) &&
           isAppFocused() && !get().loadingMessages;
         if (message.sender?.id !== me && !viewing) {
           set((s) => ({
@@ -700,12 +762,12 @@ export const useStarsStore = create<StarsState>((set, get) => {
       try {await useNotifyStore.getState().load();} catch {return;}
     }
     if (actor !== myId()) return;
-    const level = channelLevel(useNotifyStore.getState().settings, starId, message.channel_id);
-    if (!wants(level, mentioned, replied)) return;
     const detail = get().details[starId];
+    const channel = detail?.channels.find((c) => c.id === message.channel_id);
+    const level = channelLevel(useNotifyStore.getState().settings, starId, message.channel_id, Date.now(), hasRoomChat(channel));
+    if (!wants(level, mentioned, replied)) return;
     const me = detail?.members.find((m) => m.user.id === myId());
     if (detail && me && memberWorkState(detail, me)?.working === false) return;
-    const channel = detail?.channels.find((c) => c.id === message.channel_id);
     const where = `#${channel?.name ?? "Спутник"}${message.thread_id ? " · ветка" : ""}`;
     void notifyStarMessage({
       title: `${displayName(message.sender) ?? "Участник"} · ${where} · ${detail?.name ?? "Звезда"}`,
@@ -854,18 +916,30 @@ export const useStarsStore = create<StarsState>((set, get) => {
       });
 
       const channel = get().details[starId]?.channels.find((c) => c.id === channelId);
-      if (channel?.kind !== "satellite" || get().messages[channelId]) return;
+      const room = hasRoomChat(channel);
+      if ((channel?.kind !== "satellite" && !room) || get().messages[channelId]) return;
+      await loadFeed(starId, channelId, room);
+    },
 
-      set({ loadingMessages: true });
+    reloadRoomChat: async (starId, channelId) => {
+      await loadFeed(starId, channelId, true);
+    },
+
+    roomChatOpen: readRoomChatOpen(),
+
+    setRoomChatOpen: (open) => {
       try {
-        const page = await starsApi.messages(starId, channelId);
-        set((s) => ({
-          messages: { ...s.messages, [channelId]: page },
-          hasMore: { ...s.hasMore, [channelId]: page.length >= PAGE_SIZE },
-        }));
-      } finally {
-        set({ loadingMessages: false });
+        localStorage.setItem(ROOM_CHAT_KEY, open ? "1" : "0");
+      } catch {
+        // Приватный режим — запомним до перезагрузки.
       }
+      const channelId = activeChannelId();
+      set((s) => {
+        if (!open || !channelId || !s.unread[channelId]) return { roomChatOpen: open };
+        const unread = { ...s.unread };
+        delete unread[channelId];
+        return { roomChatOpen: open, unread };
+      });
     },
 
     loadOlder: async (channelId) => {
@@ -954,6 +1028,8 @@ export const useStarsStore = create<StarsState>((set, get) => {
 
     jumpTo: async (message) => {
       await get().openChannelLink(message.star_id, message.channel_id);
+      const target = get().details[message.star_id]?.channels.find((c) => c.id === message.channel_id);
+      if (hasRoomChat(target) && !get().roomChatOpen) get().setRoomChatOpen(true);
       if (message.thread_id) {
         // Ответ в ветке — открываем ветку его корня.
         // Передаём сам ответ: openThread откроет ветку его корня и загрузит её целиком.

@@ -47,11 +47,21 @@ export function starLevel(settings: Settings, starId: string, now = Date.now()):
   return s?.level ?? STAR_DEFAULT;
 }
 
-export function channelLevel(settings: Settings, starId: string, channelId: string, now = Date.now()): NotifyLevel {
+/** Чат комнаты без своей настройки: «Все сообщения» Звезды там значат «Упоминания и ответы мне». */
+export const ROOM_DEFAULT: NotifyLevel = "mentions";
+
+export function roomDefaultLevel(starLevel: NotifyLevel): NotifyLevel {
+  return starLevel === "all" ? ROOM_DEFAULT : starLevel;
+}
+
+/** room — чат комнаты (Планеты), а не Спутник. */
+export function channelLevel(settings: Settings, starId: string, channelId: string, now = Date.now(), room = false): NotifyLevel {
   const star = settings[settingKey("star", starId)];
   const channel = settings[settingKey("channel", channelId)];
   if (mutedNow(star, now) || mutedNow(channel, now)) return "none";
-  return channel?.level ?? star?.level ?? STAR_DEFAULT;
+  if (channel?.level) return channel.level;
+  const inherited = star?.level ?? STAR_DEFAULT;
+  return room ? roomDefaultLevel(inherited) : inherited;
 }
 
 /** Показать ли всплывашку и звук. */

@@ -127,7 +127,7 @@ class StarScheduledTest(StarsTestBase):
         self.assertEqual(await self.run_job(soon(120)), 1)
         self.assertTrue((await self.feed())[-1].ack_required)
 
-    async def test_scheduling_cannot_bypass_channel_access_or_use_planets(self):
+    async def test_scheduling_cannot_bypass_channel_access(self):
         body = later.ScheduleStarBody(text="x", send_at=soon())
         await self.expect_error(
             404, later.schedule_message, self.star.id, self.sat.id, body, user="carol",
@@ -135,9 +135,8 @@ class StarScheduledTest(StarsTestBase):
         await self.expect_error(
             404, later.list_scheduled, self.star.id, self.sat.id, user="carol",
         )
-        await self.expect_error(
-            400, later.schedule_message, self.star.id, self.planet.id, body, user="alice",
-        )
+        # В чат открытой комнаты отложить можно — как в Спутник.
+        await self.call(later.schedule_message, self.star.id, self.planet.id, body, user="alice")
 
     async def test_time_text_and_pending_limit_are_validated(self):
         for at in (datetime.now(), soon(-1), soon(366 * 24 * 60)):

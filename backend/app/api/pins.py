@@ -12,7 +12,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.messages import _assert_member, _chat_message, _get_chat_member_ids, messages_out, visible_to
-from app.api.stars import _as_star, _broadcast, _forbid, _load_membership, _messages_out, _satellite, _star_message
+from app.api.stars import _as_star, _broadcast, _chat, _forbid, _load_membership, _messages_out, _star_message
 from app.core import stars as rules
 from app.core.database import get_db
 from app.core.deps import get_current_user
@@ -114,8 +114,7 @@ async def _star_pins_event(db: AsyncSession, star_id: str, channel_id: str) -> N
 
 
 async def _assert_can_pin_star(db: AsyncSession, star_id: str, user: User, channel_id: str) -> None:
-    star, me = await _load_membership(db, star_id, user.id)
-    channel = await _satellite(db, star_id, channel_id)
+    star, me, channel = await _chat(db, star_id, channel_id, user.id)
     if not rules.has_perm(me.role, Perm.DELETE_MESSAGES, star.role_permissions):
         raise _forbid("Закрепляют модераторы и выше")
     if channel.star_id != star_id:
@@ -124,8 +123,7 @@ async def _assert_can_pin_star(db: AsyncSession, star_id: str, user: User, chann
 
 @router.get("/stars/{star_id}/channels/{channel_id}/pins", response_model=list[StarMessageOut])
 async def list_star_pins(star_id: str, channel_id: str, current_user: CurrentUser, db: Db):
-    await _load_membership(db, star_id, current_user.id)
-    await _satellite(db, star_id, channel_id)
+    await _chat(db, star_id, channel_id, current_user.id)
     rows = await db.execute(
         select(StarMessage, User)
         .join(StarPin, StarPin.message_id == StarMessage.id)

@@ -30,6 +30,7 @@ from app.core import floors as floors_svc
 from app.core import voice
 from app.core import premium
 from app.core import pseudonyms, livekit
+from app.core import room_chat
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.core.stars import Perm
@@ -287,10 +288,27 @@ async def _floor_scoped(db: AsyncSession, star_id: str, event: dict, channel_id:
     return True
 
 
+async def _room_chat_scoped(db: AsyncSession, star_id: str, event: dict, channel_id: str, also: tuple[str, ...]) -> bool:
+    """Событие чата комнаты — только тем, кто может его читать. True — уже разослано."""
+    channel = await db.get(StarChannel, channel_id)
+    if not channel or channel.kind != "planet":
+        return False
+    star = await db.get(Star, channel.star_id)
+    if not star:
+        return True
+    audience = await room_chat.audience(db, star, channel) | set(also)
+    await manager.broadcast_to_users(
+        list(audience), await pseudonyms.in_star(db, star_id, {"star_id": star_id, **event})
+    )
+    return True
+
+
 async def _broadcast(db: AsyncSession, star_id: str, event: dict, *, also: tuple[str, ...] = ()) -> None:
     """Участникам Звезды. Событие общего Спутника — участникам всех подключённых Звёзд,
     каждому со star_id его Звезды; кто состоит в нескольких — получает один раз."""
     channel_id = _event_channel_id(event)
+    if channel_id and event.get("type") in room_chat.CHAT_EVENTS and await _room_chat_scoped(db, star_id, event, channel_id, also):
+        return
     if await _floor_scoped(db, star_id, event, channel_id, also):
         return
     star_ids = await shares.audience_star_ids(db, channel_id, star_id) if channel_id else [star_id]
@@ -1341,6 +1359,22 @@ async def _satellite(db: AsyncSession, star_id: str, channel_id: str) -> StarCha
     return channel
 
 
+async def _chat(db: AsyncSession, star_id: str, channel_id: str, user_id: str) -> tuple[Star, StarMember, StarChannel]:
+    """Лента сообщений: Спутник или чат комнаты. Чат комнаты — тем, кто может в неё войти,
+    в том числе посетителю по гостевой ссылке в эту комнату (room_chat)."""
+    star, me = await _load_viewer(db, star_id, user_id)
+    channel = (await db.execute(select(StarChannel).where(StarChannel.id == channel_id))).scalar_one_or_none()
+    if channel and channel.kind == "planet" and channel.star_id == star_id:
+        if not room_chat.has_chat(channel):
+            raise HTTPException(status_code=400, detail="В зале ожидания нет чата")
+        if not await room_chat.can_read(db, star, me, channel):
+            raise _forbid("Чат комнаты — для тех, кто может в неё войти")
+        return star, me, channel
+    if me.role == floors_svc.VISITOR:
+        raise HTTPException(status_code=404, detail="Канал не найден")
+    return star, me, await _satellite(db, star_id, channel_id)
+
+
 async def _messages_out(
     db: AsyncSession, rows: list[tuple[StarMessage, User | None]], viewer_id: str | None = None, *, star_id: str | None = None
 ) -> list[StarMessageOut]:
@@ -1463,8 +1497,7 @@ async def list_messages(
     limit: int = Query(50, ge=1, le=100),
     before_id: str | None = Query(None),
 ):
-    await _load_membership(db, star_id, current_user.id)
-    await _satellite(db, star_id, channel_id)
+    await _chat(db, star_id, channel_id, current_user.id)
 
     query = (
         select(StarMessage, User)
@@ -1561,8 +1594,7 @@ async def prepare_message(
     check_slow_mode: bool = True,
 ) -> tuple[Star, StarMember, StarChannel, StarMessage | None]:
     """Общие проверки обычной и отложенной отправки; права проверяются и при доставке."""
-    star, me = await _load_membership(db, star_id, current_user.id)
-    channel = await _satellite(db, star_id, channel_id)
+    star, me, channel = await _chat(db, star_id, channel_id, current_user.id)
     assert_can_post(star, me)
     # В общем Спутнике админы гостевой Звезды — обычные участники.
     is_admin = me.role in ("owner", "admin") and me.star_id == channel.star_id
@@ -1711,7 +1743,7 @@ async def edit_message(
     db: Db,
 ):
     """Исправить можно только своё сообщение — модераторам доступно лишь удаление."""
-    star, me = await _load_membership(db, star_id, current_user.id)
+    star, me, channel = await _chat(db, star_id, channel_id, current_user.id)
     message = await _star_message(db, star_id, channel_id, message_id)
     if message.sender_id != current_user.id or message.kind != "text":
         raise _forbid("Исправить можно только своё сообщение")
@@ -1725,7 +1757,6 @@ async def edit_message(
     # Ссылки в новом тексте другие — старое превью убираем.
     message.link_preview = None
     # Упоминания пересчитываем для подсветки; push о правке не шлём.
-    channel = await _satellite(db, star_id, channel_id)
     message.mentions, message.mention_all = await _mentions(db, star_id, me, body.text, channel)
     message.edited_at = _now()
     await db.commit()
@@ -1755,8 +1786,7 @@ class StarRevisionOut(BaseModel):
 )
 async def list_revisions(star_id: str, channel_id: str, message_id: str, current_user: CurrentUser, db: Db):
     """Прежние версии исправленного сообщения, старые первыми. Текущая — в самом сообщении."""
-    await _load_membership(db, star_id, current_user.id)
-    await _satellite(db, star_id, channel_id)
+    await _chat(db, star_id, channel_id, current_user.id)
     await _star_message(db, star_id, channel_id, message_id)
     rows = await db.execute(
         select(StarMessageRevision)
@@ -1779,7 +1809,7 @@ async def set_reaction(
     db: Db,
 ):
     """Поставить или сменить свою реакцию (одна на человека)."""
-    star, me = await _load_membership(db, star_id, current_user.id)
+    star, me, _ = await _chat(db, star_id, channel_id, current_user.id)
     await _star_message(db, star_id, channel_id, message_id)
     assert_can_post(star, me)
     now = _now()
@@ -1802,7 +1832,7 @@ async def set_reaction(
 async def remove_reaction(
     star_id: str, channel_id: str, message_id: str, current_user: CurrentUser, db: Db
 ):
-    await _load_membership(db, star_id, current_user.id)
+    await _chat(db, star_id, channel_id, current_user.id)
     await _star_message(db, star_id, channel_id, message_id)
     await db.execute(
         delete(StarMessageReaction).where(
@@ -1836,7 +1866,7 @@ async def _broadcast_reaction(
 async def delete_message(
     star_id: str, channel_id: str, message_id: str, current_user: CurrentUser, db: Db
 ):
-    star, me = await _load_membership(db, star_id, current_user.id)
+    star, me, _ = await _chat(db, star_id, channel_id, current_user.id)
     message = await _star_message(db, star_id, channel_id, message_id)
     # Чужие сообщения общего Спутника удаляют модераторы Звезды-хозяина, гости — только свои.
     home = message.star_id == me.star_id

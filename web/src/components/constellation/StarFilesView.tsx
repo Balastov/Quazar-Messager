@@ -1,3 +1,4 @@
+import { hasRoomChat } from "../../store/stars";
 import { useCallback, useEffect, useState } from "react";
 import { starsApi, type StarChannel, type StarDetail, type StarFileItem } from "../../api/stars";
 import { fileIcon, formatSize } from "../../attachments/file";
@@ -40,7 +41,8 @@ export default function StarFilesView({
   const [more, setMore] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const satellites = detail.channels.filter((c) => c.kind === "satellite");
+  // Спутники и чаты комнат (сервер присылает файлы только тех комнат, куда можно войти).
+  const feeds = detail.channels.filter((c) => c.kind === "satellite" || hasRoomChat(c));
 
   useEffect(() => {
     const timer = setTimeout(() => setDebounced(query.trim()), 250);
@@ -110,10 +112,10 @@ export default function StarFilesView({
         </select>
         {!channel && (
           <select className={s.select} value={channelId} onChange={(e) => setChannelId(e.target.value)} aria-label="Спутник">
-            <option value="">Все Спутники</option>
-            {satellites.map((c) => (
+            <option value="">Все каналы</option>
+            {feeds.map((c) => (
               <option key={c.id} value={c.id}>
-                #{c.name}
+                {c.kind === "planet" ? `💬 ${c.name}` : `#${c.name}`}
               </option>
             ))}
           </select>

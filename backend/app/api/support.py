@@ -202,6 +202,8 @@ async def get_ticket(ticket_id: str, me: Super, db: Db):
     )
     await db.commit()
     if read_ids:
+        # У остальных из команды число на «Чёрной дыре» тоже уменьшится.
+        await support.notify_team(db, ticket)
         bot = await support.bot_user(db)
         for message_id in read_ids:
             await manager.send_to_user(

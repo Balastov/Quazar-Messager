@@ -15,6 +15,8 @@ export interface AdminStats {
   queued_tickets: number;
   /** Новости об обновлениях, которые ждут одобрения. */
   news_drafts?: number;
+  /** Сообщения людей в обращениях, которые команда ещё не открывала. */
+  unread_tickets?: number;
 }
 
 export type AdminPremiumKind = "trial" | "purchase" | "gift" | "superuser";

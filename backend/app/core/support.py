@@ -308,6 +308,19 @@ async def set_status(db: AsyncSession, ticket: SupportTicket, status: str, admin
     await notify_team(db, ticket)
 
 
+async def unread_count(db: AsyncSession) -> int:
+    """Сообщения людей в обращениях, которые команда ещё не открывала, — число на «Чёрной дыре»."""
+    return (
+        await db.execute(
+            select(func.count())
+            .select_from(SupportMessage)
+            .join(Message, Message.id == SupportMessage.message_id)
+            .join(SupportTicket, SupportTicket.id == SupportMessage.ticket_id)
+            .where(Message.sender_id == SupportTicket.user_id, Message.status != "read")
+        )
+    ).scalar_one()
+
+
 async def queued_count(db: AsyncSession) -> int:
     return (
         await db.execute(select(func.count()).select_from(SupportTicket).where(SupportTicket.status == "queued"))

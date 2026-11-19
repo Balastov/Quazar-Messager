@@ -78,6 +78,8 @@ class StatsOut(BaseModel):
     queued_tickets: int = 0
     # Новости об обновлениях, которые ждут одобрения.
     news_drafts: int = 0
+    # Сообщения людей в обращениях, которые команда ещё не открывала.
+    unread_tickets: int = 0
 
 
 @router.get("/me", response_model=StatsOut)
@@ -105,6 +107,7 @@ async def admin_me(me: Super, db: Db):
         messages_today=messages + star_messages,
         open_reports=reports,
         queued_tickets=await support.queued_count(db),
+        unread_tickets=await support.unread_count(db),
         news_drafts=(await count(select(func.count()).select_from(NewsRelease).where(NewsRelease.status == "draft"))).scalar_one(),
     )
 

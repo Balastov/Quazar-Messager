@@ -10,7 +10,7 @@ import { useStarsStore } from "../store/stars";
 import { useUiStore, type AppTab } from "../store/ui";
 import { useAdminStore } from "../store/admin";
 import { useUnreadStore } from "../store/unread";
-import { chatLevel, useNotifyStore } from "../notifications/levels";
+import { channelLevel, chatLevel, useNotifyStore } from "../notifications/levels";
 import { MessageSquareHeart, Orbit } from "lucide-react";
 import UserAvatar from "./UserAvatar";
 import {
@@ -87,6 +87,7 @@ export default function AppNav() {
 
   const isSuper = useAdminStore((st) => st.isSuper);
   const newsDrafts = useAdminStore((st) => st.newsDrafts);
+  const ticketsUnread = useAdminStore((st) => st.ticketsUnread);
   const items = isSuper ? [...ITEMS, BLACK_HOLE] : ITEMS;
   // Всего непрочитанных — на значке «Чат». Чаты с выключенными уведомлениями не считаем.
   const unreadCounts = useUnreadStore((st) => st.counts);
@@ -95,6 +96,16 @@ export default function AppNav() {
     (sum, [chatId, n]) => (chatLevel(notifySettings, chatId) === "none" ? sum : sum + n),
     0
   );
+  // На «Созвездии» — сумма по всем Звёздам, как на их значках; выключенные каналы не считаем.
+  const starUnread = useStarsStore((st) => st.unread);
+  const starDetails = useStarsStore((st) => st.details);
+  const starsTotal = Object.entries(starUnread).reduce((sum, [channelId, u]) => {
+    const channel = starDetails[u.starId]?.channels.find((c) => c.id === channelId);
+    const quiet = channelLevel(notifySettings, u.starId, channelId, Date.now(), channel?.kind === "planet") === "none";
+    return quiet ? sum : sum + u.count;
+  }, 0);
+  const counts: Partial<Record<AppTab, number>> = { chats: totalUnread, stars: starsTotal, blackhole: ticketsUnread };
+  const labelOf = (id: AppTab, label: string) => (counts[id] ? `${label}, непрочитанных: ${counts[id]}` : undefined);
   // «Контакты» — только в нижнем меню (телефон): на компьютере людей ищут поиском и «Новым чатом».
   const renderItems = (variant: "side" | "bottom") =>
     items.filter(({ id }) => variant === "bottom" || id !== "contacts").map(({ id, label, Icon }) => {
@@ -114,16 +125,16 @@ export default function AppNav() {
           className={cls}
           data-tour={`nav-${id}`}
           onClick={() => setTab(id)}
-          aria-label={id === "chats" && totalUnread ? `${label}, непрочитанных: ${totalUnread}` : undefined}
+          aria-label={labelOf(id, label)}
         >
           <span className={s.iconWrap}>
             <Icon size={variant === "side" ? 22 : 20} />
-            {id === "blackhole" && newsDrafts > 0 && (
+            {id === "blackhole" && newsDrafts > 0 && !ticketsUnread && (
               <span className={s.attentionDot} aria-label="Новость ждёт одобрения" title="Новость об обновлении ждёт одобрения" />
             )}
-            {id === "chats" && totalUnread > 0 && (
+            {!!counts[id] && (
               <span className={s.unreadBadge} aria-hidden>
-                {totalUnread > 99 ? "99+" : totalUnread}
+                {counts[id]! > 99 ? "99+" : counts[id]}
               </span>
             )}
           </span>

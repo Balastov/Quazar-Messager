@@ -261,12 +261,17 @@ class SupportTest(unittest.IsolatedAsyncioTestCase):
         only_bugs = await self.sup(api.list_tickets, status_filter="open", kind="bug", limit=100)
         self.assertEqual([t.id for t in only_bugs], [ticket.id])
         self.assertEqual((await self.sup(admin_api.admin_me)).queued_tickets, 2)
+        # Число на «Чёрной дыре» — непрочитанные командой сообщения во всех обращениях.
+        self.assertEqual((await self.sup(admin_api.admin_me)).unread_tickets, 2)
 
         # Открыли — у автора две зелёные.
         self.events.clear()
         detail = await self.sup(api.get_ticket, ticket.id)
         self.assertEqual(detail.unread, 0)
         self.assertEqual([e["status"] for uid, e in self.events_of("message_status") if uid == self.uid("alice")], ["read"])
+        # Остальные из команды узнают, что обращение прочитано, — их число тоже уменьшится.
+        self.assertTrue(any(uid == self.uid("carol") for uid, _ in self.events_of("support_ticket")))
+        self.assertEqual((await self.sup(admin_api.admin_me)).unread_tickets, 1)
 
         detail = await self.sup(api.reply_ticket, ticket.id, TicketReply(text="Поправили, обновите страницу"))
         reply = detail.messages[-1]

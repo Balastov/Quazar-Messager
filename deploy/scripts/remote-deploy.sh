@@ -34,10 +34,35 @@ if [[ -f .env.prod ]]; then
   fi
 fi
 
+env_value() {
+  [[ -f .env.prod ]] || return 0
+  { grep -E "^$1=" .env.prod || true; } | tail -1 | cut -d= -f2- | tr -d "\"'"
+}
+
+# Медиа на HDD: если диск не подключился, на месте каталога пусто — не запускаемся поверх него.
+media_dir="$(env_value MEDIA_DIR)"
+media_marker="$(env_value MEDIA_MARKER)"
+if [[ -n "$media_dir" ]]; then
+  if [[ -z "$media_marker" || ! -f "$media_dir/$media_marker" ]]; then
+    echo "==> ERROR: $media_dir has no ${media_marker:-MEDIA_MARKER} marker — is the media disk mounted? Deploy stopped." >&2
+    exit 1
+  fi
+  echo "==> Media storage: $media_dir ($(df -h --output=avail "$media_dir" | tail -1 | tr -d ' ') free)"
+fi
+if grep -qE '^[^#]*[[:space:]]/opt/quazar/desktop-updates[[:space:]]' /etc/fstab && ! mountpoint -q /opt/quazar/desktop-updates; then
+  echo "==> WARN: /opt/quazar/desktop-updates is not mounted from the HDD — update files may be missing" >&2
+fi
+
 echo "==> Rebuilding containers..."
 mkdir -p desktop-updates
 sudo python3 deploy/scripts/ensure-desktop-updates-nginx.py
 docker compose -f docker-compose.prod.yml --env-file .env.prod "${COMPOSE_PROFILES[@]}" up -d --build
+
+# Каждая сборка оставляет прежние образы и кэш — без уборки они заполняют системный диск.
+echo "==> Removing unused images and old build cache..."
+docker image prune -f >/dev/null || true
+docker builder prune -f --filter until=168h >/dev/null || true
+df -h --output=avail,pcent / | tail -1 | awk '{print "==> System disk: " $1 " free (" $2 " used)"}'
 
 echo "==> Ensuring host nginx /media, /livekit/ + 12m upload limit (10 MB chat images)..."
 SITE=/etc/nginx/sites-available/quazar-msg.ru

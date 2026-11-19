@@ -110,6 +110,35 @@ class PublicationTest(unittest.TestCase):
         (stage / "publication.json").write_text(json.dumps(manifest))
         with self.assertRaises(ValueError): publisher.publish(stage, self.root)
 
+    def test_keeps_only_the_two_latest_releases(self):
+        publisher.publish(self.add_android(self.stage("0.20.0"), "0.20.0"), self.root)
+        (self.root / "win-x64" / "notes.txt").write_text("чужой файл")
+        publisher.publish(self.stage("0.21.0", suffix="two"), self.root)
+        publisher.publish(self.stage("0.22.0", suffix="three"), self.root)
+        self.assertEqual(
+            sorted(p.name for p in (self.root / "win-x64").iterdir()),
+            ["Quazar-0.21.0-win-x64.exe", "Quazar-0.22.0-win-x64.exe", "latest.yml", "notes.txt"],
+        )
+        self.assertEqual((self.root / "win-x64" / "latest.yml").read_text(), "version: 0.22.0\n")
+        # Канал Android не входил в новые выпуски — его единственный пакет остаётся.
+        self.assertTrue((self.root / "android" / "Quazar-0.20.0-android.apk").exists())
+
+    def test_publishes_across_disks(self):
+        real = publisher.os.replace
+        stage = self.stage("0.20.0")
+
+        def replace(src, dst):
+            if Path(src).is_relative_to(stage):
+                raise OSError(publisher.errno.EXDEV, "Invalid cross-device link")
+            real(src, dst)
+
+        with mock.patch.object(publisher.os, "replace", side_effect=replace):
+            publisher.publish(stage, self.root)
+        for channel, meta in publisher.CHANNELS.items():
+            self.assertEqual((self.root / channel / meta).read_text(), "version: 0.20.0\n")
+            self.assertEqual(sorted(p.name for p in (self.root / channel).iterdir() if p.name.startswith(".")), [])
+        self.assertEqual(sorted(p.name for p in (stage / "quazar-desktop-win-x64").iterdir()), [])
+
     def downloadable(self):
         stage = self.stage("0.20.0")
         manifest = json.loads((stage / "publication.json").read_text())

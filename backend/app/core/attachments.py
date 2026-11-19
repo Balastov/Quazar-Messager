@@ -21,6 +21,7 @@ from sqlalchemy import delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.config import settings
+from app.core.media import media_ready
 
 log = logging.getLogger(__name__)
 
@@ -64,6 +65,8 @@ def attachment_path(attachment_id: str) -> Path:
 
 def ensure_free_space() -> None:
     """Не даём картинкам занять весь диск — на нём же живут БД и логи."""
+    if not media_ready():
+        raise StorageFull
     free = shutil.disk_usage(attachments_dir()).free
     if free < settings.MEDIA_MIN_FREE_MB * 1024 * 1024 + MAX_ATTACHMENT_BYTES:
         raise StorageFull

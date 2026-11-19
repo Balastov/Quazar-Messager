@@ -176,6 +176,16 @@ class AttachmentsTest(unittest.IsolatedAsyncioTestCase):
                 507, api.upload_attachment, self.chat.id, request=FakeRequest(b"x" * 100), user="alice"
             )
 
+    async def test_upload_refused_when_media_disk_is_not_mounted(self):
+        # Метки нет — на месте диска с медиа пустой каталог системного диска.
+        with mock.patch.object(settings, "MEDIA_MARKER", ".quazar-media"):
+            await self.expect_error(
+                507, api.upload_attachment, self.chat.id, request=FakeRequest(b"x" * 100), user="alice"
+            )
+            self.assertFalse((Path(self.media) / "attachments").exists())
+            Path(self.media, ".quazar-media").write_text("")
+            await self.upload(os.urandom(100))
+
     async def test_message_links_own_unsent_attachment_once(self):
         out = await self.upload(os.urandom(100))
         msg = await self.call(

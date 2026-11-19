@@ -18,6 +18,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.core.media import media_ready
 
 MAX_FILE_BYTES = 50 * 1024 * 1024
 # Загружено, но так и не отправлено в сообщении — удаляем через сутки.
@@ -68,6 +69,8 @@ def clean_mime(raw: str | None) -> str:
 
 
 def ensure_free_space() -> None:
+    if not media_ready():
+        raise StorageFull
     free = shutil.disk_usage(files_dir()).free
     if free < settings.MEDIA_MIN_FREE_MB * 1024 * 1024 + MAX_FILE_BYTES:
         raise StorageFull

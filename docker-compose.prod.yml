@@ -35,6 +35,8 @@ services:
       JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env.prod}
       CORS_ORIGINS: ${CORS_ORIGINS:-https://quazar-msg.ru,https://www.quazar-msg.ru}
       MEDIA_ROOT: /app/media
+      # Медиа на отдельном диске: без этой метки в его корне файлы не принимаются.
+      MEDIA_MARKER: ${MEDIA_MARKER:-}
       # Картинки в чатах не принимаются, если на диске останется меньше (МБ).
       MEDIA_MIN_FREE_MB: ${MEDIA_MIN_FREE_MB:-2048}
       # Картинки из чатов удаляются через столько дней (0 — хранить бессрочно).
@@ -64,7 +66,8 @@ services:
       # Ники владельцев ресурса через запятую (роль выдаётся при старте).
       SUPERUSER_BOOTSTRAP: ${SUPERUSER_BOOTSTRAP:-}
     volumes:
-      - media_data:/app/media
+      # Пусто — docker-том media_data; на проде — каталог на HDD (deploy/scripts/move-media-to-hdd.sh).
+      - ${MEDIA_DIR:-media_data}:/app/media
     depends_on:
       postgres:
         condition: service_healthy

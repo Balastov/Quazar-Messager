@@ -1,5 +1,6 @@
 """Публикация проверенных файлов: сначала все пакеты, затем атомарная замена метаданных."""
 import argparse
+import errno
 import fcntl
 import hashlib
 import json
@@ -79,6 +80,42 @@ def published_version(path):
     return match[1] if match else None
 
 
+# Сколько выпусков хранить на сервере: текущий и предыдущий (для обновления по частям).
+KEEP_VERSIONS = 2
+
+
+def move(src, dst):
+    """os.replace, который работает и между дисками: файлы обновлений лежат на HDD, черновик — на SSD."""
+    try:
+        os.replace(src, dst)
+    except OSError as error:
+        if error.errno != errno.EXDEV:
+            raise
+        temporary = dst.with_name(f".{dst.name}.copy")
+        shutil.copyfile(src, temporary)
+        os.replace(temporary, dst)
+        os.unlink(src)
+
+
+def prune(root, channels, keep=KEEP_VERSIONS):
+    """Удаляет пакеты старых выпусков, оставляя `keep` последних в каждом канале."""
+    removed = 0
+    for channel in channels:
+        folder = root / channel
+        if folder.is_symlink() or not folder.is_dir():
+            continue
+        found = {}
+        for path in folder.iterdir():
+            match = re.fullmatch(r"Quazar-(\d+\.\d+\.\d+)-.+", path.name)
+            if match and path.is_file() and not path.is_symlink() and re.fullmatch(package_pattern(match[1], channel), path.name):
+                found.setdefault(match[1], []).append(path)
+        for version in sorted(found, key=lambda v: tuple(map(int, v.split("."))))[:-keep]:
+            for path in found[version]:
+                path.unlink()
+                removed += 1
+    return removed
+
+
 def digest(path):
     value = hashlib.sha256()
     with path.open("rb") as stream:
@@ -138,16 +175,19 @@ def publish(staging, root):
             if metadata:
                 continue
             dst.parent.mkdir(parents=True, exist_ok=True)
-            os.replace(src, dst)
+            move(src, dst)
             dst.chmod(0o644)
         for src, dst, metadata in prepared:
             if not metadata:
                 continue
             temporary = dst.with_name(dst.name + ".new")
-            os.replace(src, temporary)
+            move(src, temporary)
             temporary.chmod(0o644)
             os.replace(temporary, dst)
         print(f"Published update feeds {version}: {', '.join(sorted(channels, key=list(ALL).index))}")
+        removed = prune(root, channels)
+        if removed:
+            print(f"Removed {removed} files of older releases")
 
 
 if __name__ == "__main__":

@@ -1,14 +1,18 @@
 import source from "../../../public/sw.js?raw";
 import {afterEach, expect, it, vi} from "vitest";
 
-function worker() {
+function worker(opts: {presenting?: boolean} = {}) {
   const handlers: Record<string, (event: any) => void> = {};
   // Уведомления в системе по тегу: новое с тем же тегом заменяет прежнее.
   const shown = new Map<string, {title: string; body: string; data: any}>();
   const show = vi.fn(async (title: string, options: any) => {
     if (options?.tag) shown.set(options.tag, {title, body: options.body, data: options.data});
   });
-  const post = vi.fn(), focus = vi.fn().mockResolvedValue(undefined);
+  // Открытое окно отвечает воркеру, идёт ли показ экрана; остальные сообщения просто записываем.
+  const post = vi.fn((message: any, ports?: MessagePort[]) => {
+    if (message?.type === "quazar-presenting?") ports?.[0]?.postMessage({presenting: !!opts.presenting});
+  });
+  const focus = vi.fn().mockResolvedValue(undefined);
   const getNotifications = async ({tag}: {tag: string}) => (shown.has(tag) ? [shown.get(tag)] : []);
   const self = {addEventListener: (name: string, handler: (event: any) => void) => {handlers[name] = handler;},
     registration: {scope: "https://quazar-msg.ru/", showNotification: show, getNotifications},
@@ -107,4 +111,30 @@ it("does not duplicate a message the open page already notified about", async ()
   await w.push(chatPush("m5", new Date().toISOString()));
   expect(w.shown.has("quazar-chat-chat")).toBe(false);
   expect(w.show).toHaveBeenCalledWith("Боб", expect.objectContaining({tag: "quazar-message-m5", silent: true}));
+});
+
+it("shows nothing while the open app is sharing its screen", async () => {
+  const w = worker({presenting: true});
+  await w.push({type: "incoming_call", call_id: "c1", chat_id: "chat", caller_name: "Боб"});
+  await w.push({type: "star_door", door: "knock", star_id: "star", channel_id: "room", knock_id: "k1"});
+  await w.push(chatPush("m1", new Date().toISOString()));
+  await w.push({type: "star_message", title: "Звезда", message_id: "m2", star_id: "star", channel_id: "channel"});
+  expect(w.show).not.toHaveBeenCalled();
+  expect(w.post).not.toHaveBeenCalledWith(expect.objectContaining({type: "quazar-push-shown"}));
+});
+
+it("still rings for a call when the open app is not sharing its screen", async () => {
+  const w = worker({presenting: false});
+  await w.push({type: "incoming_call", call_id: "c2", chat_id: "chat", caller_name: "Боб"});
+  expect(w.show).toHaveBeenCalledWith("Входящий звонок", expect.objectContaining({tag: "quazar-call-c2", silent: false}));
+});
+
+it("treats a page that does not answer as not sharing", async () => {
+  vi.useFakeTimers();
+  const w = worker();
+  w.post.mockImplementation(() => undefined);
+  const done = w.push({type: "incoming_call", call_id: "c3", chat_id: "chat"});
+  await vi.advanceTimersByTimeAsync(300);
+  await done;
+  expect(w.show).toHaveBeenCalledOnce();
 });

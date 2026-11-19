@@ -1,6 +1,7 @@
 import { useChatStore } from "../store/chat";
 import { useStarsStore } from "../store/stars";
 import { useToastStore } from "../notifications/toastStore";
+import { usePresenting } from "../notifications/presenting";
 import s from "./ToastStack.module.css";
 
 export default function ToastStack() {
@@ -8,8 +9,9 @@ export default function ToastStack() {
   const dismiss = useToastStore((st) => st.dismiss);
   const selectChat = useChatStore((st) => st.selectChat);
   const openMessage = useChatStore((st) => st.openMessage);
+  const presenting = usePresenting();
 
-  if (toasts.length === 0) return null;
+  if (toasts.length === 0 || presenting) return null;
 
   return (
     <div className={s.stack} aria-live="polite">

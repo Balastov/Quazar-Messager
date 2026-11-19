@@ -94,6 +94,34 @@ async function showMessageNotification(data, title, options) {
   } catch { /* Notification was already displayed; a closed page needs no acknowledgement. */ }
 }
 
+// Открытый Quazar показывает экран — уведомления увидели бы зрители. Спрашиваем сами окна: состояние
+// в воркере не храним, он может перезапуститься. Не ответили быстро — считаем, что показа нет.
+async function presenting() {
+  let windows = [];
+  try {
+    windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+  } catch {
+    return false;
+  }
+  if (!windows.length || typeof MessageChannel === "undefined") return false;
+  const answers = windows.map((client) => new Promise((resolve) => {
+    const channel = new MessageChannel();
+    const timer = setTimeout(() => resolve(false), 300);
+    channel.port1.onmessage = (event) => {
+      clearTimeout(timer);
+      channel.port1.close();
+      resolve(!!(event.data && event.data.presenting));
+    };
+    try {
+      client.postMessage({ type: "quazar-presenting?" }, [channel.port2]);
+    } catch {
+      clearTimeout(timer);
+      resolve(false);
+    }
+  }));
+  return (await Promise.all(answers)).some(Boolean);
+}
+
 self.addEventListener("push", (event) => {
   let data = {};
   try {
@@ -120,6 +148,14 @@ self.addEventListener("push", (event) => {
     return;
   }
 
+  // Показ экрана: страница сама даёт звук сообщения; входящий звонок не показывается и молчит.
+  event.waitUntil((async () => {
+    if (await presenting()) return;
+    await showPush(data);
+  })());
+});
+
+async function showPush(data) {
   if (data.type === "incoming_call") {
     const name = data.caller_name || "Собеседник";
     const isVideo = !!(data.media && data.media.video);
@@ -145,7 +181,7 @@ self.addEventListener("push", (event) => {
         { action: "reject", title: "Отклонить" },
       ],
     };
-    event.waitUntil(self.registration.showNotification(title, options));
+    await self.registration.showNotification(title, options);
     return;
   }
 
@@ -178,51 +214,49 @@ self.addEventListener("push", (event) => {
       },
       actions,
     };
-    event.waitUntil(self.registration.showNotification(data.title || "Quazar", options));
+    await self.registration.showNotification(data.title || "Quazar", options);
     return;
   }
 
   if (data.type === "device_key_request") {
     // Новое устройство просит открыть на нём переписку. Открытое приложение спросит «Это вы входите?»
     // само — уведомление нужно, только когда Quazar закрыт или свёрнут.
-    event.waitUntil((async () => {
-      const clients = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
-      if (clients.some((client) => client.visibilityState === "visible")) return;
-      await self.registration.showNotification(data.title || "Вход в Quazar на новом устройстве", {
-        body: data.body || "Откройте Quazar, чтобы подтвердить, что это вы.",
-        tag: `quazar-keys-${data.request_id || "x"}`,
-        icon: "/icons/icon-192.png?v=neon-q-2",
-        badge: "/icons/icon-48.png?v=neon-q-2",
-        requireInteraction: true,
-        renotify: true,
-        data: { kind: "keys" },
-      });
-    })());
+    const clients = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+    if (clients.some((client) => client.visibilityState === "visible")) return;
+    await self.registration.showNotification(data.title || "Вход в Quazar на новом устройстве", {
+      body: data.body || "Откройте Quazar, чтобы подтвердить, что это вы.",
+      tag: `quazar-keys-${data.request_id || "x"}`,
+      icon: "/icons/icon-192.png?v=neon-q-2",
+      badge: "/icons/icon-48.png?v=neon-q-2",
+      requireInteraction: true,
+      renotify: true,
+      data: { kind: "keys" },
+    });
     return;
   }
 
   if (data.type === "star_message") {
     // Сообщение Спутника: упоминание, ответ мне или всё подряд — по уровню уведомлений.
     const text = data.body || "";
-    event.waitUntil(showGroupedMessage(data, data.title || "Quazar", `quazar-star-${data.channel_id || "x"}`,
+    await showGroupedMessage(data, data.title || "Quazar", `quazar-star-${data.channel_id || "x"}`,
       data.message_id ? `quazar-star-message-${data.message_id}` : null,
       (count) => (count > 1 ? `${text}\nи ещё ${count - 1}` : text), {
         icon: "/icons/icon-192.png?v=neon-q-2",
         badge: "/icons/icon-48.png?v=neon-q-2",
         data: { kind: "star", starId: data.star_id || null, channelId: data.channel_id || null, messageId: data.message_id || null, threadId: data.thread_id || null },
-      }));
+      });
     return;
   }
 
   if (data.type === "chat_message") {
     // Текст личных сообщений зашифрован — в уведомлении только «Новое сообщение», поэтому пачку
     // из одного чата показываем одним уведомлением со счётчиком.
-    event.waitUntil(showGroupedMessage(data, data.title || "Quazar", `quazar-chat-${data.chat_id || data.message_id}`,
+    await showGroupedMessage(data, data.title || "Quazar", `quazar-chat-${data.chat_id || data.message_id}`,
       data.message_id ? `quazar-message-${data.message_id}` : null,
       (count) => (count > 1 ? `Новых сообщений: ${count}` : data.body || "Новое сообщение"), {
         icon: "/icons/icon-192.png?v=neon-q-2", badge: "/icons/icon-48.png?v=neon-q-2",
         data: { kind: "message", chatId: data.chat_id || null },
-      }));
+      });
     return;
   }
 
@@ -234,8 +268,8 @@ self.addEventListener("push", (event) => {
     badge: "/icons/icon-48.png?v=neon-q-2",
     data: { kind: "message", chatId: data.chatId || data.chat_id || null },
   };
-  event.waitUntil(self.registration.showNotification(title, options));
-});
+  await self.registration.showNotification(title, options);
+}
 
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();

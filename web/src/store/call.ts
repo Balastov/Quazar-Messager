@@ -7,6 +7,7 @@ import { getNoiseSuppressionPref, setNoiseSuppressionPref } from "../calls/noise
 import { applyIosRoute } from "../calls/devices";
 import { clearCallNotification, notifyIncomingCall } from "../notifications/notify";
 import { startCallRingtone, startConnectionLostTone } from "../notifications/sound";
+import { isPresenting, setPresenting, usePresentingStore } from "../notifications/presenting";
 import { socket } from "../ws/socket";
 import { useAuthStore } from "./auth";
 import { useChatStore } from "./chat";
@@ -273,6 +274,8 @@ function stopRing() {
 
 function startRing() {
   stopRing();
+  // Во время демонстрации экрана входящий звонок молчит (и не показывается); после неё — тоже без звонка.
+  if (isPresenting()) return;
   stopRingtone = startCallRingtone();
 }
 
@@ -918,4 +921,15 @@ export const useCallStore = create<CallState>((set, get) => {
       });
     },
   };
+});
+
+useCallStore.subscribe((st) => {
+  setPresenting("call", st.localVideo === "screen" && st.phase !== "idle" && st.phase !== "ended");
+});
+
+// Звонят, а показ экрана только начался (например, в голосовой комнате) — звонок замолкает.
+usePresentingStore.subscribe((st, prev) => {
+  if (!(st.call || st.room) || prev.call || prev.room || useCallStore.getState().phase !== "incoming") return;
+  stopRing();
+  void clearCallNotification(useCallStore.getState().callId);
 });

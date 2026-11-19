@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useAuthStore } from "../../store/auth";
 import { phoneVerificationApi } from "../../api/phoneVerification";
 import ChatDialog from "../chat/ChatDialog";
+import { usePresenting } from "../../notifications/presenting";
 import PhoneVerification from "./PhoneVerification";
 import s from "../SettingsView.module.css";
 
@@ -11,6 +12,7 @@ export default function PhoneVerificationPrompt() {
   const dismiss = useAuthStore(st => st.dismissPhonePrompt);
   const [weeklyDue, setWeeklyDue] = useState(false);
   const [proof, setProof] = useState<string>();
+  const presenting = usePresenting();
   useEffect(() => {
     setWeeklyDue(false); setProof(undefined);
     if (!user || user.phone_verified_at) return;
@@ -32,7 +34,7 @@ export default function PhoneVerificationPrompt() {
     check(); document.addEventListener("visibilitychange", visible);
     return () => { active = false; clearTimeout(timer); document.removeEventListener("visibilitychange", visible); };
   }, [user?.id, user?.phone_verified_at]);
-  if (!user || user.phone_verified_at || user.phone_discoverable === null || (!authDue && !weeklyDue)) return null;
+  if (presenting || !user || user.phone_verified_at || user.phone_discoverable === null || (!authDue && !weeklyDue)) return null;
   const close = () => { dismiss(); setWeeklyDue(false); };
   return <ChatDialog title="Подтвердите телефон" onClose={close}>
     <p className={s.hint}>Подтвердите, что номер принадлежит вам. Это поможет защитить аккаунт и позволит входить без пароля.</p>

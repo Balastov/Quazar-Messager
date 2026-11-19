@@ -12,6 +12,8 @@ const {setNotifyPrefs} = await import("../prefs");
 const {playSoftChime} = await import("../sound");
 const {http} = await import("../../api/client");
 const {setNotificationUser, setPushEndpoint, pushWasShown, acknowledgeMessage} = await import("../delivery");
+const {notifyIncomingCall, notifyReminder} = await import("../notify");
+const {setPresenting} = await import("../presenting");
 let focus: boolean, visibility: string;
 let restoreVisibility: () => void;
 let show: ReturnType<typeof vi.fn>, fallback: ReturnType<typeof vi.fn>;
@@ -36,7 +38,7 @@ beforeEach(() => {
   const reg = {active: {}, showNotification: show};
   vi.stubGlobal("navigator", {serviceWorker: {ready: Promise.resolve(reg), getRegistration: vi.fn().mockResolvedValue(reg)}});
 });
-afterEach(() => {setNotificationUser(null); restoreVisibility(); vi.restoreAllMocks(); vi.useRealTimers(); vi.unstubAllGlobals();});
+afterEach(() => {setPresenting("call", false); setPresenting("room", false); setNotificationUser(null); restoreVisibility(); vi.restoreAllMocks(); vi.useRealTimers(); vi.unstubAllGlobals();});
 
 it("shows toast and sound in the foreground and stays quiet in the active chat", async () => {
   await notifyStarMessage(star("foreground"));
@@ -109,4 +111,30 @@ it("ignores notifications belonging to a previous account after a session switch
   await notifyIncomingMessage({title: "Old private sender", body: "Private", chatId: "old-chat", messageId: "old-message", recipientId: "me", isActiveChat: false});
   expect(useToastStore.getState().toasts).toHaveLength(0);
   expect(show).not.toHaveBeenCalled(); expect(playSoftChime).not.toHaveBeenCalled();
+});
+
+it("only plays the sound while the screen is shared and keeps the push away from this device", async () => {
+  setPushEndpoint("https://push.example/device");
+  const post = vi.spyOn(http, "post").mockResolvedValue({data: {ok: true}});
+  setPresenting("room", true);
+  await notifyStarMessage(star("presenting-focused"));
+  focus = false; visibility = "hidden";
+  await notifyIncomingMessage({title: "Боб", body: "Текст", chatId: "chat", isActiveChat: false, messageId: "presenting-hidden"});
+  await notifyReminder({reminderId: "r", chatId: "chat", messageId: "m", body: "Позвонить"});
+  useToastStore.getState().push({title: "Служебное", body: "Текст"});
+  expect(useToastStore.getState().toasts).toHaveLength(0);
+  expect(show).not.toHaveBeenCalled(); expect(fallback).not.toHaveBeenCalled();
+  expect(playSoftChime).toHaveBeenCalledTimes(3);
+  await vi.advanceTimersByTimeAsync(100);
+  expect(post).toHaveBeenCalledWith("/push/ack", {endpoint: "https://push.example/device", message_ids: ["presenting-focused", "presenting-hidden"]});
+});
+
+it("keeps the incoming call notification away while the screen is shared", async () => {
+  focus = false; visibility = "hidden";
+  setPresenting("call", true);
+  await notifyIncomingCall({callId: "c", chatId: "chat", callerId: "bob", callerName: "Боб"});
+  expect(show).not.toHaveBeenCalled(); expect(fallback).not.toHaveBeenCalled();
+  setPresenting("call", false);
+  await notifyIncomingCall({callId: "c2", chatId: "chat", callerId: "bob", callerName: "Боб"});
+  expect(show).toHaveBeenCalledOnce();
 });

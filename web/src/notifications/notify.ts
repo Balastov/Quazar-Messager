@@ -3,6 +3,7 @@ import { desktop } from "../platform/desktop";
 import { playSoftChime } from "./sound";
 import { useToastStore } from "./toastStore";
 import { isDoNotDisturb } from "../store/presence";
+import { isPresenting, usePresentingStore } from "./presenting";
 import {acknowledgeMessage, claimNotification, isAppFocused, notificationGeneration, notificationRegistration, wasPushShown} from "./delivery";
 
 export interface IncomingNotify {
@@ -48,7 +49,7 @@ async function showSystemNotification(opts: {
   messageId?: string;
   threadId?: string | null;
 }): Promise<boolean> {
-  if (browserPermission() !== "granted") return false;
+  if (browserPermission() !== "granted" || isPresenting()) return false;
   const generation = notificationGeneration();
 
   const options: NotificationOptions & {
@@ -130,7 +131,7 @@ export async function notifyIncomingCall(info: {
   video?: boolean;
 }): Promise<void> {
   const prefs = getNotifyPrefs();
-  if (!prefs.enabled) return;
+  if (!prefs.enabled || isPresenting()) return;
 
   if (browserPermission() === "default") {
     await requestNotifyPermission();
@@ -166,6 +167,22 @@ export async function clearCallNotification(callId: string | null): Promise<void
   }
 }
 
+/** Демонстрация экрана началась — убираем уже показанные системные уведомления Quazar. */
+async function clearShownNotifications(): Promise<void> {
+  const bridge = desktop();
+  if (bridge) { bridge.clearNotifications(); return; }
+  try {
+    const reg = await notificationRegistration();
+    (await reg?.getNotifications())?.forEach((n) => n.close());
+  } catch {
+    // ignore
+  }
+}
+
+usePresentingStore.subscribe((st, prev) => {
+  if ((st.call || st.room) && !(prev.call || prev.room)) void clearShownNotifications();
+});
+
 export async function notifyIncomingMessage(info: IncomingNotify): Promise<void> {
   const generation = notificationGeneration();
   if (!claimNotification(info.messageId, info.recipientId)) return;
@@ -174,6 +191,10 @@ export async function notifyIncomingMessage(info: IncomingNotify): Promise<void>
   if (!prefs.enabled || isDoNotDisturb()) return;
   const foreground = isAppFocused();
   if (info.isActiveChat && foreground) return;
+  if (isPresenting()) {
+    playQuietly(prefs.sound, info.messageId);
+    return;
+  }
   const title = info.title, body = truncate(info.body || "Новое сообщение");
   if (foreground) {
     useToastStore.getState().push({title, body, chatId: info.chatId});
@@ -187,6 +208,13 @@ export async function notifyIncomingMessage(info: IncomingNotify): Promise<void>
   if (!shown && prefs.sound) void playSoftChime();
 }
 
+/** Демонстрация экрана: только звук. Сообщение считается обработанным — сервер не пришлёт
+ * этому устройству push, который показал бы системное уведомление зрителям. */
+function playQuietly(sound: boolean, messageId?: string) {
+  if (messageId) acknowledgeMessage(messageId, true);
+  if (sound) void playSoftChime();
+}
+
 /** WebSocket и Web Push используют одинаковый тег сообщения: один видимый системный сигнал. */
 export async function notifyStarMessage(info: {
   title: string; body: string; starId: string; channelId: string; messageId?: string; threadId?: string | null;
@@ -196,6 +224,10 @@ export async function notifyStarMessage(info: {
   if (info.messageId) acknowledgeMessage(info.messageId);
   const prefs = getNotifyPrefs();
   if (!prefs.enabled || isDoNotDisturb()) return;
+  if (isPresenting()) {
+    playQuietly(prefs.sound, info.messageId);
+    return;
+  }
   const body = truncate(info.body || "Новое сообщение");
   if (isAppFocused()) {
     useToastStore.getState().push({title: info.title, body, starId: info.starId, channelId: info.channelId, messageId: info.messageId, threadId: info.threadId});
@@ -264,7 +296,7 @@ export async function notifyDoor(
   opts: { title: string; body: string; actions?: { action: string; title: string }[] }
 ): Promise<void> {
   const tabVisible = typeof document !== "undefined" && document.visibilityState === "visible";
-  if (tabVisible || browserPermission() !== "granted" || isDoNotDisturb()) return;
+  if (tabVisible || browserPermission() !== "granted" || isDoNotDisturb() || isPresenting()) return;
   const options: NotificationOptions & { actions?: { action: string; title: string }[] } = {
     body: opts.body,
     tag: `quazar-door-${link.knockId ?? link.channelId}`,
@@ -308,6 +340,10 @@ export async function notifyReminder(info: {
   messageId: string;
   body: string;
 }): Promise<void> {
+  if (isPresenting()) {
+    void playSoftChime();
+    return;
+  }
   useToastStore.getState().push({
     title: "🔔 Напоминание",
     body: truncate(info.body),

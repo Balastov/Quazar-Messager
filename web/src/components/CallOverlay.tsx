@@ -10,6 +10,7 @@ import s from "./CallOverlay.module.css";
 import ScreenAudioControls, { ShareScreenAudioToggle } from "./ScreenAudioControls";
 import ScreenAudioPlayer from "./ScreenAudioPlayer";
 import ScreenShareDialog from "./ScreenShareDialog";
+import { usePresenting } from "../notifications/presenting";
 
 /** «Переподключение… 7 с» и пояснение, чья связь пропала. */
 function ReconnectNotice({ reason, deadline }: { reason: Reconnecting; deadline: number | null }) {
@@ -64,6 +65,8 @@ function statusLabel(
 
 export default function CallOverlay() {
   const phase = useCallStore((st) => st.phase);
+  // Входящий звонок во время демонстрации экрана не показываем; идёт ещё, когда показ кончился, — появится.
+  const presenting = usePresenting();
   const peerUsername = useCallStore((st) => st.peerUsername);
   const peerAvatarUrl = useCallStore((st) => st.peerAvatarUrl);
   const media = useCallStore((st) => st.media);
@@ -151,7 +154,7 @@ export default function CallOverlay() {
     }
   }, [localStream, localVideo, cameraOff, showVideoStage]);
 
-  if (phase === "idle") return null;
+  if (phase === "idle" || (phase === "incoming" && presenting)) return null;
 
   const name = peerUsername || "Собеседник";
   const inCallControls =

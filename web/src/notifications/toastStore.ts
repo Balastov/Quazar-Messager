@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { isPresenting } from "./presenting";
 
 export interface AppToast {
   id: string;
@@ -23,6 +24,8 @@ export const useToastStore = create<ToastState>((set) => ({
   toasts: [],
 
   push: (toast) => {
+    // Во время демонстрации экрана всплывашки не копим: после неё они были бы уже неактуальны.
+    if (isPresenting()) return "";
     const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     set((s) => ({ toasts: [...s.toasts.slice(-4), { ...toast, id }] }));
     window.setTimeout(() => {

@@ -9,6 +9,7 @@ import { requestNotifyPermission } from "../notifications/notify";
 import { ensurePushSubscription } from "../notifications/push";
 import { useTourStore } from "../tour/store";
 import { useE2EStore } from "../store/e2e";
+import { usePresenting } from "../notifications/presenting";
 import s from "./NotifyPrompt.module.css";
 
 export default function NotifyPrompt() {
@@ -17,6 +18,7 @@ export default function NotifyPrompt() {
   const touring = useTourStore((st) => !!st.active || !!st.finished);
   // Сначала — открыть переписку: одно окно за раз.
   const restoring = useE2EStore((st) => st.status === "needs_restore" && st.restorePromptOpen);
+  const presenting = usePresenting();
 
   const refresh = () => {
     const prefs = getNotifyPrefs();
@@ -29,7 +31,7 @@ export default function NotifyPrompt() {
     return subscribeNotifyPrefs(refresh);
   }, []);
 
-  if (!visible || touring || restoring) return null;
+  if (!visible || touring || restoring || presenting) return null;
 
   return (
     <div className={s.banner} data-notify-prompt>

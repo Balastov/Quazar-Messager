@@ -3,6 +3,7 @@ import { useE2EStore } from "../store/e2e";
 import { useUiStore } from "../store/ui";
 import s from "./E2EKeyGate.module.css";
 import { useTourStore } from "../tour/store";
+import { usePresenting } from "../notifications/presenting";
 import E2ERestore from "./E2ERestore";
 import KeyRequestPrompt, { useIncomingKeyRequest } from "./devices/KeyRequestPrompt";
 
@@ -35,6 +36,9 @@ export default function E2EKeyGate() {
   const inSettings = useUiStore((st) => st.tab === "settings");
   // Во время обучения окна и строки сверху не нужны: они закрывают то, что обучение подсвечивает.
   const touring = useTourStore((st) => !!st.active || !!st.finished);
+  // «Это вы входите?» во время демонстрации экрана подождёт: зрители увидели бы код сверки.
+  // Уже начатую сверку не прячем.
+  const presenting = usePresenting();
 
   // Окно открывается само, когда выяснилось, что переписка здесь не читается, — если обучение уже
   // идёт, оно подождёт: окно под рамкой обучения спутало бы экран. Покажется сразу после.
@@ -58,7 +62,7 @@ export default function E2EKeyGate() {
     );
   }
 
-  if (status === "ready" && keyRequest.request) {
+  if (status === "ready" && keyRequest.request && (!presenting || keyRequest.engaged)) {
     return <KeyRequestPrompt key={keyRequest.request.id} incoming={{ ...keyRequest, request: keyRequest.request }} />;
   }
 

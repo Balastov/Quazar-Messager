@@ -5,6 +5,7 @@ import { capturePendingInvite } from "./api/stars";
 import { registerNotifyServiceWorker } from "./notifications/notify";
 import {startPushLifecycle} from "./notifications/push";
 import {pushWasShown} from "./notifications/delivery";
+import { isPresenting } from "./notifications/presenting";
 import { useUiStore } from "./store/ui";
 import { applyGlassTransparency } from "./styles/glass";
 import "./index.css";
@@ -92,6 +93,11 @@ function handleCallMessage(data: SwCallMsg) {
 
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.addEventListener("message", (event) => {
+    // Service worker спрашивает перед push-уведомлением, не показываем ли мы экран.
+    if ((event.data as SwCallMsg | null)?.type === "quazar-presenting?") {
+      event.ports[0]?.postMessage({ presenting: isPresenting() });
+      return;
+    }
     handleCallMessage(event.data as SwCallMsg);
   });
 }

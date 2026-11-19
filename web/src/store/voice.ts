@@ -53,6 +53,7 @@ import { socket } from "../ws/socket";
 import { hotkey, isTyping, loadVoiceKeys, saveVoiceKeys, type VoiceKeyPrefs } from "../voice/keys";
 import { captureScreen, NO_SCREEN_AUDIO, type ScreenMode } from "../calls/screenCapture";
 import { useScreenAudio, screenAudioVolume } from "./screenAudio";
+import { setPresenting } from "../notifications/presenting";
 import { MIC_BACK, MIC_LOST, micNeedsSwitch, serial } from "../calls/micWatch";
 
 export type VoiceStatus = "idle" | "connecting" | "connected" | "reconnecting";
@@ -1058,6 +1059,8 @@ export const useVoiceStore = create<VoiceState>((set, get) => {
     dismissNotice: () => set({ notice: null, error: null, locked: null }),
   };
 });
+
+useVoiceStore.subscribe((st) => setPresenting("room", st.sharingScreen));
 
 // Рация и горячие клавиши — пока вкладка в фокусе (глобальных клавиш браузер сайтам не даёт).
 if (typeof window !== "undefined") {

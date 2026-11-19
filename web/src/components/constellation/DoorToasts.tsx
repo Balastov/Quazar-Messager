@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useAuthStore } from "../../store/auth";
 import { useDoorsStore } from "../../store/doors";
 import { useStarsStore } from "../../store/stars";
+import { usePresenting } from "../../notifications/presenting";
 import { roomDoor } from "./rules";
 import { roomWords } from "./words";
 import s from "./Constellation.module.css";
@@ -16,6 +17,8 @@ export default function DoorToasts() {
   const details = useStarsStore((st) => st.details);
   const myId = useAuthStore((st) => st.user?.id);
   const [now, setNow] = useState(Date.now());
+  // Демонстрация экрана: карточки ждут её окончания (пока не истекли), звук стука остаётся.
+  const presenting = usePresenting();
 
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 1000);
@@ -40,7 +43,7 @@ export default function DoorToasts() {
   };
   const visibleKnocks = pending.filter((k) => canAnswer(k.star_id, k.knock.channel_id));
 
-  if (!liveInvites.length && !visibleKnocks.length && !myKnock && !notice) return null;
+  if (presenting || (!liveInvites.length && !visibleKnocks.length && !myKnock && !notice)) return null;
 
   return (
     <div className={s.doorStack} aria-live="polite">

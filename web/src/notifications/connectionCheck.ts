@@ -1,5 +1,6 @@
 import { http } from "../api/client";
 import { desktop } from "../platform/desktop";
+import { ANDROID_NOTIFY_HINT, inAndroidApp } from "../platform/android";
 import { browserPermission, getNotifyPrefs } from "./prefs";
 import { requestNotifyPermission } from "./notify";
 import { diagnosticPushEndpoint } from "./push";
@@ -15,6 +16,7 @@ export const CHECK_ERRORS: Record<string, string> = {
   desktop_offline: "Приложение не подключено к серверу. Проверьте сеть и повторите попытку.",
 };
 export function notificationHelp(): string {
+  if (inAndroidApp()) return ANDROID_NOTIFY_HINT;
   if (desktop()) return "Проверьте разрешение уведомлений для Quazar в настройках системы и режим «Не беспокоить».";
   const ios = /iPhone|iPad/.test(navigator.userAgent) || (/Mac/.test(navigator.platform) && navigator.maxTouchPoints > 1);
   return ios ? "На iPhone/iPad откройте Quazar с экрана «Домой». В настройках системы проверьте уведомления для Quazar и режим «Фокусирование»."
@@ -33,6 +35,7 @@ export async function prepareNotificationCheck(): Promise<{ transport: "desktop"
   }
   let permission = browserPermission();
   if (permission === "default") permission = await requestNotifyPermission();
+  if (permission === "unsupported" && inAndroidApp()) throw new Error(ANDROID_NOTIFY_HINT);
   if (permission !== "granted") throw new Error(permission === "unsupported" ? "Этот режим браузера не поддерживает системные уведомления. " + notificationHelp()
     : "Нет разрешения на уведомления. " + notificationHelp());
   const { data } = await http.get<{ configured: boolean }>("/push/vapid-public-key", { timeout: 8000 });

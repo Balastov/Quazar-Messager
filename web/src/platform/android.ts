@@ -26,6 +26,17 @@ interface CapacitorGlobal {
   Plugins?: { QuazarUpdater?: AndroidUpdater };
 }
 
+/** Страница открыта внутри приложения для Android (даже если модуль обновления не загрузился). */
+export function inAndroidApp(): boolean {
+  const cap = (window as unknown as { Capacitor?: CapacitorGlobal }).Capacitor;
+  return cap?.getPlatform?.() === "android";
+}
+
+/** Встроенный браузер Android не умеет веб-уведомления, а своих push в приложении пока нет. */
+export const ANDROID_NOTIFY_HINT =
+  "В приложении для Android уведомления пока не приходят. Чтобы не пропускать сообщения и звонки, " +
+  "откройте quazar-msg.ru в Chrome и разрешите там уведомления — они будут приходить, даже когда Chrome свёрнут.";
+
 /** Модуль обновления, если страница открыта внутри приложения для Android. */
 export function androidShell(): AndroidUpdater | undefined {
   const cap = (window as unknown as { Capacitor?: CapacitorGlobal }).Capacitor;

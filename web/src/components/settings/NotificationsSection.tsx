@@ -13,6 +13,7 @@ import { playStarSound, type StarSoundEvent } from "../../sounds/starSounds";
 import { useUiStore } from "../../store/ui";
 import ConnectionDiagnostics from "../ConnectionDiagnostics";
 import { useSettingsRun } from "./useSettingsRun";
+import { ANDROID_NOTIFY_HINT, inAndroidApp } from "../../platform/android";
 import s from "../SettingsView.module.css";
 
 const STAR_SOUNDS: [StarSoundEvent, string][] = [
@@ -51,9 +52,13 @@ export default function NotificationsSection() {
     <>
       <section className={s.card}>
         <h3 className={s.sectionTitle}>Сообщения</h3>
-        <p className={s.hint}>
-          Статус в браузере: <span className={s.perm}>{permissionLabel}</span>
-        </p>
+        {permission === "unsupported" && inAndroidApp() ? (
+          <p className={s.hint} data-android-notify-hint>{ANDROID_NOTIFY_HINT}</p>
+        ) : (
+          <p className={s.hint}>
+            Статус в браузере: <span className={s.perm}>{permissionLabel}</span>
+          </p>
+        )}
         <label className={s.toggle}>
           <input
             type="checkbox"

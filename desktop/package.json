@@ -56,7 +56,7 @@
       ],
       "extendInfo": {
         "NSMicrophoneUsageDescription": "Quazar использует микрофон для звонков и общения в комнатах.",
-        "NSCameraUsageDescription": "Quazar использует камеру для видеозвонков.",
+        "NSCameraUsageDescription": "Quazar использует камеру для видеозвонков и в комнатах, когда вы её включаете.",
         "NSAudioCaptureUsageDescription": "Quazar передаёт звук компьютера при демонстрации экрана, если вы это разрешили."
       }
     },

@@ -11,5 +11,8 @@
     <!-- Required by Hardened Runtime for microphone capture in Electron helpers. -->
     <key>com.apple.security.device.audio-input</key>
     <true/>
+    <!-- Required by Hardened Runtime for the camera: video calls and webcams in rooms. -->
+    <key>com.apple.security.device.camera</key>
+    <true/>
   </dict>
 </plist>

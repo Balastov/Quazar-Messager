@@ -324,6 +324,9 @@ class VoiceParticipantOut(BaseModel):
     joined_at: datetime
     server_muted: bool
     screen_sharing: bool = False
+    # Включил камеру; camera_blocked — модератор выключил её и пока не разрешает.
+    camera: bool = False
+    camera_blocked: bool = False
     # Главный в комнате «По приглашениям»: первый вошедший, пока не выйдет или не передаст.
     is_host: bool = False
     # Гость по ссылке: его имя (у участников Звезды — None).

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import axios from "axios";
-import type { Participant, RemoteAudioTrack, Room, Track } from "livekit-client";
+import type { LocalTrack, Participant, RemoteAudioTrack, Room, Track } from "livekit-client";
 import { http } from "../api/client";
 import { rememberGuestLink } from "../api/stars";
 import { useAuthStore } from "../store/auth";
@@ -9,6 +9,8 @@ import { compareNames } from "../utils/profile";
 import ScreenStages from "../components/constellation/ScreenStages";
 import ScreenAudioControls from "../components/ScreenAudioControls";
 import { screenAudioVolume, useScreenAudio } from "../store/screenAudio";
+import PeerVideo from "../components/constellation/PeerVideo";
+import { cameraErrorText } from "../calls/cameraErrors";
 import s from "./GuestPage.module.css";
 
 interface GuestInfo {
@@ -25,6 +27,8 @@ interface GuestJoin {
   identity: string;
   room_name: string;
   star_name: string;
+  /** Ключ гостя: им он включает и выключает свою камеру. */
+  secret: string;
 }
 
 interface Person {
@@ -33,6 +37,23 @@ interface Person {
   speaking: boolean;
   micOn: boolean;
   me: boolean;
+  /** Видео с камеры, если она включена. */
+  camera: Track | null;
+}
+
+/** Опубликованная камера участника (своя или чужая, на которую подписались). */
+function cameraOf(p: Participant): Track | null {
+  for (const pub of p.trackPublications.values()) {
+    if (pub.source === "camera" && pub.track && !pub.isMuted) return pub.track;
+  }
+  return null;
+}
+
+/** Сервер разрешил публиковать камеру (enum TrackSource: CAMERA = 1). */
+function cameraAllowed(room: Room): boolean {
+  const perms = room.localParticipant.permissions;
+  const sources = (perms?.canPublishSources ?? []) as unknown as number[];
+  return !!perms?.canPublish && sources.includes(1);
 }
 
 interface GuestScreen {
@@ -57,6 +78,7 @@ function people(room: Room): Person[] {
     speaking: p.isSpeaking,
     micOn: p.isMicrophoneEnabled,
     me: p === room.localParticipant,
+    camera: cameraOf(p),
   })).sort((a, b) => compareNames(a.name, b.name));
 }
 
@@ -92,6 +114,13 @@ export default function GuestPage() {
   // Аудиоплееры: для звука показа — чей это показ (своя громкость у каждого), для голоса — null.
   const audioTracks = useRef(new Map<RemoteAudioTrack, string | null>());
   const attemptRef = useRef(0);
+  // Камера гостя: кто он в комнате и его ключ (из ответа на вход), идёт ли включение.
+  const meRef = useRef<{ identity: string; secret: string } | null>(null);
+  const lkRef = useRef<typeof import("livekit-client") | null>(null);
+  const stoppingCamera = useRef(false);
+  const [cameraBusy, setCameraBusy] = useState(false);
+  // Развёрнутое видео: чьё.
+  const [bigCamera, setBigCamera] = useState<string | null>(null);
 
   const clearAudio = () => {
     for (const track of audioTracks.current.keys()) track.detach().forEach((el) => el.remove());
@@ -148,6 +177,8 @@ export default function GuestPage() {
       const { data } = await http.post<GuestJoin>(`/guest/${encodeURIComponent(code)}/join`, { name: clean });
       const lk = await import("livekit-client");
       if (attempt !== attemptRef.current) return;
+      lkRef.current = lk;
+      meRef.current = { identity: data.identity, secret: data.secret };
       const room = new lk.Room({ adaptiveStream: true, dynacast: true, disconnectOnPageLeave: true });
       roomRef.current = room;
       const sync = () => {
@@ -173,6 +204,18 @@ export default function GuestPage() {
         .on(lk.RoomEvent.TrackUnpublished, sync)
         .on(lk.RoomEvent.ParticipantNameChanged, sync)
         .on(lk.RoomEvent.Reconnected, sync)
+        .on(lk.RoomEvent.LocalTrackUnpublished, (pub) => {
+          // Камеру сняли (сами, модератор или «Только слушать») — место в комнате освобождаем.
+          if (pub.source === "camera") void cameraRequest(false).catch(() => {});
+        })
+        .on(lk.RoomEvent.ParticipantPermissionsChanged, (_prev, participant) => {
+          if (participant !== room.localParticipant || stoppingCamera.current) return;
+          const camera = cameraOf(room.localParticipant);
+          if (camera && !cameraAllowed(room)) {
+            setError("Модератор выключил вашу камеру");
+            void room.localParticipant.unpublishTrack(camera as LocalTrack).then(sync);
+          }
+        })
         .on(lk.RoomEvent.TrackSubscribed, (track, publication, participant) => {
           if (roomRef.current !== room) return;
           if (track.kind === "audio") {
@@ -202,7 +245,8 @@ export default function GuestPage() {
           if (roomRef.current !== room) return;
           roomRef.current = null;
           clearAudio();
-          setScreens([]); setList([]); setMicOn(false); setNeedsUnlock(false); setState("left");
+          meRef.current = null;
+          setScreens([]); setList([]); setMicOn(false); setNeedsUnlock(false); setCameraBusy(false); setState("left");
         });
       await room.connect(data.url, data.token);
       if (attempt !== attemptRef.current || roomRef.current !== room) return;
@@ -241,6 +285,89 @@ export default function GuestPage() {
     await roomRef.current?.disconnect();
   };
 
+  const cameraRequest = (on: boolean) => {
+    const me = meRef.current;
+    if (!me) return Promise.resolve();
+    return http.post(`/guest/${encodeURIComponent(code)}/camera`, { ...me, on });
+  };
+
+  /** Право на камеру приходит от LiveKit чуть позже ответа сервера — ждём его. */
+  const waitForCamera = (room: Room, lk: typeof import("livekit-client")) =>
+    new Promise<void>((resolve, reject) => {
+      if (cameraAllowed(room)) return resolve();
+      const timer = setTimeout(() => { room.off(lk.RoomEvent.ParticipantPermissionsChanged, check); reject(new Error("timeout")); }, 5000);
+      function check() {
+        if (!cameraAllowed(room)) return;
+        clearTimeout(timer);
+        room.off(lk.RoomEvent.ParticipantPermissionsChanged, check);
+        resolve();
+      }
+      room.on(lk.RoomEvent.ParticipantPermissionsChanged, check);
+    });
+
+  const refresh = (room: Room) => {
+    if (roomRef.current === room) setList(people(room));
+  };
+
+  const toggleCamera = async () => {
+    const room = roomRef.current;
+    const lk = lkRef.current;
+    if (!room || !lk || cameraBusy) return;
+    const current = cameraOf(room.localParticipant);
+    if (current) {
+      stoppingCamera.current = true;
+      try {
+        // LiveKit сам гасит камеру при снятии; место освобождает LocalTrackUnpublished.
+        await room.localParticipant.unpublishTrack(current as LocalTrack).catch(() => {});
+      } finally {
+        stoppingCamera.current = false;
+      }
+      refresh(room);
+      return;
+    }
+    setCameraBusy(true);
+    setError(null);
+    // Сначала камера: если браузер её не даст, место в комнате не занимаем.
+    let track: MediaStreamTrack;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 24, max: 30 } },
+      });
+      track = stream.getVideoTracks()[0];
+    } catch (err) {
+      setError(cameraErrorText(err));
+      setCameraBusy(false);
+      return;
+    }
+    try {
+      await cameraRequest(true);
+      await waitForCamera(room, lk);
+      if (roomRef.current !== room) throw new Error("left");
+      const publication = await room.localParticipant.publishTrack(track, {
+        source: lk.Track.Source.Camera,
+        name: "camera",
+        simulcast: true,
+        videoEncoding: lk.VideoPresets.h720.encoding,
+        videoSimulcastLayers: [lk.VideoPresets.h180, lk.VideoPresets.h360],
+      });
+      // Камеру выдернули — выключаем, как будто нажали кнопку.
+      track.addEventListener("ended", () => {
+        if (roomRef.current === room && publication.track && cameraOf(room.localParticipant) === publication.track) {
+          void room.localParticipant.unpublishTrack(publication.track).then(() => refresh(room));
+        }
+      });
+    } catch (err) {
+      track.stop();
+      void cameraRequest(false).catch(() => {});
+      if (roomRef.current === room) setError(errorText(err, "Не удалось включить камеру. Попробуйте ещё раз."));
+    }
+    setCameraBusy(false);
+    refresh(room);
+  };
+
+  const me = list.find((p) => p.me);
+  const cameras = list.filter((p) => p.camera);
+
   const controls = <div className={s.controls}>
     {needsUnlock && <button type="button" className={s.primary} onClick={() => void roomRef.current?.startAudio().then(() => setNeedsUnlock(false))}>
       🔊 Нажмите, чтобы слышать собеседников
@@ -248,12 +375,17 @@ export default function GuestPage() {
     {!info?.listen_only && <button type="button" className={micOn ? s.secondary : s.danger} onClick={() => void toggleMic()}>
       {micOn ? "🎙 Выключить микрофон" : "🔇 Включить микрофон"}
     </button>}
+    {!info?.listen_only && <button type="button" className={s.secondary} disabled={cameraBusy} aria-pressed={!!me?.camera}
+      onClick={() => void toggleCamera()}>
+      {cameraBusy ? "📷 Включаем камеру…" : me?.camera ? "📷 Выключить камеру" : "📷 Включить камеру"}
+    </button>}
     <button type="button" className={s.danger} onClick={() => void leave()}>Выйти из Комнаты</button>
   </div>;
 
   return (
     <div className={s.page}>
-      <div className={`${s.card} ${state === "in" && screens.length ? s.cardWithScreen : ""}`}>
+      <div className={`${s.card} ${state === "in" && screens.length ? s.cardWithScreen
+        : state === "in" && cameras.length ? s.cardWithCameras : ""}`}>
         <img className={s.logo} src="/logo-mark.png?v=neon-q-2" alt="Quazar" />
         {!info && !error && <p className={s.hint}>Открываем приглашение…</p>}
         {info && (
@@ -306,6 +438,18 @@ export default function GuestPage() {
                   audioControls: <ScreenAudioControls available={screen.hasAudio}
                     sharerId={screens.length > 1 ? screen.userId : undefined} label={screens.length > 1 ? screen.name : undefined} />,
                 }))} />
+            </section>}
+            {cameras.length > 0 && <section className={s.cameras} aria-label="Камеры">
+              {cameras.map((p) => {
+                const big = bigCamera === p.id;
+                return <button key={p.id} type="button"
+                  className={`${s.cameraTile} ${big ? s.cameraBig : ""} ${p.speaking && p.micOn ? s.cameraSpeaking : ""}`}
+                  onClick={() => setBigCamera(big ? null : p.id)}
+                  aria-label={big ? "Свернуть видео" : `Развернуть видео: ${p.name}`}>
+                  <PeerVideo track={p.camera!} mirror={p.me} className={s.cameraVideo} />
+                  <span className={s.cameraName}>{p.name}{p.me ? " — вы" : ""}</span>
+                </button>;
+              })}
             </section>}
             <div className={s.people} aria-label="Кто в комнате">
               {list.map((p) => (

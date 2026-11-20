@@ -10,6 +10,8 @@
 пропадает, а сам человек выходит из Комнаты.
 """
 
+import hashlib
+import hmac
 import secrets
 import time
 import uuid
@@ -190,6 +192,20 @@ class GuestJoinOut(BaseModel):
     identity: str
     room_name: str
     star_name: str
+    # Ключ гостя для запросов из комнаты (камера): аккаунта у него нет, а им он доказывает, что он — identity.
+    secret: str
+
+
+class GuestCameraIn(BaseModel):
+    identity: str = Field(max_length=120)
+    secret: str = Field(max_length=128)
+    on: bool
+
+
+def guest_secret(identity: str) -> str:
+    """Подпись identity гостя: хранить ничего не нужно, подделать без ключа сервера нельзя."""
+    key = hashlib.sha256(f"quazar-guest:{settings.JWT_SECRET}".encode()).digest()
+    return hmac.new(key, identity.encode(), hashlib.sha256).hexdigest()
 
 
 async def _active_link(db: AsyncSession, code: str) -> tuple[StarGuestLink, Star, StarChannel]:
@@ -283,5 +299,33 @@ async def guest_join(code: str, body: GuestJoinIn, request: Request, db: Db):
     )
     return GuestJoinOut(
         url=settings.LIVEKIT_PUBLIC_URL, token=token, room=room, identity=identity,
-        room_name=channel.name, star_name=star.name,
+        room_name=channel.name, star_name=star.name, secret=guest_secret(identity),
     )
+
+
+@public_router.post("/{code}/camera", status_code=status.HTTP_204_NO_CONTENT)
+async def guest_camera(code: str, body: GuestCameraIn, db: Db):
+    """Гость без аккаунта включает или выключает свою камеру — по тем же правилам, что и участники
+    (до 9 камер в комнате, не в «Только слушать», модератор может выключить и запретить)."""
+    link, star, channel = await _active_link(db, code)
+    if not body.identity.startswith(f"{voice.GUEST_PREFIX}{link.id}-") or not hmac.compare_digest(
+        body.secret, guest_secret(body.identity)
+    ):
+        raise HTTPException(status_code=403, detail="Войдите в Комнату по ссылке ещё раз")
+    if not body.on:
+        await voice.stop_camera(star.id, channel.id, body.identity)
+        return
+    if not livekit.configured():
+        raise HTTPException(status_code=503, detail="Голосовая связь пока не настроена на сервере")
+    try:
+        started = await voice.start_camera(star.id, channel.id, body.identity)
+    except voice.CameraBusy:
+        raise HTTPException(
+            status_code=409, detail=f"Камер уже {voice.MAX_CAMERAS} — подождите, пока кто-то выключит свою"
+        ) from None
+    except voice.CameraBlocked:
+        raise HTTPException(status_code=403, detail="Камеру здесь сейчас включить нельзя") from None
+    except livekit.LiveKitError as exc:
+        raise HTTPException(status_code=503, detail="Голосовой сервер сейчас недоступен") from exc
+    if not started:
+        raise HTTPException(status_code=409, detail="Сначала войдите в Комнату")

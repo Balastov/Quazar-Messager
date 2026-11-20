@@ -6,11 +6,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const lk = vi.hoisted(() => ({
   Room: vi.fn(),
-  Track: { Source: { ScreenShare: "screen_share", ScreenShareAudio: "screen_share_audio" } },
+  Track: { Source: { Camera: "camera", ScreenShare: "screen_share", ScreenShareAudio: "screen_share_audio" } },
+  VideoPresets: { h180: {}, h360: {}, h720: { encoding: { maxBitrate: 1 } } },
   RoomEvent: Object.fromEntries([
     "ParticipantConnected", "ParticipantDisconnected", "ActiveSpeakersChanged", "TrackMuted", "TrackUnmuted",
     "LocalTrackPublished", "LocalTrackUnpublished", "TrackPublished", "TrackUnpublished", "ParticipantNameChanged",
     "Reconnected", "TrackSubscribed", "TrackUnsubscribed", "AudioPlaybackStatusChanged", "Disconnected",
+    "ParticipantPermissionsChanged",
   ].map(key => [key, key])),
 }));
 vi.mock("livekit-client", () => lk);
@@ -46,10 +48,23 @@ function mediaTrack(kind: "audio" | "video", source: string) {
 function fakeRoom() {
   const publications = new Map<string, Publication>();
   const remote = { identity: "alice", name: "Алиса", isSpeaking: false, isMicrophoneEnabled: true,
+    trackPublications: publications,
     getTrackPublication: (source: string) => publications.get(source) };
   const handlers = new Map<string, Array<(...args: any[]) => void>>();
+  const own = new Map<string, Publication>();
   const local = { identity: "guest-id", name: "Борис (гость)", isSpeaking: false, isMicrophoneEnabled: false,
     setMicrophoneEnabled: vi.fn(async (enabled: boolean) => { local.isMicrophoneEnabled = enabled; }),
+    trackPublications: own,
+    permissions: { canPublish: true, canPublishSources: [2] },
+    publishTrack: vi.fn(async (_raw: unknown, opts: { source: string }) => {
+      const pub = { track: mediaTrack("video", opts.source), source: opts.source, isMuted: false };
+      own.set(opts.source, pub); return pub;
+    }),
+    unpublishTrack: vi.fn(async (track: FakeTrack) => {
+      const pub = [...own.values()].find((p) => p.track === track);
+      if (!pub) return;
+      own.delete(pub.source); room.emit("LocalTrackUnpublished", pub, local);
+    }),
   };
   const room = {
     publications, remote, localParticipant: local, remoteParticipants: new Map([["alice", remote]]),
@@ -57,7 +72,15 @@ function fakeRoom() {
     on(event: string, handler: (...args: any[]) => void) {
       handlers.set(event, [...(handlers.get(event) ?? []), handler]); return room;
     },
+    off(event: string, handler: (...args: any[]) => void) {
+      handlers.set(event, (handlers.get(event) ?? []).filter(h => h !== handler)); return room;
+    },
     emit(event: string, ...args: any[]) { handlers.get(event)?.forEach(handler => handler(...args)); },
+    /** Сервер поменял права гостя (как UpdateParticipant). */
+    grant(sources: number[]) {
+      local.permissions = { canPublish: sources.length > 0, canPublishSources: sources };
+      room.emit("ParticipantPermissionsChanged", undefined, local);
+    },
     connect: vi.fn(async () => {
       for (const pub of publications.values()) if (pub.track) room.emit("TrackSubscribed", pub.track, pub, remote);
     }),
@@ -99,15 +122,68 @@ beforeEach(() => {
 });
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); vi.unstubAllGlobals(); });
 
+describe("guest camera", () => {
+  let raw: { stop: ReturnType<typeof vi.fn>; addEventListener: ReturnType<typeof vi.fn> };
+  beforeEach(() => {
+    raw = { stop: vi.fn(), addEventListener: vi.fn() };
+    Object.defineProperty(navigator, "mediaDevices", { configurable: true,
+      value: { getUserMedia: vi.fn(async () => ({ getVideoTracks: () => [raw] })) } });
+    vi.mocked(http.post).mockImplementation(async (url: string) => {
+      if (url.endsWith("/camera")) { setTimeout(() => room.grant([2, 1]), 0); return { data: null }; }
+      return { data: { token: "guest-token", url: "wss://media.example", identity: "guest-id", secret: "s3cret" } };
+    });
+  });
+
+  it("turns the guest's camera on with its key and off again", async () => {
+    await enter();
+    await act(async () => button("📷 Включить камеру").click());
+    await act(async () => { await new Promise((r) => setTimeout(r, 10)); });
+    expect(http.post).toHaveBeenCalledWith("/guest/invite-code/camera", { identity: "guest-id", secret: "s3cret", on: true });
+    expect(room.localParticipant.publishTrack).toHaveBeenCalledWith(raw, expect.objectContaining({ source: "camera", simulcast: true }));
+    expect(host.querySelector('[aria-label="Камеры"]')?.textContent).toContain("Борис (гость) — вы");
+    expect(host.querySelector<HTMLVideoElement>('[aria-label="Камеры"] video')!.style.transform).toBe("scaleX(-1)");
+
+    await act(async () => button("📷 Выключить камеру").click());
+    expect(http.post).toHaveBeenCalledWith("/guest/invite-code/camera", { identity: "guest-id", secret: "s3cret", on: false });
+    expect(host.querySelector('[aria-label="Камеры"]')).toBeNull();
+  });
+
+  it("explains a denied camera without asking the server", async () => {
+    vi.mocked(navigator.mediaDevices.getUserMedia).mockRejectedValueOnce(new DOMException("x", "NotAllowedError"));
+    await enter();
+    await act(async () => button("📷 Включить камеру").click());
+    expect(http.post).not.toHaveBeenCalledWith("/guest/invite-code/camera", expect.anything());
+    expect(host.textContent).toContain("Браузер не дал доступ к камере");
+  });
+
+  it("tells the guest when a moderator turns the camera off", async () => {
+    await enter();
+    await act(async () => button("📷 Включить камеру").click());
+    await act(async () => { await new Promise((r) => setTimeout(r, 10)); });
+    await act(async () => room.grant([2]));
+    expect(room.localParticipant.unpublishTrack).toHaveBeenCalled();
+    expect(host.textContent).toContain("Модератор выключил вашу камеру");
+    expect(host.querySelector('[aria-label="Камеры"]')).toBeNull();
+  });
+
+  it("has no camera button in listen-only rooms", async () => {
+    listenOnly = true;
+    await enter();
+    expect(() => button("📷 Включить камеру")).toThrow();
+  });
+});
+
 describe("guest screen viewing", () => {
-  it("shows an existing screen when joining without exposing screen publishing or moderation", async () => {
+  it("shows an existing screen and cameras when joining without exposing screen publishing or moderation", async () => {
     const screen = mediaTrack("video", "screen_share"); addTrack(screen);
     const camera = mediaTrack("video", "camera"); addTrack(camera);
     await enter();
     expect(http.post).toHaveBeenCalledWith("/guest/invite-code/join", { name: "Борис" });
     expect(room.connect).toHaveBeenCalledWith("wss://media.example", "guest-token");
     expect(screen.attach).toHaveBeenCalledWith(host.querySelector("video"));
-    expect(camera.attach).not.toHaveBeenCalled();
+    // Камера Алисы — плиткой под показом экрана.
+    expect(camera.attach).toHaveBeenCalledWith(host.querySelectorAll("video")[1]);
+    expect(host.querySelector('[aria-label="Камеры"]')?.textContent).toContain("Алиса");
     expect(host.textContent).toContain("Алиса");
     expect(host.textContent).not.toContain("Остановить показ");
     expect(host.textContent).not.toContain("Показать экран");

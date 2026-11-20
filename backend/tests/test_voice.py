@@ -357,6 +357,9 @@ class VoiceApiTest(StarsTestBase):
         self.assertEqual(self.lk.sources(room, alice), ["MICROPHONE", "CAMERA"])
         last = [e for _, e in self.events if e["type"] == "star_voice"][-1]
         self.assertEqual([p["user_id"] for p in last["participants"] if p["camera"]], [alice])
+        # И при загрузке Звезды — не только в событиях.
+        detail = await self.call(api.get_star, self.star.id, user="bob")
+        self.assertTrue(next(p for p in detail.voice[self.planet.id] if p.user_id == alice).camera)
 
         await self.call(voice_api.stop_my_camera, self.star.id, self.planet.id, user="alice")
         self.assertEqual(self.cameras(), set())

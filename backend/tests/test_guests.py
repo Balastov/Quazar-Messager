@@ -78,6 +78,46 @@ class GuestsTest(StarsTestBase):
             await self.public(guests.guest_info, link.code)
         self.assertEqual(ctx.exception.status_code, 404)
 
+    async def test_guest_turns_camera_on_and_off_with_its_key(self):
+        link = await self.call(guests.create_guest_link, self.star.id, self.room.id, guests.CreateGuestLink(hours=2), user="alice")
+        out = await self.guest_enters(link.code, "Пётр")
+        camera = lambda on, identity=out.identity, secret=out.secret: self.public(  # noqa: E731
+            guests.guest_camera, link.code, guests.GuestCameraIn(identity=identity, secret=secret, on=on)
+        )
+        from fastapi import HTTPException
+        # Чужой или поддельный ключ — отказ.
+        for identity, secret in ((out.identity, "0" * 64), (f"guest-{link.id}-other", out.secret)):
+            with self.assertRaises(HTTPException) as ctx:
+                await camera(True, identity, secret)
+            self.assertEqual(ctx.exception.status_code, 403)
+
+        await camera(True)
+        self.assertEqual([p.user_id for p in voice.cameras(self.room.id)], [out.identity])
+        self.assertEqual(self.lk.sources(out.room, out.identity), ["MICROPHONE", "CAMERA"])
+        await camera(False)
+        self.assertEqual(voice.cameras(self.room.id), [])
+
+        # Главный в комнате выключает камеру гостя и не даёт включить снова.
+        self.lk.rooms[out.room].add(self.users["bob"].id)
+        await voice.handle_webhook({"event": "participant_joined", "room": {"name": out.room},
+                                    "participant": {"identity": self.users["bob"].id}})
+        await camera(True)
+        await self.call(voice_api.block_camera, self.star.id, self.room.id, out.identity,
+                        voice_api.CameraBlock(blocked=True), user="bob")
+        self.assertEqual(voice.cameras(self.room.id), [])
+        with self.assertRaises(HTTPException) as ctx:
+            await camera(True)
+        self.assertEqual(ctx.exception.status_code, 403)
+
+        # Мест нет — 409.
+        await self.call(voice_api.block_camera, self.star.id, self.room.id, out.identity,
+                        voice_api.CameraBlock(blocked=False), user="bob")
+        with mock.patch.object(voice, "MAX_CAMERAS", 1):
+            await self.call(voice_api.start_camera, self.star.id, self.room.id, user="bob")
+            with self.assertRaises(HTTPException) as ctx:
+                await camera(True)
+            self.assertEqual(ctx.exception.status_code, 409)
+
     async def test_listen_only_guest_can_watch_tracks_but_cannot_publish(self):
         from app.models.star import StarChannel
         async with self.Session() as db:

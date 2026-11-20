@@ -62,6 +62,9 @@ docker compose -f docker-compose.prod.yml --env-file .env.prod "${COMPOSE_PROFIL
 echo "==> Removing unused images and old build cache..."
 docker image prune -f >/dev/null || true
 docker builder prune -f --filter until=168h >/dev/null || true
+# Установщики и обновления: текущий выпуск и предыдущий, остальное удаляется сразу.
+python3 .github/scripts/publish-desktop-updates.py --prune \
+  || echo "==> WARN: could not remove old app releases from desktop-updates" >&2
 df -h --output=avail,pcent / | tail -1 | awk '{print "==> System disk: " $1 " free (" $2 " used)"}'
 
 echo "==> Ensuring host nginx /media, /livekit/ + 12m upload limit (10 MB chat images)..."

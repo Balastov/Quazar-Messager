@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import time
 from concurrent.futures import ThreadPoolExecutor
 from urllib.request import Request, urlopen
 
@@ -97,22 +98,50 @@ def move(src, dst):
         os.unlink(src)
 
 
+def version_key(version):
+    return tuple(map(int, version.split(".")))
+
+
 def prune(root, channels, keep=KEEP_VERSIONS):
-    """Удаляет пакеты старых выпусков, оставляя `keep` последних в каждом канале."""
+    """Удаляет пакеты старых выпусков: остаются опубликованный и `keep - 1` предыдущих.
+
+    Пакеты новее опубликованных метаданных не трогаем — это выпуск, который публикуется сейчас.
+    Канал без метаданных пропускаем: непонятно, какая версия у людей текущая.
+    """
     removed = 0
     for channel in channels:
         folder = root / channel
-        if folder.is_symlink() or not folder.is_dir():
+        metadata = folder / ALL[channel]
+        if folder.is_symlink() or not folder.is_dir() or metadata.is_symlink() or not metadata.is_file():
+            continue
+        current = published_version(metadata)
+        if not current:
             continue
         found = {}
         for path in folder.iterdir():
             match = re.fullmatch(r"Quazar-(\d+\.\d+\.\d+)-.+", path.name)
             if match and path.is_file() and not path.is_symlink() and re.fullmatch(package_pattern(match[1], channel), path.name):
                 found.setdefault(match[1], []).append(path)
-        for version in sorted(found, key=lambda v: tuple(map(int, v.split("."))))[:-keep]:
+        released = sorted((v for v in found if version_key(v) <= version_key(current)), key=version_key)
+        for version in released[:-keep]:
             for path in found[version]:
                 path.unlink()
                 removed += 1
+    return removed
+
+
+def clean_staging(base, keep=None, max_age=24 * 3600):
+    """Удаляет черновики прерванных публикаций (на системном диске) старше суток."""
+    base = Path(base)
+    if base.is_symlink() or not base.is_dir():
+        return 0
+    removed = 0
+    for folder in base.iterdir():
+        if folder == keep or folder.is_symlink() or not folder.is_dir() or not re.fullmatch(r"\d+", folder.name):
+            continue
+        if time.time() - folder.stat().st_mtime > max_age:
+            shutil.rmtree(folder)
+            removed += 1
     return removed
 
 
@@ -185,17 +214,42 @@ def publish(staging, root):
             temporary.chmod(0o644)
             os.replace(temporary, dst)
         print(f"Published update feeds {version}: {', '.join(sorted(channels, key=list(ALL).index))}")
-        removed = prune(root, channels)
-        if removed:
-            print(f"Removed {removed} files of older releases")
+        report_pruned(prune(root, channels))
 
+
+def report_pruned(removed):
+    if removed:
+        print(f"Removed {removed} files of older releases")
+
+
+def prune_published(root):
+    """Та же уборка без публикации — её запускает каждый деплой."""
+    root = Path(root)
+    if root.is_symlink() or not root.is_dir():
+        return
+    with (root.parent / ".desktop-updates-publish.lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        report_pruned(prune(root, ALL))
+
+
+STAGING = "/opt/quazar/.desktop-updates-staging"
+ROOT = "/opt/quazar/desktop-updates"
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--staging", required=True)
-    parser.add_argument("--root", default="/opt/quazar/desktop-updates")
+    parser.add_argument("--staging")
+    parser.add_argument("--root", default=ROOT)
+    parser.add_argument("--prune", action="store_true", help="only remove old releases and stale drafts")
     args = parser.parse_args()
-    if not re.fullmatch(r"/opt/quazar/\.desktop-updates-staging/\d+", args.staging) or args.root != "/opt/quazar/desktop-updates":
-        parser.error("Unexpected publication paths")
-    publish(args.staging, args.root)
-    shutil.rmtree(args.staging)
+    if args.root != ROOT or (args.prune == bool(args.staging)):
+        parser.error("Use either --staging or --prune")
+    if args.prune:
+        prune_published(args.root)
+    else:
+        if not re.fullmatch(re.escape(STAGING) + r"/\d+", args.staging):
+            parser.error("Unexpected publication paths")
+        publish(args.staging, args.root)
+        shutil.rmtree(args.staging)
+    stale = clean_staging(STAGING)
+    if stale:
+        print(f"Removed {stale} interrupted publication drafts")

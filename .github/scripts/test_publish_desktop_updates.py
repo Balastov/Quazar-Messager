@@ -6,6 +6,7 @@ import tempfile
 import unittest
 from unittest import mock
 import io
+import os
 
 spec = importlib.util.spec_from_file_location("publisher", Path(__file__).with_name("publish-desktop-updates.py"))
 publisher = importlib.util.module_from_spec(spec)
@@ -122,6 +123,38 @@ class PublicationTest(unittest.TestCase):
         self.assertEqual((self.root / "win-x64" / "latest.yml").read_text(), "version: 0.22.0\n")
         # Канал Android не входил в новые выпуски — его единственный пакет остаётся.
         self.assertTrue((self.root / "android" / "Quazar-0.20.0-android.apk").exists())
+
+    def test_deploy_pruning_keeps_published_and_previous_and_in_flight_packages(self):
+        folder = self.root / "win-x64"
+        folder.mkdir(parents=True)
+        for version in ["0.18.0", "0.19.0", "0.20.0", "0.21.0"]:
+            (folder / f"Quazar-{version}-win-x64.exe").write_bytes(b"x")
+            (folder / f"Quazar-{version}-win-x64.exe.blockmap").write_bytes(b"x")
+        (folder / "latest.yml").write_text("version: 0.20.0\n")
+        # Без метаданных непонятно, что у людей сейчас, — такой канал не трогаем.
+        (self.root / "mac-x64").mkdir()
+        (self.root / "mac-x64" / "Quazar-0.1.0-mac-x64.zip").write_bytes(b"x")
+        publisher.prune_published(self.root)
+        self.assertEqual(sorted(p.name for p in folder.iterdir()), [
+            "Quazar-0.19.0-win-x64.exe", "Quazar-0.19.0-win-x64.exe.blockmap",
+            "Quazar-0.20.0-win-x64.exe", "Quazar-0.20.0-win-x64.exe.blockmap",
+            # 0.21.0 ещё публикуется: пакеты уже на месте, метаданные — нет.
+            "Quazar-0.21.0-win-x64.exe", "Quazar-0.21.0-win-x64.exe.blockmap",
+            "latest.yml",
+        ])
+        self.assertTrue((self.root / "mac-x64" / "Quazar-0.1.0-mac-x64.zip").exists())
+
+    def test_removes_only_stale_interrupted_drafts(self):
+        staging = self.base / "staging"
+        old, fresh, current = staging / "111", staging / "222", staging / "333"
+        for folder in (old, fresh, current):
+            folder.mkdir(parents=True)
+            (folder / "Quazar-1.0.0-win-x64.exe.part").write_bytes(b"x")
+        day_ago = publisher.time.time() - 25 * 3600
+        for folder in (old, current):
+            os.utime(folder, (day_ago, day_ago))
+        self.assertEqual(publisher.clean_staging(staging, keep=current), 1)
+        self.assertEqual(sorted(p.name for p in staging.iterdir()), ["222", "333"])
 
     def test_publishes_across_disks(self):
         real = publisher.os.replace

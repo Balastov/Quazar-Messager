@@ -65,6 +65,11 @@ class VoiceParticipant:
     screen_sharing: bool = False
     # sid опубликованного трека экрана (из вебхука): по нему узнаём, что показ закончился.
     screen_track_sid: str | None = None
+    # Занял место камеры (их в комнате не больше MAX_CAMERAS); по умолчанию камера выключена.
+    camera: bool = False
+    camera_track_sid: str | None = None
+    # Модератор выключил камеру: включить её снова человек не может, пока не разрешат.
+    camera_blocked: bool = False
     # Имя гостя по ссылке (у участников Звезды имя берут из списка участников).
     guest_name: str | None = None
     # Имя в Звезде и фото из токена: по ним посетителя по ссылке видят участники, а он — их.
@@ -79,6 +84,8 @@ class VoiceParticipant:
             "joined_at": self.joined_at.isoformat(),
             "server_muted": self.server_muted,
             "screen_sharing": self.screen_sharing,
+            "camera": self.camera,
+            "camera_blocked": self.camera_blocked,
             "guest_name": self.guest_name,
             "name": self.name,
             "avatar_url": self.avatar_url,
@@ -89,6 +96,9 @@ class VoiceParticipant:
         sources = [] if self.server_muted or listen_only else [livekit.SOURCE_MICROPHONE]
         if self.screen_sharing:
             sources += [livekit.SOURCE_SCREEN_SHARE, livekit.SOURCE_SCREEN_SHARE_AUDIO]
+        # Камера — как голос: в «Только слушать» её нет.
+        if self.camera and not self.camera_blocked and not listen_only:
+            sources.append(livekit.SOURCE_CAMERA)
         return sources
 
 
@@ -98,6 +108,19 @@ MAX_SCREENS = 2
 
 def screen_limit(star_kind: str) -> int:
     return MAX_SCREENS if star_kind == "work" else 1
+
+
+# Сколько камер одновременно в одной комнате: каждая уходит всем остальным (до 25 человек),
+# а сервер один — сетка 3×3.
+MAX_CAMERAS = 9
+
+
+class CameraBusy(Exception):
+    """Все места камер в комнате заняты."""
+
+
+class CameraBlocked(Exception):
+    """Камеру выключил модератор, либо комната в режиме «Только слушать»."""
 
 
 class ScreenBusy(Exception):
@@ -268,6 +291,11 @@ def is_screen_sharer(channel_id: str, user_id: str | None) -> bool:
     return any(p.user_id == user_id for p in screen_sharers(channel_id))
 
 
+def cameras(channel_id: str) -> list[VoiceParticipant]:
+    """У кого сейчас включена камера."""
+    return [p for p in participants(channel_id) if p.camera]
+
+
 async def _apply_permissions(channel_id: str, participant: VoiceParticipant) -> None:
     planet = _planets.get(channel_id)
     await livekit.room_service.update_publish_sources(
@@ -283,11 +311,18 @@ async def set_listen_only(star_id: str, channel_id: str, listen_only: bool) -> N
     if not planet:
         return
     planet.listen_only = listen_only
+    had_cameras = bool(cameras(channel_id))
     for participant in list(planet.participants.values()):
+        if listen_only:
+            # Камеры гаснут вместе с микрофонами; место освобождаем.
+            participant.camera = False
+            participant.camera_track_sid = None
         try:
             await _apply_permissions(channel_id, participant)
         except livekit.LiveKitError as exc:
             logger.warning("listen-only %s on %s failed: %s", participant.user_id, channel_id, exc)
+    if listen_only and had_cameras:
+        await broadcast(star_id, channel_id)
 
 
 async def set_server_muted(star_id: str, channel_id: str, user_id: str, muted: bool) -> bool:
@@ -345,8 +380,83 @@ async def stop_screen(star_id: str, channel_id: str, user_id: str) -> bool:
     return True
 
 
+async def start_camera(star_id: str, channel_id: str, user_id: str) -> bool:
+    """Занять место камеры. False — человека нет в комнате; CameraBusy — мест нет."""
+    planet = _planets.get(channel_id)
+    participant = planet.participants.get(user_id) if planet else None
+    if not participant:
+        return False
+    if participant.camera_blocked or planet.listen_only:
+        raise CameraBlocked()
+    if participant.camera:
+        return True
+    if len(cameras(channel_id)) >= MAX_CAMERAS:
+        raise CameraBusy()
+    # Место занимаем до первого await: два одновременных запроса не пройдут оба.
+    participant.camera = True
+    participant.camera_track_sid = None
+    try:
+        await _apply_permissions(channel_id, participant)
+    except livekit.LiveKitError:
+        participant.camera = False
+        raise
+    await broadcast(star_id, channel_id)
+    return True
+
+
+async def stop_camera(star_id: str, channel_id: str, user_id: str) -> bool:
+    """Выключить камеру: отзываем право — LiveKit сам снимает трек у всех."""
+    participant = _participant(channel_id, user_id)
+    if not participant or not participant.camera:
+        return False
+    participant.camera = False
+    participant.camera_track_sid = None
+    try:
+        await _apply_permissions(channel_id, participant)
+    except livekit.LiveKitError as exc:
+        logger.warning("revoke camera of %s on %s failed: %s", user_id, channel_id, exc)
+    await broadcast(star_id, channel_id)
+    return True
+
+
+async def set_camera_blocked(star_id: str, channel_id: str, user_id: str, blocked: bool) -> bool:
+    """Модератор выключил камеру и не даёт включить её снова — или разрешил."""
+    participant = _participant(channel_id, user_id)
+    if not participant:
+        return False
+    previous = (participant.camera_blocked, participant.camera, participant.camera_track_sid)
+    participant.camera_blocked = blocked
+    if blocked:
+        participant.camera = False
+        participant.camera_track_sid = None
+    try:
+        await _apply_permissions(channel_id, participant)
+    except livekit.LiveKitError:
+        participant.camera_blocked, participant.camera, participant.camera_track_sid = previous
+        raise
+    await broadcast(star_id, channel_id)
+    return True
+
+
+async def _on_camera_track(kind: str, channel_id: str, identity: str, track: dict) -> None:
+    planet = _planets.get(channel_id)
+    participant = planet.participants.get(identity) if planet else None
+    if not participant or not participant.camera:
+        return
+    sid = track.get("sid")
+    if kind == "track_published":
+        participant.camera_track_sid = sid
+    elif sid and sid == participant.camera_track_sid:
+        # Камеру сняли с публикации, а клиент не успел сказать бэкенду (закрыли вкладку и т.п.).
+        await stop_camera(planet.star_id, channel_id, identity)
+
+
 async def _on_track(kind: str, channel_id: str, identity: str, track: dict) -> None:
-    if livekit.track_source(track.get("source")) != livekit.SOURCE_SCREEN_SHARE:
+    source = livekit.track_source(track.get("source"))
+    if source == livekit.SOURCE_CAMERA:
+        await _on_camera_track(kind, channel_id, identity, track)
+        return
+    if source != livekit.SOURCE_SCREEN_SHARE:
         return
     planet = _planets.get(channel_id)
     participant = planet.participants.get(identity) if planet else None
@@ -513,6 +623,14 @@ async def resync() -> None:
                     restored = _planets[channel_id].participants[identity]
                     restored.screen_sharing = True
                     restored.screen_track_sid = screen.get("sid")
+                camera = next(
+                    (t for t in p.get("tracks") or [] if livekit.track_source(t.get("source")) == livekit.SOURCE_CAMERA),
+                    None,
+                )
+                if camera and len(cameras(channel_id)) < MAX_CAMERAS:
+                    restored = _planets[channel_id].participants[identity]
+                    restored.camera = True
+                    restored.camera_track_sid = camera.get("sid")
             if channel_id in _planets:
                 _planets[channel_id].active_since = _restored_start(room, _planets[channel_id])
         logger.info("voice presence restored: %d planets", len(_planets))

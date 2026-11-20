@@ -6,7 +6,7 @@ import { useDoorsStore } from "../../store/doors";
 import { canShareScreen, useVoiceStore, type VoicePeer } from "../../store/voice";
 import UserAvatar from "../UserAvatar";
 import ProfileLink from "../profile/ProfileLink";
-import { IconBack, IconGear, IconPlanet, IconStarMic, IconStarMicOff, IconNoiseFilter, IconScreenShare, IconScreenStop, IconStarHeadphones, IconStarInvite, IconStarVolume } from "../icons";
+import { IconBack, IconGear, IconPlanet, IconStarCamera, IconStarCameraOff, IconStarMic, IconStarMicOff, IconNoiseFilter, IconScreenShare, IconScreenStop, IconStarHeadphones, IconStarInvite, IconStarVolume } from "../icons";
 import { ActiveTime, activeSince } from "./ActiveTime";
 import Dialog from "./Dialog";
 import AudioDevices from "../AudioDevices";
@@ -14,10 +14,11 @@ import RoomActivities, { type RoomSharer } from "./RoomActivities";
 import ScreenShareDialog from "../ScreenShareDialog";
 import { Soundboard, VoiceKeysSettings } from "./VoicePanels";
 import { keyLabel } from "../../voice/keys";
-import { apiError, can, canStopScreen, outranks, passUntil, presenceAvatar, presenceName, ROOM_LABEL, roomDoor, screenLimit } from "./rules";
+import { apiError, can, canStopScreen, MAX_CAMERAS, outranks, passUntil, presenceAvatar, presenceName, ROOM_LABEL, roomDoor, screenLimit } from "./rules";
 import { placeNouns, roomWords } from "./words";
 import RoomTools from "./RoomTools";
 import RoomChat from "./RoomChat";
+import PeerVideo from "./PeerVideo";
 import ChatResizer from "./ChatResizer";
 import { savedChatWidth, saveChatWidth } from "./roomChatWidth";
 import UnreadBadge from "../chat/UnreadBadge";
@@ -41,6 +42,8 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
   const voice = useVoiceStore();
   const callPhase = useCallStore((st) => st.phase);
   const [modError, setModError] = useState<string | null>(null);
+  // Развёрнутое видео с камеры: чьё (null — все в сетке).
+  const [bigCamera, setBigCamera] = useState<string | null>(null);
   const myKnock = useDoorsStore((st) => st.myKnock);
   const allKnocks = useDoorsStore((st) => st.knocks);
   const doors = useDoorsStore.getState();
@@ -421,19 +424,32 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
           ).map((peer) => {
             const m = member(peer.userId);
             const state = peerState(peer);
+            const camera = voice.cameras.find((c) => c.userId === peer.userId);
+            const big = !!camera && bigCamera === peer.userId;
+            const speaking = peer.speaking && peer.micOn;
+            const presenceOf = presence.find((p) => p.user_id === peer.userId);
             return (
-              <div key={peer.userId} className={s.voicePeer}>
-                <div
-                  className={`${s.voiceAvatar} ${peer.speaking && peer.micOn ? s.voiceAvatarSpeaking : ""}`}
-                >
-                  <ProfileLink userId={m ? peer.userId : null} starId={detail.id} hint={m?.user}>
-                    <UserAvatar
-                      username={displayName(m?.user) ?? peer.name}
-                      avatarUrl={m?.user.avatar_url ?? presence.find((p) => p.user_id === peer.userId)?.avatar_url ?? null}
-                      size="lg"
-                    />
-                  </ProfileLink>
-                </div>
+              <div key={peer.userId}
+                className={`${s.voicePeer} ${camera ? s.voicePeerVideo : ""} ${big ? s.voicePeerBig : ""}`}>
+                {camera ? (
+                  // Карточка с камерой — видео; нажатие разворачивает его на всю ширину и обратно.
+                  <button type="button" className={`${s.peerVideo} ${speaking ? s.peerVideoSpeaking : ""}`}
+                    onClick={() => setBigCamera(big ? null : peer.userId)}
+                    aria-label={big ? "Свернуть видео" : `Развернуть видео: ${displayName(m?.user) ?? peer.name}`}
+                    title={big ? "Свернуть" : "Развернуть"}>
+                    <PeerVideo track={camera.track} mirror={camera.isLocal} className={s.peerVideoEl} />
+                  </button>
+                ) : (
+                  <div className={`${s.voiceAvatar} ${speaking ? s.voiceAvatarSpeaking : ""}`}>
+                    <ProfileLink userId={m ? peer.userId : null} starId={detail.id} hint={m?.user}>
+                      <UserAvatar
+                        username={displayName(m?.user) ?? peer.name}
+                        avatarUrl={m?.user.avatar_url ?? presenceOf?.avatar_url ?? null}
+                        size="lg"
+                      />
+                    </ProfileLink>
+                  </div>
+                )}
                 <span className={s.voicePeerName}>
                   <ProfileLink userId={m ? peer.userId : null} starId={detail.id} hint={m?.user}>
                     {displayName(m?.user) ?? peer.name}
@@ -473,6 +489,19 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
                         }
                       >
                         {serverMuted(peer.userId) ? "Вернуть микрофон" : "Выключить микрофон"}
+                      </button>
+                    )}
+                    {!listenOnly && (presenceOf?.camera || presenceOf?.camera_blocked) && (
+                      <button
+                        type="button"
+                        className={`${s.secondary} ${s.small}`}
+                        onClick={() =>
+                          void moderate(() =>
+                            starsApi.blockCamera(detail.id, channel.id, peer.userId, !presenceOf?.camera_blocked)
+                          )
+                        }
+                      >
+                        {presenceOf?.camera_blocked ? "Разрешить камеру" : "Выключить камеру"}
                       </button>
                     )}
                     <button
@@ -525,6 +554,10 @@ export function RoomControls({ detail, channel }: { detail: StarDetail; channel:
   const othersSharing = presence.filter((p) => p.screen_sharing && p.user_id !== myId);
   const slotsFull = othersSharing.length >= screenLimit(detail.kind);
   const othersNames = othersSharing.map((p) => presenceName(detail, p)).join(" и ");
+  // Камеры: до 9 в комнате; модератор может выключить мою и не давать включить.
+  const mine = presence.find((p) => p.user_id === myId);
+  const cameraBlocked = !!mine?.camera_blocked;
+  const camerasFull = !voice.cameraOn && presence.filter((p) => p.camera && p.user_id !== myId).length >= MAX_CAMERAS;
 
   return (
     <>
@@ -565,6 +598,24 @@ export function RoomControls({ detail, channel }: { detail: StarDetail; channel:
               }
               pressed={voice.noiseSuppression}
               onClick={() => void voice.toggleNoise()}
+            />
+            <ControlButton
+              icon={voice.cameraOn ? <IconStarCamera /> : <IconStarCameraOff />}
+              tone={voice.cameraOn ? "on" : "default"}
+              label={
+                cameraBlocked
+                  ? "Модератор выключил вам камеру"
+                  : voice.cameraStarting
+                    ? "Включаем камеру…"
+                    : voice.cameraOn
+                      ? "Выключить камеру"
+                      : camerasFull
+                        ? `Камер уже ${MAX_CAMERAS} — подождите, пока кто-то выключит свою`
+                        : "Включить камеру"
+              }
+              pressed={voice.cameraOn}
+              disabled={(cameraBlocked && !voice.cameraOn) || voice.cameraStarting || camerasFull || voice.status !== "connected"}
+              onClick={() => void voice.toggleCamera()}
             />
           </>
         )}

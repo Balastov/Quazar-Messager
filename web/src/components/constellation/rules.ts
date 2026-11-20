@@ -218,3 +218,6 @@ export function latestPass(detail: StarDetail): string | null {
 export function screenLimit(kind: StarKind): number {
   return kind === "work" ? 2 : 1;
 }
+
+/** Сколько камер одновременно в одной комнате (так же считает сервер). */
+export const MAX_CAMERAS = 9;

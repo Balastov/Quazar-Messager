@@ -447,6 +447,10 @@ export interface VoicePresence {
   server_muted: boolean;
   /** Показывает экран (на Планете — не больше одного). */
   screen_sharing?: boolean;
+  /** Включил камеру (в комнате — не больше 9). */
+  camera?: boolean;
+  /** Модератор выключил камеру и пока не разрешает включить. */
+  camera_blocked?: boolean;
   /** Главный в комнате «По приглашениям». */
   is_host?: boolean;
   /** Гость по ссылке (без аккаунта): его имя; user_id тогда — guest-…. */
@@ -1081,6 +1085,12 @@ export const starsApi = {
     http.delete(`${base(starId)}/planets/${channelId}/screen`),
   stopScreenOf: (starId: string, channelId: string, userId: string) =>
     http.post(`${base(starId)}/planets/${channelId}/voice/${userId}/screen/stop`),
+  startCamera: (starId: string, channelId: string) =>
+    http.post(`${base(starId)}/planets/${channelId}/camera`),
+  stopCamera: (starId: string, channelId: string) =>
+    http.delete(`${base(starId)}/planets/${channelId}/camera`),
+  blockCamera: (starId: string, channelId: string, userId: string, blocked: boolean) =>
+    http.post(`${base(starId)}/planets/${channelId}/voice/${userId}/camera`, { blocked }),
 };
 
 /** Ссылка-приглашение, которую можно отправить человеку. */

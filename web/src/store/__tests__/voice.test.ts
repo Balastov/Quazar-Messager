@@ -27,7 +27,7 @@ class FakeTrack extends EventTarget {
     this.readyState = "ended";
     this.dispatchEvent(new Event("ended"));
   }
-  get kind() { return this.source === "screen_share" ? "video" : "audio"; }
+  get kind() { return this.source === "screen_share" || this.source === "camera" ? "video" : "audio"; }
   stop() {
     this.stopped = true;
   }
@@ -66,6 +66,9 @@ class FakeRoom {
     permissions: { canPublish: true, canPublishSources: [2] } as { canPublish: boolean; canPublishSources?: number[] },
     get isScreenShareEnabled() {
       return false;
+    },
+    get isCameraEnabled() {
+      return [...room().live].some((p) => p.source === "camera");
     },
     get trackPublications() {
       return new Map([...room().live].map((p, i) => [String(i), p]));
@@ -117,7 +120,9 @@ const room = () => FakeRoom.last!;
 vi.mock("livekit-client", () => ({
   Room: FakeRoom,
   RoomEvent: new Proxy({}, { get: (_t, name) => String(name) }),
-  Track: { Source: { Microphone: "microphone", ScreenShare: "screen_share", ScreenShareAudio: "screen_share_audio" } },
+  Track: { Source: { Camera: "camera", Microphone: "microphone", ScreenShare: "screen_share", ScreenShareAudio: "screen_share_audio" } },
+  VideoPresets: { h180: { resolution: { width: 320, height: 180 } }, h360: { resolution: { width: 640, height: 360 } },
+    h720: { resolution: { width: 1280, height: 720 }, encoding: { maxBitrate: 1_700_000, maxFramerate: 30 } } },
   ScreenSharePresets: { h1080fps15: { resolution: { width: 1920, height: 1080 }, encoding: { maxBitrate: 1, maxFramerate: 15 } } },
   DisconnectReason: { CLIENT_INITIATED: 1, DUPLICATE_IDENTITY: 2, PARTICIPANT_REMOVED: 4, ROOM_DELETED: 5 },
 }));
@@ -158,11 +163,18 @@ const startScreen = vi.fn(async () => {
   setTimeout(() => room().grant([2, 3, 4]), 0);
 });
 const stopScreen = vi.fn(async () => {});
+/** Сервер выдаёт место камеры и право на неё. */
+const startCamera = vi.fn(async () => {
+  setTimeout(() => room().grant([2, 1]), 0);
+});
+const stopCamera = vi.fn(async () => {});
 vi.mock("../../api/stars", () => ({
   starsApi: {
     joinPlanet: (...a: unknown[]) => joinPlanet(...(a as [])),
     startScreen: (...a: unknown[]) => startScreen(...(a as [])),
     stopScreen: (...a: unknown[]) => stopScreen(...(a as [])),
+    startCamera: (...a: unknown[]) => startCamera(...(a as [])),
+    stopCamera: (...a: unknown[]) => stopCamera(...(a as [])),
   },
 }));
 
@@ -194,6 +206,8 @@ let micDenied = false;
 let micMissing = false;
 let devices: { kind: string; deviceId: string; groupId: string; label: string }[] = [];
 let micRequests = 0;
+let camera: FakeTrack;
+let cameraDenied = false;
 vi.stubGlobal("navigator", {
   mediaDevices: {
     getDisplayMedia: vi.fn(async () => {
@@ -202,7 +216,12 @@ vi.stubGlobal("navigator", {
         getVideoTracks: () => tracks.filter((track) => track.kind === "video"),
         removeTrack: (track: FakeTrack) => { tracks = tracks.filter((value) => value !== track); } };
     }),
-    getUserMedia: async () => {
+    getUserMedia: async (constraints?: MediaStreamConstraints) => {
+      if (constraints?.video) {
+        if (cameraDenied) throw new DOMException("denied", "NotAllowedError");
+        camera = new FakeTrack("cam", "camera");
+        return { getVideoTracks: () => [camera] };
+      }
       micRequests++;
       if (micDenied) throw new DOMException("denied", "NotAllowedError");
       if (micMissing) throw new DOMException("no device", "NotFoundError");
@@ -232,6 +251,9 @@ beforeEach(async () => {
   micRequests = 0;
   startScreen.mockClear();
   stopScreen.mockClear();
+  startCamera.mockClear();
+  stopCamera.mockClear();
+  cameraDenied = false;
 });
 
 describe("voice store", () => {
@@ -427,6 +449,74 @@ describe("screen share", () => {
     const r = room();
     await useVoiceStore.getState().leave();
     expect(r.screenTracks.every((t) => t.stopped)).toBe(true);
+  });
+
+  it("is off by default and publishes the camera only after the server grants a place", async () => {
+    await useVoiceStore.getState().join("s1", "p1");
+    expect(useVoiceStore.getState().cameraOn).toBe(false);
+    await useVoiceStore.getState().toggleCamera();
+    expect(startCamera).toHaveBeenCalledWith("s1", "p1");
+    expect(sources()).toEqual(["camera", "microphone"]);
+    const st = useVoiceStore.getState();
+    expect(st.cameraOn).toBe(true);
+    expect(st.cameraStarting).toBe(false);
+    expect(st.cameras).toEqual([expect.objectContaining({ userId: "me", isLocal: true })]);
+    expect(st.peers[0].cameraOn).toBe(true);
+  });
+
+  it("turns the camera off: unpublishes, releases the device and the place", async () => {
+    await useVoiceStore.getState().join("s1", "p1");
+    await useVoiceStore.getState().toggleCamera();
+    await useVoiceStore.getState().toggleCamera();
+    expect(sources()).toEqual(["microphone"]);
+    expect(camera.stopped).toBe(true);
+    expect(stopCamera).toHaveBeenCalledWith("s1", "p1");
+    expect(useVoiceStore.getState().cameraOn).toBe(false);
+    expect(useVoiceStore.getState().notice).toBeNull();
+  });
+
+  it("explains a denied camera and does not take a place", async () => {
+    cameraDenied = true;
+    await useVoiceStore.getState().join("s1", "p1");
+    await useVoiceStore.getState().toggleCamera();
+    expect(startCamera).not.toHaveBeenCalled();
+    expect(useVoiceStore.getState().notice).toMatch(/Разрешите/);
+    expect(useVoiceStore.getState().cameraStarting).toBe(false);
+  });
+
+  it("explains a full room and releases the captured camera", async () => {
+    startCamera.mockImplementationOnce(async () => {
+      throw { isAxiosError: true, response: { status: 409, data: { detail: "Камер уже 9 — подождите" } } };
+    });
+    await useVoiceStore.getState().join("s1", "p1");
+    await useVoiceStore.getState().toggleCamera();
+    expect(sources()).toEqual(["microphone"]);
+    expect(camera.stopped).toBe(true);
+    expect(useVoiceStore.getState().notice).toBe("Камер уже 9 — подождите");
+    expect(useVoiceStore.getState().cameraOn).toBe(false);
+  });
+
+  it("tells when a moderator turns the camera off", async () => {
+    await useVoiceStore.getState().join("s1", "p1");
+    await useVoiceStore.getState().toggleCamera();
+    room().grant([2]);
+    await vi.waitFor(() => expect(sources()).toEqual(["microphone"]));
+    expect(camera.stopped).toBe(true);
+    expect(useVoiceStore.getState().notice).toBe("Модератор выключил вашу камеру");
+    expect(useVoiceStore.getState().cameraOn).toBe(false);
+  });
+
+  it("turns the camera off when it is unplugged and when leaving", async () => {
+    await useVoiceStore.getState().join("s1", "p1");
+    await useVoiceStore.getState().toggleCamera();
+    camera.unplug();
+    await vi.waitFor(() => expect(useVoiceStore.getState().cameraOn).toBe(false));
+    expect(stopCamera).toHaveBeenCalled();
+
+    await useVoiceStore.getState().toggleCamera();
+    const cam = camera;
+    await useVoiceStore.getState().leave();
+    expect(cam.stopped).toBe(true);
   });
 
   it("does not publish unexpected audio when sharing sound was declined", async () => {

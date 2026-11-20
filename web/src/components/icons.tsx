@@ -216,6 +216,23 @@ export const IconStarMic = (p: IconProps) => (
   </Svg>
 );
 
+export const IconStarCamera = (p: IconProps) => (
+  <Svg {...p}>
+    <rect x="2.5" y="7" width="13" height="10.5" rx="2.5" />
+    <path d="M15.5 11l5-3v8.5l-5-3" />
+    <Sparkle cx={19.5} cy={4} r={2.3} />
+  </Svg>
+);
+
+export const IconStarCameraOff = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M9 7h4a2.5 2.5 0 0 1 2.5 2.5v4.5" />
+    <path d="M15.5 11l5-3v8.5l-3.2-1.9" />
+    <path d="M5.2 7.3A2.5 2.5 0 0 0 2.5 9.5V15a2.5 2.5 0 0 0 2.5 2.5h8.5a2.5 2.5 0 0 0 1.9-.9" />
+    <path d="M3.5 3.5l17 17" />
+  </Svg>
+);
+
 export const IconStarMicOff = (p: IconProps) => (
   <Svg {...p}>
     <path d="M14.5 9.5V6.25a3.25 3.25 0 0 0-6.2-1.36" />

@@ -335,6 +335,99 @@ class VoiceApiTest(StarsTestBase):
         await voice.resync()
         self.assertEqual(self.sharing(), {self.users["alice"].id})
 
+    # --- Камера ----------------------------------------------------------------
+
+    def cameras(self) -> set[str]:
+        return {p.user_id for p in voice.participants(self.planet.id) if p.camera}
+
+    async def test_camera_is_off_by_default_and_turns_on_for_anyone_inside(self):
+        await self.enter("alice")
+        alice = self.users["alice"].id
+        room = voice.room_name(self.planet.id)
+        claims = jwt.decode(
+            (await self.call(voice_api.join_planet, self.star.id, self.planet.id, user="alice")).token,
+            LK["LIVEKIT_API_SECRET"], algorithms=["HS256"],
+        )
+        self.assertNotIn("camera", claims["video"].get("canPublishSources", []))
+        self.assertEqual(self.cameras(), set())
+
+        self.events.clear()
+        await self.call(voice_api.start_camera, self.star.id, self.planet.id, user="alice")
+        self.assertEqual(self.cameras(), {alice})
+        self.assertEqual(self.lk.sources(room, alice), ["MICROPHONE", "CAMERA"])
+        last = [e for _, e in self.events if e["type"] == "star_voice"][-1]
+        self.assertEqual([p["user_id"] for p in last["participants"] if p["camera"]], [alice])
+
+        await self.call(voice_api.stop_my_camera, self.star.id, self.planet.id, user="alice")
+        self.assertEqual(self.cameras(), set())
+        self.assertEqual(self.lk.sources(room, alice), ["MICROPHONE"])
+
+    async def test_camera_needs_presence(self):
+        err = await self.expect_error(409, voice_api.start_camera, self.star.id, self.planet.id, user="alice")
+        self.assertEqual(err.detail, "Сначала отправьтесь на Планету")
+        await self.expect_error(404, voice_api.start_camera, self.star.id, self.planet.id, user="carol")
+
+    async def test_camera_limit(self):
+        for name in ("alice", "bob", "mod"):
+            await self.enter(name)
+        with mock.patch.object(voice, "MAX_CAMERAS", 2):
+            await self.call(voice_api.start_camera, self.star.id, self.planet.id, user="alice")
+            await self.call(voice_api.start_camera, self.star.id, self.planet.id, user="bob")
+            err = await self.expect_error(409, voice_api.start_camera, self.star.id, self.planet.id, user="mod")
+            self.assertIn("Камер уже 2", err.detail)
+            # Повторный запрос того, у кого камера уже есть, — не ошибка.
+            await self.call(voice_api.start_camera, self.star.id, self.planet.id, user="alice")
+            await self.call(voice_api.stop_my_camera, self.star.id, self.planet.id, user="alice")
+            await self.call(voice_api.start_camera, self.star.id, self.planet.id, user="mod")
+        self.assertEqual(self.cameras(), {self.users["bob"].id, self.users["mod"].id})
+
+    async def test_moderator_turns_camera_off_until_allowed(self):
+        for name in ("alice", "bob"):
+            await self.enter(name)
+        alice = self.users["alice"].id
+        room = voice.room_name(self.planet.id)
+        await self.call(voice_api.start_camera, self.star.id, self.planet.id, user="alice")
+        block = lambda blocked, user: self.call(  # noqa: E731
+            voice_api.block_camera, self.star.id, self.planet.id, alice, voice_api.CameraBlock(blocked=blocked), user=user
+        )
+        await self.expect_error(
+            403, voice_api.block_camera, self.star.id, self.planet.id, alice, voice_api.CameraBlock(blocked=True), user="bob"
+        )
+        await block(True, "mod")
+        self.assertEqual(self.cameras(), set())
+        self.assertEqual(self.lk.sources(room, alice), ["MICROPHONE"])
+        self.assertTrue(next(p for p in voice.participants(self.planet.id) if p.user_id == alice).camera_blocked)
+        await self.expect_error(403, voice_api.start_camera, self.star.id, self.planet.id, user="alice")
+        # Микрофон модерация камеры не трогает; разрешили — можно включить снова.
+        await block(False, "mod")
+        await self.call(voice_api.start_camera, self.star.id, self.planet.id, user="alice")
+        self.assertEqual(self.lk.sources(room, alice), ["MICROPHONE", "CAMERA"])
+
+    async def test_camera_released_by_webhooks_and_restored_by_resync(self):
+        await self.enter("alice")
+        alice = self.users["alice"].id
+        await self.call(voice_api.start_camera, self.star.id, self.planet.id, user="alice")
+        await self.track_event("track_published", "alice", "TR_cam", source="CAMERA")
+        await self.track_event("track_unpublished", "alice", "TR_other", source="CAMERA")
+        self.assertEqual(self.cameras(), {alice})
+        await self.track_event("track_unpublished", "alice", "TR_cam", source="CAMERA")
+        self.assertEqual(self.cameras(), set())
+
+        room = voice.room_name(self.planet.id)
+        self.lk.tracks[(room, alice)] = [{"sid": "TR_mic", "source": 2}, {"sid": "TR_cam2", "source": 1}]
+        voice.reset()
+        await voice.resync()
+        self.assertEqual(self.cameras(), {alice})
+
+    async def test_listen_only_turns_cameras_off(self):
+        await self.enter("alice")
+        alice = self.users["alice"].id
+        await self.call(voice_api.start_camera, self.star.id, self.planet.id, user="alice")
+        await self.call(api.update_channel, self.star.id, self.planet.id, UpdateChannel(listen_only=True), user="owner")
+        self.assertEqual(self.cameras(), set())
+        self.assertEqual(self.lk.sources(voice.room_name(self.planet.id), alice), [])
+        await self.expect_error(403, voice_api.start_camera, self.star.id, self.planet.id, user="alice")
+
     # --- «Только слушать» ----------------------------------------------------
 
     async def test_listen_only_token_has_no_microphone(self):

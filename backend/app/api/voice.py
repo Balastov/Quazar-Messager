@@ -203,6 +203,58 @@ async def stop_screen_of(
     await voice.stop_screen(star_id, channel_id, user_id)
 
 
+class CameraBlock(BaseModel):
+    blocked: bool
+
+
+@router.post("/{star_id}/planets/{channel_id}/camera", status_code=status.HTTP_204_NO_CONTENT)
+async def start_camera(star_id: str, channel_id: str, current_user: CurrentUser, db: Db):
+    """Занять место камеры: включают все, кто может говорить, одновременно — до 9 человек."""
+    # Посетитель по гостевой ссылке говорит в своей комнате — и камеру включает там же.
+    star, me = await _load_viewer(db, star_id, current_user.id)
+    await _planet(db, star_id, channel_id)
+    if not livekit.configured():
+        raise _unavailable()
+    if me.timeout_until and me.timeout_until > datetime.now(timezone.utc):
+        raise HTTPException(status_code=403, detail="Вы в тайм-ауте — камера и микрофон недоступны")
+    try:
+        started = await voice.start_camera(star_id, channel_id, current_user.id)
+    except voice.CameraBusy:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Камер уже {voice.MAX_CAMERAS} — подождите, пока кто-то выключит свою",
+        ) from None
+    except voice.CameraBlocked:
+        raise HTTPException(status_code=403, detail="Камеру здесь сейчас включить нельзя") from None
+    except livekit.LiveKitError as exc:
+        raise _unavailable("Голосовой сервер сейчас недоступен.") from exc
+    if not started:
+        raise HTTPException(
+            status_code=409,
+            detail="Сначала войдите в Комнату" if star.kind == "work" else "Сначала отправьтесь на Планету",
+        )
+
+
+@router.delete("/{star_id}/planets/{channel_id}/camera", status_code=status.HTTP_204_NO_CONTENT)
+async def stop_my_camera(star_id: str, channel_id: str, current_user: CurrentUser, db: Db):
+    await _load_viewer(db, star_id, current_user.id)
+    await voice.stop_camera(star_id, channel_id, current_user.id)
+
+
+@router.post(
+    "/{star_id}/planets/{channel_id}/voice/{user_id}/camera", status_code=status.HTTP_204_NO_CONTENT
+)
+async def block_camera(
+    star_id: str, channel_id: str, user_id: str, body: CameraBlock, current_user: CurrentUser, db: Db
+):
+    """Модератор выключает чужую камеру (и не даёт включить снова) — или снова разрешает. Как с микрофоном."""
+    await _moderation_target(db, star_id, channel_id, current_user, user_id)
+    try:
+        await voice.set_camera_blocked(star_id, channel_id, user_id, body.blocked)
+    except livekit.LiveKitError as exc:
+        raise _unavailable("Голосовой сервер сейчас недоступен.") from exc
+
+
 @webhook_router.post("/livekit/webhook", include_in_schema=False)
 async def livekit_webhook(request: Request):
     if not livekit.configured():

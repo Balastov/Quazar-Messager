@@ -8,6 +8,10 @@
  * публиковать только микрофон; право на экран выдаёт бэкенд (POST …/screen) и отзывает,
  * когда показ закончен — тогда LiveKit сам снимает трек.
  *
+ * Камера: по умолчанию выключена; включают все, кто может говорить, в комнате — до 9 камер.
+ * Как и с экраном, право на камеру выдаёт бэкенд (POST …/camera) и отзывает — когда её
+ * выключили сами, модератор или комнату перевели в «Только слушать».
+ *
  * Планета «Только слушать»: микрофон не открываем вообще (браузер его даже не запрашивает),
  * сервер и не пустит. Режим могут переключить на ходу — тогда микрофон освобождаем или
  * возвращаем выключенным.
@@ -65,6 +69,14 @@ export interface VoicePeer {
   speaking: boolean;
   micOn: boolean;
   screenSharing: boolean;
+  cameraOn: boolean;
+}
+
+/** Видео с камеры участника. */
+export interface VoiceCamera {
+  userId: string;
+  isLocal: boolean;
+  track: Track;
 }
 
 /** Видео показа экрана, которое сейчас есть в комнате. */
@@ -97,6 +109,12 @@ interface VoiceState {
   screenStarting: boolean;
   screenAudioAvailable: boolean;
   screenAudioSharing: boolean;
+  /** Камеры в комнате (и моя тоже). */
+  cameras: VoiceCamera[];
+  /** Моя камера включена. */
+  cameraOn: boolean;
+  /** Включаем камеру: спрашиваем браузер и занимаем место. */
+  cameraStarting: boolean;
   noiseSuppression: boolean;
   noiseActive: boolean;
   /** Громкость собеседников по userId (нет записи — 100 %). */
@@ -132,6 +150,8 @@ interface VoiceState {
   toggleDeafen: () => Promise<void>;
   setVoiceKeys: (prefs: VoiceKeyPrefs) => Promise<void>;
   stopScreenShare: () => Promise<void>;
+  /** Включить или выключить свою камеру. */
+  toggleCamera: () => Promise<void>;
   unlockAudio: () => Promise<void>;
   /** Рация: клавиша нажата / отпущена. */
   setPtt: (down: boolean) => Promise<void>;
@@ -149,7 +169,7 @@ interface Mic {
 type LiveKit = typeof import("livekit-client");
 
 /** enum TrackSource протокола LiveKit — в permissions.canPublishSources приходят числа. */
-const PROTO_SOURCE = { microphone: 2, screen_share: 3 } as const;
+const PROTO_SOURCE = { camera: 1, microphone: 2, screen_share: 3 } as const;
 
 /** Та же проверка, что делает LiveKit перед публикацией (hasPermissionsToPublish). */
 function canPublishSource(p: Participant, source: keyof typeof PROTO_SOURCE): boolean {
@@ -180,6 +200,28 @@ export function screenErrorText(err: unknown): string | null {
   return "Не удалось начать показ экрана. Попробуйте ещё раз.";
 }
 
+/** Почему не удалось включить камеру и что с этим сделать. */
+export function cameraErrorText(err: unknown): string {
+  const name = err instanceof DOMException || err instanceof Error ? err.name : "";
+  switch (name) {
+    case "NotAllowedError":
+    case "SecurityError":
+      return (
+        "Браузер не дал доступ к камере. Разрешите её: значок слева от адреса сайта → «Камера» → " +
+        "«Разрешить». На Mac проверьте ещё: Системные настройки → Конфиденциальность и безопасность → " +
+        "Камера → включите ваш браузер."
+      );
+    case "NotFoundError":
+    case "OverconstrainedError":
+      return "Камера не найдена. Подключите её или проверьте, что она включена в системе.";
+    case "NotReadableError":
+    case "AbortError":
+      return "Камера занята другой программой (Zoom, Телемост, другая вкладка). Закройте её и попробуйте ещё раз.";
+    default:
+      return "Не удалось включить камеру. Попробуйте ещё раз.";
+  }
+}
+
 /** Библиотека LiveKit (~600 КБ) грузится только при входе на Планету. */
 let lk: LiveKit | null = null;
 let room: Room | null = null;
@@ -188,6 +230,8 @@ let mic: Mic | null = null;
 let unwatchPlanet: (() => void) | null = null;
 /** Сами останавливаем показ — не пишем «остановил модератор». */
 let stoppingScreen = false;
+/** Сами выключаем камеру — не пишем «выключил модератор». */
+let stoppingCamera = false;
 /** Мы сами вышли — не показываем «связь прервалась». */
 let leavingOnPurpose = false;
 export type { ScreenMode } from "../calls/screenCapture";
@@ -272,7 +316,16 @@ function peerOf(p: Participant, isLocal: boolean): VoicePeer {
       : p.isSpeaking,
     micOn: p.isMicrophoneEnabled,
     screenSharing: p.isScreenShareEnabled,
+    cameraOn: p.isCameraEnabled,
   };
+}
+
+/** Моя опубликованная камера. */
+function localCameraTrack(r: Room): LocalTrack | null {
+  for (const pub of r.localParticipant.trackPublications.values()) {
+    if (pub.track && pub.source === "camera") return pub.track;
+  }
+  return null;
 }
 
 /** Захваченные треки экрана, которые мы публикуем (видео и, если дали, звук). */
@@ -384,26 +437,35 @@ export const useVoiceStore = create<VoiceState>((set, get) => {
       if (pub?.track) screens.push({ userId: p.identity, isLocal: false, track: pub.track,
         hasAudio: !!audio?.track && !audio.isMuted });
     }
+    const cameras: VoiceCamera[] = [];
+    for (const p of [room.localParticipant, ...room.remoteParticipants.values()]) {
+      const pub = p.getTrackPublication(lk!.Track.Source.Camera);
+      if (pub?.track && !pub.isMuted) {
+        cameras.push({ userId: p.identity, isLocal: p === room.localParticipant, track: pub.track });
+      }
+    }
     set({
       peers: [local, ...remote.sort((a, b) => a.name.localeCompare(b.name, "ru"))],
       micOn: local.micOn,
       screens,
+      cameras,
+      cameraOn: !!localCameraTrack(room),
       sharingScreen: !!localScreen?.track,
       screenAudioAvailable: !!localAudio?.track,
       screenAudioSharing: !!localAudio?.track && !localAudio.isMuted,
     });
   }
 
-  /** Право на экран приходит от LiveKit чуть позже ответа бэкенда — ждём его. */
-  function waitForScreenPermission(r: Room): Promise<void> {
-    if (canPublishSource(r.localParticipant, "screen_share")) return Promise.resolve();
+  /** Право на экран или камеру приходит от LiveKit чуть позже ответа бэкенда — ждём его. */
+  function waitForPermission(r: Room, source: "screen_share" | "camera"): Promise<void> {
+    if (canPublishSource(r.localParticipant, source)) return Promise.resolve();
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         r.off(lk!.RoomEvent.ParticipantPermissionsChanged, onChange);
-        reject(new Error("screen permission timeout"));
+        reject(new Error(`${source} permission timeout`));
       }, 5000);
       function onChange() {
-        if (!canPublishSource(r.localParticipant, "screen_share")) return;
+        if (!canPublishSource(r.localParticipant, source)) return;
         clearTimeout(timer);
         r.off(lk!.RoomEvent.ParticipantPermissionsChanged, onChange);
         resolve();
@@ -414,6 +476,13 @@ export const useVoiceStore = create<VoiceState>((set, get) => {
 
   /** Показ закончился (сами, кнопкой браузера или модератор): гасим захват, отпускаем слот. */
   function onLocalUnpublished(pub: LocalTrackPublication) {
+    if (pub.source === "camera") {
+      // Камеру выключили (сами, модератор или «Только слушать»): гасим её и отпускаем место.
+      pub.track?.stop();
+      const { starId, channelId } = get();
+      if (starId && channelId) void starsApi.stopCamera(starId, channelId).catch(() => {});
+      return;
+    }
     if (pub.source !== "screen_share" && pub.source !== "screen_share_audio") return;
     pub.track?.stop();
     if (pub.source !== "screen_share" || !room) return;
@@ -456,9 +525,11 @@ export const useVoiceStore = create<VoiceState>((set, get) => {
     if (r) {
       r.removeAllListeners();
       const screenTracks = localScreenTracks(r);
+      const camera = localCameraTrack(r);
       await r.disconnect().catch(() => {});
-      // stopLocalTrackOnUnpublish: false — захват экрана гасим сами.
+      // stopLocalTrackOnUnpublish: false — захват экрана и камеру гасим сами.
       screenTracks.forEach((t) => t.stop());
+      camera?.stop();
     }
     for (const audio of played.values()) {
       audio.amp?.close();
@@ -482,6 +553,9 @@ export const useVoiceStore = create<VoiceState>((set, get) => {
       screenStarting: false,
       screenAudioAvailable: false,
       screenAudioSharing: false,
+      cameras: [],
+      cameraOn: false,
+      cameraStarting: false,
       noiseActive: false,
       needsAudioUnlock: false,
       deafened: false,
@@ -692,6 +766,12 @@ export const useVoiceStore = create<VoiceState>((set, get) => {
             for (const track of screenTracks) void r.localParticipant.unpublishTrack(track);
           }
         }
+        // Право на камеру отозвали: модератор или комнату перевели в «Только слушать».
+        const camera = localCameraTrack(r);
+        if (camera && !canPublishSource(participant, "camera") && !stoppingCamera && !get().cameraStarting) {
+          if (!get().listenOnly) set({ notice: "Модератор выключил вашу камеру" });
+          void r.localParticipant.unpublishTrack(camera);
+        }
         syncPeers();
       })
       .on(RoomEvent.Disconnected, (reason) => {
@@ -724,6 +804,9 @@ export const useVoiceStore = create<VoiceState>((set, get) => {
     screenStarting: false,
     screenAudioAvailable: false,
     screenAudioSharing: false,
+    cameras: [],
+    cameraOn: false,
+    cameraStarting: false,
     noiseSuppression: getNoiseSuppressionPref(),
     noiseActive: false,
     volumes: loadPeerVolumes(),
@@ -940,7 +1023,7 @@ export const useVoiceStore = create<VoiceState>((set, get) => {
       try {
         if (room !== r) throw new Error("left the planet");
         await starsApi.startScreen(starId, channelId);
-        await waitForScreenPermission(r);
+        await waitForPermission(r, "screen_share");
         if (room !== r) throw new Error("left the planet");
         for (const track of tracks) {
           await r.localParticipant.publishTrack(track, {
@@ -993,6 +1076,67 @@ export const useVoiceStore = create<VoiceState>((set, get) => {
         stoppingScreen = false;
       }
       syncPeers();
+    },
+
+    toggleCamera: async () => {
+      const r = room;
+      const { starId, channelId, status, cameraStarting, listenOnly } = get();
+      if (!r || !lk || !starId || !channelId || status !== "connected" || cameraStarting) return;
+      const current = localCameraTrack(r);
+      if (current) {
+        stoppingCamera = true;
+        try {
+          // Место освобождает onLocalUnpublished (там же гасится камера).
+          await r.localParticipant.unpublishTrack(current).catch(() => {});
+        } finally {
+          stoppingCamera = false;
+        }
+        syncPeers();
+        return;
+      }
+      if (listenOnly) return;
+      set({ cameraStarting: true });
+
+      // Сначала камера: если браузер её не даст, место в комнате не занимаем.
+      let track: MediaStreamTrack;
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 24, max: 30 } },
+        });
+        track = stream.getVideoTracks()[0];
+      } catch (err) {
+        if (room === r) set({ cameraStarting: false, notice: cameraErrorText(err) });
+        return;
+      }
+
+      try {
+        if (room !== r) throw new Error("left the planet");
+        await starsApi.startCamera(starId, channelId);
+        await waitForPermission(r, "camera");
+        if (room !== r) throw new Error("left the planet");
+        const publication = await r.localParticipant.publishTrack(track, {
+          source: lk.Track.Source.Camera,
+          name: "camera",
+          // Три слоя: плитке в сетке приходит маленький, развёрнутому видео — 720p.
+          simulcast: true,
+          videoEncoding: lk.VideoPresets.h720.encoding,
+          videoSimulcastLayers: [lk.VideoPresets.h180, lk.VideoPresets.h360],
+        });
+        // Камеру выдернули или система её отобрала — выключаем, как будто нажали кнопку.
+        track.addEventListener("ended", () => {
+          if (room === r && publication.track && localCameraTrack(r) === publication.track) void get().toggleCamera();
+        });
+      } catch (err) {
+        track.stop();
+        if (room === r) {
+          void starsApi.stopCamera(starId, channelId).catch(() => {});
+          set({ notice: apiError(err, "Не удалось включить камеру. Попробуйте ещё раз.") });
+        }
+      }
+      if (room === r) {
+        set({ cameraStarting: false });
+        syncPeers();
+      }
     },
 
     unlockAudio: async () => {

@@ -955,6 +955,58 @@
   min-width: 0;
 }
 
+/* Карточка с камерой: шире обычной, видео 16:9 вместо аватарки. */
+.voicePeerVideo {
+  grid-column: span 2;
+  padding: 8px 8px 12px;
+}
+
+/* Развёрнутое видео — на всю ширину сетки. */
+.voicePeerBig {
+  grid-column: 1 / -1;
+}
+
+.peerVideo {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  padding: 0;
+  border: 3px solid transparent;
+  border-radius: calc(var(--qz-radius) - 2px);
+  overflow: hidden;
+  background: #000;
+  cursor: zoom-in;
+  transition: border-color 0.12s, box-shadow 0.12s;
+}
+
+.voicePeerBig .peerVideo {
+  max-height: 70vh;
+  cursor: zoom-out;
+}
+
+.peerVideoSpeaking {
+  border-color: var(--qz-online);
+  box-shadow: 0 0 16px rgba(52, 211, 153, 0.5);
+}
+
+.peerVideoEl {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* Развёрнутое — целиком, без обрезки краёв. */
+.voicePeerBig .peerVideoEl {
+  object-fit: contain;
+}
+
+@media (max-width: 480px) {
+  .voicePeerVideo {
+    grid-column: 1 / -1;
+  }
+}
+
 .voiceAvatar {
   border-radius: 50%;
   padding: 3px;

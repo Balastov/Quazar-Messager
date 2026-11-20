@@ -839,12 +839,13 @@ export default function SatelliteView({ detail, channel, onBack, onEdit, room = 
           actions={[
             ...(editing ? [] : [
               { label: "📎 Файл (до 50 МБ)", onClick: () => fileInputRef.current?.click() },
-              // Опросы и сборы живут внутри одной Звезды — в общем Спутнике их нет.
-              ...(shared || room
+              // Опросы и сборы живут внутри одной Звезды — в общем Спутнике их нет. В чате комнаты есть;
+              // сбор — только участникам Звезды (посетитель по гостевой ссылке его не создаёт).
+              ...(shared
                 ? []
                 : [
                     { label: "📊 Опрос", onClick: () => setDialog("poll") },
-                    { label: "🎮 Сбор группы", onClick: () => setDialog("lfg") },
+                    ...(detail.my_role === "visitor" ? [] : [{ label: "🎮 Сбор группы", onClick: () => setDialog("lfg") }]),
                   ]),
               // Формы сценариев Звезды: карточка уйдёт в Спутник, указанный в сценарии.
               ...(room ? [] : forms.map((form) => ({ label: `📝 ${form.name}`, onClick: () => setOpenForm(form) }))),
@@ -858,7 +859,9 @@ export default function SatelliteView({ detail, channel, onBack, onEdit, room = 
       )}
       {openForm && <FormDialog detail={detail} form={openForm} onClose={() => setOpenForm(null)} />}
       {dialog === "poll" && <PollDialog starId={detail.id} channelId={channel.id} onClose={() => setDialog(null)} />}
-      {dialog === "lfg" && <LfgDialog detail={detail} channelId={channel.id} onClose={() => setDialog(null)} />}
+      {dialog === "lfg" && (
+        <LfgDialog detail={detail} channelId={channel.id} roomFloorId={room ? channel.floor_id : null} onClose={() => setDialog(null)} />
+      )}
       {acksOf && <AcksDialog message={acksOf} onClose={() => setAcksOf(null)} />}
       {notifyOpen && (
         <NotifyDialog

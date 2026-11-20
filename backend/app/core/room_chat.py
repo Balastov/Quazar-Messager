@@ -23,7 +23,7 @@ ROOM_DEFAULT = "mentions"
 # События ленты: их получает только аудитория чата, а не все, кто видит комнату.
 CHAT_EVENTS = frozenset({
     "star_message", "star_message_edited", "star_message_deleted", "star_message_reaction",
-    "star_thread", "star_pins", "star_ack", "star_typing",
+    "star_thread", "star_pins", "star_ack", "star_typing", "star_poll", "star_lfg",
 })
 
 

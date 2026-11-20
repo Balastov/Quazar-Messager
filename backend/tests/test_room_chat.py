@@ -8,6 +8,7 @@ from app.api import guests
 from app.api import notify as notify_api
 from app.api import search as search_api
 from app.api import star_files as files_api
+from app.api import star_play as play
 from app.api import star_work
 from app.api import stars as api
 from app.api import voice as voice_api
@@ -155,6 +156,66 @@ class RoomChatTest(StarsTestBase):
         )
         await self.expect_error(403, api.delete_message, self.star.id, self.closed.id, root.id, user="bob")
         await self.call(api.set_reaction, self.star.id, self.closed.id, root.id, api.SetStarReaction(emoji="👍"), user="admin")
+
+    # --- Опросы и сборы ---
+
+    def got_event(self, user: str, kind: str) -> bool:
+        return any(uid == self.uid(user) and e["type"] == kind for uid, e in self.events)
+
+    async def test_polls_in_room_chat_follow_room_access(self):
+        body = play.PollBody(question="Когда созвон?", options=["Утром", "Вечером"])
+        await self.expect_error(403, play.create_poll, self.star.id, self.closed.id, body, user="bob")
+        poll = await self.call(play.create_poll, self.star.id, self.closed.id, body, user="mod")
+        self.assertEqual(await self.feed(self.closed.id, "mod"), ["Когда созвон?"])
+        self.assertTrue(self.got_message("owner", "Когда созвон?"))
+        self.assertFalse(self.got_message("bob", "Когда созвон?"))
+
+        # Голосуют те, кто может войти; остальным опрос не виден — и голоса тоже.
+        await self.expect_error(403, play.vote, self.star.id, poll["id"], play.VoteBody(options=[0]), user="bob")
+        self.events.clear()
+        out = await self.call(play.vote, self.star.id, poll["id"], play.VoteBody(options=[1]), user="admin")
+        self.assertEqual(out.my_votes, [1])
+        self.assertTrue(self.got_event("owner", "star_poll"))
+        self.assertFalse(self.got_event("bob", "star_poll"))
+        self.assertFalse(self.got_event("alice", "star_poll"))
+
+        # Гость по ссылке в эту комнату тоже голосует.
+        link = await self.call(
+            guests.create_guest_link, self.star.id, self.closed.id, guests.CreateGuestLink(hours=2), user="owner"
+        )
+        await self.call(guests.claim_guest_link, link.code, user="carol")
+        out = await self.call(play.vote, self.star.id, poll["id"], play.VoteBody(options=[0]), user="carol")
+        self.assertEqual(out.total_voters, 2)
+        await self.expect_error(403, play.close_poll, self.star.id, poll["id"], user="bob")
+        await self.call(play.close_poll, self.star.id, poll["id"], user="mod")
+
+    async def test_gatherings_in_room_chat(self):
+        made = await self.call(
+            play.create_lfg, self.star.id, self.open.id, play.LfgBody(title="Ретро", slots=4), user="alice"
+        )
+        async with self.Session() as db:
+            lfg = await db.get(play.StarLfg, made["id"])
+            # Сбор из чата комнаты — на этаже этой комнаты.
+            self.assertEqual(lfg.floor_id, self.open.floor_id)
+        self.assertEqual(await self.feed(self.open.id, "bob"), ["Ретро"])
+        await self.call(play.join_lfg, self.star.id, made["id"], user="bob")
+
+        # В закрытой комнате записаться может только тот, кто видит её чат.
+        closed = await self.call(
+            play.create_lfg, self.star.id, self.closed.id, play.LfgBody(title="Разбор", slots=4), user="mod"
+        )
+        await self.expect_error(403, play.join_lfg, self.star.id, closed["id"], user="bob")
+        await self.expect_error(403, play.cancel_lfg, self.star.id, closed["id"], user="bob")
+
+        # Посетитель по гостевой ссылке читает чат, но сборы — для участников Звезды.
+        link = await self.call(
+            guests.create_guest_link, self.star.id, self.closed.id, guests.CreateGuestLink(hours=2), user="owner"
+        )
+        await self.call(guests.claim_guest_link, link.code, user="carol")
+        await self.expect_error(403, play.join_lfg, self.star.id, closed["id"], user="carol")
+        await self.expect_error(
+            403, play.create_lfg, self.star.id, self.closed.id, play.LfgBody(title="Х", slots=2), user="carol"
+        )
 
     # --- Поиск и файлы ---
 

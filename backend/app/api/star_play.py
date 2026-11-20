@@ -15,11 +15,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.stars import (
     _broadcast,
     _channel_event,
+    _chat,
     _forbid,
     _load_membership,
     _messages_out,
     _require_perm,
-    _satellite,
     assert_can_post,
     assert_clean_text,
     assert_slow_mode,
@@ -77,6 +77,22 @@ async def _message_of(db: AsyncSession, kind: str, ref_id: str) -> StarMessage |
     return (
         await db.execute(select(StarMessage).where(StarMessage.kind == kind, StarMessage.ref_id == ref_id))
     ).scalar_one_or_none()
+
+
+async def _feed_of(db: AsyncSession, star_id: str, user_id: str, kind: str, ref_id: str) -> tuple[Star, StarMember]:
+    """Опрос или сбор — тем, кто видит ленту, где он опубликован: в чате комнаты — кто может в неё войти
+    (в том числе посетитель по гостевой ссылке), в Спутнике — участники Звезды."""
+    message = await _message_of(db, kind, ref_id)
+    if not message or message.star_id != star_id:
+        return await _load_membership(db, star_id, user_id)
+    star, me, _ = await _chat(db, star_id, message.channel_id, user_id)
+    return star, me
+
+
+def _member_only(me: StarMember) -> None:
+    """Сбор создаёт комнату и зовёт организаторов из участников — посетителю по гостевой ссылке он недоступен."""
+    if me.role == floors_svc.VISITOR:
+        raise _forbid("Сборы — для участников Звезды")
 
 
 # --- Опросы --------------------------------------------------------------------
@@ -171,8 +187,8 @@ async def _poll(db: AsyncSession, star_id: str, poll_id: str) -> StarPoll:
 
 @router.post("/{star_id}/channels/{channel_id}/polls", status_code=status.HTTP_201_CREATED)
 async def create_poll(star_id: str, channel_id: str, body: PollBody, current_user: CurrentUser, db: Db) -> dict:
-    star, me = await _load_membership(db, star_id, current_user.id)
-    channel = await _satellite(db, star_id, channel_id)
+    # Спутник или чат комнаты (там — кто может в неё войти).
+    star, me, channel = await _chat(db, star_id, channel_id, current_user.id)
     await _not_shared(db, channel)
     assert_can_post(star, me)
     await assert_slow_mode(db, channel, me)
@@ -194,7 +210,7 @@ async def create_poll(star_id: str, channel_id: str, body: PollBody, current_use
 
 @router.put("/{star_id}/polls/{poll_id}/vote", response_model=PollOut)
 async def vote(star_id: str, poll_id: str, body: VoteBody, current_user: CurrentUser, db: Db):
-    star, me = await _load_membership(db, star_id, current_user.id)
+    star, me = await _feed_of(db, star_id, current_user.id, "poll", poll_id)
     poll = await _poll(db, star_id, poll_id)
     assert_can_post(star, me)
     if _poll_closed(poll):
@@ -215,7 +231,7 @@ async def vote(star_id: str, poll_id: str, body: VoteBody, current_user: Current
 
 @router.post("/{star_id}/polls/{poll_id}/close", status_code=status.HTTP_204_NO_CONTENT)
 async def close_poll(star_id: str, poll_id: str, current_user: CurrentUser, db: Db):
-    _, me = await _load_membership(db, star_id, current_user.id)
+    _, me = await _feed_of(db, star_id, current_user.id, "poll", poll_id)
     poll = await _poll(db, star_id, poll_id)
     if poll.created_by != current_user.id and not rules.is_staff(me.role):
         raise _forbid("Закрыть опрос может его автор или модератор")
@@ -416,8 +432,9 @@ async def floor_people_list(star_id: str, floor_id: str, current_user: CurrentUs
 
 @router.post("/{star_id}/channels/{channel_id}/lfg", status_code=status.HTTP_201_CREATED)
 async def create_lfg(star_id: str, channel_id: str, body: LfgBody, current_user: CurrentUser, db: Db) -> dict:
-    star, me = await _load_membership(db, star_id, current_user.id)
-    channel = await _satellite(db, star_id, channel_id)
+    # Спутник или чат комнаты (там — кто может в неё войти).
+    star, me, channel = await _chat(db, star_id, channel_id, current_user.id)
+    _member_only(me)
     await _not_shared(db, channel)
     assert_can_post(star, me)
     await assert_slow_mode(db, channel, me)
@@ -430,7 +447,9 @@ async def create_lfg(star_id: str, channel_id: str, body: LfgBody, current_user:
     floor_id = None
     if star.kind == "work":
         floors = await floors_svc.list_floors(db, star_id)
-        floor_id = body.floor_id or (floors[0].id if floors else None)
+        # Сбор из чата комнаты — по умолчанию на её этаже.
+        room_floor = channel.floor_id if channel.kind == "planet" else None
+        floor_id = body.floor_id or room_floor or (floors[0].id if floors else None)
         if floor_id and (not any(f.id == floor_id for f in floors)
                          or not (await floors_svc.view_of(db, star, me)).sees_floor(floor_id)):
             raise HTTPException(status_code=422, detail="Выберите этаж, на котором вы бываете")
@@ -459,7 +478,8 @@ async def create_lfg(star_id: str, channel_id: str, body: LfgBody, current_user:
 
 @router.post("/{star_id}/lfg/{lfg_id}/join", response_model=LfgOut)
 async def join_lfg(star_id: str, lfg_id: str, current_user: CurrentUser, db: Db):
-    star, me = await _load_membership(db, star_id, current_user.id)
+    star, me = await _feed_of(db, star_id, current_user.id, "lfg", lfg_id)
+    _member_only(me)
     assert_can_post(star, me)
     lfg = await _lfg(db, star_id, lfg_id)
     if lfg.status != "open":
@@ -480,7 +500,7 @@ async def join_lfg(star_id: str, lfg_id: str, current_user: CurrentUser, db: Db)
 
 @router.post("/{star_id}/lfg/{lfg_id}/leave", response_model=LfgOut)
 async def leave_lfg(star_id: str, lfg_id: str, current_user: CurrentUser, db: Db):
-    await _load_membership(db, star_id, current_user.id)
+    await _feed_of(db, star_id, current_user.id, "lfg", lfg_id)
     lfg = await _lfg(db, star_id, lfg_id)
     await db.execute(
         delete(StarLfgMember).where(StarLfgMember.lfg_id == lfg_id, StarLfgMember.user_id == current_user.id)
@@ -527,7 +547,7 @@ async def start_lfg(db: AsyncSession, lfg: StarLfg) -> StarChannel | None:
 
 @router.post("/{star_id}/lfg/{lfg_id}/start", response_model=LfgOut)
 async def start_lfg_now(star_id: str, lfg_id: str, current_user: CurrentUser, db: Db):
-    _, me = await _load_membership(db, star_id, current_user.id)
+    _, me = await _feed_of(db, star_id, current_user.id, "lfg", lfg_id)
     lfg = await _lfg(db, star_id, lfg_id)
     if not manages_lfg(lfg, me):
         raise _forbid("Начать сбор может его организатор или модератор")
@@ -539,7 +559,7 @@ async def start_lfg_now(star_id: str, lfg_id: str, current_user: CurrentUser, db
 
 @router.post("/{star_id}/lfg/{lfg_id}/cancel", response_model=LfgOut)
 async def cancel_lfg(star_id: str, lfg_id: str, current_user: CurrentUser, db: Db):
-    _, me = await _load_membership(db, star_id, current_user.id)
+    _, me = await _feed_of(db, star_id, current_user.id, "lfg", lfg_id)
     lfg = await _lfg(db, star_id, lfg_id)
     if not manages_lfg(lfg, me):
         raise _forbid("Отменить сбор может его организатор или модератор")

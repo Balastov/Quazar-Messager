@@ -581,7 +581,11 @@ button.ackCount:hover {
 }
 
 .roomChat {
-  width: 360px;
+  /* Ширину можно потянуть за левый край (--room-chat-width); комнате остаётся не меньше 320px. */
+  position: relative;
+  width: var(--room-chat-width, 360px);
+  max-width: calc(100% - 320px);
+  min-width: 280px;
   flex-shrink: 0;
   min-height: 0;
   display: flex;
@@ -591,8 +595,52 @@ button.ackCount:hover {
 
 @media (max-width: 1100px) {
   .roomChat {
-    width: 300px;
+    width: var(--room-chat-width, 300px);
   }
+}
+
+/* Ручка на левом крае чата: шире самой линии, чтобы легко попасть мышью. */
+.chatResizer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -5px;
+  width: 9px;
+  z-index: 5;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.chatResizer::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 4px;
+  width: 1px;
+  background: transparent;
+  transition: background 0.15s ease, box-shadow 0.15s ease;
+}
+
+.chatResizer:hover::after,
+.chatResizer:focus-visible::after {
+  background: var(--qz-accent);
+  box-shadow: 0 0 8px var(--qz-accent);
+}
+
+.chatResizer:focus-visible {
+  outline: none;
+}
+
+/* Пока тянут: курсор везде «↔», текст и видео не выделяются и не перехватывают мышь. */
+:global(body).resizingCol {
+  cursor: col-resize;
+  user-select: none;
+}
+
+:global(body).resizingCol iframe,
+:global(body).resizingCol video {
+  pointer-events: none;
 }
 
 @media (max-width: 767px) {
@@ -602,7 +650,13 @@ button.ackCount:hover {
 
   .roomChat {
     width: 100%;
+    max-width: none;
+    min-width: 0;
     border-left: none;
+  }
+
+  .chatResizer {
+    display: none;
   }
 }
 

@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { starsApi, type StarChannel, type StarDetail } from "../../api/stars";
 import { useAuthStore } from "../../store/auth";
 import { useCallStore } from "../../store/call";
@@ -18,6 +18,8 @@ import { apiError, can, canStopScreen, outranks, passUntil, presenceAvatar, pres
 import { placeNouns, roomWords } from "./words";
 import RoomTools from "./RoomTools";
 import RoomChat from "./RoomChat";
+import ChatResizer from "./ChatResizer";
+import { savedChatWidth, saveChatWidth } from "./roomChatWidth";
 import UnreadBadge from "../chat/UnreadBadge";
 import { hasRoomChat, useStarsStore } from "../../store/stars";
 import w from "./Work.module.css";
@@ -65,6 +67,10 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
   const chatOpen = useStarsStore((st) => st.roomChatOpen) && chatAvailable;
   const setChatOpen = useStarsStore((st) => st.setRoomChatOpen);
   const chatUnread = useStarsStore((st) => st.unread[channel.id]);
+  // Ширина чата на компьютере: тянут за левый край; null — по умолчанию из вёрстки.
+  const [chatWidth, setChatWidth] = useState<number | null>(savedChatWidth);
+  const layoutRef = useRef<HTMLDivElement>(null);
+  const chatRef = useRef<HTMLElement>(null);
 
   const member = (userId: string) => detail.members.find((m) => m.user.id === userId);
   const userName = (userId: string, fallback?: string | null) =>
@@ -181,10 +187,14 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
   /** Комната слева, её чат справа (на телефоне — чат вместо комнаты). */
   const withChat = (room: ReactNode, footer?: ReactNode) => (
     <>
-      <div className={`${w.roomLayout} ${chatOpen ? w.roomLayoutChat : ""}`}>
+      <div ref={layoutRef} className={`${w.roomLayout} ${chatOpen ? w.roomLayoutChat : ""}`}>
         <div className={w.roomMain}>{room}</div>
         {chatOpen && (
-          <aside className={w.roomChat} aria-label="Чат">
+          <aside ref={chatRef} className={w.roomChat} aria-label="Чат"
+            style={chatWidth ? ({ "--room-chat-width": `${chatWidth}px` } as CSSProperties) : undefined}>
+            <ChatResizer layout={layoutRef} panel={chatRef} width={chatWidth} onChange={setChatWidth}
+              onCommit={(width) => { setChatWidth(width); saveChatWidth(width); }}
+              onReset={() => { setChatWidth(null); saveChatWidth(null); }} />
             <RoomChat key={channel.id} detail={detail} channel={channel} inside={iAmInside} onClose={() => setChatOpen(false)} />
           </aside>
         )}

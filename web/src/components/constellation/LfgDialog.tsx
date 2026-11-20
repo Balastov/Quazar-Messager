@@ -12,7 +12,12 @@ import s from "./Constellation.module.css";
 import g from "./Gaming.module.css";
 
 /** Сбор группы: «Ищу пати: Dota, 5 мест, 21:00». */
-export default function LfgDialog({ detail, channelId, onClose }: { detail: StarDetail; channelId: string; onClose: () => void }) {
+export default function LfgDialog({ detail, channelId, roomFloorId = null, onClose }: {
+  detail: StarDetail; channelId: string;
+  /** Сбор из чата комнаты — по умолчанию на её этаже. */
+  roomFloorId?: string | null;
+  onClose: () => void;
+}) {
   const myId = useAuthStore((st) => st.user?.id);
   const displayName = useStarDisplayName(detail);
   const isWork = detail.kind === "work";
@@ -25,7 +30,7 @@ export default function LfgDialog({ detail, channelId, onClose }: { detail: Star
     return toLocalInput(d);
   });
   const currentFloor = useOfficeFloorStore((st) => st.byStar[detail.id]);
-  const [floorId, setFloorId] = useState(() => lfgFloor(detail.floors, currentFloor)?.id ?? null);
+  const [floorId, setFloorId] = useState(() => lfgFloor(detail.floors, roomFloorId ?? currentFloor)?.id ?? null);
   const [byOther, setByOther] = useState(false);
   const [admins, setAdmins] = useState<string[]>([]);
   const [query, setQuery] = useState("");

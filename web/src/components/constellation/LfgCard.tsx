@@ -58,7 +58,7 @@ export default function LfgCard({ message, detail }: { message: StarMessage; det
         })}
       </div>
       <div className={g.cardFooter}>
-        {lfg.status === "open" && !joined && !full && (
+        {lfg.status === "open" && !joined && !full && detail.my_role !== "visitor" && (
           <button type="button" className={g.cardAction} onClick={() => act("join")}>
             Записаться
           </button>

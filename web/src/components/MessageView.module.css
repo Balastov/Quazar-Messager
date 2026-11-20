@@ -317,6 +317,8 @@
   gap: 5px;
   font-size: 11px;
   color: rgba(255, 255, 255, 0.65);
+  /* «20.11 14:05» в узком пузыре не переносим на две строки. */
+  white-space: nowrap;
 }
 
 .statusSent {

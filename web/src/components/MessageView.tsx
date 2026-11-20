@@ -32,6 +32,7 @@ import ReadByDialog from "./messages/ReadByDialog";
 import { messagesApi } from "../api/messages";
 import ComposerInput, { type ComposerHandle } from "./messages/ComposerInput";
 import { useCompactComposer } from "../chat/useCompactComposer";
+import { messageTime, messageTimeTitle } from "../chat/messageTime";
 import { useScheduledSend } from "../chat/useScheduledSend";
 import { useComposerDraft } from "../chat/useComposerDraft";
 import DraftNotice from "./messages/DraftNotice";
@@ -901,6 +902,7 @@ export default function MessageView({ showBack = false }: Props) {
             mention={mentionKind}
             onShowEdits={() => setEditsOf(msg)}
             onShowReaders={chat?.type === "group" && msg.sender_id === currentUser?.id ? () => setReadersFor(msg.id) : undefined}
+            withDate={isDirect}
           />
         ))}
         {albumProgress && (
@@ -1253,6 +1255,8 @@ interface ChatMessageProps {
   /** Открыть историю правок (по «изменено»). */
   onShowEdits: () => void;
   onShowReaders?: () => void;
+  /** В личных чатах рядом со временем — дата. */
+  withDate?: boolean;
 }
 
 function ChatMessage({
@@ -1272,6 +1276,7 @@ function ChatMessage({
   mention,
   onShowEdits,
   onShowReaders,
+  withDate = false,
 }: ChatMessageProps) {
   const trigger = useMessageMenuTrigger(onOpenMenu);
   const unavailable = msg.payload.startsWith("Сообщение недоступно");
@@ -1364,10 +1369,9 @@ function ChatMessage({
           </span>
         )}
         <EditedMark at={msg.edited_at} onOpen={onShowEdits} />
-        {new Date(msg.created_at).toLocaleTimeString("ru", {
-          hour: "2-digit",
-          minute: "2-digit",
-        })}
+        <time dateTime={msg.created_at} title={messageTimeTitle(msg.created_at)}>
+          {messageTime(msg.created_at, withDate)}
+        </time>
         {isOwn && (
           onShowReaders ? <button type="button" className={`${s.readStatusButton} ${statusClass(msg.status)}`} onClick={onShowReaders}
             aria-label="Кто прочитал сообщение" title="Кто прочитал">

@@ -9,8 +9,10 @@ export interface BrowserPlatform {
 export const DESKTOP_RELEASE = { version: "2.3.0", tag: "desktop-v2.3.0-pilot.1" };
 const RELEASE_BASE = `https://github.com/Balastov/Quazar-Messager/releases/download/${DESKTOP_RELEASE.tag}`;
 // Опубликованная сборка для Android; null — ещё не выпускали (сайт пишет «почти готово»).
-// Ставится после публикации, как и DESKTOP_RELEASE.
-export const ANDROID_RELEASE: { version: string } | null = { version: "2.3.0" };
+// Своя версия, не как у DESKTOP_RELEASE: APK выпускают только когда меняется само приложение
+// (интерфейс оно берёт с сайта). Должна совпадать с /desktop-updates/android/latest.json.
+// 2.3.0 заблокировала Google Play Защита — остаёмся на 2.2.0 (код приложения тот же).
+export const ANDROID_RELEASE: { version: string } | null = { version: "2.2.0" };
 export function androidApkUrl(release: { version: string }): string {
   return `https://quazar-msg.ru/desktop-updates/android/Quazar-${release.version}-android.apk`;
 }

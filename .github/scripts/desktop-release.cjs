@@ -22,6 +22,50 @@ function androidVersionCode(version) {
   return major * 10000 + minor * 100 + patch;
 }
 
+/** Последний выпуск до этого, в который входил APK: его тег или null. */
+function previousAndroidRelease() {
+  const current = androidVersionCode(candidate.version);
+  let best = null;
+  for (const tag of execFileSync('git', ['tag', '--list', 'desktop-v*'], { encoding: 'utf8' }).split('\n')) {
+    const match = /^desktop-v(\d+\.\d+\.\d+)-pilot\.\d+$/.exec(tag);
+    if (!match || androidVersionCode(match[1]) >= current) continue;
+    let android = false;
+    try {
+      const released = execFileSync('git', ['show', `${tag}:.github/desktop-release.json`], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+      android = JSON.parse(released).android === true;
+    } catch { /* в старых выпусках файла нет */ }
+    if (android && (!best || androidVersionCode(match[1]) > best.code)) best = { tag, code: androidVersionCode(match[1]) };
+  }
+  return best?.tag ?? null;
+}
+
+/** Изменилось ли само приложение для Android с выпуска `since` (номер версии не в счёт). */
+function androidAppChanged(since) {
+  try {
+    execFileSync('git', ['diff', '--quiet', since, 'HEAD', '--', 'android', ':(exclude)android/package.json', ':(exclude)android/package-lock.json']);
+  } catch (error) {
+    if (error.status === 1) return true;
+    throw error;
+  }
+  const withoutVersion = (text, lock) => {
+    const json = JSON.parse(text);
+    delete json.version;
+    if (lock && json.packages?.['']) delete json.packages[''].version;
+    return JSON.stringify(json);
+  };
+  return [['android/package.json', false], ['android/package-lock.json', true]].some(([file, lock]) =>
+    withoutVersion(execFileSync('git', ['show', `${since}:${file}`], { encoding: 'utf8' }), lock) !== withoutVersion(execFileSync('git', ['show', `HEAD:${file}`], { encoding: 'utf8' }), lock));
+}
+
+// Интерфейс приложение для Android берёт с сайта, поэтому APK выпускаем только при изменениях в нём самом.
+// Каждый новый APK Google Play Защита проверяет заново как незнакомый файл и может заблокировать (так было с 2.3.0).
+if (withAndroid) {
+  const since = previousAndroidRelease();
+  if (since && !androidAppChanged(since)) {
+    throw new Error(`The Android app has not changed since ${since}: set "android": false in .github/desktop-release.json (the site already delivers the new interface to the app)`);
+  }
+}
+
 async function prepare() {
   const root = path.resolve('desktop-release-assets');
   const files = [

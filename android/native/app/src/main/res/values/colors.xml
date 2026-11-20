@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Фирменный фиолетовый: цвет значка уведомления. -->
+    <color name="quazar_accent">#A855F7</color>
+</resources>

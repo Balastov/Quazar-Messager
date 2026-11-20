@@ -48,6 +48,8 @@ services:
       VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
       VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
       VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:admin@quazar-msg.ru}
+      # Уведомления в приложение для Android: ключ Firebase кладёт деплой (секрет FIREBASE_SERVICE_ACCOUNT).
+      FIREBASE_SERVICE_ACCOUNT_FILE: /run/quazar-secrets/firebase-service-account.json
       # Вход через Яндекс ID: ключи приложения с oauth.yandex.ru. Пусто — кнопки входа нет.
       YANDEX_CLIENT_ID: ${YANDEX_CLIENT_ID:-}
       YANDEX_CLIENT_SECRET: ${YANDEX_CLIENT_SECRET:-}
@@ -68,6 +70,8 @@ services:
     volumes:
       # Пусто — docker-том media_data; на проде — каталог на HDD (deploy/scripts/move-media-to-hdd.sh).
       - ${MEDIA_DIR:-media_data}:/app/media
+      # Каталог, а не файл: если ключа ещё нет, docker не создаст на его месте папку.
+      - ./secrets:/run/quazar-secrets:ro
     depends_on:
       postgres:
         condition: service_healthy

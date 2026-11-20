@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "487727907140",
+    "project_id": "quazar-7c478",
+    "storage_bucket": "quazar-7c478.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:487727907140:android:65f9e95a32f59295109711",
+        "android_client_info": {
+          "package_name": "ru.quazarmsg.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB6lPIzv8CeNP_rcpaPoAY047z2Tkc0bEM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

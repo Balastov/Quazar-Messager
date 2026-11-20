@@ -8,8 +8,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.deps import get_current_user
+from app.core import fcm
 from app.core.push import push_configured
-from app.models.push import PushSubscription
+from app.models.push import FcmDevice, PushSubscription
 from app.models.user import User
 
 router = APIRouter(prefix="/push", tags=["push"])
@@ -112,6 +113,56 @@ async def unsubscribe(
         )
     )
     row = result.scalar_one_or_none()
+    if row:
+        await db.delete(row)
+        await db.commit()
+    return {"ok": True}
+
+
+# --- Приложение для Android (Firebase Cloud Messaging) -------------------------------------------
+
+
+class FcmDeviceIn(BaseModel):
+    token: str = Field(min_length=20, max_length=4096)
+    app_version: str | None = Field(default=None, max_length=32)
+
+
+class FcmStatusOut(BaseModel):
+    configured: bool
+
+
+@router.get("/fcm", response_model=FcmStatusOut)
+async def fcm_status():
+    """Шлёт ли сервер уведомления в приложение для Android."""
+    return FcmStatusOut(configured=fcm.configured())
+
+
+@router.put("/fcm")
+async def register_fcm_device(
+    body: FcmDeviceIn,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Приложение сообщает адрес телефона. Вошли в другой аккаунт на том же телефоне — адрес переходит к нему."""
+    row = (await db.execute(select(FcmDevice).where(FcmDevice.token == body.token))).scalar_one_or_none()
+    if row:
+        row.user_id = current_user.id
+        row.app_version = body.app_version
+    else:
+        db.add(FcmDevice(user_id=current_user.id, token=body.token, app_version=body.app_version))
+    await db.commit()
+    return {"ok": True}
+
+
+class FcmUnregisterIn(BaseModel):
+    token: str = Field(min_length=20, max_length=4096)
+
+
+@router.post("/fcm/unregister")
+async def unregister_fcm_device(body: FcmUnregisterIn, db: Annotated[AsyncSession, Depends(get_db)]):
+    """Выход из аккаунта: уведомления на этот телефон больше не идут. Без входа — после выхода его уже нет;
+    адрес знает только само приложение на этом телефоне."""
+    row = (await db.execute(select(FcmDevice).where(FcmDevice.token == body.token))).scalar_one_or_none()
     if row:
         await db.delete(row)
         await db.commit()

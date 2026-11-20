@@ -10,6 +10,7 @@ import { useUiStore } from "./store/ui";
 import { applyGlassTransparency } from "./styles/glass";
 import "./index.css";
 import { startDesktop } from "./platform/bootstrap";
+import { startAndroidPush } from "./platform/androidPush";
 import DesktopUpdates from "./components/DesktopUpdates";
 import AndroidUpdates from "./components/AndroidUpdates";
 import Quiet from "./components/Quiet";
@@ -25,6 +26,8 @@ useUiStore.subscribe((st, prev) => {
 // Ссылка-приглашение в Звезду могла открыться до входа — запоминаем её.
 capturePendingInvite();
 startDesktop();
+// Приложение для Android: нажатие на уведомление могло и запустить его — подписываемся сразу.
+startAndroidPush();
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

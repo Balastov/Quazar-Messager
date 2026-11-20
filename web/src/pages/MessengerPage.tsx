@@ -260,6 +260,13 @@ export default function MessengerPage() {
     };
   }, [selectChat]);
 
+  // Последний эффект: обработчики «открыть чат / звонок / комнату» уже на месте — уведомление приложения
+  // для Android, нажатое до этого (запуск, вход), может открыть своё.
+  useEffect(() => {
+    window.dispatchEvent(new Event("quazar-messenger-ready"));
+    return () => { window.dispatchEvent(new Event("quazar-messenger-gone")); };
+  }, []);
+
   return (
     <div className={s.root}>
       <AppNav />

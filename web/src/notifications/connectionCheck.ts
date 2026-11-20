@@ -1,6 +1,12 @@
 import { http } from "../api/client";
 import { desktop } from "../platform/desktop";
 import { ANDROID_NOTIFY_HINT, inAndroidApp } from "../platform/android";
+import { androidPushPlugin } from "../platform/androidPush";
+
+/** В приложении для Android с уведомлениями — куда смотреть, если они не приходят. */
+export const ANDROID_APP_PUSH_HELP =
+  "Проверьте, что уведомления Quazar включены в настройках Android (Приложения → Quazar → Уведомления), " +
+  "и что не включён режим «Не беспокоить» или экономия заряда для Quazar.";
 import { browserPermission, getNotifyPrefs } from "./prefs";
 import { requestNotifyPermission } from "./notify";
 import { diagnosticPushEndpoint } from "./push";
@@ -16,6 +22,7 @@ export const CHECK_ERRORS: Record<string, string> = {
   desktop_offline: "Приложение не подключено к серверу. Проверьте сеть и повторите попытку.",
 };
 export function notificationHelp(): string {
+  if (androidPushPlugin()) return ANDROID_APP_PUSH_HELP;
   if (inAndroidApp()) return ANDROID_NOTIFY_HINT;
   if (desktop()) return "Проверьте разрешение уведомлений для Quazar в настройках системы и режим «Не беспокоить».";
   const ios = /iPhone|iPad/.test(navigator.userAgent) || (/Mac/.test(navigator.platform) && navigator.maxTouchPoints > 1);
@@ -32,6 +39,11 @@ export async function prepareNotificationCheck(): Promise<{ transport: "desktop"
   if (desktop()) {
     if (!await socket.waitUntilOpen(4000)) throw new Error(CHECK_ERRORS.desktop_offline);
     return { transport: "desktop" };
+  }
+  if (androidPushPlugin()) {
+    // Проверка связи шлёт web push в браузер; в приложение уведомления идут через Firebase.
+    throw new Error("В приложении для Android эта проверка пока недоступна. Попросите кого-нибудь написать вам, " +
+      "когда Quazar свёрнут. Если уведомление не пришло: " + ANDROID_APP_PUSH_HELP);
   }
   let permission = browserPermission();
   if (permission === "default") permission = await requestNotifyPermission();

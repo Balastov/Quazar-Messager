@@ -44,6 +44,9 @@ class Settings(BaseSettings):
     VAPID_PUBLIC_KEY: str = ""
     VAPID_PRIVATE_KEY: str = ""
     VAPID_SUBJECT: str = "mailto:admin@quazar-msg.ru"
+    # Уведомления приложения для Android (Firebase Cloud Messaging): путь к JSON-ключу сервисного
+    # аккаунта проекта Firebase. Нет файла — уведомления в приложение не отправляются.
+    FIREBASE_SERVICE_ACCOUNT_FILE: str = ""
 
     # Ringing timeout before call becomes missed (seconds)
     CALL_RING_TIMEOUT_SEC: int = 45

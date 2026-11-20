@@ -55,6 +55,8 @@ fi
 
 echo "==> Rebuilding containers..."
 mkdir -p desktop-updates
+# Ключи сервисов (Firebase) монтируются в backend каталогом — он должен существовать.
+( umask 077; mkdir -p secrets )
 sudo python3 deploy/scripts/ensure-desktop-updates-nginx.py
 docker compose -f docker-compose.prod.yml --env-file .env.prod "${COMPOSE_PROFILES[@]}" up -d --build
 

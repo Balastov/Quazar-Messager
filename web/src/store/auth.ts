@@ -6,6 +6,7 @@ import { http, setAuthToken } from "../api/client";
 import { usersApi } from "../api/users";
 import { socket } from "../ws/socket";
 import { ensurePushSubscription, dropPushSubscription } from "../notifications/push";
+import { dropAndroidPush, syncAndroidPush } from "../platform/androidPush";
 import {setNotificationUser} from "../notifications/delivery";
 import { useE2EStore } from "./e2e";
 import { useStarsStore } from "./stars";
@@ -44,6 +45,7 @@ function afterAuth(token: string, userId: string) {
   socket.connect(token);
   void useE2EStore.getState().sync(userId);
   void ensurePushSubscription();
+  void syncAndroidPush();
   void useWallpaperStore.getState().load();
 }
 
@@ -102,6 +104,7 @@ export const useAuthStore = create<AuthState>()(
         const token = get().token;
         if (token) void http.delete("/auth/devices/current", { headers: { Authorization: `Bearer ${token}` } }).catch(() => {});
         void dropPushSubscription();
+        void dropAndroidPush();
         setNotificationUser(null);
         setAuthToken(null);
         socket.disconnect();

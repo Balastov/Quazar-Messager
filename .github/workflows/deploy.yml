@@ -15,6 +15,17 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
+      # Ключ Firebase (уведомления в приложение для Android) — в base64: так он без потерь проходит
+      # через SSH-скрипт, где кавычки и переводы строк JSON иначе ломаются.
+      - name: Prepare the Firebase key for the server
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          if [ -n "$FIREBASE_SERVICE_ACCOUNT" ]; then
+            encoded=$(printf '%s' "$FIREBASE_SERVICE_ACCOUNT" | base64 -w0)
+            echo "::add-mask::$encoded"
+            echo "FIREBASE_SA_B64=$encoded" >> "$GITHUB_ENV"
+          fi
       - name: Deploy over SSH
         uses: appleboy/ssh-action@v1.2.2
         with:
@@ -23,9 +34,22 @@ jobs:
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           port: 22
           command_timeout: 25m
+          envs: FIREBASE_SA_B64
           script: |
             set -euo pipefail
             cd /opt/quazar
+            # Ключ Firebase: файл только для владельца; битый или пустой не заменяет рабочий.
+            ( umask 077; mkdir -p secrets
+              if [ -n "${FIREBASE_SA_B64:-}" ]; then
+                printf '%s' "$FIREBASE_SA_B64" | base64 -d > secrets/firebase-service-account.json.new
+                if python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d["type"]=="service_account" and d["private_key"]' secrets/firebase-service-account.json.new; then
+                  mv secrets/firebase-service-account.json.new secrets/firebase-service-account.json
+                  echo "==> Firebase key updated"
+                else
+                  rm -f secrets/firebase-service-account.json.new
+                  echo "==> WARN: FIREBASE_SERVICE_ACCOUNT is not a service account key — kept the previous one" >&2
+                fi
+              fi )
             git fetch origin main
             git checkout main
             git reset --hard origin/main

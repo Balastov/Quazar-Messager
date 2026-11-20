@@ -14,6 +14,7 @@ import { useUiStore } from "../../store/ui";
 import ConnectionDiagnostics from "../ConnectionDiagnostics";
 import { useSettingsRun } from "./useSettingsRun";
 import { ANDROID_NOTIFY_HINT, inAndroidApp } from "../../platform/android";
+import { androidPushPermission, androidPushPlugin, syncAndroidPush, type AndroidPushPermission } from "../../platform/androidPush";
 import s from "../SettingsView.module.css";
 
 const STAR_SOUNDS: [StarSoundEvent, string][] = [
@@ -30,14 +31,21 @@ export default function NotificationsSection() {
   const setStarSounds = useUiStore((st) => st.setStarSounds);
   const [prefs, setPrefs] = useState<NotifyPrefs>(() => getNotifyPrefs());
   const [permission, setPermission] = useState(browserPermission);
+  // Приложение для Android с уведомлениями (2.5.0+): разрешение даёт Android, а не браузер.
+  const appPush = !!androidPushPlugin();
+  const [appPermission, setAppPermission] = useState<AndroidPushPermission | null>(null);
   const { setStatus, setError, feedback } = useSettingsRun();
 
   useEffect(() => subscribeNotifyPrefs(setPrefs), []);
   useEffect(() => {
-    const sync = () => setPermission(browserPermission());
+    const sync = () => {
+      setPermission(browserPermission());
+      if (appPush) void androidPushPermission().then(setAppPermission);
+    };
+    sync();
     document.addEventListener("visibilitychange", sync);
     return () => document.removeEventListener("visibilitychange", sync);
-  }, []);
+  }, [appPush]);
 
   const permissionLabel =
     permission === "unsupported"
@@ -52,7 +60,16 @@ export default function NotificationsSection() {
     <>
       <section className={s.card}>
         <h3 className={s.sectionTitle}>Сообщения</h3>
-        {permission === "unsupported" && inAndroidApp() ? (
+        {appPush ? (
+          <p className={s.hint} data-android-push>
+            В приложении:{" "}
+            <span className={s.perm}>
+              {appPermission === "granted" ? "Разрешены" : appPermission === "denied" ? "Выключены в настройках Android"
+                : appPermission ? "Ещё не запрашивались" : "…"}
+            </span>
+            . Звук и важность сообщений, звонков и комнат — в настройках Android: Приложения → Quazar → Уведомления.
+          </p>
+        ) : permission === "unsupported" && inAndroidApp() ? (
           <p className={s.hint} data-android-notify-hint>{ANDROID_NOTIFY_HINT}</p>
         ) : (
           <p className={s.hint}>
@@ -66,7 +83,9 @@ export default function NotificationsSection() {
             onChange={(e) => {
               setNotifyPrefs({ enabled: e.target.checked });
               setPrefs(getNotifyPrefs());
-              if (e.target.checked) {
+              if (e.target.checked && appPush) {
+                void syncAndroidPush({ ask: true }).then(() => androidPushPermission()).then(setAppPermission);
+              } else if (e.target.checked) {
                 void requestNotifyPermission().then((p) => {
                   setPermission(p);
                   void ensurePushSubscription();

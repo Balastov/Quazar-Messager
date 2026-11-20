@@ -1,4 +1,5 @@
-"""Web Push helpers (VAPID). No-op when keys are not configured."""
+"""Уведомления: Web Push (VAPID) в браузеры и PWA, Firebase Cloud Messaging — в приложение для Android.
+Каждый канал молчит, пока на сервере нет его ключей."""
 
 from __future__ import annotations
 
@@ -10,9 +11,10 @@ from typing import Any
 
 from sqlalchemy import select
 
+from app.core import fcm
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
-from app.models.push import PushSubscription
+from app.models.push import FcmDevice, PushSubscription
 
 logger = logging.getLogger(__name__)
 _push_loop = None
@@ -34,9 +36,13 @@ def push_configured() -> bool:
 
 
 async def user_has_push(user_id: str) -> bool:
-    if not push_configured():
-        return False
     async with AsyncSessionLocal() as db:
+        if fcm.configured():
+            device = await db.execute(select(FcmDevice.id).where(FcmDevice.user_id == user_id).limit(1))
+            if device.scalar_one_or_none() is not None:
+                return True
+        if not push_configured():
+            return False
         result = await db.execute(
             select(PushSubscription.id).where(PushSubscription.user_id == user_id, PushSubscription.enabled.is_(True)).limit(1)
         )
@@ -44,7 +50,35 @@ async def user_has_push(user_id: str) -> bool:
 
 
 async def send_push_to_user(user_id: str, payload: dict[str, Any]) -> int:
-    """Send JSON payload to all subscriptions of user. Returns number of successes."""
+    """Уведомление на все устройства человека: браузеры (web push) и телефоны с приложением (FCM).
+    Возвращает, сколько отправок прошло."""
+    web, app = await asyncio.gather(_send_web(user_id, payload), _send_fcm(user_id, payload))
+    return web + app
+
+
+async def _send_fcm(user_id: str, payload: dict[str, Any]) -> int:
+    if not fcm.configured():
+        return 0
+    async with AsyncSessionLocal() as db:
+        tokens = list((await db.execute(select(FcmDevice.token).where(FcmDevice.user_id == user_id))).scalars())
+    if not tokens:
+        return 0
+    try:
+        ok, stale = await fcm.send(tokens, payload)
+    except Exception:  # noqa: BLE001 — сбой одного канала не мешает другому
+        logger.warning("fcm send failed", exc_info=True)
+        return 0
+    if stale:
+        # Приложение удалили или переустановили — этот адрес больше не нужен.
+        async with AsyncSessionLocal() as db:
+            for row in (await db.execute(select(FcmDevice).where(FcmDevice.token.in_(stale)))).scalars():
+                await db.delete(row)
+            await db.commit()
+    return ok
+
+
+async def _send_web(user_id: str, payload: dict[str, Any]) -> int:
+    """Web push во все браузеры человека."""
     if not push_configured():
         return 0
 

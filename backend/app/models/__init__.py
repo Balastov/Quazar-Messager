@@ -16,7 +16,7 @@ from app.models.attachment import Attachment
 from app.models.user import User
 from app.models.phone_verification import PhoneVerification
 from app.models.call import Call
-from app.models.push import PushSubscription
+from app.models.push import FcmDevice, PushSubscription
 from app.models.contact import ContactSync, UserContact
 from app.models.notify import NotifySetting
 from app.models.inbox import InboxNotification
@@ -70,6 +70,7 @@ __all__ = [
     "SupportMessage",
     "Attachment",
     "Call",
+    "FcmDevice",
     "PushSubscription",
     "InboxNotification",
     "UserContact",

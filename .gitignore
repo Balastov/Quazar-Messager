@@ -16,6 +16,8 @@ dist/
 .env.local
 .env.prod
 !.env.prod.example
+# Ключи сервисов на сервере (Firebase), их кладёт деплой из секретов GitHub
+/secrets/
 
 # TLS certs (generated on server)
 deploy/certbot/

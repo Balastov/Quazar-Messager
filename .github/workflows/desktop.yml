@@ -3,7 +3,7 @@ name: Build desktop test apps
 on:
   workflow_dispatch:
   push:
-    branches: [main, 'desktop/**']
+    branches: [main, dev, 'desktop/**']
     paths: ['web/**', 'desktop/**', 'android/**', 'backend/**', '.github/workflows/desktop.yml']
   pull_request:
     paths: ['web/**', 'desktop/**', 'android/**', 'backend/**', '.github/workflows/desktop.yml']

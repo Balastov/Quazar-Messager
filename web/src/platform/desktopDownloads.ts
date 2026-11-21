@@ -6,7 +6,7 @@ export interface BrowserPlatform {
 }
 
 // Указатель на опубликованный релиз: версия сайта может быть новее десктопной сборки.
-export const DESKTOP_RELEASE = { version: "2.6.0", tag: "desktop-v2.6.0-pilot.1" };
+export const DESKTOP_RELEASE = { version: "2.7.0", tag: "desktop-v2.7.0-pilot.1" };
 const RELEASE_BASE = `https://github.com/Balastov/Quazar-Messager/releases/download/${DESKTOP_RELEASE.tag}`;
 // Опубликованная сборка для Android; null — ещё не выпускали (сайт пишет «почти готово»).
 // Своя версия, не как у DESKTOP_RELEASE: APK выпускают только когда меняется само приложение

@@ -6,9 +6,11 @@
  * играет короткий сигнал (флаг recording в присутствии комнаты).
  */
 import { create } from "zustand";
+import { starsApi } from "../api/stars";
 import { apiError } from "../components/constellation/rules";
 import { playStarSound } from "../sounds/starSounds";
 import { MeetingRecorder } from "../voice/meetingRecorder";
+import { useAuthStore } from "./auth";
 import { useStarsStore } from "./stars";
 import { setBeforeLeave, useVoiceStore } from "./voice";
 
@@ -22,6 +24,8 @@ interface RecordingState {
 
   start: (starId: string, channelId: string, roomName: string) => Promise<void>;
   stop: () => Promise<void>;
+  /** Модератор останавливает чужую запись в комнате. */
+  stopInRoom: (starId: string, channelId: string) => Promise<void>;
   clearNotice: () => void;
 }
 
@@ -77,6 +81,15 @@ export const useRecordingStore = create<RecordingState>((set, get) => ({
     }
   },
 
+  stopInRoom: async (starId, channelId) => {
+    set({ notice: null });
+    try {
+      await starsApi.stopRoomRecording(starId, channelId);
+    } catch (err) {
+      set({ notice: apiError(err, "Не получилось остановить запись") });
+    }
+  },
+
   clearNotice: () => set({ notice: null }),
 }));
 
@@ -114,4 +127,30 @@ function checkRecordingSound() {
 }
 
 useStarsStore.subscribe(checkRecordingSound);
+
+/** Сервер уже показывал «Идёт запись» у меня — значит, пропажа флага значит, что запись остановили. */
+let sawMyFlag = false;
+
+// Модератор остановил мою запись: флаг пропал из присутствия. Сразу отдаём кусок — сервер
+// ответит, что запись остановлена, и она закончится у меня тоже (не ждём 10 секунд). Если флаг
+// пропал по другой причине (перезапуск сервера), кусок просто примут.
+function watchMyFlag() {
+  const active = useRecordingStore.getState().active;
+  const myId = useAuthStore.getState().user?.id;
+  if (!recorder || !active || !myId) {
+    sawMyFlag = false;
+    return;
+  }
+  const presence = useStarsStore.getState().details[active.starId]?.voice?.[active.channelId];
+  const mine = presence?.find((p) => p.user_id === myId);
+  if (mine?.recording) sawMyFlag = true;
+  else if (sawMyFlag && mine) {
+    sawMyFlag = false;
+    recorder.ping();
+  }
+}
+
+// Флаг обычно приходит раньше, чем запись у меня считается начатой, — смотрим и тогда.
+useStarsStore.subscribe(watchMyFlag);
+useRecordingStore.subscribe(watchMyFlag);
 useVoiceStore.subscribe(checkRecordingSound);

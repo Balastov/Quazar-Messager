@@ -690,6 +690,20 @@ export function RoomControls({ detail, channel }: { detail: StarDetail; channel:
               onClick={() => setScreenDialogOpen(true)}
             />
           ))}
+        {recorderHere && !myRecordingHere && recorderHere.user_id !== myId && !visitor &&
+          roleRank(detail.my_role) >= roleRank("moderator") && (
+            <ControlButton
+              icon={<span aria-hidden>⏹</span>}
+              tone="off"
+              label={`Остановить запись — её ведёт ${presenceName(detail, recorderHere)}`}
+              onClick={() => {
+                const name = presenceName(detail, recorderHere);
+                if (window.confirm(`Остановить запись, которую ведёт ${name}? То, что успело записаться, сохранится в чате комнаты.`)) {
+                  void recording.stopInRoom(detail.id, channel.id);
+                }
+              }}
+            />
+          )}
         {myRecordingHere ? (
           <ControlButton
             icon={<span aria-hidden>⏹</span>}

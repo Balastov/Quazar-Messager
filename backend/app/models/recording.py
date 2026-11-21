@@ -47,6 +47,8 @@ class RoomRecording(Base):
     # Номер следующего ожидаемого куска: куски идут по порядку, повтор уже принятого — не ошибка.
     video_seq: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     audio_seq: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # Кто нажал «Остановить» (включивший или модератор); пусто — завершилась сама.
+    stopped_by: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     message_id: Mapped[str | None] = mapped_column(
         ForeignKey("star_messages.id", ondelete="SET NULL"), nullable=True
     )

@@ -99,7 +99,7 @@ async def upload_chunk(
         raise HTTPException(status_code=413, detail="Слишком большой кусок записи")
     rec = await _own_recording(db, star_id, rec_id, current_user.id)
     if rec.status != "recording":
-        raise HTTPException(status_code=409, detail="Запись уже остановлена")
+        raise HTTPException(status_code=409, detail=_stopped_text(rec, current_user.id))
     if not data:
         return Response(status_code=204)
     try:
@@ -117,16 +117,45 @@ async def upload_chunk(
     return Response(status_code=204)
 
 
+def _stopped_text(rec: RoomRecording, user_id: str) -> str:
+    """Почему включивший больше не может дописывать запись."""
+    if rec.stopped_by and rec.stopped_by != user_id:
+        return "Запись остановил модератор — то, что успело записаться, сохранено в чате комнаты"
+    return "Запись уже остановлена"
+
+
+async def _stop(db: AsyncSession, star_id: str, rec: RoomRecording | None, user_id: str) -> None:
+    """Остановить: тот, кто включил, или модератор Звезды (и выше)."""
+    _, me = await _load_viewer(db, star_id, user_id)
+    if not rec or rec.star_id != star_id:
+        raise HTTPException(status_code=404, detail="Запись не найдена")
+    if rec.started_by != user_id and not rules.is_staff(me.role):
+        raise _forbid("Остановить чужую запись может модератор Звезды")
+    if rec.status == "recording":
+        rec.stopped_by = user_id
+    await recordings.finish(db, rec, "stopped" if rec.started_by == user_id else "stopped by moderator")
+
+
 @router.post("/{star_id}/recordings/{rec_id}/stop", status_code=status.HTTP_204_NO_CONTENT)
 async def stop_recording(star_id: str, rec_id: str, current_user: CurrentUser, db: Db):
-    """Остановить: тот, кто включил, или модератор Звезды."""
-    _, me = await _load_viewer(db, star_id, current_user.id)
     rec = (
         await db.execute(select(RoomRecording).where(RoomRecording.id == rec_id).with_for_update())
     ).scalar_one_or_none()
-    if not rec or rec.star_id != star_id:
-        raise HTTPException(status_code=404, detail="Запись не найдена")
-    if rec.started_by != current_user.id and not rules.is_staff(me.role):
-        raise _forbid("Остановить запись может тот, кто её включил, или модератор")
-    await recordings.finish(db, rec, "stopped")
+    await _stop(db, star_id, rec, current_user.id)
+    return Response(status_code=204)
+
+
+@router.post("/{star_id}/planets/{channel_id}/recording/stop", status_code=status.HTTP_204_NO_CONTENT)
+async def stop_room_recording(star_id: str, channel_id: str, current_user: CurrentUser, db: Db):
+    """Остановить запись, которая идёт в комнате (модератор — чужую: кто-то забыл про неё или пишет без спроса)."""
+    rec = (
+        await db.execute(
+            select(RoomRecording)
+            .where(RoomRecording.channel_id == channel_id, RoomRecording.status == "recording")
+            .with_for_update()
+        )
+    ).scalars().first()
+    if not rec:
+        raise HTTPException(status_code=404, detail="В комнате сейчас не идёт запись")
+    await _stop(db, star_id, rec, current_user.id)
     return Response(status_code=204)

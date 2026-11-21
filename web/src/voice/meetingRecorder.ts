@@ -275,6 +275,13 @@ export class MeetingRecorder {
     return this.stopping;
   }
 
+  /** Отдать накопленное сейчас, не дожидаясь 10 секунд: так быстрее узнаём, что запись остановили. */
+  ping(): void {
+    for (const recorder of this.recorders) {
+      if (recorder.state === "recording") recorder.requestData();
+    }
+  }
+
   private endedByServer(message: string) {
     for (const recorder of this.recorders) {
       if (recorder.state !== "inactive") {

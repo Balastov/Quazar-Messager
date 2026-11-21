@@ -367,6 +367,11 @@ async def lifespan(app: FastAPI):
             "UPDATE room_activities SET pointer_sharers = json_build_array(pointers_sharer_id) "
             "WHERE pointers_sharer_id IS NOT NULL AND pointer_sharers::text = '[]'"
         ))
+        # Запись встречи: кто её остановил (модератор может остановить чужую, 2.8.0).
+        await conn.execute(text(
+            "ALTER TABLE room_recordings ADD COLUMN IF NOT EXISTS stopped_by VARCHAR(36) "
+            "REFERENCES users(id) ON DELETE SET NULL"
+        ))
         # Владельцы ресурса из окружения сервера.
         names = [n.strip().lower() for n in settings.SUPERUSER_BOOTSTRAP.split(",") if n.strip()]
         if names:

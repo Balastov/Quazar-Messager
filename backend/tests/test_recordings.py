@@ -230,3 +230,33 @@ class RecordingsTest(StarsTestBase):
         self.assertEqual(path.read_bytes(), b"remuxed")
         self.assertIn("-c", calls[0])
         self.assertEqual(calls[0][calls[0].index("-c") + 1], "copy")
+
+    async def test_a_moderator_stops_someone_elses_recording_from_the_room(self):
+        await self.enter("bob")  # главный в комнате, не модератор Звезды
+        rec_id = (await self.start("bob")).json()["id"]
+        await self.chunk(rec_id, "video", 0, b"vid", user="bob")
+        url = f"/stars/{self.star.id}/planets/{self.room.id}/recording/stop"
+        # Просто участник чужую запись не останавливает.
+        self.assertEqual((await self.client.post(url, headers=self.bearer("alice"))).status_code, 403)
+        # Модератор — может, даже не заходя в комнату.
+        self.assertEqual((await self.client.post(url, headers=self.bearer("mod"))).status_code, 204)
+        self.assertFalse(self.recording_flag("bob"))
+        async with self.Session() as db:
+            rec = await db.get(RoomRecording, rec_id)
+            self.assertEqual((rec.status, rec.stopped_by), ("finished", self.uid("mod")))
+        self.assertTrue(any(m.kind == "recording" for m in await self.feed("alice")))
+        # Включивший узнаёт об этом со следующим куском.
+        late = await self.chunk(rec_id, "video", 1, b"more", user="bob")
+        self.assertEqual(late.status_code, 409)
+        self.assertIn("остановил модератор", late.json()["detail"])
+        # Записи больше нет — останавливать нечего.
+        self.assertEqual((await self.client.post(url, headers=self.bearer("mod"))).status_code, 404)
+
+    async def test_the_author_stopping_their_own_recording_is_not_a_moderator_stop(self):
+        await self.enter("mod")
+        rec_id = (await self.start("mod")).json()["id"]
+        await self.chunk(rec_id, "audio", 0, b"a")
+        url = f"/stars/{self.star.id}/planets/{self.room.id}/recording/stop"
+        self.assertEqual((await self.client.post(url, headers=self.bearer("mod"))).status_code, 204)
+        late = await self.chunk(rec_id, "audio", 1, b"b")
+        self.assertEqual(late.json()["detail"], "Запись уже остановлена")

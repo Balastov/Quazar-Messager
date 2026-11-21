@@ -885,6 +885,9 @@ export const starsApi = {
     }),
   stopRecording: (starId: string, recordingId: string) =>
     http.post(`${base(starId)}/recordings/${recordingId}/stop`),
+  /** Остановить запись, которая идёт в комнате (модератор — чужую). */
+  stopRoomRecording: (starId: string, channelId: string) =>
+    http.post(`${base(starId)}/planets/${channelId}/recording/stop`),
   downloadFile: (starId: string, fileId: string) =>
     http
       .get<ArrayBuffer>(`${base(starId)}/files/${fileId}`, { responseType: "arraybuffer" })

@@ -142,6 +142,18 @@ it.each([
   expect(preference()).toBeNull();
 });
 
+it("offers nothing to download inside the iOS app", async () => {
+  vi.stubGlobal("navigator", { userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 18) QuazarIOS", platform: "iPhone" });
+  (window as unknown as { Capacitor?: unknown }).Capacitor = { getPlatform: () => "ios" };
+  try {
+    await render(); await tick(60_000);
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expect(host.textContent).toBe("");
+  } finally {
+    delete (window as unknown as { Capacitor?: unknown }).Capacitor;
+  }
+});
+
 it("preserves existing desktop preferences when dismissing the mobile notice with Escape", async () => {
   const saved = JSON.stringify({ never: true, nextAt: 123 });
   memory.set(DOWNLOAD_PROMPT_KEY, saved);

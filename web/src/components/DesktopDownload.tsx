@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { MonitorDown, Smartphone, X } from "lucide-react";
 import { desktop } from "../platform/desktop";
 import { androidShell, inAndroidApp } from "../platform/android";
+import { inIosApp } from "../platform/ios";
 import { ANDROID_OFFER_DELAY, ANDROID_PROMPT_KEY, ANDROID_RELEASE, androidApkUrl, androidPreference, DESKTOP_INSTALLERS,
   DOWNLOAD_OFFER_DELAY, DOWNLOAD_PROMPT_KEY, detectDownloadOS, downloadPreference, parseDownloadPreference,
   type AndroidAnswer, type DownloadAnswer, type DownloadOS, type DownloadPreference } from "../platform/desktopDownloads";
@@ -20,7 +21,7 @@ export function DesktopDownloads({ children }: { children: ReactNode }) {
   const call = useCallStore(st => st.phase);
   const voice = useVoiceStore(st => st.status);
   // Внутри приложения (для ПК или Android) скачивать уже нечего.
-  const insideDesktop = !!desktop() || !!androidShell() || inAndroidApp();
+  const insideDesktop = !!desktop() || !!androidShell() || inAndroidApp() || inIosApp();
   const [os] = useState(() => detectDownloadOS(navigator));
   const [mode, setMode] = useState<Mode>(null);
   const [never, setNever] = useState(false);

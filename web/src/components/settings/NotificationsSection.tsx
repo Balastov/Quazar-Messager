@@ -14,6 +14,7 @@ import { useUiStore } from "../../store/ui";
 import ConnectionDiagnostics from "../ConnectionDiagnostics";
 import { useSettingsRun } from "./useSettingsRun";
 import { ANDROID_NOTIFY_HINT, inAndroidApp } from "../../platform/android";
+import { inIosApp, IOS_NOTIFY_HINT } from "../../platform/ios";
 import { androidPushPermission, androidPushPlugin, syncAndroidPush, type AndroidPushPermission } from "../../platform/androidPush";
 import s from "../SettingsView.module.css";
 
@@ -71,6 +72,8 @@ export default function NotificationsSection() {
           </p>
         ) : permission === "unsupported" && inAndroidApp() ? (
           <p className={s.hint} data-android-notify-hint>{ANDROID_NOTIFY_HINT}</p>
+        ) : permission === "unsupported" && inIosApp() ? (
+          <p className={s.hint} data-ios-notify-hint>{IOS_NOTIFY_HINT}</p>
         ) : (
           <p className={s.hint}>
             Статус в браузере: <span className={s.perm}>{permissionLabel}</span>

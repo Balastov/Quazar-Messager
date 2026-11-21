@@ -1,0 +1,21 @@
+{
+  "appId": "ru.quazarmsg.app",
+  "appName": "Quazar",
+  "webDir": "www",
+  "server": {
+    "url": "https://quazar-msg.ru",
+    "errorPath": "offline.html",
+    "allowNavigation": [
+      "quazar-msg.ru"
+    ]
+  },
+  "ios": {
+    "path": "native",
+    "appendUserAgent": "QuazarIOS",
+    "contentInset": "never",
+    "scheme": "Quazar",
+    "backgroundColor": "#0f1117",
+    "limitsNavigationsToAppBoundDomains": false,
+    "webContentsDebuggingEnabled": false
+  }
+}

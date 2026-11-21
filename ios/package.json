@@ -1,0 +1,17 @@
+{
+  "name": "quazar-ios",
+  "version": "2.6.0",
+  "private": true,
+  "description": "Quazar для iOS: обёртка над веб-версией quazar-msg.ru",
+  "scripts": {
+    "sync": "cap sync ios",
+    "open": "cap open ios"
+  },
+  "dependencies": {
+    "@capacitor/core": "8.6.0",
+    "@capacitor/ios": "8.6.0"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "8.6.0"
+  }
+}

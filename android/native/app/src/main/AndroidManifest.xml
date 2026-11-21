@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <application
         android:allowBackup="true"
@@ -35,6 +36,32 @@
             android:name="com.google.firebase.messaging.default_notification_channel_id"
             android:value="messages" />
 
+        <!-- Сообщения Firebase: звонки показывает само приложение, остальное — плагин уведомлений. -->
+        <service
+            android:name="com.capacitorjs.plugins.pushnotifications.MessagingService"
+            tools:node="remove" />
+        <service
+            android:name=".QuazarMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+
+        <!-- Входящий звонок поверх блокировки: свой лёгкий экран, отдельно от основного окна. -->
+        <activity
+            android:name=".IncomingCallActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTop"
+            android:showWhenLocked="true"
+            android:taskAffinity=""
+            android:theme="@style/AppTheme.Call"
+            android:turnScreenOn="true" />
+        <receiver
+            android:name=".CallActionReceiver"
+            android:exported="false" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
@@ -57,6 +84,8 @@
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
     <!-- Уведомления о сообщениях и звонках (Android 13+ спрашивает разрешение). -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Входящий звонок на весь экран, даже на заблокированном телефоне. -->
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
     <!-- Обновление приложения с quazar-msg.ru без магазина. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 </manifest>

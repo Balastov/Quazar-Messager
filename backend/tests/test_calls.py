@@ -53,9 +53,17 @@ class TestMultiDeviceCalls(unittest.IsolatedAsyncioTestCase):
 
     async def asyncSetUp(self):
         self.statuses: list[tuple[str, str]] = []
+        self.app_pushes: list[tuple[str, dict]] = []
+        self.pushes: list[tuple[str, dict]] = []
 
         async def allowed(*_args):
             return True
+
+        async def app_push(user_id, payload):
+            self.app_pushes.append((user_id, payload))
+
+        async def push(user_id, payload):
+            self.pushes.append((user_id, payload))
 
         async def nothing(*_args, **_kwargs):
             return None
@@ -75,7 +83,8 @@ class TestMultiDeviceCalls(unittest.IsolatedAsyncioTestCase):
             ("_assert_direct_member", allowed),
             ("_persist_create", nothing),
             ("_persist_status", status),
-            ("send_push_to_user", nothing),
+            ("send_push_to_user", push),
+            ("send_app_push_to_user", app_push),
             ("user_has_push", allowed),
             ("_username", name),
             ("block_state", block_state),
@@ -122,6 +131,46 @@ class TestMultiDeviceCalls(unittest.IsolatedAsyncioTestCase):
             payload["device_id"] = device_id
         await calls.handle_call_event(payload, user_id, ws)
         return ws
+
+    def cancels(self):
+        return [(uid, p["call_id"]) for uid, p in self.app_pushes if p["type"] == "call_cancel"]
+
+    async def test_incoming_push_carries_the_ring_deadline_and_a_decline_key(self):
+        _, push = self.pushes[-1]
+        self.assertEqual(push["type"], "incoming_call")
+        self.assertEqual(push["decline_token"], calls.decline_token("c1", "bob"))
+        self.assertGreater(push["ends_at_ms"], 0)
+
+    async def test_the_phone_stops_ringing_whenever_the_call_stops_ringing(self):
+        await self.accept_on_phone()
+        self.assertEqual(self.cancels(), [("bob", "c1")])
+
+    async def test_caller_hangup_and_reject_stop_the_phone_ringing(self):
+        await calls.handle_call_event({"type": "call_hangup", "call_id": "c1"}, "alice", self.alice)
+        self.assertEqual(self.cancels(), [("bob", "c1")])
+        # Сброс уже идущего разговора — экран звонка давно погас, слать нечего.
+        self.app_pushes.clear()
+        await calls.handle_call_event({"type": "call_invite", "call_id": "c2", "chat_id": "chat", "callee_id": "bob"}, "alice", self.alice)
+        await calls.handle_call_event({"type": "call_reject", "call_id": "c2"}, "bob", self.bob_pc)
+        self.assertEqual(self.cancels(), [("bob", "c2")])
+
+    async def test_decline_from_the_lock_screen_needs_this_calls_key(self):
+        self.assertFalse(await calls.decline_from_push("c1", "0" * 64))
+        self.assertFalse(await calls.decline_from_push("c1", calls.decline_token("c1", "alice")))
+        self.assertIsNotNone(calls.get_active_call("c1"))
+        self.assertTrue(await calls.decline_from_push("c1", calls.decline_token("c1", "bob")))
+        self.assertIsNone(calls.get_active_call("c1"))
+        self.assertIn("call_reject", self.alice.types())
+        self.assertIn(("c1", "rejected"), self.statuses)
+        self.assertEqual(self.cancels(), [("bob", "c1")])
+        # Повторно (звонок уже кончился) — просто нет.
+        self.assertFalse(await calls.decline_from_push("c1", calls.decline_token("c1", "bob")))
+
+    async def test_ring_timeout_stops_the_phone(self):
+        with mock.patch.object(calls.settings, "CALL_RING_TIMEOUT_SEC", 0):
+            with mock.patch.object(calls.asyncio, "sleep", mock.AsyncMock()):
+                await calls._ring_timeout("c1")
+        self.assertEqual(self.cancels(), [("bob", "c1")])
 
     async def test_both_devices_ring(self):
         self.assertIn("call_invite", self.bob_phone.types())

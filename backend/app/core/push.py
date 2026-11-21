@@ -56,15 +56,22 @@ async def send_push_to_user(user_id: str, payload: dict[str, Any]) -> int:
     return web + app
 
 
+async def send_app_push_to_user(user_id: str, payload: dict[str, Any]) -> int:
+    """Только в приложение для Android — служебные сообщения вроде «звонок окончен». В web push их не шлём:
+    браузер обязан показать уведомление на каждый пуш."""
+    return await _send_fcm(user_id, payload)
+
+
 async def _send_fcm(user_id: str, payload: dict[str, Any]) -> int:
     if not fcm.configured():
         return 0
     async with AsyncSessionLocal() as db:
-        tokens = list((await db.execute(select(FcmDevice.token).where(FcmDevice.user_id == user_id))).scalars())
-    if not tokens:
+        rows = (await db.execute(select(FcmDevice.token, FcmDevice.app_version).where(FcmDevice.user_id == user_id))).all()
+    if not rows:
         return 0
+    tokens = [token for token, _ in rows]
     try:
-        ok, stale = await fcm.send(tokens, payload)
+        ok, stale = await fcm.send(tokens, payload, [version for _, version in rows])
     except Exception:  # noqa: BLE001 — сбой одного канала не мешает другому
         logger.warning("fcm send failed", exc_info=True)
         return 0

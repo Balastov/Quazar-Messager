@@ -110,6 +110,27 @@ class MessageMappingTest(unittest.TestCase):
             self.assertTrue(all(isinstance(v, str) for v in message["data"].values()))
 
 
+class NativeCallsTest(unittest.TestCase):
+    CALL = {"type": "incoming_call", "call_id": "c1", "chat_id": "ch", "caller_id": "u", "caller_name": "Анна",
+            "media": {"video": False}, "ends_at_ms": 1795000000000, "decline_token": "k" * 64}
+
+    def test_new_apps_get_a_service_message_old_ones_a_notification(self):
+        native = fcm.message_for(self.CALL, "2.6.0")
+        self.assertNotIn("notification", native)
+        self.assertEqual(native["android"]["priority"], "high")
+        self.assertEqual(native["data"], {"kind": "call", "callId": "c1", "chatId": "ch", "callerId": "u", "callerName": "Анна",
+                                          "video": "0", "endsAt": "1795000000000", "declineToken": "k" * 64})
+        for old in ("2.5.0", "2.5.10", None, "garbage"):
+            self.assertIn("notification", fcm.message_for(self.CALL, old), old)
+        self.assertTrue(fcm.native_calls("2.10.0"))
+        self.assertTrue(fcm.native_calls("3.0.0"))
+
+    def test_call_over_only_for_apps_that_understand_it(self):
+        self.assertEqual(fcm.message_for({"type": "call_cancel", "call_id": "c1"}, "2.6.0"),
+                         {"data": {"kind": "call_cancel", "callId": "c1"}, "android": {"priority": "high", "ttl": "60s"}})
+        self.assertIsNone(fcm.message_for({"type": "call_cancel", "call_id": "c1"}, "2.5.0"))
+
+
 class SendTest(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         fcm.reset()
@@ -133,6 +154,12 @@ class SendTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.google.sent[0]["url"], "https://fcm.googleapis.com/v1/projects/quazar-test/messages:send")
         self.assertEqual(self.google.sent[0]["auth"], "Bearer access-1")
         self.assertEqual({s["message"]["token"] for s in self.google.sent[:2]}, {"token-a", "token-b"})
+
+    async def test_each_phone_gets_the_message_for_its_app_version(self):
+        ok, _ = await fcm.send(["old", "new"], {"type": "call_cancel", "call_id": "c1"}, ["2.5.0", "2.6.0"])
+        self.assertEqual(ok, 1)
+        self.assertEqual([s["message"]["token"] for s in self.google.sent], ["new"])
+        self.assertEqual(await fcm.send(["old"], {"type": "call_cancel", "call_id": "c1"}, ["2.5.0"]), (0, []))
 
     async def test_reports_uninstalled_apps(self):
         self.google.answers["gone"] = httpx.Response(404, json={"error": {"status": "NOT_FOUND"}})

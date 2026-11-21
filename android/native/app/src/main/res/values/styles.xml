@@ -15,6 +15,13 @@
         <item name="android:windowBackground">@color/quazar_background</item>
     </style>
 
+    <!-- Экран входящего звонка: тёмный, без заголовка, строка состояния прозрачная. -->
+    <style name="AppTheme.Call" parent="Theme.AppCompat.NoActionBar">
+        <item name="android:windowBackground">@color/quazar_background</item>
+        <item name="android:statusBarColor">@color/quazar_background</item>
+        <item name="android:navigationBarColor">@color/quazar_background</item>
+    </style>
+
     <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
         <item name="windowSplashScreenBackground">@color/quazar_background</item>
         <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher_foreground</item>

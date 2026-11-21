@@ -66,3 +66,20 @@ async def call_history(
 ):
     rows = await call_signaling.list_history_for_user(db, current_user.id, limit=limit)
     return rows
+
+
+class DeclineFromPushIn(BaseModel):
+    token: str
+
+
+class DeclineFromPushOut(BaseModel):
+    ok: bool
+
+
+@router.post("/{call_id}/decline", response_model=DeclineFromPushOut)
+async def decline_from_push(call_id: str, body: DeclineFromPushIn):
+    """«Отклонить» на экране звонка заблокированного телефона (приложение для Android): без входа,
+    по ключу из уведомления о звонке. Звонок уже кончился или ключ чужой — ok: false."""
+    if len(call_id) > 64 or len(body.token) > 128:
+        return DeclineFromPushOut(ok=False)
+    return DeclineFromPushOut(ok=await call_signaling.decline_from_push(call_id, body.token))

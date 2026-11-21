@@ -65,6 +65,8 @@ describe("where a notification leads", () => {
       { url: "/?star=s&channel=ch&message=m", event: "quazar-open-star", detail: { starId: "s", channelId: "ch", messageId: "m", threadId: null } });
     expect(notificationRoute({ kind: "call", callId: "k", chatId: "c", callerName: "Анна", video: "1" })).toMatchObject(
       { url: "/?chat=c&call=k", event: "quazar-open-call", detail: { callId: "k", media: { audio: true, video: true } } });
+    expect(notificationRoute({ kind: "call", callId: "k", chatId: "c", action: "accept" })).toMatchObject(
+      { url: "/?chat=c&call=k&callAction=accept", event: "quazar-accept-call", detail: { callId: "k", chatId: "c" } });
     expect(notificationRoute({ kind: "door", starId: "s", channelId: "p", door: "knock", knockId: "n" })).toMatchObject(
       { url: "/?star=s&planet=p&door=knock&knock=n", event: "quazar-star-door" });
     expect(notificationRoute({ kind: "inbox", messageId: "n", starId: "s", channelId: "p" })).toMatchObject(

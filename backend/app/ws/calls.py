@@ -33,6 +33,10 @@ Protocol (extensible):
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import hmac
+import logging
+import time
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -44,7 +48,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.blocks import block_state
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
-from app.core.push import send_push_to_user, user_has_push
+from app.core.push import send_app_push_to_user, send_push_to_user, user_has_push
 from app.models.call import Call
 from app.models.chat import Chat, ChatMember
 from app.models.user import User
@@ -276,6 +280,33 @@ async def _ring_timeout(call_id: str) -> None:
     }
     await manager.send_to_user(call.caller_id, event)
     await manager.send_to_user(call.callee_id, event)
+    await _ring_over(call)
+
+
+def decline_token(call_id: str, callee_id: str) -> str:
+    """Ключ «Отклонить» для экрана звонка на телефоне: работает без входа, только для этого звонка."""
+    key = hashlib.sha256(f"quazar-call-decline:{settings.JWT_SECRET}".encode()).digest()
+    return hmac.new(key, f"{call_id}:{callee_id}".encode(), hashlib.sha256).hexdigest()
+
+
+async def _ring_over(call: ActiveCall) -> None:
+    """Звонок больше не звонит (ответили, отклонили, сбросили, не дождались) — экран звонка на телефоне
+    вызываемого гаснет. Только в приложение для Android: у браузера свой WebSocket."""
+    try:
+        await send_app_push_to_user(call.callee_id, {"type": "call_cancel", "call_id": call.id})
+    except Exception:  # noqa: BLE001 — экран погаснет и сам, по сроку звонка
+        logging.getLogger(__name__).warning("call cancel push failed", exc_info=True)
+
+
+async def decline_from_push(call_id: str, token: str) -> bool:
+    """«Отклонить» на экране звонка заблокированного телефона: без входа, по ключу из уведомления."""
+    call = get_active_call(call_id)
+    if not call or call.status != "ringing":
+        return False
+    if not hmac.compare_digest(token, decline_token(call_id, call.callee_id)):
+        return False
+    await _handle_reject({"call_id": call_id, "reason": "rejected"}, call.callee_id, None)
+    return True
 
 
 def _schedule_timeout(call: ActiveCall) -> None:
@@ -411,6 +442,9 @@ async def _handle_invite(data: dict, caller_id: str, ws: Any = None) -> None:
             "caller_id": caller_id,
             "caller_name": caller_name,
             "media": payload["media"],
+            # Приложение для Android: экран звонка гаснет сам к этому сроку и умеет «Отклонить» без входа.
+            "ends_at_ms": int((time.time() + max(10, int(settings.CALL_RING_TIMEOUT_SEC))) * 1000),
+            "decline_token": decline_token(call.id, callee_id),
         },
     )
 
@@ -500,6 +534,7 @@ async def _handle_accept(data: dict, user_id: str, ws: Any = None) -> None:
     for other in list(manager.user_connections.get(call.callee_id, [])):
         if other is not ws:
             await manager.send(other, elsewhere)
+    await _ring_over(call)
 
 
 async def _handle_reject(data: dict, user_id: str, ws: Any = None) -> None:
@@ -521,6 +556,7 @@ async def _handle_reject(data: dict, user_id: str, ws: Any = None) -> None:
     }
     await manager.send_to_user(call.caller_id, event)
     await manager.send_to_user(call.callee_id, event)
+    await _ring_over(call)
 
 
 async def _handle_hangup(data: dict, user_id: str, ws: Any = None) -> None:
@@ -549,6 +585,8 @@ async def _handle_hangup(data: dict, user_id: str, ws: Any = None) -> None:
     }
     await manager.send_to_user(call.caller_id, event)
     await manager.send_to_user(call.callee_id, event)
+    if was_ringing:
+        await _ring_over(call)
 
 
 async def _relay_signaling(data: dict, user_id: str, ws: Any = None) -> None:

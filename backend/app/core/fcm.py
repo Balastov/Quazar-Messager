@@ -122,9 +122,37 @@ def _ttl(payload: dict[str, Any]) -> int:
     return max(1, min(86400, int(payload.get("ttl", default))))
 
 
-def message_for(payload: dict[str, Any]) -> dict[str, Any] | None:
-    """Уведомление Android для события сервера (то же, что показывает sw.js). None — не слать."""
+# С этой версии приложение само показывает входящий звонок на весь экран (служебное сообщение FCM)
+# и понимает «звонок окончен». Более старые получают звонок обычным уведомлением.
+NATIVE_CALLS_VERSION = (2, 6, 0)
+
+
+def native_calls(app_version: str | None) -> bool:
+    try:
+        return tuple(int(x) for x in (app_version or "").split(".")[:3]) >= NATIVE_CALLS_VERSION
+    except ValueError:
+        return False
+
+
+def message_for(payload: dict[str, Any], app_version: str | None = None) -> dict[str, Any] | None:
+    """Уведомление Android для события сервера (то же, что показывает sw.js). None — не слать.
+    app_version — версия приложения на телефоне: от неё зависит, как прислать звонок."""
     kind = payload.get("type")
+    if kind == "call_cancel":
+        # Звонок кончился (сбросили, ответили, не дождались) — экран звонка на телефоне гаснет.
+        if not native_calls(app_version) or not payload.get("call_id"):
+            return None
+        return {"data": {"kind": "call_cancel", "callId": str(payload["call_id"])},
+                "android": {"priority": "high", "ttl": "60s"}}
+    if kind == "incoming_call" and native_calls(app_version):
+        # Служебное сообщение: приложение само покажет экран звонка поверх блокировки и будет звонить.
+        video = bool((payload.get("media") or {}).get("video"))
+        data = {"kind": "call", "callId": payload.get("call_id"), "chatId": payload.get("chat_id"),
+                "callerId": payload.get("caller_id"), "callerName": payload.get("caller_name") or "Собеседник",
+                "video": "1" if video else "0", "endsAt": payload.get("ends_at_ms"),
+                "declineToken": payload.get("decline_token")}
+        return {"data": {k: str(v) for k, v in data.items() if v not in (None, "")},
+                "android": {"priority": "high", "ttl": f"{_ttl(payload)}s"}}
     title = payload.get("title") or "Quazar"
     body = payload.get("body") or ""
     channel = CHANNEL_GENERAL
@@ -249,16 +277,20 @@ def _stale(response: httpx.Response) -> bool:
     return _outcome(response).stale
 
 
-async def deliver(tokens: list[str], payload: dict[str, Any]) -> list[Outcome]:
-    """Отправить уведомление на устройства; исход — по каждому, в том же порядке."""
+async def deliver(
+    tokens: list[str], payload: dict[str, Any], versions: list[str | None] | None = None
+) -> list[Outcome]:
+    """Отправить уведомление на устройства; исход — по каждому, в том же порядке.
+    versions — версии приложения на этих телефонах (от них зависит вид звонка)."""
     global _token
     acc = account()
-    message = message_for(payload)
     if not tokens:
         return []
+    versions = versions or [None] * len(tokens)
+    messages = [message_for(payload, version) for version in versions]
     if not acc:
         return [Outcome(False, None, "На сервере нет ключа Firebase") for _ in tokens]
-    if not message:
+    if not any(messages):
         return [Outcome(False, None, "Это уведомление в приложение не отправляется") for _ in tokens]
     async with _client() as client:
         try:
@@ -282,8 +314,10 @@ async def deliver(tokens: list[str], payload: dict[str, Any]) -> list[Outcome]:
             return [Outcome(False, None, reason) for _ in tokens]
         url = SEND_URL.format(project=acc.project_id)
 
-        async def one(token: str) -> Outcome:
+        async def one(token: str, message: dict[str, Any] | None) -> Outcome:
             global _token
+            if message is None:
+                return Outcome(False, None, "Эта версия приложения такое уведомление не понимает")
             try:
                 response = await client.post(
                     url, json={"message": {**message, "token": token}}, headers={"Authorization": f"Bearer {access}"}
@@ -300,12 +334,15 @@ async def deliver(tokens: list[str], payload: dict[str, Any]) -> list[Outcome]:
                 logger.warning("fcm rejected: %s", outcome.reason)
             return outcome
 
-        return list(await asyncio.gather(*(one(t) for t in tokens)))
+        return list(await asyncio.gather(*(one(t, m) for t, m in zip(tokens, messages))))
 
 
-async def send(tokens: list[str], payload: dict[str, Any]) -> tuple[int, list[str]]:
+async def send(
+    tokens: list[str], payload: dict[str, Any], versions: list[str | None] | None = None
+) -> tuple[int, list[str]]:
     """Отправить уведомление на устройства. Возвращает (сколько принял FCM, недействительные адреса)."""
-    if not account() or not message_for(payload) or not tokens:
+    versions = versions or [None] * len(tokens)
+    if not account() or not tokens or not any(message_for(payload, v) for v in versions):
         return 0, []
-    outcomes = await deliver(tokens, payload)
+    outcomes = await deliver(tokens, payload, versions)
     return sum(1 for o in outcomes if o.ok), [t for t, o in zip(tokens, outcomes) if o.stale]

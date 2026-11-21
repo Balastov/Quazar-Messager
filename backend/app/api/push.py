@@ -193,7 +193,7 @@ async def test_fcm_device(
     if not row or row.user_id != current_user.id:
         return FcmTestOut(ok=False, error="Этот телефон не зарегистрирован для уведомлений. Разрешите уведомления "
                                           "для Quazar в настройках Android и откройте приложение заново.")
-    outcome = (await fcm.deliver([body.token], {"type": "app_push_test"}))[0]
+    outcome = (await fcm.deliver([body.token], {"type": "app_push_test"}, [row.app_version]))[0]
     if outcome.stale:
         await db.delete(row)
         await db.commit()

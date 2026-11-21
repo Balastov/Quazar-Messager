@@ -60,7 +60,10 @@ export function notificationRoute(data: Record<string, string | undefined>): Not
   switch (data.kind) {
     case "call": {
       set("chat", data.chatId); set("call", data.callId);
-      return { url: url(), event: data.callId ? "quazar-open-call" : null, detail: {
+      // «Принять» на экране звонка приложения (2.6.0+) — сразу отвечаем, как «Принять» в браузере.
+      const accept = data.action === "accept";
+      if (accept) set("callAction", "accept");
+      return { url: url(), event: data.callId ? (accept ? "quazar-accept-call" : "quazar-open-call") : null, detail: {
         callId: data.callId ?? null, chatId: data.chatId ?? null, callerId: data.callerId ?? null,
         callerName: data.callerName ?? null, media: { audio: true, video: data.video === "1" } } };
     }

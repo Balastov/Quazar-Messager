@@ -2,9 +2,10 @@ import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 
 import { createPortal } from "react-dom";
 import { MonitorDown, Smartphone, X } from "lucide-react";
 import { desktop } from "../platform/desktop";
-import { androidShell } from "../platform/android";
-import { ANDROID_RELEASE, androidApkUrl, DESKTOP_INSTALLERS, DOWNLOAD_OFFER_DELAY, DOWNLOAD_PROMPT_KEY, detectDownloadOS,
-  downloadPreference, parseDownloadPreference, type DownloadAnswer, type DownloadOS, type DownloadPreference } from "../platform/desktopDownloads";
+import { androidShell, inAndroidApp } from "../platform/android";
+import { ANDROID_OFFER_DELAY, ANDROID_PROMPT_KEY, ANDROID_RELEASE, androidApkUrl, androidPreference, DESKTOP_INSTALLERS,
+  DOWNLOAD_OFFER_DELAY, DOWNLOAD_PROMPT_KEY, detectDownloadOS, downloadPreference, parseDownloadPreference,
+  type AndroidAnswer, type DownloadAnswer, type DownloadOS, type DownloadPreference } from "../platform/desktopDownloads";
 import { useAuthStore } from "../store/auth";
 import { useCallStore } from "../store/call";
 import { useVoiceStore } from "../store/voice";
@@ -12,14 +13,14 @@ import Dialog from "./constellation/Dialog";
 import { DesktopDownloadContext } from "./DesktopDownloadContext";
 import s from "./DesktopDownload.module.css";
 
-type Mode = { kind: "offer" | "choose"; automatic: boolean } | null;
+type Mode = { kind: "offer" | "choose" | "android"; automatic: boolean; started?: boolean } | null;
 
 export function DesktopDownloads({ children }: { children: ReactNode }) {
   const token = useAuthStore(st => st.token);
   const call = useCallStore(st => st.phase);
   const voice = useVoiceStore(st => st.status);
   // Внутри приложения (для ПК или Android) скачивать уже нечего.
-  const insideDesktop = !!desktop() || !!androidShell();
+  const insideDesktop = !!desktop() || !!androidShell() || inAndroidApp();
   const [os] = useState(() => detectDownloadOS(navigator));
   const [mode, setMode] = useState<Mode>(null);
   const [never, setNever] = useState(false);
@@ -60,8 +61,44 @@ export function DesktopDownloads({ children }: { children: ReactNode }) {
     return () => { clearTimeout(timer); window.removeEventListener("focus", refresh); window.removeEventListener("storage", refresh); document.removeEventListener("visibilitychange", refresh); };
   }, [insideDesktop, os, token, busy, mode, read]);
 
+  // Android: предлагаем приложение при открытии сайта или PWA (и при возвращении в свёрнутую вкладку).
+  const androidFallback = useRef<DownloadPreference | null>(null);
+  // Когда открыли сайт или вернулись в него: только это — «открытие» (не конец звонка и не смена экрана).
+  const openedAt = useRef(Date.now());
+  const readAndroid = useCallback(() => {
+    try { return parseDownloadPreference(localStorage.getItem(ANDROID_PROMPT_KEY)) ?? androidFallback.current; }
+    catch { return androidFallback.current; }
+  }, []);
+  const answerAndroid = useCallback((value: AndroidAnswer) => {
+    const preference = androidPreference(value, never);
+    androidFallback.current = preference;
+    try { localStorage.setItem(ANDROID_PROMPT_KEY, JSON.stringify(preference)); } catch { /* Запоминаем до закрытия страницы. */ }
+    setNever(false);
+    setMode(value === "download" ? { kind: "choose", automatic: true, started: true } : null);
+  }, [never]);
   useEffect(() => {
-    if (mode?.automatic && (busy || !token)) { setMode(null); setNever(false); }
+    if (insideDesktop || os !== "android" || !ANDROID_RELEASE || !token || busy || mode) return;
+    let timer: ReturnType<typeof setTimeout>;
+    const check = () => {
+      const preference = readAndroid();
+      // «Не сейчас» — до следующего открытия после 48 часов; середина сеанса открытием не считается.
+      if (preference?.never || (preference && preference.nextAt > openedAt.current)) return;
+      const typing = document.activeElement?.closest("input, textarea, select, [contenteditable='true']");
+      if (document.visibilityState !== "visible" || typing || /^\/(auth|guest)(\/|$)/.test(window.location.pathname) ||
+          document.querySelector('[role="dialog"], [aria-modal="true"], [data-notify-prompt]')) {
+        timer = setTimeout(check, 15_000); return;
+      }
+      setNever(false); setMode({ kind: "android", automatic: true });
+    };
+    const open = () => { clearTimeout(timer); timer = setTimeout(check, ANDROID_OFFER_DELAY); };
+    const resume = () => { if (document.visibilityState === "visible") { openedAt.current = Date.now(); open(); } };
+    open();
+    document.addEventListener("visibilitychange", resume);
+    return () => { clearTimeout(timer); document.removeEventListener("visibilitychange", resume); };
+  }, [insideDesktop, os, token, busy, mode, readAndroid]);
+
+  useEffect(() => {
+    if (mode?.automatic && !mode.started && (busy || !token)) { setMode(null); setNever(false); }
   }, [busy, token, mode]);
 
   const open = () => { setNever(read()?.never ?? false); setMode({ kind: "choose", automatic: false }); };
@@ -83,8 +120,22 @@ export function DesktopDownloads({ children }: { children: ReactNode }) {
         <label className={s.checkbox}><input type="checkbox" checked={never} onChange={event => setNever(event.target.checked)} />Больше не спрашивать</label>
         <p className={s.cooldown}>«Позже» — через неделю, «Не хочу» — через месяц.</p>
       </aside>, document.body)}
+    {!insideDesktop && mode?.kind === "android" && ANDROID_RELEASE && createPortal(
+      <aside className={s.offer} role="dialog" aria-labelledby={titleId}>
+        <button type="button" className={s.close} aria-label="Напомнить о приложении позже" onClick={() => answerAndroid("later")}><X size={16} /></button>
+        <Smartphone size={26} className={s.symbol} aria-hidden />
+        <h2 id={titleId}>Приложение Quazar для Android</h2>
+        <p>Уведомления о сообщениях и звонках, даже когда Quazar закрыт. Ставится с сайта и обновляется само.</p>
+        <div className={s.actions}>
+          <a className={s.primary} href={androidApkUrl(ANDROID_RELEASE)} download onClick={() => answerAndroid("download")}>Скачать</a>
+          <button type="button" className={s.secondary} onClick={() => answerAndroid("later")}>Не сейчас</button>
+        </div>
+        <label className={s.checkbox}><input type="checkbox" checked={never} onChange={event => setNever(event.target.checked)} />Больше не показывать</label>
+        <p className={s.cooldown}>«Не сейчас» — напомним при следующем открытии, но не раньше чем через 2 дня.</p>
+      </aside>, document.body)}
     {!insideDesktop && mode?.kind === "choose" && createPortal(
-      os === "android" && ANDROID_RELEASE ? <AndroidDownload version={ANDROID_RELEASE.version} onDownload={() => answer("yes")} onClose={() => setMode(null)} />
+      os === "android" && ANDROID_RELEASE ? <AndroidDownload version={ANDROID_RELEASE.version} started={!!mode.started}
+        onDownload={() => mode.started || answer("yes")} onClose={() => setMode(null)} />
         : os === "mobile" || os === "android" ? <MobileDownloadNotice onClose={() => setMode(null)} />
         : <DownloadChoices os={os} never={never} onNever={setNever} onDownload={() => answer("yes")} onClose={() => answer("later")} />,
       document.body)}
@@ -101,17 +152,21 @@ function MobileDownloadNotice({ onClose }: { onClose(): void }) {
   </Dialog>;
 }
 
-function AndroidDownload({ version, onDownload, onClose }: { version: string; onDownload(): void; onClose(): void }) {
+function AndroidDownload({ version, started = false, onDownload, onClose }: {
+  version: string; started?: boolean; onDownload(): void; onClose(): void;
+}) {
   return <Dialog title="Quazar для Android" onClose={onClose}>
     <div className={s.choices}>
-      <p>Тестовая версия {version}. Устанавливается без магазина и сама предлагает обновиться, когда выходит новая версия.</p>
-      <a className={s.installer} href={androidApkUrl({ version })} download onClick={onDownload} autoFocus>
-        <Smartphone size={20} aria-hidden /><span>Скачать для Android</span><span aria-hidden>↓</span>
+      <p>{started ? `Скачиваем Quazar ${version}. Когда файл загрузится, установите его:`
+        : `Тестовая версия ${version}. Устанавливается без магазина и сама предлагает обновиться, когда выходит новая версия.`}</p>
+      <a className={s.installer} href={androidApkUrl({ version })} download onClick={onDownload} autoFocus={!started}>
+        <Smartphone size={20} aria-hidden /><span>{started ? "Скачать ещё раз" : "Скачать для Android"}</span><span aria-hidden>↓</span>
       </a>
       <ol className={s.steps}>
         <li>Откройте скачанный файл Quazar-{version}-android.apk.</li>
         <li>Если Android спросит, разрешите браузеру устанавливать приложения.</li>
-        <li>Google Play Protect может предупредить о приложении не из магазина — выберите «Всё равно установить».</li>
+        <li>Если Android предупредит о приложении не из магазина, выберите «Подробнее» → «Всё равно установить».</li>
+        <li>Откройте Quazar, войдите и разрешите уведомления.</li>
       </ol>
     </div>
   </Dialog>;

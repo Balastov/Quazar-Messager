@@ -1,9 +1,9 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { Simulate } from "react-dom/test-utils";
-import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DesktopBridge } from "../../platform/desktop";
-import { DOWNLOAD_OFFER_DELAY, DOWNLOAD_PROMPT_KEY } from "../../platform/desktopDownloads";
+import { ANDROID_OFFER_DELAY, ANDROID_PROMPT_KEY, ANDROID_RELEASE, DOWNLOAD_OFFER_DELAY, DOWNLOAD_PROMPT_KEY } from "../../platform/desktopDownloads";
 
 const state = vi.hoisted(() => ({ auth: { token: "test-session" as string | null }, call: { phase: "idle" }, voice: { status: "idle" } }));
 vi.mock("../../store/auth", () => ({ useAuthStore: (selector: (value: typeof state.auth) => unknown) => selector(state.auth) }));
@@ -112,13 +112,15 @@ it.each([
   { userAgent: "reduced", userAgentData: { platform: "Android", mobile: false } },
 ])("offers the Android app on Android phones without desktop prompts", async browser => {
   vi.stubGlobal("navigator", browser);
+  // Автоматическое предложение приложения отключено «Больше не показывать» — остаётся кнопка.
+  memory.set(ANDROID_PROMPT_KEY, JSON.stringify({ never: true, nextAt: 0 }));
   await render(); await tick(60_000); expect(document.querySelector('[role="dialog"]')).toBeNull();
   expect(host.textContent).toBe("Скачать мобильное приложение");
   await act(async () => button("Скачать мобильное приложение").click());
   const dialog = document.querySelector('[role="dialog"][aria-label="Quazar для Android"]')!;
   const link = dialog.querySelector("a")!;
   expect(link.href).toMatch(/^https:\/\/quazar-msg\.ru\/desktop-updates\/android\/Quazar-\d+\.\d+\.\d+-android\.apk$/);
-  expect(dialog.textContent).toContain("Play Protect");
+  expect(dialog.textContent).toContain("Всё равно установить");
   await act(async () => link.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true })));
   expect(document.querySelector('[role="dialog"]')).toBeNull();
 });
@@ -189,4 +191,85 @@ it("still respects an answer for this page when storage is blocked", async () =>
   vi.stubGlobal("localStorage", { getItem: () => { throw new Error("blocked"); }, setItem: () => { throw new Error("blocked"); } });
   await render(); await tick(); await act(async () => button("Не хочу").click());
   await tick(60_000); expect(offer()).toBeNull();
+});
+
+describe("Android", () => {
+  const HOURS = 3_600_000;
+  const android = () => vi.stubGlobal("navigator", {
+    userAgent: "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Mobile Safari/537.36",
+    platform: "Linux armv8l", maxTouchPoints: 5,
+  });
+  const androidPreference = () => JSON.parse(memory.get(ANDROID_PROMPT_KEY) ?? "null");
+  const reopen = async (at: number) => {
+    await act(async () => root.render(null)); vi.setSystemTime(at);
+    await render(); await tick(ANDROID_OFFER_DELAY);
+  };
+  beforeEach(() => android());
+
+  it("offers the app on opening with Download / Not now and a never-again box", async () => {
+    await render();
+    await tick(ANDROID_OFFER_DELAY - 1); expect(offer()).toBeNull();
+    await tick(1);
+    expect(offer()?.textContent).toContain("Приложение Quazar для Android");
+    expect(offer()?.querySelector("a")?.textContent).toBe("Скачать");
+    expect(offer()?.querySelector("a")?.getAttribute("href")).toBe(`https://quazar-msg.ru/desktop-updates/android/Quazar-${ANDROID_RELEASE!.version}-android.apk`);
+    expect(button("Не сейчас")).toBeDefined();
+    expect(offer()?.textContent).toContain("Больше не показывать");
+  });
+
+  it("'Not now' reminds on the next opening, but not before 48 hours", async () => {
+    await render(); await tick(ANDROID_OFFER_DELAY); const now = Date.now();
+    await act(async () => button("Не сейчас").click());
+    expect(offer()).toBeNull();
+    expect(androidPreference()).toEqual({ never: false, nextAt: now + 48 * HOURS });
+    await reopen(now + 47 * HOURS); expect(offer()).toBeNull();
+    await reopen(now + 48 * HOURS + 1); expect(offer()).not.toBeNull();
+  });
+
+  it("waits for an opening: 48 hours passing in the middle of a session do not count, a return to the app does", async () => {
+    await render(); await tick(ANDROID_OFFER_DELAY); const now = Date.now();
+    await act(async () => button("Не сейчас").click());
+    vi.setSystemTime(now + 49 * HOURS);
+    await tick(60_000); expect(offer()).toBeNull();
+    await act(async () => document.dispatchEvent(new Event("visibilitychange")));
+    await tick(ANDROID_OFFER_DELAY); expect(offer()).not.toBeNull();
+  });
+
+  it("'Not now' with the box ticked never asks again", async () => {
+    await render(); await tick(ANDROID_OFFER_DELAY);
+    const box = offer()!.querySelector<HTMLInputElement>('input[type="checkbox"]')!;
+    await act(async () => { box.checked = true; Simulate.change(box); });
+    await act(async () => button("Не сейчас").click());
+    expect(androidPreference()).toMatchObject({ never: true });
+    await reopen(Date.now() + 1000 * HOURS); expect(offer()).toBeNull();
+  });
+
+  it("Download starts the file, shows how to install and stops offering", async () => {
+    await render(); await tick(ANDROID_OFFER_DELAY);
+    await act(async () => offer()!.querySelector("a")!.click());
+    expect(androidPreference()).toMatchObject({ never: true });
+    expect(document.body.textContent).toContain(`Скачиваем Quazar ${ANDROID_RELEASE!.version}`);
+    expect(document.body.textContent).toContain("Всё равно установить");
+    // Предложение для компьютера не трогаем.
+    expect(memory.get(DOWNLOAD_PROMPT_KEY)).toBeUndefined();
+    await reopen(Date.now() + 1000 * HOURS);
+    expect(document.body.textContent).not.toContain("Приложение Quazar для Android");
+  });
+
+  it("stays quiet inside the Android app, during calls and on the sign-in page", async () => {
+    (window as unknown as { Capacitor?: unknown }).Capacitor = { getPlatform: () => "android", Plugins: {} };
+    await render(); await tick(ANDROID_OFFER_DELAY * 3); expect(offer()).toBeNull();
+    delete (window as unknown as { Capacitor?: unknown }).Capacitor;
+    await act(async () => root.render(null));
+
+    state.call.phase = "active";
+    await render(); await tick(ANDROID_OFFER_DELAY * 3); expect(offer()).toBeNull();
+    await act(async () => root.render(null));
+    state.call.phase = "idle";
+
+    window.history.replaceState(null, "", "/auth");
+    await render(); await tick(ANDROID_OFFER_DELAY * 3); expect(offer()).toBeNull();
+    window.history.replaceState(null, "", "/");
+    await tick(15_000); expect(offer()).not.toBeNull();
+  });
 });

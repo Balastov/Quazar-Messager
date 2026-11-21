@@ -36,6 +36,16 @@ export function detectDownloadOS(browser: BrowserPlatform): DownloadOS {
 
 export const DOWNLOAD_PROMPT_KEY = "quazar.desktop-download-prompt.v1";
 export const DOWNLOAD_OFFER_DELAY = 20_000;
+
+// Предложение приложения для Android на сайте и в PWA: при открытии, «Не сейчас» — снова не раньше чем через 48 часов.
+export const ANDROID_PROMPT_KEY = "quazar.android-download-prompt.v1";
+export const ANDROID_OFFER_DELAY = 8_000;
+export const ANDROID_REMIND_MS = 48 * 60 * 60_000;
+export type AndroidAnswer = "download" | "later";
+/** «Скачать» или галочка «Больше не показывать» — больше не предлагаем; «Не сейчас» — через 48 часов. */
+export function androidPreference(answer: AndroidAnswer, never: boolean, now = Date.now()): DownloadPreference {
+  return { never: never || answer === "download", nextAt: now + ANDROID_REMIND_MS };
+}
 const DAY = 24 * 60 * 60_000;
 export interface DownloadPreference { never: boolean; nextAt: number }
 export type DownloadAnswer = "yes" | "later" | "no";

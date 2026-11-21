@@ -67,12 +67,14 @@ export default function RoomActivities({ detail, channel, sharers, controls }: {
     return () => { active = false; off(); clearInterval(timer); };
   }, [detail.id, channel.id, confirmed, status, load, visitor]);
   const withPointers = room ? pointerSharers(room) : [];
-  const fullscreenControls = <>{controls}{room?.ready && <FocusOrbit detail={detail} channel={channel} room={room} readOnly={readOnly} compact />}</>;
+  // «Орбита фокуса» — для работы: только в комнатах рабочих Звёзд.
+  const focus = room?.ready && detail.kind === "work";
+  const fullscreenControls = <>{controls}{focus && <FocusOrbit detail={detail} channel={channel} room={room} readOnly={readOnly} compact />}</>;
   return (
     <div className={s.activities}>
       <RoomTools detail={detail} channel={channel}
-        summary={room?.ready && <FocusOrbit detail={detail} channel={channel} room={room} readOnly compact />}>
-        {room?.ready && <FocusOrbit detail={detail} channel={channel} room={room} readOnly={readOnly} />}
+        summary={focus && <FocusOrbit detail={detail} channel={channel} room={room} readOnly compact />}>
+        {focus && <FocusOrbit detail={detail} channel={channel} room={room} readOnly={readOnly} />}
       </RoomTools>
       <div className={s.tabs} role="group" aria-label="Активности комнаты">
         {([ [null, "Участники"], ["screen", "Экран"], ["board", "Доска"], ["video", "Видео"] ] as const)

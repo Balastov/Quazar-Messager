@@ -523,6 +523,8 @@ class StarLimitsOut(BaseModel):
     # Своё ограничение: 2 без Premium, 3 в пробном, 5 с Premium; None — без ограничения.
     max_owned_stars: int | None
     owned_stars: int
+    # Звёзды «Работа» — только с Premium (и пробным).
+    can_create_work: bool = True
     max_star_members: int
     gaming_max_satellites: int
     gaming_max_planets: int

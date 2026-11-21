@@ -34,8 +34,9 @@ class VideoRequest:
 class RoomActivitiesTest(StarsTestBase):
     async def asyncSetUp(self):
         await super().asyncSetUp()
-        self.star = await self.star_with_roles()
-        self.planet = next(c for c in self.star.channels if c.kind == "planet")
+        # «Орбита фокуса» есть только в рабочих Звёздах; доска, видео и указатели — везде.
+        self.star = await self.star_with_roles("work")
+        self.planet = next(c for c in self.star.channels if c.kind == "planet" and c.room_kind != "lobby")
         self.satellite = next(c for c in self.star.channels if c.kind == "satellite")
         for name in ("alice", "bob"):
             voice._add(self.star.id, self.planet.id, self.users[name].id)
@@ -173,6 +174,14 @@ class RoomActivitiesTest(StarsTestBase):
         self.assertGreater(later["version"], 10)
         # Сеансы, начатые до появления цикла, заканчиваются после перерыва, как раньше.
         self.assertEqual(activity.advance_focus(base, start + timedelta(minutes=10))["phase"], "done")
+
+    async def test_gaming_planets_have_no_focus_orbit(self):
+        gaming = await self.star_with_roles()
+        planet = next(c for c in gaming.channels if c.kind == "planet")
+        voice._add(gaming.id, planet.id, self.users["alice"].id)
+        body = FocusAction(action="start", version=0, work_minutes=25, break_minutes=5)
+        error = await self.expect_error(403, api.focus_action, gaming.id, planet.id, body, user="alice")
+        self.assertIn("рабочих", error.detail)
 
     async def test_focus_pause_resume_permissions_and_takeover(self):
         start = datetime.now(timezone.utc)

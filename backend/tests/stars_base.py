@@ -14,7 +14,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.api import stars as api
-from app.core import presence, voice
+from app.core import premium, presence, voice
 from app.core.database import Base
 from app.models.user import User
 from app.schemas.star import CreateInvite, CreateStar, UpdateMemberRole
@@ -55,6 +55,10 @@ class StarsTestBase(unittest.IsolatedAsyncioTestCase):
         self.addCleanup(presence_patch.stop)
         voice.reset()
         self.addCleanup(voice.reset)
+        # Звёзды «Работа» создают с Premium; в общих тестах это не проверяем (см. test_premium).
+        self.work_star_gate = mock.patch.object(premium, "can_create_work_star", lambda _user: True)
+        self.work_star_gate.start()
+        self.addCleanup(self.work_star_gate.stop)
 
         # Перехватываем рассылку по WebSocket.
         self.events: list[tuple[str, dict]] = []

@@ -2354,3 +2354,9 @@
   font-size: 14px;
   line-height: 1.45;
 }
+
+/* «Работа · с Premium» в выборе типа новой Звезды. */
+.kindPremium {
+  color: var(--qz-online);
+  font-weight: 600;
+}

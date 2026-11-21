@@ -34,10 +34,13 @@ export default function CreateStarDialog({ onClose }: Props) {
 
   const refreshLimits = useStarsStore((st) => st.refreshLimits);
   const limitReached = !!limits && limits.max_owned_stars !== null && limits.owned_stars >= limits.max_owned_stars;
+  // Звёзды «Работа» — с Quazar Premium (и в пробном месяце).
+  const workLocked = limits?.can_create_work === false;
+  const needsPremium = kind === "work" && workLocked;
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!kind || !name.trim()) return;
+    if (!kind || !name.trim() || needsPremium) return;
     setBusy(true);
     setError(null);
     try {
@@ -89,13 +92,26 @@ export default function CreateStarDialog({ onClose }: Props) {
                 aria-pressed={kind === k.kind}
                 disabled={busy}
               >
-                <span className={s.kindTitle}>{k.title}</span>
+                <span className={s.kindTitle}>
+                  {k.title}
+                  {k.kind === "work" && workLocked && <span className={s.kindPremium}> · с Premium</span>}
+                </span>
                 <span className={s.kindText}>{k.text}</span>
               </button>
             ))}
           </div>
 
-          <p className={`${s.hint} ${s.warn}`}>Тип Звезды потом не сменить.</p>
+          {needsPremium ? (
+            <>
+              <p className={s.hint}>
+                Звёзды «Работа» создаются с Quazar Premium — в пробном месяце тоже. Игровую Звезду можно
+                создать и без него.
+              </p>
+              <PremiumUpsell onUpgraded={() => void refreshLimits()} onOpenSettings={onClose} />
+            </>
+          ) : (
+            <p className={`${s.hint} ${s.warn}`}>Тип Звезды потом не сменить.</p>
+          )}
           {limits && (
             <p className={s.hint}>
               {limits.max_owned_stars === null
@@ -110,7 +126,7 @@ export default function CreateStarDialog({ onClose }: Props) {
           <button
             type="submit"
             className={s.primary}
-            disabled={busy || !kind || !name.trim()}
+            disabled={busy || !kind || !name.trim() || needsPremium}
           >
             {busy ? "Создаём…" : "Создать Звезду"}
           </button>

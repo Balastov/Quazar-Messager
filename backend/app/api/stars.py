@@ -641,6 +641,7 @@ async def get_limits(current_user: CurrentUser, db: Db):
     return StarLimitsOut(
         max_owned_stars=premium.star_limit(current_user),
         owned_stars=await _owned_count(db, current_user.id),
+        can_create_work=premium.can_create_work_star(current_user),
         max_star_members=rules.MAX_STAR_MEMBERS,
         gaming_max_satellites=rules.GAMING_MAX_SATELLITES,
         gaming_max_planets=rules.GAMING_MAX_PLANETS,
@@ -680,6 +681,9 @@ async def create_star(body: CreateStar, current_user: CurrentUser, db: Db):
     limit = premium.star_limit(owner)
     if limit is not None and await _owned_count(db, current_user.id) >= limit:
         raise HTTPException(status_code=409, detail=_limit_text(owner, limit))
+    if body.kind == "work" and not premium.can_create_work_star(owner):
+        raise _forbid("Звёзды «Работа» создаются с Quazar Premium — попробуйте бесплатный пробный месяц. "
+                      "Игровую Звезду можно создать и без него.")
 
     star = Star(
         name=body.name,

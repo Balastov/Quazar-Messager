@@ -191,3 +191,18 @@ class PremiumTest(StarsTestBase):
         async with self.Session() as db:
             fresh = await db.get(User, self.users["alice"].id)
             self.assertEqual((await api.get_limits(current_user=fresh, db=db)).max_owned_stars, 5)
+
+    async def test_work_stars_need_premium_but_gaming_stars_do_not(self):
+        self.work_star_gate.stop()  # настоящая проверка
+        error = await self.expect_error(403, api.create_star, CreateStar(name="Офис", kind="work"), user="alice")
+        self.assertIn("Premium", error.detail)
+        self.assertFalse((await self.call(api.get_limits, user="alice")).can_create_work)
+        await self.call(api.create_star, CreateStar(name="Рейд", kind="gaming"), user="alice")
+        # Пробный месяц тоже даёт рабочие Звёзды.
+        await self.trial("alice")
+        alice = await self.fresh("alice")
+        async with self.Session() as db:
+            star = await api.create_star(CreateStar(name="Офис", kind="work"), current_user=alice, db=db)
+            limits = await api.get_limits(current_user=alice, db=db)
+        self.assertEqual(star.kind, "work")
+        self.assertTrue(limits.can_create_work)

@@ -71,6 +71,11 @@ def star_limit(user: User) -> int | None:
     return TRIAL_STARS if current.kind == "trial" else PREMIUM_STARS
 
 
+def can_create_work_star(user: User) -> bool:
+    """Звёзды «Работа» создают с Premium (пробный тоже). Уже созданные остаются и после его конца."""
+    return state(user).active
+
+
 def phone_hash(phone: str) -> str:
     return hashlib.sha256(f"premium-trial:{settings.JWT_SECRET}:{phone}".encode()).hexdigest()
 
@@ -149,10 +154,10 @@ async def revoke(db: AsyncSession, user: User, by: User) -> None:
 
 REMINDERS = (
     # За сколько до конца, ключ и текст напоминания о пробном месяце.
-    (timedelta(days=3), "3d", "Пробный Quazar Premium закончится через 3 дня — {date}. После этого снова можно будет создавать до {free} Звёзд; уже созданные Звёзды останутся и продолжат работать."),
+    (timedelta(days=3), "3d", "Пробный Quazar Premium закончится через 3 дня — {date}. После этого снова можно будет создавать до {free} Звёзд, и только игровые; уже созданные Звёзды, в том числе рабочие, останутся и продолжат работать."),
     (timedelta(days=1), "1d", "Пробный Quazar Premium заканчивается: остался последний день (до {date}). Уже созданные Звёзды останутся с вами и после."),
 )
-ENDED = ("Пробный Quazar Premium закончился. Теперь можно создавать до {free} Звёзд; уже созданные остались и работают. "
+ENDED = ("Пробный Quazar Premium закончился. Теперь можно создавать до {free} Звёзд, и только игровые; уже созданные, в том числе рабочие, остались и работают. "
          "Купить Premium пока нельзя — он в ранней разработке. Мы напишем здесь, когда покупка появится.")
 
 

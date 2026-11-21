@@ -603,6 +603,8 @@ export interface StarLimits {
   /** Своё ограничение: 2 без Premium, 3 в пробном, 5 с Premium; null — без ограничения. */
   max_owned_stars: number | null;
   owned_stars: number;
+  /** Звёзды «Работа» — только с Premium (пробный тоже). Нет поля — старый сервер, можно. */
+  can_create_work?: boolean;
   max_star_members: number;
   gaming_max_satellites: number;
   gaming_max_planets: number;

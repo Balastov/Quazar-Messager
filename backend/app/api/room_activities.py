@@ -15,7 +15,7 @@ from app.core import room_activities as activity
 from app.core import star_files, voice
 from app.core.config import settings
 from app.models.room_activity import RoomActivity, RoomVideo
-from app.models.star import StarChannel, StarFile
+from app.models.star import Star, StarChannel, StarFile
 from app.schemas.room_activity import BoardItemBody, FocusAction, PointersBody, VideoAction
 
 router = APIRouter(prefix="/stars/{star_id}/planets/{channel_id}/activities", tags=["room activities"])
@@ -158,6 +158,9 @@ async def clear_board(star_id: str, channel_id: str, current_user: CurrentUser, 
 
 @router.post("/focus")
 async def focus_action(star_id: str, channel_id: str, body: FocusAction, current_user: CurrentUser, db: Db):
+    star = await db.get(Star, star_id)
+    if star is not None and star.kind != "work":
+        raise HTTPException(status_code=403, detail="«Орбита фокуса» есть только в комнатах рабочих Звёзд")
     row, me = await locked(db, star_id, channel_id, current_user)
     at = activity.now()
     focus = activity.advance_focus(row.focus, at)
@@ -202,7 +205,6 @@ async def upload_video(star_id: str, channel_id: str, request: Request, current_
     if mime not in VIDEO_MIMES:
         raise HTTPException(status_code=422, detail="Выберите видео MP4, WebM или Ogg")
     # Один общий потолок места с файлами Спутников. Блокировка Звезды исключает гонку загрузок комнат.
-    from app.models.star import Star
     await db.execute(select(Star.id).where(Star.id == star_id).with_for_update())
     if len(await videos(db, channel_id)) >= MAX_VIDEOS:
         raise HTTPException(status_code=409, detail="В очереди уже 20 роликов — удалите ненужные")

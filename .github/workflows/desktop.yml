@@ -133,6 +133,26 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+  # Образ сайта для деплоя (web/Dockerfile): собирается, а смена номера версии не заставляет
+  # заново скачивать пакеты npm — слой с npm ci берётся из кэша.
+  web-image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the site image
+        run: docker buildx build --progress=plain --load -t quazar-web-check web
+      - name: A version bump reuses the npm layer and still builds the site
+        run: |
+          node -e "const fs = require('fs'); for (const f of ['web/package.json', 'web/package-lock.json']) { const j = JSON.parse(fs.readFileSync(f, 'utf8')); j.version = '99.0.0'; if (j.packages && j.packages['']) j.packages[''].version = '99.0.0'; fs.writeFileSync(f, JSON.stringify(j, null, 2)); }"
+          docker buildx build --progress=plain --load -t quazar-web-check web 2>&1 | tee second.log
+          step=$(grep -E '^#[0-9]+ \[build [0-9]+/[0-9]+\] RUN .*npm ci' second.log | head -1 | cut -d' ' -f1)
+          echo "npm ci step: ${step:-not found}"
+          if [ -z "$step" ] || ! grep -qx "$step CACHED" second.log; then
+            echo "::error title=web image::npm ci ran again after a version bump — the dependency layer is not cached"
+            exit 1
+          fi
+
   android:
     needs: [test]
     runs-on: ubuntu-latest

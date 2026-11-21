@@ -167,3 +167,34 @@ async def unregister_fcm_device(body: FcmUnregisterIn, db: Annotated[AsyncSessio
         await db.delete(row)
         await db.commit()
     return {"ok": True}
+
+
+class FcmTestIn(BaseModel):
+    token: str = Field(min_length=20, max_length=4096)
+
+
+class FcmTestOut(BaseModel):
+    ok: bool
+    status: int | None = None
+    error: str | None = None
+
+
+@router.post("/fcm/test", response_model=FcmTestOut)
+async def test_fcm_device(
+    body: FcmTestIn,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """«Проверить уведомления» в приложении для Android: пробное уведомление на этот телефон и понятный
+    ответ, что пошло не так (нет ключа, нет связи с Google, ключ не от того проекта…)."""
+    if not fcm.configured():
+        return FcmTestOut(ok=False, error="На сервере не настроены уведомления для приложения (нет ключа Firebase)")
+    row = (await db.execute(select(FcmDevice).where(FcmDevice.token == body.token))).scalar_one_or_none()
+    if not row or row.user_id != current_user.id:
+        return FcmTestOut(ok=False, error="Этот телефон не зарегистрирован для уведомлений. Разрешите уведомления "
+                                          "для Quazar в настройках Android и откройте приложение заново.")
+    outcome = (await fcm.deliver([body.token], {"type": "app_push_test"}))[0]
+    if outcome.stale:
+        await db.delete(row)
+        await db.commit()
+    return FcmTestOut(ok=outcome.ok, status=outcome.status, error=outcome.reason)

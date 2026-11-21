@@ -131,6 +131,15 @@ def message_for(payload: dict[str, Any]) -> dict[str, Any] | None:
     if kind == "connection_test":
         # Проверка связи — про web push конкретного браузера.
         return None
+    if kind == "app_push_test":
+        # Проверка уведомлений из настроек приложения для Android.
+        return {
+            "notification": {"title": "Quazar — проверка уведомлений", "body": "Если вы видите это уведомление, всё работает."},
+            "data": {"kind": "test"},
+            "android": {"priority": "high", "ttl": "300s", "notification": {
+                "channel_id": CHANNEL_GENERAL, "tag": "quazar-app-push-test", "default_sound": True,
+                "notification_priority": "PRIORITY_HIGH"}},
+        }
     if kind == "incoming_call":
         video = bool((payload.get("media") or {}).get("video"))
         title = "Входящий видеозвонок" if video else "Входящий звонок"
@@ -191,50 +200,112 @@ def _client() -> httpx.AsyncClient:
     return httpx.AsyncClient(timeout=10)
 
 
+@dataclass(frozen=True)
+class Outcome:
+    """Чем кончилась отправка на одно устройство. reason — по-русски, для проверки в настройках."""
+
+    ok: bool
+    status: int | None = None
+    reason: str | None = None
+    # Firebase говорит, что приложения на этом телефоне больше нет — адрес можно забыть.
+    stale: bool = False
+
+
+def _error_of(response: httpx.Response) -> tuple[str, set[str], str]:
+    try:
+        error = response.json().get("error", {})
+    except ValueError:
+        return "", set(), response.text[:200]
+    if not isinstance(error, dict):
+        return "", set(), str(error)[:200]
+    details = error.get("details") or []
+    codes = {d.get("errorCode") for d in details if isinstance(d, dict) and d.get("errorCode")}
+    return str(error.get("status") or ""), codes, str(error.get("message") or "")[:200]
+
+
+def _outcome(response: httpx.Response) -> Outcome:
+    if response.status_code == 200:
+        return Outcome(ok=True, status=200)
+    status, codes, message = _error_of(response)
+    code = response.status_code
+    if code == 404 or "UNREGISTERED" in codes:
+        return Outcome(False, code, "Firebase больше не знает этот телефон: приложение удалили или переустановили", stale=True)
+    if "SENDER_ID_MISMATCH" in codes:
+        # Ключ сервера от другого проекта Firebase, чем приложение. Телефон тут ни при чём — адрес не удаляем.
+        return Outcome(False, code, "Ключ сервера от другого проекта Firebase, чем приложение (SENDER_ID_MISMATCH)")
+    if code == 401:
+        return Outcome(False, code, "Google не принял токен доступа сервера")
+    if code == 403:
+        return Outcome(False, code, f"У ключа сервера нет прав на отправку уведомлений ({status or 'PERMISSION_DENIED'}): {message}")
+    if code == 400:
+        return Outcome(False, code, f"Firebase отклонил уведомление ({status or 'INVALID_ARGUMENT'}): {message}")
+    if code in (429, 500, 502, 503, 504):
+        return Outcome(False, code, f"Firebase временно недоступен ({code}) — попробуйте позже")
+    return Outcome(False, code, f"Firebase ответил {code}: {status} {message}".strip())
+
+
 def _stale(response: httpx.Response) -> bool:
     """Адрес устройства больше не действует: приложение удалили или переустановили."""
-    if response.status_code == 404:
-        return True
-    try:
-        details = response.json().get("error", {}).get("details", [])
-    except ValueError:
-        return False
-    codes = {d.get("errorCode") for d in details if isinstance(d, dict)}
-    return bool(codes & {"UNREGISTERED", "SENDER_ID_MISMATCH"})
+    return _outcome(response).stale
 
 
-async def send(tokens: list[str], payload: dict[str, Any]) -> tuple[int, list[str]]:
-    """Отправить уведомление на устройства. Возвращает (сколько доставлено в FCM, недействительные адреса)."""
+async def deliver(tokens: list[str], payload: dict[str, Any]) -> list[Outcome]:
+    """Отправить уведомление на устройства; исход — по каждому, в том же порядке."""
     global _token
     acc = account()
     message = message_for(payload)
-    if not acc or not message or not tokens:
-        return 0, []
+    if not tokens:
+        return []
+    if not acc:
+        return [Outcome(False, None, "На сервере нет ключа Firebase") for _ in tokens]
+    if not message:
+        return [Outcome(False, None, "Это уведомление в приложение не отправляется") for _ in tokens]
     async with _client() as client:
         try:
             access = await _access_token(client, acc)
-        except Exception as exc:  # noqa: BLE001 — сеть или ключ: остальные уведомления это не держит
-            logger.warning("fcm auth failed: %s", type(exc).__name__)
-            return 0, []
+        except httpx.HTTPStatusError as exc:
+            _, _, detail = _error_of(exc.response)
+            try:
+                detail = exc.response.json().get("error_description") or detail
+            except ValueError:
+                pass
+            reason = f"Google не принял ключ сервера ({exc.response.status_code}): {detail}"
+            logger.warning("fcm auth rejected: %s", reason)
+            return [Outcome(False, exc.response.status_code, reason) for _ in tokens]
+        except httpx.HTTPError as exc:
+            reason = f"Нет связи с Google (oauth2.googleapis.com): {type(exc).__name__}"
+            logger.warning("fcm auth failed: %s", reason)
+            return [Outcome(False, None, reason) for _ in tokens]
+        except Exception as exc:  # noqa: BLE001 — например, ключ не читается
+            reason = f"Не удалось подписать запрос ключом сервера: {type(exc).__name__}"
+            logger.warning("fcm auth failed: %s", reason)
+            return [Outcome(False, None, reason) for _ in tokens]
         url = SEND_URL.format(project=acc.project_id)
 
-        async def one(token: str) -> tuple[bool, str | None]:
+        async def one(token: str) -> Outcome:
+            global _token
             try:
                 response = await client.post(
                     url, json={"message": {**message, "token": token}}, headers={"Authorization": f"Bearer {access}"}
                 )
-            except httpx.HTTPError:
-                logger.info("fcm transport error")
-                return False, None
-            if response.status_code == 200:
-                return True, None
+            except httpx.HTTPError as exc:
+                reason = f"Нет связи с Firebase (fcm.googleapis.com): {type(exc).__name__}"
+                logger.warning("fcm send failed: %s", reason)
+                return Outcome(False, None, reason)
             if response.status_code == 401:
                 # Токен доступа отозван раньше срока — в следующий раз возьмём новый.
                 _token = None
-            if _stale(response):
-                return False, token
-            logger.info("fcm rejected (status=%s)", response.status_code)
-            return False, None
+            outcome = _outcome(response)
+            if not outcome.ok and not outcome.stale:
+                logger.warning("fcm rejected: %s", outcome.reason)
+            return outcome
 
-        results = await asyncio.gather(*(one(t) for t in tokens))
-    return sum(1 for ok, _ in results if ok), [t for _, t in results if t]
+        return list(await asyncio.gather(*(one(t) for t in tokens)))
+
+
+async def send(tokens: list[str], payload: dict[str, Any]) -> tuple[int, list[str]]:
+    """Отправить уведомление на устройства. Возвращает (сколько принял FCM, недействительные адреса)."""
+    if not account() or not message_for(payload) or not tokens:
+        return 0, []
+    outcomes = await deliver(tokens, payload)
+    return sum(1 for o in outcomes if o.ok), [t for t, o in zip(tokens, outcomes) if o.stale]

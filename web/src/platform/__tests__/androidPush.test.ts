@@ -2,8 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const http = vi.hoisted(() => ({
   defaults: { headers: { common: {} as Record<string, string | undefined> } },
-  put: vi.fn(async () => ({ data: { ok: true } })),
-  post: vi.fn(async () => ({ data: { ok: true } })),
+  put: vi.fn(async (..._args: unknown[]) => ({ data: { ok: true } as Record<string, unknown> })),
+  post: vi.fn(async (..._args: unknown[]) => ({ data: { ok: true } as Record<string, unknown> })),
 }));
 vi.mock("../../api/client", () => ({ http }));
 
@@ -14,7 +14,7 @@ vi.stubGlobal("localStorage", {
   removeItem: (k: string) => void memory.delete(k),
 });
 
-const { notificationRoute, openFromNotification, resetAndroidPush, startAndroidPush, syncAndroidPush, dropAndroidPush } =
+const { notificationRoute, openFromNotification, resetAndroidPush, startAndroidPush, syncAndroidPush, dropAndroidPush, testAndroidPush } =
   await import("../androidPush");
 const { setNotifyPrefs } = await import("../../notifications/prefs");
 
@@ -147,6 +147,17 @@ describe("registering the phone", () => {
     setNotifyPrefs({ enabled: false });
     await flush(); await flush();
     expect(http.post).toHaveBeenCalledWith("/push/fcm/unregister", { token: "fcm-token-123" });
+  });
+
+  it("checks delivery to this phone and explains a missing registration", async () => {
+    expect((await testAndroidPush()).error).toMatch(/не зарегистрирован/);
+    expect(http.post).not.toHaveBeenCalled();
+    plugin.permission = "granted";
+    await syncAndroidPush();
+    await flush();
+    http.post.mockResolvedValueOnce({ data: { ok: false, status: 403, error: "Ключ сервера от другого проекта Firebase" } });
+    expect(await testAndroidPush()).toEqual({ ok: false, status: 403, error: "Ключ сервера от другого проекта Firebase" });
+    expect(http.post).toHaveBeenCalledWith("/push/fcm/test", { token: "fcm-token-123" }, { timeout: 25_000 });
   });
 
   it("waits for sign-in and does nothing in old app versions or the browser", async () => {

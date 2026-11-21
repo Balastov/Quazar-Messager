@@ -46,8 +46,14 @@ class FakeGoogle:
         self.token_requests: list[dict] = []
         self.sent: list[dict] = []
         self.answers: dict[str, httpx.Response] = {}
+        self.token_answer: httpx.Response | None = None
+        self.offline: set[str] = set()
 
     def handler(self, request: httpx.Request) -> httpx.Response:
+        if request.url.host in self.offline:
+            raise httpx.ConnectError("unreachable", request=request)
+        if request.url.host == "oauth2.googleapis.com" and self.token_answer is not None:
+            return self.token_answer
         if request.url.host == "oauth2.googleapis.com":
             form = dict(x.split("=", 1) for x in request.content.decode().split("&"))
             self.token_requests.append(form)
@@ -137,6 +143,37 @@ class SendTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(ok, 1)
         self.assertEqual(sorted(stale), ["gone", "unregistered"])
 
+    async def test_a_key_from_another_project_is_reported_but_keeps_the_phone(self):
+        self.google.answers["phone"] = httpx.Response(403, json={"error": {"status": "PERMISSION_DENIED", "details": [
+            {"@type": "type.googleapis.com/google.firebase.fcm.v1.FcmError", "errorCode": "SENDER_ID_MISMATCH"}]}})
+        with self.assertLogs("app.core.fcm", "WARNING") as logs:
+            ok, stale = await fcm.send(["phone"], {"type": "chat_message", "chat_id": "c"})
+        self.assertEqual((ok, stale), (0, []))
+        self.assertIn("SENDER_ID_MISMATCH", "\n".join(logs.output))
+        outcome = (await fcm.deliver(["phone"], {"type": "app_push_test"}))[0]
+        self.assertFalse(outcome.ok)
+        self.assertFalse(outcome.stale)
+        self.assertIn("другого проекта", outcome.reason)
+
+    async def test_explains_why_google_refused(self):
+        self.google.token_answer = httpx.Response(400, json={"error": "invalid_grant", "error_description": "Invalid JWT Signature."})
+        with self.assertLogs("app.core.fcm", "WARNING"):
+            outcome = (await fcm.deliver(["phone"], {"type": "app_push_test"}))[0]
+        self.assertEqual(outcome.status, 400)
+        self.assertIn("Invalid JWT Signature", outcome.reason)
+
+        fcm.reset()
+        self.google.token_answer = None
+        self.google.offline = {"oauth2.googleapis.com"}
+        with self.assertLogs("app.core.fcm", "WARNING"):
+            outcome = (await fcm.deliver(["phone"], {"type": "app_push_test"}))[0]
+        self.assertIn("Нет связи с Google", outcome.reason)
+
+        self.google.offline = {"fcm.googleapis.com"}
+        with self.assertLogs("app.core.fcm", "WARNING"):
+            outcome = (await fcm.deliver(["phone"], {"type": "app_push_test"}))[0]
+        self.assertIn("Нет связи с Firebase", outcome.reason)
+
     async def test_silent_without_a_key(self):
         with mock.patch.object(settings, "FIREBASE_SERVICE_ACCOUNT_FILE", str(Path(self.folder) / "missing.json")):
             self.assertFalse(fcm.configured())
@@ -200,6 +237,25 @@ class DevicesTest(StarsTestBase):
         # Выход из аккаунта: адрес знает только само приложение.
         response = await self.client.post("/push/fcm/unregister", json={"token": phone})
         self.assertEqual(response.status_code, 200)
+        self.assertEqual(await self.tokens("bob"), set())
+
+    async def test_check_from_the_phone_tells_what_happened(self):
+        phone = "phone-token-" + "c" * 30
+        test = lambda token, who="bob": self.client.post("/push/fcm/test", headers=self.bearer(who), json={"token": token})  # noqa: E731
+        response = await test(phone)
+        self.assertFalse(response.json()["ok"])
+        self.assertIn("не зарегистрирован", response.json()["error"])
+
+        await self.register(phone, "bob")
+        response = await test(phone)
+        self.assertEqual(response.json(), {"ok": True, "status": 200, "error": None})
+        self.assertEqual(self.google.sent[-1]["message"]["notification"]["title"], "Quazar — проверка уведомлений")
+        # Чужой телефон проверить нельзя.
+        self.assertFalse((await test(phone, who="alice")).json()["ok"])
+
+        self.google.answers[phone] = httpx.Response(404, json={"error": {"status": "NOT_FOUND"}})
+        response = await test(phone)
+        self.assertIn("больше не знает", response.json()["error"])
         self.assertEqual(await self.tokens("bob"), set())
 
     async def test_push_reaches_the_phone_and_forgets_uninstalled_apps(self):

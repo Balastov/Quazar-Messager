@@ -189,6 +189,23 @@ export async function dropAndroidPush(): Promise<void> {
   await http.post("/push/fcm/unregister", { token }).catch(() => {});
 }
 
+export interface AndroidPushTest {
+  ok: boolean;
+  status: number | null;
+  error: string | null;
+}
+
+/** «Проверить уведомления»: сервер шлёт пробное уведомление на этот телефон и говорит, что пошло не так. */
+export async function testAndroidPush(): Promise<AndroidPushTest> {
+  token ??= storedToken();
+  if (!token) {
+    return { ok: false, status: null, error: "Этот телефон ещё не зарегистрирован для уведомлений. Разрешите уведомления " +
+      "для Quazar в настройках Android и откройте приложение заново." };
+  }
+  const { data } = await http.post<AndroidPushTest>("/push/fcm/test", { token }, { timeout: 25_000 });
+  return data;
+}
+
 /** Разрешение Android на уведомления (для настроек). null — не приложение или старая версия без плагина. */
 export async function androidPushPermission(): Promise<AndroidPushPermission | null> {
   const plugin = androidPushPlugin();

@@ -5,6 +5,7 @@ import { useAuthStore } from "../store/auth";
 import { useCallStore } from "../store/call";
 import { useVoiceStore } from "../store/voice";
 import { desktop } from "../platform/desktop";
+import { androidPushPlugin, syncAndroidPush, testAndroidPush } from "../platform/androidPush";
 import { getCtx, startCallRingtone } from "../notifications/sound";
 import { CHECK_ERRORS, notificationHelp, prepareNotificationCheck, type ConnectionCheck } from "../notifications/connectionCheck";
 import { dropPushSubscription, ensurePushSubscription } from "../notifications/push";
@@ -36,6 +37,9 @@ function Checks() {
   const [checking, setChecking] = useState(false), [check, setCheck] = useState<ConnectionCheck | null>(null);
   const [notice, setNotice] = useState(""), [problem, setProblem] = useState("");
   const [confirmation, setConfirmation] = useState<"yes" | "no" | null>(null);
+  // Приложение для Android: уведомление ушло через Firebase — спрашиваем, пришло ли оно.
+  const [appSent, setAppSent] = useState(false);
+  const appPush = !!androidPushPlugin();
   const [sound, setSound] = useState<"idle" | "playing" | "heard" | "silent" | "waiting">("idle");
   const id = useRef<string | null>(null), round = useRef(0), mounted = useRef(false);
   const abort = useRef<AbortController | null>(null), poll = useRef<ReturnType<typeof setTimeout>>();
@@ -61,6 +65,27 @@ function Checks() {
   }, [userId]);
   useEffect(() => { if (busy) { silence(); setSound("idle"); } }, [busy]);
   const testNotification = async () => {
+    if (appPush) {
+      // В приложении для Android уведомления идут через Firebase, а не web push: проверяем их.
+      const current = ++round.current;
+      setChecking(true); setAppSent(false); setCheck(null); setProblem(""); setConfirmation(null);
+      setNotice("Отправляем пробное уведомление на этот телефон…");
+      try {
+        const result = await testAndroidPush();
+        if (!mounted.current || current !== round.current) return;
+        if (result.ok) {
+          setNotice("Firebase принял уведомление — через несколько секунд оно появится в шторке. Можно свернуть Quazar.");
+          setAppSent(true);
+        } else {
+          setNotice(""); setProblem(result.error ?? "Уведомление не отправилось. " + notificationHelp());
+        }
+      } catch (error) {
+        if (mounted.current && current === round.current) { setNotice(""); setProblem(errorText(error)); }
+      } finally {
+        if (mounted.current && current === round.current) setChecking(false);
+      }
+      return;
+    }
     const current = ++round.current; abort.current?.abort(); clearTimeout(poll.current);
     const controller = new AbortController(); abort.current = controller;
     setChecking(true); setCheck(null); setProblem(""); setConfirmation(null); setNotice("Подготавливаем доставку на это устройство…");
@@ -110,7 +135,13 @@ function Checks() {
       <h4>1. Уведомление с сервера</h4>
       <div className={s.actions}>
         <button type="button" className={settings.secondary} disabled={checking} onClick={() => void testNotification()}>{checking ? "Проверяем доставку…" : "Отправить тестовое уведомление"}</button>
-        {!desktop() && problem && <button type="button" className={settings.secondary} disabled={checking} onClick={() => {
+        {appPush && problem && <button type="button" className={settings.secondary} disabled={checking} onClick={() => {
+          setChecking(true); setProblem("");
+          void syncAndroidPush({ ask: true }).then(() => {
+            if (mounted.current) { setNotice("Уведомления переподключены. Повторите проверку."); setChecking(false); }
+          });
+        }}>Переподключить уведомления</button>}
+        {!desktop() && !appPush && problem && <button type="button" className={settings.secondary} disabled={checking} onClick={() => {
           setChecking(true); setProblem("");
           void dropPushSubscription().then(() => useAuthStore.getState().user?.id === userId ? ensurePushSubscription() : false).then(ok => {
             if (mounted.current && useAuthStore.getState().user?.id === userId) { setNotice(ok ? "Уведомления переподключены. Повторите проверку доставки." : "Не удалось переподключить уведомления. " + notificationHelp()); setChecking(false); }
@@ -119,7 +150,7 @@ function Checks() {
       </div>
       {notice && <p className={s.status} role="status">{notice}</p>}
       {problem && <p className={`${s.status} ${s.warn}`} role="alert">{problem}</p>}
-      {check && <div className={s.actions}>
+      {(check || appSent) && <div className={s.actions}>
         <button type="button" className={settings.secondary} onClick={() => setConfirmation("yes")}>Уведомление пришло</button>
         <button type="button" className={settings.secondary} onClick={() => setConfirmation("no")}>Не вижу уведомления</button>
       </div>}

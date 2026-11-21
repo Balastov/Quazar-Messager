@@ -22,7 +22,9 @@ import PeerVideo from "./PeerVideo";
 import ChatResizer from "./ChatResizer";
 import { savedChatWidth, saveChatWidth } from "./roomChatWidth";
 import UnreadBadge from "../chat/UnreadBadge";
-import { hasRoomChat, useStarsStore } from "../../store/stars";
+import { hasRoomChat, roleRank, useStarsStore } from "../../store/stars";
+import { useRecordingStore } from "../../store/recording";
+import { canRecordMeetings } from "../../voice/meetingRecorder";
 import w from "./Work.module.css";
 import { confirmKnock } from "./work";
 import s from "./Constellation.module.css";
@@ -151,6 +153,7 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
                 ? "🔒 по приглашениям · "
                 : `${nouns.one} · `}
           {listenOnly ? "🎧 только слушать · " : ""}
+          {presence.some((p) => p.recording) ? "🔴 идёт запись · " : ""}
           {room ? `${room} · ` : ""}
           {presence.length} из {capacity}
           {activeSince(detail, channel.id) && (
@@ -558,10 +561,35 @@ export function RoomControls({ detail, channel }: { detail: StarDetail; channel:
   const mine = presence.find((p) => p.user_id === myId);
   const cameraBlocked = !!mine?.camera_blocked;
   const camerasFull = !voice.cameraOn && presence.filter((p) => p.camera && p.user_id !== myId).length >= MAX_CAMERAS;
+  // Запись встречи: в комнатах рабочих Звёзд, включают модераторы и главный в комнате.
+  const recording = useRecordingStore();
+  const [recordDialogOpen, setRecordDialogOpen] = useState(false);
+  const recorderHere = presence.find((p) => p.recording);
+  const myRecordingHere = recording.active?.channelId === channel.id;
+  const canRecord =
+    detail.kind === "work" &&
+    hasRoomChat(channel) &&
+    !visitor &&
+    (roleRank(detail.my_role) >= roleRank("moderator") || !!mine?.is_host) &&
+    canRecordMeetings();
 
   return (
     <>
       <div className={s.voiceControls} role="toolbar" aria-label="Управление разговором">
+        {(recorderHere || myRecordingHere) && (
+          <div className={s.recordingBadge} role="status">
+            <span className={s.recordingDot} aria-hidden />
+            Идёт запись{recorderHere ? ` · ${recorderHere.user_id === myId ? "вы" : presenceName(detail, recorderHere)}` : ""}
+          </div>
+        )}
+        {recording.notice && (
+          <div className={s.recordingNotice} role="alert">
+            {recording.notice}
+            <button type="button" className={s.secondary} onClick={recording.clearNotice}>
+              Понятно
+            </button>
+          </div>
+        )}
         {voice.listenOnly ? (
           <span className={s.listenOnlyBadge} title={`Микрофон ${nouns.inside} не используется`}>
             🎧 Только слушать
@@ -662,6 +690,26 @@ export function RoomControls({ detail, channel }: { detail: StarDetail; channel:
               onClick={() => setScreenDialogOpen(true)}
             />
           ))}
+        {myRecordingHere ? (
+          <ControlButton
+            icon={<span aria-hidden>⏹</span>}
+            tone="off"
+            label="Остановить запись — она появится в чате комнаты"
+            pressed
+            disabled={recording.stopping}
+            onClick={() => void recording.stop()}
+          />
+        ) : (
+          canRecord &&
+          !recorderHere && (
+            <ControlButton
+              icon={<span aria-hidden>⏺</span>}
+              label={recording.starting ? "Включаем запись…" : "Записать встречу"}
+              disabled={recording.starting || recording.stopping || voice.status !== "connected"}
+              onClick={() => setRecordDialogOpen(true)}
+            />
+          )
+        )}
         <ControlButton
           icon={<IconStarHeadphones />}
           label="Микрофон и динамик"
@@ -687,6 +735,31 @@ export function RoomControls({ detail, channel }: { detail: StarDetail; channel:
       {soundsOpen && (
         <Dialog title="Звуковая панель" onClose={() => setSoundsOpen(false)}>
           <Soundboard detail={detail} channelId={channel.id} />
+        </Dialog>
+      )}
+      {recordDialogOpen && (
+        <Dialog title="Записать встречу?" onClose={() => setRecordDialogOpen(false)}>
+          <ul className={s.recordingFacts}>
+            <li>Все в комнате увидят «Идёт запись» и услышат сигнал.</li>
+            <li>Записывается звук всех участников и показ экрана, отдельно — только звук.</li>
+            <li>Пишет ваш браузер: не закрывайте вкладку, пока идёт запись.</li>
+            <li>Запись появится в чате комнаты, её увидят те, кто может войти в комнату. Хранится 90 дней.</li>
+          </ul>
+          <div className={s.dialogActions}>
+            <button type="button" className={s.secondary} onClick={() => setRecordDialogOpen(false)}>
+              Отмена
+            </button>
+            <button
+              type="button"
+              className={s.primary}
+              onClick={() => {
+                setRecordDialogOpen(false);
+                void recording.start(detail.id, channel.id, channel.name);
+              }}
+            >
+              Начать запись
+            </button>
+          </div>
         </Dialog>
       )}
       {screenDialogOpen && <ScreenShareDialog onStart={(mode, shareAudio) => void voice.startScreenShare(mode, shareAudio)}

@@ -214,6 +214,7 @@ async def run_forever(session_factory: async_sessionmaker) -> None:
     from app.core.device_sessions import cleanup as cleanup_device_sessions
     from app.core.login_codes import cleanup as cleanup_login_codes
     from app.api.guests import expire_room_passes
+    from app.core.recordings import sweep as sweep_recordings
     while True:
         for job in (
             room_activities_tick,
@@ -231,6 +232,7 @@ async def run_forever(session_factory: async_sessionmaker) -> None:
             cleanup_device_sessions,
             cleanup_login_codes,
             expire_room_passes,
+            sweep_recordings,
         ):
             try:
                 async with session_factory() as db:

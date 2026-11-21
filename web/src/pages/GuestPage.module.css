@@ -212,3 +212,11 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* Участник записывает встречу. */
+.recording {
+  text-align: center;
+  font-size: 13px;
+  font-weight: 600;
+  color: #fca5a5;
+}

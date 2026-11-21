@@ -21,7 +21,9 @@ export type StarSoundEvent =
   /** Стучатся (просят впустить) — слышат те, кто впускает. */
   | "knock"
   /** Меня зовут: в Звезду или на Планету / в Комнату. */
-  | "invite";
+  | "invite"
+  /** В комнате включили запись встречи. */
+  | "recordOn";
 
 type Synth = (ctx: BaseAudioContext, out: AudioNode, t: number) => void;
 
@@ -140,6 +142,11 @@ const stationChime: Synth = (ctx, out, t) => {
   bell(ctx, out, t + 0.68, 698.46, 0.17, 1.6);
 };
 
+/** Включили запись: три коротких одинаковых сигнала (E5) — слышно и «не музыкально». */
+const recordBeeps: Synth = (ctx, out, t) => {
+  [0, 0.16, 0.32].forEach((dt) => softNote(ctx, out, t + dt, 659.25, 0.16, 0.09));
+};
+
 const SOUNDS: Record<StarSoundEvent, Synth> = {
   enter: softEnter,
   leave: softLeave,
@@ -147,6 +154,7 @@ const SOUNDS: Record<StarSoundEvent, Synth> = {
   peerLeave: peerOut,
   knock: softKnock,
   invite: stationChime,
+  recordOn: recordBeeps,
 };
 
 /** Сыграть звук события; force — для кнопок «Прослушать» в настройках. */

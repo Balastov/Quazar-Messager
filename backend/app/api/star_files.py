@@ -1,5 +1,8 @@
 """Файлы Спутников: загрузка (сырое тело запроса), раздел «Файлы» Звезды с поиском, скачивание."""
 
+import hashlib
+import hmac
+import time
 import uuid
 from datetime import datetime
 from typing import Annotated, Literal
@@ -167,10 +170,24 @@ async def _room_ids(db: AsyncSession, star_id: str) -> set[str]:
     return set(rows.scalars())
 
 
-@router.get("/{star_id}/files/{file_id}")
-async def download_file(star_id: str, file_id: str, current_user: CurrentUser, db: Db):
+# Ссылка на файл для плеера и скачивания прямо на диск: <video> не умеет слать заголовок входа.
+LINK_TTL_SEC = 3600
+
+
+def _link_sig(file_id: str, expires: int) -> str:
+    key = hashlib.sha256(f"quazar-star-file-link:{settings.JWT_SECRET}".encode()).digest()
+    return hmac.new(key, f"{file_id}:{expires}".encode(), hashlib.sha256).hexdigest()
+
+
+class StarFileLinkOut(BaseModel):
+    url: str
+    expires_at: int
+
+
+async def _readable_file(db: AsyncSession, star_id: str, file_id: str, user_id: str) -> StarFile:
+    """Файл, который этот человек может скачать (те же правила, что у самого скачивания)."""
     # Посетитель по гостевой ссылке скачивает файлы из чата своей Комнаты.
-    star, me = await _load_viewer(db, star_id, current_user.id)
+    star, me = await _load_viewer(db, star_id, user_id)
     file = (
         await db.execute(select(StarFile).where(StarFile.id == file_id))
     ).scalar_one_or_none()
@@ -183,17 +200,46 @@ async def download_file(star_id: str, file_id: str, current_user: CurrentUser, d
     if file and me.role == "visitor" and file.channel_id not in await _room_ids(db, star_id):
         file = None
     # Не отправленный файл виден только тому, кто его загрузил.
-    if not file or (file.message_id is None and file.uploader_id != current_user.id):
+    if not file or (file.message_id is None and file.uploader_id != user_id):
         raise HTTPException(status_code=404, detail="Файл не найден")
+    return file
+
+
+@router.get("/{star_id}/files/{file_id}/link", response_model=StarFileLinkOut)
+async def file_link(star_id: str, file_id: str, current_user: CurrentUser, db: Db):
+    """Ссылка на час: по ней файл открывается без входа (для <video> с перемоткой и скачивания)."""
+    await _readable_file(db, star_id, file_id, current_user.id)
+    expires = int(time.time()) + LINK_TTL_SEC
+    return StarFileLinkOut(url=f"/stars/{star_id}/files/{file_id}/raw?e={expires}&s={_link_sig(file_id, expires)}",
+                           expires_at=expires)
+
+
+@router.get("/{star_id}/files/{file_id}/raw")
+async def download_by_link(star_id: str, file_id: str, db: Db, e: int = Query(...), s: str = Query(..., max_length=128)):
+    if e < time.time() or not hmac.compare_digest(s, _link_sig(file_id, e)):
+        raise HTTPException(status_code=403, detail="Ссылка устарела — откройте файл заново")
+    file = await db.get(StarFile, file_id)
+    if not file or file.star_id != star_id and not await shares.is_shared_into(db, file.channel_id, star_id):
+        raise HTTPException(status_code=404, detail="Файл не найден")
+    return _file_response(file)
+
+
+@router.get("/{star_id}/files/{file_id}")
+async def download_file(star_id: str, file_id: str, current_user: CurrentUser, db: Db):
+    return _file_response(await _readable_file(db, star_id, file_id, current_user.id))
+
+
+def _file_response(file: StarFile) -> FileResponse:
     path = star_files.file_path(file.id)
     if not path.is_file():
         raise HTTPException(status_code=404, detail="Файл не найден")
     preview = file.mime in star_files.PREVIEW_MIMES
+    media = file.mime in star_files.MEDIA_MIMES
     return FileResponse(
         path,
         # Чужой HTML или SVG с нашего адреса не должен открыться как страница.
-        media_type=file.mime if preview else "application/octet-stream",
+        media_type=file.mime if preview or media else "application/octet-stream",
         filename=file.name,
-        content_disposition_type="inline" if preview else "attachment",
+        content_disposition_type="inline" if preview or media else "attachment",
         headers={"X-Content-Type-Options": "nosniff", "Cache-Control": "private, max-age=86400"},
     )

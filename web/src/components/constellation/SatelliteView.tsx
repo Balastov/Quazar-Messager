@@ -17,6 +17,7 @@ import { parseSticker } from "../../stickers/format";
 import Sticker from "../Sticker";
 import StarText, { onlyEmoji } from "./StarText";
 import PollCard from "./PollCard";
+import RecordingCard from "./RecordingCard";
 import LfgCard from "./LfgCard";
 import PollDialog from "./PollDialog";
 import LfgDialog from "./LfgDialog";
@@ -980,6 +981,8 @@ export function SatelliteMessage({
       </>
     ) : msg.kind === "poll" && msg.poll ? (
       <PollCard message={msg} detail={detail} />
+    ) : msg.kind === "recording" && msg.recording ? (
+      <RecordingCard message={msg} />
     ) : msg.kind === "lfg" && msg.lfg ? (
       <LfgCard message={msg} detail={detail} />
     ) : starSticker ? (

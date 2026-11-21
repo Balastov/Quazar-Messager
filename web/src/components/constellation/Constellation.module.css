@@ -2302,3 +2302,55 @@
   background: var(--qz-bg-soft);
   color: var(--qz-text-muted);
 }
+
+/* Запись встречи: метка «Идёт запись» над панелью комнаты и сообщение, если запись остановилась. */
+.recordingBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(239, 68, 68, 0.5);
+  background: rgba(239, 68, 68, 0.14);
+  color: #fecaca;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.recordingDot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #ef4444;
+  animation: recordingPulse 1.4s ease-in-out infinite;
+}
+
+@keyframes recordingPulse {
+  50% { opacity: 0.35; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .recordingDot { animation: none; }
+}
+
+.recordingNotice {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  flex-basis: 100%;
+  font-size: 13px;
+  color: #fca5a5;
+  text-align: center;
+}
+
+.recordingFacts {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 6px;
+  font-size: 14px;
+  line-height: 1.45;
+}

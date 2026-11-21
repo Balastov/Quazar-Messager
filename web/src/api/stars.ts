@@ -440,6 +440,17 @@ export interface KnockEvent {
   expires_in: number;
 }
 
+export interface StarRecording {
+  id: string;
+  /** recording — идёт; finished — готова; expired — удалена через 90 дней; empty — ничего не записалось. */
+  status: "recording" | "finished" | "expired" | "empty";
+  started_by: string | null;
+  started_at: string;
+  ended_at: string | null;
+  video?: StarFile | null;
+  audio?: StarFile | null;
+}
+
 export interface VoicePresence {
   user_id: string;
   joined_at: string;
@@ -451,6 +462,8 @@ export interface VoicePresence {
   camera?: boolean;
   /** Модератор выключил камеру и пока не разрешает включить. */
   camera_blocked?: boolean;
+  /** Ведёт запись встречи — все в комнате видят «Идёт запись». */
+  recording?: boolean;
   /** Главный в комнате «По приглашениям». */
   is_host?: boolean;
   /** Гость по ссылке (без аккаунта): его имя; user_id тогда — guest-…. */
@@ -529,8 +542,8 @@ export interface StarMessage {
   edited_at?: string | null;
   reply_to?: StarMessageReply | null;
   reactions?: StarMessageReaction[];
-  /** text | system (приветствие) | poll | lfg | file | bot (интеграция) */
-  kind?: "text" | "system" | "poll" | "lfg" | "file" | "bot";
+  /** text | system (приветствие) | poll | lfg | file | bot (интеграция) | recording (запись встречи) */
+  kind?: "text" | "system" | "poll" | "lfg" | "file" | "bot" | "recording";
   /** Превью первой ссылки (собрал отправитель). */
   link_preview?: LinkPreview | null;
   /** Сообщение интеграции: имя вебхука и сервис (github, gitlab, jira, grafana, alertmanager, generic). */
@@ -546,6 +559,8 @@ export interface StarMessage {
   mention_all?: boolean;
   poll?: StarPoll | null;
   lfg?: StarLfg | null;
+  /** kind == "recording": запись встречи в комнате — видео (звук + показ экрана) и отдельно звук. */
+  recording?: StarRecording | null;
   /** Ответ в ветке — id корня. У корня — сводка ветки. */
   thread_id?: string | null;
   thread_count?: number;
@@ -858,6 +873,18 @@ export const starsApi = {
     starId: string,
     params: { q?: string; channel_id?: string; kind?: "all" | "images" | "docs"; before?: string } = {}
   ) => http.get<StarFilesPage>(`${base(starId)}/files`, { params }).then((r) => r.data),
+  /** Ссылка на час — для <video>/<audio> с перемоткой и скачивания прямо на диск (без загрузки в память). */
+  fileLink: (starId: string, fileId: string) =>
+    http.get<{ url: string; expires_at: number }>(`${base(starId)}/files/${fileId}/link`)
+      .then((r) => `${http.defaults.baseURL ?? ""}${r.data.url}`),
+  startRecording: (starId: string, channelId: string, body: { label: string; video_mime: string; audio_mime: string }) =>
+    http.post<{ id: string }>(`${base(starId)}/planets/${channelId}/recording`, body).then((r) => r.data),
+  recordingChunk: (starId: string, recordingId: string, kind: "video" | "audio", seq: number, data: Blob) =>
+    http.put(`${base(starId)}/recordings/${recordingId}/${kind}`, data, {
+      params: { seq }, headers: { "Content-Type": "application/octet-stream" }, timeout: 120_000,
+    }),
+  stopRecording: (starId: string, recordingId: string) =>
+    http.post(`${base(starId)}/recordings/${recordingId}/stop`),
   downloadFile: (starId: string, fileId: string) =>
     http
       .get<ArrayBuffer>(`${base(starId)}/files/${fileId}`, { responseType: "arraybuffer" })

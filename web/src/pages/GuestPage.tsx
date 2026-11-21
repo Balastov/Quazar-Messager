@@ -65,6 +65,15 @@ interface GuestScreen {
 
 const NAME_KEY = "quazar-guest-name";
 
+/** Идёт ли в комнате запись встречи: сервер пишет это в метаданные комнаты. */
+function roomRecording(metadata: string | undefined): boolean {
+  try {
+    return !!JSON.parse(metadata || "{}").recording;
+  } catch {
+    return false;
+  }
+}
+
 function errorText(err: unknown, fallback: string): string {
   if (axios.isAxiosError(err) && typeof err.response?.data?.detail === "string") return err.response.data.detail;
   return fallback;
@@ -109,6 +118,8 @@ export default function GuestPage() {
   const [needsUnlock, setNeedsUnlock] = useState(false);
   // Показы экрана: в рабочей Комнате их может быть два.
   const [screens, setScreens] = useState<GuestScreen[]>([]);
+  // Кто-то из участников записывает встречу (метаданные комнаты LiveKit).
+  const [recording, setRecording] = useState(false);
   const roomRef = useRef<Room | null>(null);
   const audioRef = useRef<HTMLDivElement>(null);
   // Аудиоплееры: для звука показа — чей это показ (своя громкость у каждого), для голоса — null.
@@ -185,6 +196,7 @@ export default function GuestPage() {
         if (roomRef.current !== room) return;
         setList(people(room));
         setMicOn(room.localParticipant.isMicrophoneEnabled);
+        setRecording(roomRecording(room.metadata));
         setScreens([...room.remoteParticipants.values()].flatMap((sharer) => {
           const video = sharer.getTrackPublication(lk.Track.Source.ScreenShare);
           const audio = sharer.getTrackPublication(lk.Track.Source.ScreenShareAudio);
@@ -204,6 +216,7 @@ export default function GuestPage() {
         .on(lk.RoomEvent.TrackUnpublished, sync)
         .on(lk.RoomEvent.ParticipantNameChanged, sync)
         .on(lk.RoomEvent.Reconnected, sync)
+        .on(lk.RoomEvent.RoomMetadataChanged, sync)
         .on(lk.RoomEvent.LocalTrackUnpublished, (pub) => {
           // Камеру сняли (сами, модератор или «Только слушать») — место в комнате освобождаем.
           if (pub.source === "camera") void cameraRequest(false).catch(() => {});
@@ -369,6 +382,7 @@ export default function GuestPage() {
   const cameras = list.filter((p) => p.camera);
 
   const controls = <div className={s.controls}>
+    {recording && <div className={s.recording} role="status">● Идёт запись встречи</div>}
     {needsUnlock && <button type="button" className={s.primary} onClick={() => void roomRef.current?.startAudio().then(() => setNeedsUnlock(false))}>
       🔊 Нажмите, чтобы слышать собеседников
     </button>}

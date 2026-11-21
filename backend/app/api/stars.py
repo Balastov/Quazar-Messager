@@ -1375,6 +1375,24 @@ async def _chat(db: AsyncSession, star_id: str, channel_id: str, user_id: str) -
     return star, me, await _satellite(db, star_id, channel_id)
 
 
+async def _recordings_out(db: AsyncSession, ids: list[str]) -> dict[str, "RecordingOut"]:
+    """Записи встреч для сообщений kind == "recording": время, кто записал, файлы видео и звука."""
+    from app.models.recording import RoomRecording
+    from app.schemas.star import RecordingOut
+
+    if not ids:
+        return {}
+    recs = (await db.execute(select(RoomRecording).where(RoomRecording.id.in_(ids)))).scalars().all()
+    file_ids = [fid for r in recs for fid in (r.video_file_id, r.audio_file_id)]
+    files = {f.id: StarFileOut(id=f.id, name=f.name, mime=f.mime, size=f.size)
+             for f in (await db.execute(select(StarFile).where(StarFile.id.in_(file_ids)))).scalars()}
+    return {
+        r.id: RecordingOut(id=r.id, status=r.status, started_by=r.started_by, started_at=r.started_at,
+                           ended_at=r.ended_at, video=files.get(r.video_file_id), audio=files.get(r.audio_file_id))
+        for r in recs
+    }
+
+
 async def _messages_out(
     db: AsyncSession, rows: list[tuple[StarMessage, User | None]], viewer_id: str | None = None, *, star_id: str | None = None
 ) -> list[StarMessageOut]:
@@ -1415,6 +1433,7 @@ async def _messages_out(
     if file_ids:
         for f in (await db.execute(select(StarFile).where(StarFile.message_id.in_(file_ids)))).scalars():
             files[f.message_id] = StarFileOut(id=f.id, name=f.name, mime=f.mime, size=f.size)
+    recordings = await _recordings_out(db, [m.ref_id for m, _ in rows if m.kind == "recording" and m.ref_id])
     ack_ids = [m.id for m, _ in rows if m.ack_required]
     ack_counts: dict[str, int] = {}
     my_acks: set[str] = set()
@@ -1449,6 +1468,7 @@ async def _messages_out(
             kind=m.kind,
             poll=polls.get(m.ref_id) if m.kind == "poll" else None,
             lfg=lfgs.get(m.ref_id) if m.kind == "lfg" else None,
+            recording=recordings.get(m.ref_id) if m.kind == "recording" else None,
             file=files.get(m.id),
             mentions=m.mentions or [],
             mention_all=m.mention_all,

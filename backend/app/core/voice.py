@@ -70,6 +70,8 @@ class VoiceParticipant:
     camera_track_sid: str | None = None
     # Модератор выключил камеру: включить её снова человек не может, пока не разрешат.
     camera_blocked: bool = False
+    # Ведёт запись встречи (app/core/recordings.py): все в комнате видят «Идёт запись».
+    recording: bool = False
     # Имя гостя по ссылке (у участников Звезды имя берут из списка участников).
     guest_name: str | None = None
     # Имя в Звезде и фото из токена: по ним посетителя по ссылке видят участники, а он — их.
@@ -86,6 +88,7 @@ class VoiceParticipant:
             "screen_sharing": self.screen_sharing,
             "camera": self.camera,
             "camera_blocked": self.camera_blocked,
+            "recording": self.recording,
             "guest_name": self.guest_name,
             "name": self.name,
             "avatar_url": self.avatar_url,
@@ -272,9 +275,12 @@ async def set_host(star_id: str, channel_id: str, user_id: str) -> bool:
 async def _after_leave(star_id: str, channel_id: str, user_id: str | None) -> None:
     """Зал ожидания, стуки и новый главный (импорт здесь: иначе цикл модулей)."""
     from app.api.doors import on_participant_left
+    from app.core import recordings
 
     async with session_factory() as db:
         await on_participant_left(db, star_id, channel_id, user_id)
+        # Включивший запись вышел — запись завершается тем, что успело прийти.
+        await recordings.on_participant_left(db, channel_id, user_id)
 
 
 def _participant(channel_id: str, user_id: str) -> VoiceParticipant | None:
@@ -289,6 +295,19 @@ def screen_sharers(channel_id: str) -> list[VoiceParticipant]:
 
 def is_screen_sharer(channel_id: str, user_id: str | None) -> bool:
     return any(p.user_id == user_id for p in screen_sharers(channel_id))
+
+
+async def set_recording(star_id: str, channel_id: str, user_id: str, on: bool) -> bool:
+    """«Идёт запись» у этого человека в комнате. False — его нет внутри или ничего не поменялось."""
+    participant = _participant(channel_id, user_id)
+    if not participant or participant.recording == on:
+        if not participant and not on:
+            await _remember_start(channel_id)  # включивший уже вышел — снять отметку у гостей
+        return False
+    participant.recording = on
+    await broadcast(star_id, channel_id)
+    await _remember_start(channel_id)
+    return True
 
 
 def cameras(channel_id: str) -> list[VoiceParticipant]:
@@ -529,15 +548,18 @@ async def handle_webhook(event: dict) -> None:
 
 
 async def _remember_start(channel_id: str) -> None:
+    """Метаданные комнаты в LiveKit: с какого времени она активна (переживает перезапуск бэкенда)
+    и идёт ли запись — её видят и гости по ссылке, у которых нет присутствия Звезды."""
     planet = _planets.get(channel_id)
     if not planet:
         return
+    meta: dict = {"active_since": planet.active_since.isoformat()}
+    if any(p.recording for p in planet.participants.values()):
+        meta["recording"] = True
     try:
-        await livekit.room_service.update_room_metadata(
-            room_name(channel_id), json.dumps({"active_since": planet.active_since.isoformat()})
-        )
+        await livekit.room_service.update_room_metadata(room_name(channel_id), json.dumps(meta))
     except livekit.LiveKitError as exc:
-        logger.warning("remember start of %s failed: %s", channel_id, exc)
+        logger.warning("room metadata of %s failed: %s", channel_id, exc)
 
 
 def _from_epoch(value) -> datetime | None:

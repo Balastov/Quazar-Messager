@@ -324,6 +324,8 @@ class VoiceParticipantOut(BaseModel):
     joined_at: datetime
     server_muted: bool
     screen_sharing: bool = False
+    # Ведёт запись встречи — все в комнате видят «Идёт запись».
+    recording: bool = False
     # Включил камеру; camera_blocked — модератор выключил её и пока не разрешает.
     camera: bool = False
     camera_blocked: bool = False
@@ -420,6 +422,19 @@ class StarFileOut(BaseModel):
     size: int
 
 
+class RecordingOut(BaseModel):
+    """Запись встречи в комнате (сообщение kind == "recording")."""
+
+    id: str
+    # recording — идёт; finished — готова; expired — файлы удалены через 90 дней; empty — ничего не записалось.
+    status: str
+    started_by: str | None
+    started_at: datetime
+    ended_at: datetime | None
+    video: StarFileOut | None = None
+    audio: StarFileOut | None = None
+
+
 class StarFileListItem(StarFileOut):
     """Файл в разделе «Файлы» Звезды."""
 
@@ -458,6 +473,8 @@ class StarMessageOut(BaseModel):
     buttons: list[BotButton] = []
     poll: PollOut | None = None
     lfg: LfgOut | None = None
+    # kind == "recording": запись встречи в комнате (видео и звук).
+    recording: "RecordingOut | None" = None
     # Ответ в ветке — id корня; у корня — сводка ветки.
     thread_id: str | None = None
     thread_author_id: str | None = None

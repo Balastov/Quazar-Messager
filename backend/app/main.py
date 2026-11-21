@@ -46,6 +46,7 @@ from app.api.star_play import router as star_play_router
 from app.api.star_work import me_router as star_work_me_router
 from app.api.star_work import router as star_work_router
 from app.api.star_files import router as star_files_router
+from app.api.recordings import router as recordings_router
 from app.api.notify import router as notify_router
 from app.api.admin import router as admin_router
 from app.api.pins import router as pins_router
@@ -438,6 +439,7 @@ app.include_router(star_community_router)
 app.include_router(star_play_router)
 app.include_router(star_work_router)
 app.include_router(star_files_router)
+app.include_router(recordings_router)
 app.include_router(pins_router)
 app.include_router(star_bookmarks_router)
 app.include_router(star_notes_router)

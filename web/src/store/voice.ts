@@ -301,6 +301,29 @@ function peerOf(p: Participant, isLocal: boolean): VoicePeer {
   };
 }
 
+let beforeLeave: (() => Promise<void>) | null = null;
+const BEFORE_LEAVE_MS = 8000;
+
+/** Что сделать перед выходом из комнаты (запись встречи — остановить и дослать). */
+export function setBeforeLeave(fn: (() => Promise<void>) | null): void {
+  beforeLeave = fn;
+}
+
+/** Для записи встречи: что сейчас звучит в комнате (мой микрофон, собеседники, звук показа экрана)
+ *  и какие экраны показывают. Пусто — не в комнате. */
+export function roomMediaForRecording(): { audio: MediaStreamTrack[]; screens: MediaStreamTrack[] } {
+  if (!room) return { audio: [], screens: [] };
+  const audio: MediaStreamTrack[] = [];
+  // Выключенный микрофон LiveKit глушит сам (трек остаётся) — в записи тишина, как и у собеседников.
+  if (mic) audio.push(mic.denoiser?.track ?? mic.raw);
+  for (const played_ of played.values()) audio.push(played_.track.mediaStreamTrack);
+  for (const track of localScreenTracks(room)) {
+    if (track.kind === "audio") audio.push(track.mediaStreamTrack);
+  }
+  const screens = useVoiceStore.getState().screens.map((screen) => screen.track.mediaStreamTrack);
+  return { audio: audio.filter((track) => track.readyState === "live"), screens };
+}
+
 /** Моя опубликованная камера. */
 function localCameraTrack(r: Room): LocalTrack | null {
   for (const pub of r.localParticipant.trackPublications.values()) {
@@ -880,6 +903,10 @@ export const useVoiceStore = create<VoiceState>((set, get) => {
     },
 
     leave: async () => {
+      // Сначала дописать запись встречи (последние секунды), потом выходить — но не держать долго.
+      if (beforeLeave && get().status !== "idle") {
+        await Promise.race([beforeLeave().catch(() => {}), new Promise((done) => setTimeout(done, BEFORE_LEAVE_MS))]);
+      }
       leavingOnPurpose = true;
       if (!switchingPlace && get().status !== "idle") void playStarSound("leave");
       await cleanup();

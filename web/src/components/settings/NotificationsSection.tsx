@@ -25,6 +25,7 @@ const STAR_SOUNDS: [StarSoundEvent, string][] = [
   ["peerLeave", "Кто-то вышел"],
   ["knock", "Стук"],
   ["invite", "Приглашение"],
+  ["recordOn", "Включили запись"],
 ];
 
 export default function NotificationsSection() {

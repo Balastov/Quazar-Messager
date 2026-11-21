@@ -26,6 +26,8 @@ UNSENT_TTL = timedelta(hours=24)
 ORPHAN_FILE_GRACE_SEC = 60 * 60
 # Картинки, которые можно показать прямо в Спутнике; остальное отдаём как octet-stream.
 PREVIEW_MIMES = {"image/jpeg", "image/png", "image/gif", "image/webp"}
+# Звук и видео (записи встреч и загруженные файлы) — тоже прямо в браузере, с перемоткой (Range).
+MEDIA_MIMES = {"video/webm", "video/mp4", "audio/webm", "audio/mp4", "audio/ogg", "audio/mpeg"}
 
 _SAFE_ID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 _MIME = re.compile(r"^[a-z0-9][a-z0-9!#$&^_.+-]{0,63}/[a-z0-9][a-z0-9!#$&^_.+-]{0,63}$")
@@ -119,6 +121,14 @@ async def sweep(session: AsyncSession) -> int:
     )
     await session.commit()
     known = set((await session.execute(select(StarFile.id))).scalars().all())
+    # Идущие записи встреч: их файлы получают строку StarFile только при завершении.
+    from app.models.recording import RoomRecording
+    for video_id, audio_id in (
+        await session.execute(
+            select(RoomRecording.video_file_id, RoomRecording.audio_file_id).where(RoomRecording.status == "recording")
+        )
+    ).all():
+        known |= {video_id, audio_id}
     now = time.time()
     removed = 0
     for path in files_dir().iterdir():

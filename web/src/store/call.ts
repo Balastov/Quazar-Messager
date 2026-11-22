@@ -6,7 +6,7 @@ import { CallPeer } from "../calls/peer";
 import { getNoiseSuppressionPref, setNoiseSuppressionPref } from "../calls/noiseSuppression";
 import { applyIosRoute } from "../calls/devices";
 import { clearCallNotification, notifyIncomingCall } from "../notifications/notify";
-import { startCallRingtone, startConnectionLostTone } from "../notifications/sound";
+import { playCallSound, startCallRingtone, startConnectionLostTone, startRingback } from "../notifications/sound";
 import { isPresenting, setPresenting, usePresentingStore } from "../notifications/presenting";
 import { socket } from "../ws/socket";
 import { useAuthStore } from "./auth";
@@ -932,4 +932,20 @@ usePresentingStore.subscribe((st, prev) => {
   if (!(st.call || st.room) || prev.call || prev.room || useCallStore.getState().phase !== "incoming") return;
   stopRing();
   void clearCallNotification(useCallStore.getState().callId);
+});
+
+// Звуки хода звонка: гудки у звонящего, пока не ответили; «соединились»; «звонок завершён»
+// (положили трубку, сбросили, занято, не ответили). Пропущенный входящий молчит — там был рингтон.
+let stopRingback: (() => void) | null = null;
+const TALKING: CallPhase[] = ["outgoing", "connecting", "active"];
+
+useCallStore.subscribe((st, prev) => {
+  if (st.phase === prev.phase) return;
+  if (st.phase === "outgoing") stopRingback ??= startRingback();
+  else {
+    stopRingback?.();
+    stopRingback = null;
+  }
+  if (st.phase === "active") void playCallSound("connected");
+  else if ((st.phase === "ended" || st.phase === "idle") && TALKING.includes(prev.phase)) void playCallSound("ended");
 });

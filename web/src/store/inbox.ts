@@ -38,7 +38,7 @@ export const useInboxStore = create<InboxState>((set, get) => {
         items: s.items.some((i) => i.id === item.id) ? s.items : [item, ...s.items],
         unread: event.unread,
       }));
-      void notifyInbox({ id: item.id, title: item.title, body: item.body, starId: item.data.star_id, channelId: item.data.channel_id });
+      void notifyInbox({ id: item.id, kind: item.kind, title: item.title, body: item.body, starId: item.data.star_id, channelId: item.data.channel_id });
     } else if (event.type === "inbox_read") {
       readLocally(event.ids);
       set({ unread: event.unread });

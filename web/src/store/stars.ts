@@ -726,14 +726,9 @@ export const useStarsStore = create<StarsState>((set, get) => {
       case "star_bookings":
         if (get().bookings[starId]) void get().loadBookings(starId);
         break;
-      case "star_booking_soon": {
-        const at = new Date(event.starts_at).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
-        // Бронь могли сделать на «уже сейчас» или за пару минут до начала.
-        const minutes = Math.round((Date.parse(event.starts_at) - Date.now()) / 60_000);
-        const when = minutes > 0 ? `Через ${minutes} мин` : "Уже идёт";
-        notifyInfo({ title: `📅 ${when}: «${event.title}»`, body: `${event.room ?? "Переговорная"} · в ${at}` });
+      // «Скоро встреча» приходит и в зелёный колокольчик (inbox_new): там всплывашка со своим звуком.
+      case "star_booking_soon":
         break;
-      }
       case "star_message_reaction":
         patchMessages(event.channel_id, (list) =>
           list.map((m) =>

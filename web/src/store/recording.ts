@@ -3,7 +3,7 @@
  *
  * Перед выходом из комнаты запись останавливается и дописывает хвост; вышел из комнаты иначе
  * (обрыв, перешёл в другую) — тоже останавливается. Когда в моей комнате кто-то включил запись,
- * играет короткий сигнал (флаг recording в присутствии комнаты).
+ * играет короткий сигнал (флаг recording в присутствии комнаты), когда запись закончилась — другой.
  */
 import { create } from "zustand";
 import { starsApi } from "../api/stars";
@@ -120,9 +120,16 @@ function recordingInMyRoom(): string | null {
   return who ? `${voice.channelId}:${who}` : null;
 }
 
+/** Я всё ещё в той комнате, где шла запись (а не вышел из неё сам). */
+function stillIn(key: string): boolean {
+  const voice = useVoiceStore.getState();
+  return voice.status === "connected" && key.startsWith(`${voice.channelId}:`);
+}
+
 function checkRecordingSound() {
   const key = recordingInMyRoom();
   if (key && key !== heardRecording) void playStarSound("recordOn");
+  else if (!key && heardRecording && stillIn(heardRecording)) void playStarSound("recordOff");
   heardRecording = key;
 }
 

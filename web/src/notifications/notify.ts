@@ -1,6 +1,6 @@
 import { browserPermission, getNotifyPrefs } from "./prefs";
 import { desktop } from "../platform/desktop";
-import { playSoftChime } from "./sound";
+import { playMeetingSoon, playSoftChime, soundReady } from "./sound";
 import { useToastStore } from "./toastStore";
 import { isDoNotDisturb } from "../store/presence";
 import { isPresenting, usePresentingStore } from "./presenting";
@@ -20,6 +20,29 @@ function truncate(text: string, max = 120): string {
   const cleaned = text.replace(/\s+/g, " ").trim();
   if (cleaned.length <= max) return cleaned;
   return `${cleaned.slice(0, max - 1)}…`;
+}
+
+/** Системное уведомление звучит нашим сигналом, если страница уже может играть звук (окно в фоне,
+ * но открыто): само уведомление тогда тихое. Иначе — звук системы, как раньше. */
+function ownSound(sound: boolean): boolean {
+  return sound && soundReady();
+}
+
+/** Сыграть сигнал после системного уведомления: свой — всегда, а если уведомление не показалось —
+ * хотя бы звуком. Push об этом сообщении уже прозвенел сам — молчим. */
+function playAfterShown(sound: boolean, own: boolean, shown: boolean, messageId: string | undefined, play: () => void) {
+  if (!sound || wasPushShown(messageId)) return;
+  if (own || !shown) play();
+}
+
+/** Push от сервера уже показал уведомление с этим тегом (и прозвенел сам). */
+async function shownByPush(tag: string): Promise<boolean> {
+  try {
+    const reg = await notificationRegistration();
+    return !!(await reg?.getNotifications({ tag }))?.length;
+  } catch {
+    return false;
+  }
 }
 
 export async function requestNotifyPermission(): Promise<NotificationPermission | "unsupported"> {
@@ -205,11 +228,12 @@ export async function notifyIncomingMessage(info: IncomingNotify): Promise<void>
     if (prefs.sound) void playSoftChime();
     return;
   }
+  const own = ownSound(prefs.sound);
   const shown = await showSystemNotification({title, body, chatId: info.chatId, messageId: info.messageId,
-    tag: info.messageId ? `quazar-message-${info.messageId}` : `quazar-chat-${info.chatId}`, silent: !prefs.sound});
+    tag: info.messageId ? `quazar-message-${info.messageId}` : `quazar-chat-${info.chatId}`, silent: !prefs.sound || own});
   if (generation !== notificationGeneration()) return;
   if (shown && info.messageId) acknowledgeMessage(info.messageId, true);
-  if (!shown && prefs.sound) void playSoftChime();
+  playAfterShown(prefs.sound, own, shown, info.messageId, () => void playSoftChime());
 }
 
 /** Демонстрация экрана: только звук. Сообщение считается обработанным — сервер не пришлёт
@@ -238,32 +262,40 @@ export async function notifyStarMessage(info: {
     if (prefs.sound) void playSoftChime();
     return;
   }
+  const own = ownSound(prefs.sound);
   const shown = await showSystemNotification({title: info.title, body, kind: "star", starId: info.starId,
-    channelId: info.channelId, messageId: info.messageId, threadId: info.threadId, silent: !prefs.sound,
+    channelId: info.channelId, messageId: info.messageId, threadId: info.threadId, silent: !prefs.sound || own,
     tag: info.messageId ? `quazar-star-message-${info.messageId}` : `quazar-star-${info.channelId}`});
   if (generation !== notificationGeneration()) return;
   if (shown && info.messageId) acknowledgeMessage(info.messageId, true);
-  if (!shown && prefs.sound) void playSoftChime();
+  playAfterShown(prefs.sound, own, shown, info.messageId, () => void playSoftChime());
 }
 
 /** Новое в зелёном колокольчике (брони): всплывашка в приложении, в фоне — системное уведомление.
  * Тег тот же, что у push от сервера: одно и то же не покажется дважды. id едет в поле messageId —
  * десктопное приложение пропускает в данных уведомления только известные поля. */
-export async function notifyInbox(info: { id: string; title: string; body: string; starId?: string; channelId?: string }): Promise<void> {
+export async function notifyInbox(info: {
+  id: string; kind?: string; title: string; body: string; starId?: string; channelId?: string;
+}): Promise<void> {
   const prefs = getNotifyPrefs();
   if (!prefs.enabled || isDoNotDisturb()) return;
+  // «Скоро встреча» звучит своим сигналом — не спутать с сообщением.
+  const play = info.kind === "booking_soon" ? () => void playMeetingSoon() : () => void playSoftChime();
   if (isPresenting()) {
-    if (prefs.sound) void playSoftChime();
+    if (prefs.sound) play();
     return;
   }
   if (isAppFocused()) {
     useToastStore.getState().push({ title: info.title, body: truncate(info.body), starId: info.starId, channelId: info.channelId, inboxId: info.id });
-    if (prefs.sound) void playSoftChime();
+    if (prefs.sound) play();
     return;
   }
+  const tag = `quazar-inbox-${info.id}`;
+  const sound = prefs.sound && !(await shownByPush(tag));
+  const own = ownSound(sound);
   const shown = await showSystemNotification({ title: info.title, body: truncate(info.body), kind: "inbox", starId: info.starId,
-    channelId: info.channelId, messageId: info.id, tag: `quazar-inbox-${info.id}`, silent: !prefs.sound });
-  if (!shown && prefs.sound) void playSoftChime();
+    channelId: info.channelId, messageId: info.id, tag, silent: !sound || own });
+  playAfterShown(sound, own, shown, undefined, play);
 }
 
 /** Полный тест: toast + системное уведомление + звук (даже если звук в настройках выключен). */

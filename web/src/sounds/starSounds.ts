@@ -23,7 +23,9 @@ export type StarSoundEvent =
   /** Меня зовут: в Звезду или на Планету / в Комнату. */
   | "invite"
   /** В комнате включили запись встречи. */
-  | "recordOn";
+  | "recordOn"
+  /** Запись встречи в комнате закончилась. */
+  | "recordOff";
 
 type Synth = (ctx: BaseAudioContext, out: AudioNode, t: number) => void;
 
@@ -147,6 +149,12 @@ const recordBeeps: Synth = (ctx, out, t) => {
   [0, 0.16, 0.32].forEach((dt) => softNote(ctx, out, t + dt, 659.25, 0.16, 0.09));
 };
 
+/** Запись остановлена: два коротких сигнала вниз (E5 → A4) — «отбой». */
+const recordEndBeeps: Synth = (ctx, out, t) => {
+  softNote(ctx, out, t, 659.25, 0.16, 0.09);
+  softNote(ctx, out, t + 0.16, 440, 0.17, 0.22);
+};
+
 const SOUNDS: Record<StarSoundEvent, Synth> = {
   enter: softEnter,
   leave: softLeave,
@@ -155,6 +163,7 @@ const SOUNDS: Record<StarSoundEvent, Synth> = {
   knock: softKnock,
   invite: stationChime,
   recordOn: recordBeeps,
+  recordOff: recordEndBeeps,
 };
 
 /** Сыграть звук события; force — для кнопок «Прослушать» в настройках. */

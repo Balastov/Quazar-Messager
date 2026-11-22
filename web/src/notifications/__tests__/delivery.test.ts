@@ -1,15 +1,16 @@
 import {afterEach, beforeEach, expect, it, vi} from "vitest";
 
 vi.mock("../../store/presence", () => ({isDoNotDisturb: () => controls.dnd}));
-vi.mock("../sound", () => ({playSoftChime: vi.fn()}));
-const controls = vi.hoisted(() => ({dnd: false}));
+vi.mock("../sound", () => ({playSoftChime: vi.fn(), playMeetingSoon: vi.fn(), soundReady: () => controls.soundReady}));
+const controls = vi.hoisted(() => ({dnd: false, soundReady: false}));
 const memory = new Map<string, string>();
 vi.stubGlobal("localStorage", {getItem: (key: string) => memory.get(key) ?? null,
   setItem: (key: string, value: string) => memory.set(key, value)});
 const {notifyIncomingMessage, notifyStarMessage} = await import("../notify");
 const {useToastStore} = await import("../toastStore");
 const {setNotifyPrefs} = await import("../prefs");
-const {playSoftChime} = await import("../sound");
+const {playSoftChime, playMeetingSoon} = await import("../sound");
+const {notifyInbox} = await import("../notify");
 const {http} = await import("../../api/client");
 const {setNotificationUser, setPushEndpoint, pushWasShown, acknowledgeMessage} = await import("../delivery");
 const {notifyIncomingCall, notifyReminder} = await import("../notify");
@@ -20,7 +21,7 @@ let show: ReturnType<typeof vi.fn>, fallback: ReturnType<typeof vi.fn>;
 const star = (id: string) => ({title: "Алиса · #общий", body: "Сообщение", starId: "star", channelId: "channel", messageId: id});
 
 beforeEach(() => {
-  vi.useFakeTimers(); vi.clearAllMocks(); memory.clear(); controls.dnd = false;
+  vi.useFakeTimers(); vi.clearAllMocks(); memory.clear(); controls.dnd = false; controls.soundReady = false;
   vi.stubGlobal("localStorage", {getItem: (key: string) => memory.get(key) ?? null,
     setItem: (key: string, value: string) => memory.set(key, value)});
   setNotificationUser(null); setNotificationUser("me");
@@ -55,6 +56,31 @@ it("notifies an unfocused visible window and uses the message tag shared with pu
   expect(show).toHaveBeenCalledWith("Алиса · #общий", expect.objectContaining({tag: "quazar-star-message-unfocused", silent: false, renotify: false}));
   expect(useToastStore.getState().toasts).toHaveLength(0);
   expect(playSoftChime).not.toHaveBeenCalled();
+});
+
+it("plays its own sound with a silent system notification once the page may play audio", async () => {
+  focus = false; visibility = "hidden"; controls.soundReady = true;
+  await notifyIncomingMessage({title: "Боб", body: "Текст", chatId: "chat", isActiveChat: false, messageId: "own"});
+  expect(show).toHaveBeenCalledWith("Боб", expect.objectContaining({tag: "quazar-message-own", silent: true}));
+  expect(playSoftChime).toHaveBeenCalledOnce();
+  await notifyStarMessage(star("own-star"));
+  expect(show).toHaveBeenLastCalledWith("Алиса · #общий", expect.objectContaining({silent: true}));
+  expect(playSoftChime).toHaveBeenCalledTimes(2);
+});
+
+it("gives the meeting reminder its own sound and stays quiet when its push already rang", async () => {
+  await notifyInbox({id: "soon", kind: "booking_soon", title: "Скоро встреча «Планёрка»", body: "«Переговорная» в 10:00"});
+  expect(playMeetingSoon).toHaveBeenCalledOnce();
+  expect(playSoftChime).not.toHaveBeenCalled();
+  await notifyInbox({id: "invite", kind: "booking_invite", title: "Вас позвали на встречу", body: "«Переговорная»"});
+  expect(playSoftChime).toHaveBeenCalledOnce();
+
+  focus = false; visibility = "hidden"; controls.soundReady = true;
+  const reg = {active: {}, showNotification: show, getNotifications: vi.fn().mockResolvedValue([{}])};
+  vi.stubGlobal("navigator", {serviceWorker: {ready: Promise.resolve(reg), getRegistration: vi.fn().mockResolvedValue(reg)}});
+  await notifyInbox({id: "pushed", kind: "booking_soon", title: "Скоро встреча", body: "Переговорная"});
+  expect(show).toHaveBeenLastCalledWith("Скоро встреча", expect.objectContaining({tag: "quazar-inbox-pushed", silent: true}));
+  expect(playMeetingSoon).toHaveBeenCalledOnce();
 });
 
 it("honors device sound preferences in background chat notifications", async () => {

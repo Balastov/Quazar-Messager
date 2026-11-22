@@ -52,6 +52,7 @@ import {
 import { useCallStore } from "./call";
 import { roomWords, type RoomWords } from "../components/constellation/words";
 import { playStarSound } from "../sounds/starSounds";
+import { startConnectionLostTone } from "../notifications/sound";
 import { SpeakingMonitor } from "../voice/speaking";
 import { socket } from "../ws/socket";
 import { hotkey, isTyping, loadVoiceKeys, saveVoiceKeys, type VoiceKeyPrefs } from "../voice/keys";
@@ -1213,6 +1214,29 @@ export const useVoiceStore = create<VoiceState>((set, get) => {
 });
 
 useVoiceStore.subscribe((st) => setPresenting("room", st.sharingScreen));
+
+// Пропала связь с комнатой: если LiveKit не вернул её за пару секунд — мягкие сигналы, как в
+// звонке, чтобы человек не говорил в пустоту. Связь вернулась — сигналы стихают и звучит «вход».
+const ROOM_LOST_DELAY_MS = 2000;
+let roomLostTimer: ReturnType<typeof setTimeout> | null = null;
+let stopRoomLostTone: (() => void) | null = null;
+
+useVoiceStore.subscribe((st, prev) => {
+  if (st.status === prev.status) return;
+  if (st.status === "reconnecting") {
+    roomLostTimer ??= setTimeout(() => {
+      roomLostTimer = null;
+      if (useVoiceStore.getState().status === "reconnecting") stopRoomLostTone = startConnectionLostTone();
+    }, ROOM_LOST_DELAY_MS);
+    return;
+  }
+  if (roomLostTimer) clearTimeout(roomLostTimer);
+  roomLostTimer = null;
+  const wasLost = !!stopRoomLostTone;
+  stopRoomLostTone?.();
+  stopRoomLostTone = null;
+  if (wasLost && st.status === "connected") void playStarSound("enter");
+});
 
 // Рация и горячие клавиши — пока вкладка в фокусе (глобальных клавиш браузер сайтам не даёт).
 if (typeof window !== "undefined") {

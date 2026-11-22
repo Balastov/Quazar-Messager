@@ -178,7 +178,14 @@ vi.mock("../../api/stars", () => ({
   },
 }));
 
-vi.mock("../../sounds/starSounds", () => ({ playStarSound: async () => {} }));
+const sounds = vi.hoisted(() => ({ play: vi.fn(async () => {}), stopLost: vi.fn(), startLost: vi.fn() }));
+vi.mock("../../sounds/starSounds", () => ({ playStarSound: sounds.play }));
+vi.mock("../../notifications/sound", () => ({
+  startConnectionLostTone: () => {
+    sounds.startLost();
+    return sounds.stopLost;
+  },
+}));
 
 const callState = { phase: "idle" };
 vi.mock("../call", () => ({ useCallStore: { getState: () => callState } }));
@@ -802,3 +809,29 @@ describe("microphone unplugged and plugged back", () => {
   });
 });
 
+describe("room connection sounds", () => {
+  it("beeps only when the room stays lost for a while and greets the return", async () => {
+    vi.useFakeTimers();
+    try {
+      useVoiceStore.setState({ status: "connected" });
+      sounds.play.mockClear();
+      // Короткий обрыв: LiveKit вернул связь быстрее двух секунд — тишина.
+      useVoiceStore.setState({ status: "reconnecting" });
+      vi.advanceTimersByTime(1500);
+      useVoiceStore.setState({ status: "connected" });
+      vi.advanceTimersByTime(2000);
+      expect(sounds.startLost).not.toHaveBeenCalled();
+      expect(sounds.play).not.toHaveBeenCalled();
+
+      useVoiceStore.setState({ status: "reconnecting" });
+      vi.advanceTimersByTime(2000);
+      expect(sounds.startLost).toHaveBeenCalledOnce();
+      useVoiceStore.setState({ status: "connected" });
+      expect(sounds.stopLost).toHaveBeenCalledOnce();
+      expect(sounds.play).toHaveBeenCalledWith("enter");
+    } finally {
+      useVoiceStore.setState({ status: "idle" });
+      vi.useRealTimers();
+    }
+  });
+});

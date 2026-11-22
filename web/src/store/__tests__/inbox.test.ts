@@ -26,7 +26,7 @@ it("shows a new notification live and raises the counter", () => {
   emit({type: "inbox_new", notification: item("n1"), unread: 1});
   expect(useInboxStore.getState().items.map((i) => i.id)).toEqual(["n1"]);
   expect(useInboxStore.getState().unread).toBe(1);
-  expect(notifyInbox).toHaveBeenCalledWith({id: "n1", title: "Встреча n1", body: "«Переговорная»", starId: "star", channelId: "room"});
+  expect(notifyInbox).toHaveBeenCalledWith({id: "n1", kind: "booking_invite", title: "Встреча n1", body: "«Переговорная»", starId: "star", channelId: "room"});
 });
 
 it("opening marks it read, lowers the counter and goes to the room", async () => {

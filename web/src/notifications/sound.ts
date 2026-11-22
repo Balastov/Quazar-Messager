@@ -310,9 +310,9 @@ export function startConnectionLostTone(): () => void {
 
 // --- Орбита фокуса: общий таймер комнаты ---------------------------------------------------
 //
-// Мягкие колокольчики на чистых синусах с плавной атакой — без щелчка в начале и тише сообщений.
-// Различаются направлением мелодии: вверх — начали работать, вниз — отдыхаем, три ноты вниз
-// с долгим хвостом — сеанс закончен.
+// «Орбита»: стеклянные ноты с эхом, как вход и выход в комнатах, — тише сообщений.
+// Различаются направлением мелодии: вверх — начали работать, вниз и медленнее — отдыхаем,
+// три ноты вниз с долгой последней — сеанс закончен.
 
 export type FocusSound = "work" | "break" | "end";
 
@@ -333,23 +333,65 @@ function softBell(ctx: BaseAudioContext, out: AudioNode, t: number, freq: number
   }
 }
 
-/** Начало работы: две ноты вверх (C5 → G5). */
+/** Стеклянная нота: синус с тихой октавой и плавной атакой (как в звуках комнат). */
+function glassNote(ctx: BaseAudioContext, out: AudioNode, t: number, freq: number, peak: number, decay: number) {
+  for (const { mult, level, attack, length } of [
+    { mult: 1, level: 1, attack: 0.014, length: 1 },
+    { mult: 2, level: 0.16, attack: 0.012, length: 0.55 },
+  ]) {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = "sine";
+    osc.frequency.value = freq * mult;
+    const end = t + attack + decay * length;
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.exponentialRampToValueAtTime(peak * level, t + attack);
+    gain.gain.exponentialRampToValueAtTime(0.0001, end);
+    osc.connect(gain).connect(out);
+    osc.start(t);
+    osc.stop(end + 0.05);
+  }
+}
+
+/** Эхо «большой комнаты»; петлю задержки разбираем, когда эхо стихло. */
+function roomEcho(ctx: BaseAudioContext, out: AudioNode, time: number, feedback: number): AudioNode {
+  const input = ctx.createGain();
+  const delay = ctx.createDelay(1);
+  const fb = ctx.createGain();
+  const damp = ctx.createBiquadFilter();
+  delay.delayTime.value = time;
+  fb.gain.value = feedback;
+  damp.type = "lowpass";
+  damp.frequency.value = 2200;
+  input.connect(out);
+  input.connect(delay);
+  delay.connect(damp).connect(fb).connect(delay);
+  fb.connect(out);
+  setTimeout(() => {
+    input.disconnect();
+    fb.disconnect();
+  }, 4000);
+  return input;
+}
+
+/** Начало работы: две ноты вверх (C5 → G5) с эхом. */
 export function synthFocusWork(ctx: BaseAudioContext, out: AudioNode, t: number): void {
-  softBell(ctx, out, t, 523.25, 0.16, 0.55);
-  softBell(ctx, out, t + 0.22, 783.99, 0.17, 0.9);
+  const fx = roomEcho(ctx, out, 0.22, 0.3);
+  glassNote(ctx, fx, t, 523.25, 0.15, 0.2);
+  glassNote(ctx, fx, t + 0.18, 783.99, 0.166, 0.6);
 }
 
 /** Перерыв: две ноты вниз, медленнее (E5 → C5) — «выдох». */
 export function synthFocusBreak(ctx: BaseAudioContext, out: AudioNode, t: number): void {
-  softBell(ctx, out, t, 659.25, 0.15, 0.7);
-  softBell(ctx, out, t + 0.32, 523.25, 0.15, 1.2);
+  const fx = roomEcho(ctx, out, 0.26, 0.3);
+  glassNote(ctx, fx, t, 659.25, 0.136, 0.25);
+  glassNote(ctx, fx, t + 0.3, 523.25, 0.144, 0.8);
 }
 
 /** Конец сеанса: три ноты вниз (G5 → E5 → C5), последняя долго звучит. */
 export function synthFocusEnd(ctx: BaseAudioContext, out: AudioNode, t: number): void {
-  softBell(ctx, out, t, 783.99, 0.14, 0.5);
-  softBell(ctx, out, t + 0.24, 659.25, 0.14, 0.5);
-  softBell(ctx, out, t + 0.48, 523.25, 0.15, 1.6);
+  const fx = roomEcho(ctx, out, 0.24, 0.32);
+  [783.99, 659.25, 523.25].forEach((freq, i) => glassNote(ctx, fx, t + i * 0.24, freq, 0.14, i === 2 ? 1 : 0.2));
 }
 
 const FOCUS_SYNTH: Record<FocusSound, typeof synthFocusWork> = {
@@ -367,11 +409,26 @@ export async function playFocusSound(kind: FocusSound): Promise<void> {
   FOCUS_SYNTH[kind](ctx, ctx.destination, ctx.currentTime + 0.02);
 }
 
-/** Скоро встреча: три колокольчика вверх (E5 → G5 → C6) — «пора собираться». */
+/** Скоро встреча: «мягкий гонг» — низкий колокол (C4) с долгим хвостом и тихий звон октавой выше. */
 export function synthMeetingSoon(ctx: BaseAudioContext, out: AudioNode, t: number): void {
-  softBell(ctx, out, t, 659.25, 0.17, 0.35);
-  softBell(ctx, out, t + 0.16, 783.99, 0.17, 0.35);
-  softBell(ctx, out, t + 0.32, 1046.5, 0.19, 1.1);
+  softBell(ctx, out, t, 261.63, 0.16, 2.2);
+  // Звон: основной тон и негармоничные обертоны ×2,01 и ×3,02, как у колокола.
+  for (const { mult, level, decay } of [
+    { mult: 1, level: 1, decay: 1.5 },
+    { mult: 2.01, level: 0.35, decay: 0.8 },
+    { mult: 3.02, level: 0.12, decay: 0.45 },
+  ]) {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = "sine";
+    osc.frequency.value = 523.25 * mult;
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.exponentialRampToValueAtTime(0.043 * level, t + 0.006);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.006 + decay);
+    osc.connect(gain).connect(out);
+    osc.start(t);
+    osc.stop(t + decay + 0.05);
+  }
 }
 
 export async function playMeetingSoon(): Promise<void> {

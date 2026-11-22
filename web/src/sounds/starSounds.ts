@@ -2,8 +2,9 @@
  * Звуки Созвездия — один мягкий набор для всех Звёзд (игровых и рабочих).
  * Синтез через Web Audio API, без аудиофайлов.
  *
- * Вход — две ноты вверх, выход — те же ноты вниз; кто-то вошёл или вышел — то же,
- * но выше, короче и тише; стук — два мягких касания; приглашение — вокзальный «дин-дон-дан».
+ * «Орбита»: вход — две стеклянные ноты вверх с эхом, выход — те же ноты вниз; кто-то вошёл или
+ * вышел — то же, но выше, короче, тише и с более коротким эхом; стук — «деревянная дверь»,
+ * тук-тук-тук; приглашение — «орбита-фанфара»; запись — «красный пинг» вверх и вниз.
  */
 import { getCtx } from "../notifications/sound";
 import { useUiStore } from "../store/ui";
@@ -88,13 +89,6 @@ function burst(
   src.stop(t + (opts.attack ?? 0.005) + opts.decay + 0.05);
 }
 
-/** Колокольчик: основной тон и негармоничные обертоны с разным спадом. */
-function bell(ctx: BaseAudioContext, out: AudioNode, t: number, freq: number, peak: number, decay: number) {
-  tone(ctx, out, t, { freq, peak, attack: 0.006, decay });
-  tone(ctx, out, t, { freq: freq * 2.01, peak: peak * 0.35, attack: 0.004, decay: decay * 0.55 });
-  tone(ctx, out, t, { freq: freq * 3.02, peak: peak * 0.12, attack: 0.003, decay: decay * 0.3 });
-}
-
 // --- Общий набор: мягкие современные звуки -------------------------------------------
 
 /** Мягкая нота: синус с тихим вторым обертоном и плавной атакой — «стеклянная капля». */
@@ -103,56 +97,88 @@ function softNote(ctx: BaseAudioContext, out: AudioNode, t: number, freq: number
   tone(ctx, out, t, { freq: freq * 2, peak: peak * 0.16, attack: 0.012, decay: decay * 0.55 });
 }
 
-/** Я вошёл: две ноты вверх (A4, E5). */
+/** Эхо «большой комнаты»: задержка с затуханием и приглушёнными верхами. Петлю задержки разбираем,
+ * когда эхо стихло (сама она не исчезнет). */
+function orbitEcho(ctx: BaseAudioContext, out: AudioNode, time: number, feedback: number, cutoff = 2200): AudioNode {
+  const input = ctx.createGain();
+  const delay = ctx.createDelay(1);
+  const fb = ctx.createGain();
+  const damp = ctx.createBiquadFilter();
+  delay.delayTime.value = time;
+  fb.gain.value = feedback;
+  damp.type = "lowpass";
+  damp.frequency.value = cutoff;
+  input.connect(out);
+  input.connect(delay);
+  delay.connect(damp).connect(fb).connect(delay);
+  fb.connect(out);
+  setTimeout(() => {
+    input.disconnect();
+    fb.disconnect();
+  }, 3000);
+  return input;
+}
+
+/** Я вошёл: две ноты вверх (A4, E5) с эхом. */
 const softEnter: Synth = (ctx, out, t) => {
-  softNote(ctx, out, t, 440, 0.22, 0.16);
-  softNote(ctx, out, t + 0.13, 659.25, 0.26, 0.45);
+  const fx = orbitEcho(ctx, out, 0.2, 0.28);
+  softNote(ctx, fx, t, 440, 0.22, 0.16);
+  softNote(ctx, fx, t + 0.13, 659.25, 0.26, 0.45);
 };
 
 /** Я вышел: те же ноты вниз, последняя без обертона — глуше. */
 const softLeave: Synth = (ctx, out, t) => {
-  softNote(ctx, out, t, 659.25, 0.22, 0.16);
-  tone(ctx, out, t + 0.13, { freq: 440, peak: 0.28, attack: 0.014, decay: 0.45 });
+  const fx = orbitEcho(ctx, out, 0.2, 0.28);
+  softNote(ctx, fx, t, 659.25, 0.22, 0.16);
+  tone(ctx, fx, t + 0.13, { freq: 440, peak: 0.28, attack: 0.014, decay: 0.45 });
 };
 
-/** Кто-то вошёл: две короткие ноты вверх (D5, A5). */
+/** Кто-то вошёл: две короткие ноты вверх (D5, A5), эхо короче и тише. */
 const peerIn: Synth = (ctx, out, t) => {
-  softNote(ctx, out, t, 587.33, 0.13, 0.1);
-  softNote(ctx, out, t + 0.09, 880, 0.14, 0.2);
+  const fx = orbitEcho(ctx, out, 0.16, 0.22);
+  softNote(ctx, fx, t, 587.33, 0.13, 0.1);
+  softNote(ctx, fx, t + 0.09, 880, 0.14, 0.2);
 };
 
 /** Кто-то вышел: те же ноты вниз. */
 const peerOut: Synth = (ctx, out, t) => {
-  softNote(ctx, out, t, 880, 0.13, 0.1);
-  softNote(ctx, out, t + 0.09, 587.33, 0.14, 0.2);
+  const fx = orbitEcho(ctx, out, 0.16, 0.22);
+  softNote(ctx, fx, t, 880, 0.13, 0.1);
+  softNote(ctx, fx, t + 0.09, 587.33, 0.14, 0.2);
 };
 
-/** Стук: два мягких «деревянных» касания — тук-тук. */
+/** Удар костяшками в деревянную дверь: низкий глухой тон, обертон и шум удара. */
+function knockWood(ctx: BaseAudioContext, out: AudioNode, t: number, peak: number) {
+  tone(ctx, out, t, { freq: 210, to: 168, glide: 0.05, peak, attack: 0.002, decay: 0.09 });
+  tone(ctx, out, t, { freq: 567, peak: peak * 0.25, attack: 0.001, decay: 0.03 });
+  burst(ctx, out, t, { type: "bandpass", freq: 900, q: 1.2, peak: peak * 0.7, attack: 0.001, decay: 0.02 });
+}
+
+/** Стук: «деревянная дверь» — три глухих удара, последний чуть сильнее. */
 const softKnock: Synth = (ctx, out, t) => {
-  [0, 0.14].forEach((dt, i) => {
-    const g = i === 0 ? 1 : 0.8;
-    tone(ctx, out, t + dt, { freq: 760, to: 700, glide: 0.06, peak: 0.16 * g, attack: 0.003, decay: 0.1 });
-    tone(ctx, out, t + dt, { type: "triangle", freq: 1520, peak: 0.03 * g, attack: 0.002, decay: 0.05 });
-    burst(ctx, out, t + dt, { type: "lowpass", freq: 900, peak: 0.08 * g, attack: 0.001, decay: 0.025 });
-  });
+  knockWood(ctx, out, t, 0.145);
+  knockWood(ctx, out, t + 0.17, 0.145);
+  knockWood(ctx, out, t + 0.34, 0.165);
 };
 
-/** Приглашение (в Звезду, на Планету, в Комнату): вокзальный «дин-дон-дан». */
+/** Приглашение (в Звезду, на Планету, в Комнату): «орбита-фанфара» — до-ми-соль-до стеклом с эхом. */
 const stationChime: Synth = (ctx, out, t) => {
-  bell(ctx, out, t, 1046.5, 0.16, 1.3);
-  bell(ctx, out, t + 0.34, 880, 0.16, 1.3);
-  bell(ctx, out, t + 0.68, 698.46, 0.17, 1.6);
+  const fx = orbitEcho(ctx, out, 0.2, 0.3);
+  [523.25, 659.25, 783.99, 1046.5].forEach((freq, i) => softNote(ctx, fx, t + i * 0.12, freq, 0.2, i === 3 ? 0.6 : 0.16));
 };
 
-/** Включили запись: три коротких одинаковых сигнала (E5) — слышно и «не музыкально». */
+/** Включили запись: «красный пинг» — два пинга вверх (A5 → D6) с эхом, родственник «сонара». */
 const recordBeeps: Synth = (ctx, out, t) => {
-  [0, 0.16, 0.32].forEach((dt) => softNote(ctx, out, t + dt, 659.25, 0.16, 0.09));
+  const fx = orbitEcho(ctx, out, 0.28, 0.35, 1800);
+  softNote(ctx, fx, t, 880, 0.14, 0.12);
+  softNote(ctx, fx, t + 0.18, 1174.66, 0.15, 0.16);
 };
 
-/** Запись остановлена: два коротких сигнала вниз (E5 → A4) — «отбой». */
+/** Запись остановлена: те же пинги вниз (D6 → A5). */
 const recordEndBeeps: Synth = (ctx, out, t) => {
-  softNote(ctx, out, t, 659.25, 0.16, 0.09);
-  softNote(ctx, out, t + 0.16, 440, 0.17, 0.22);
+  const fx = orbitEcho(ctx, out, 0.28, 0.35, 1800);
+  softNote(ctx, fx, t, 1174.66, 0.16, 0.12);
+  softNote(ctx, fx, t + 0.18, 880, 0.17, 0.16);
 };
 
 const SOUNDS: Record<StarSoundEvent, Synth> = {

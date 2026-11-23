@@ -63,6 +63,12 @@ class Settings(BaseSettings):
     # Публичный адрес сайта — для адресов возврата после внешнего входа.
     PUBLIC_URL: str = "https://quazar-msg.ru"
 
+    # Квазар как провайдер входа для Padma (docs/PADMA-SSO.md). Пусто — все /oauth/* отвечают 404.
+    # Адреса возврата — через запятую, сравниваются точным совпадением строки.
+    PADMA_OAUTH_CLIENT_ID: str = ""
+    PADMA_OAUTH_CLIENT_SECRET: str = ""
+    PADMA_OAUTH_REDIRECT_URIS: str = ""
+
     # Подтверждение телефона входящим звонком. Ключ хранится только на сервере.
     ZVONOK_API_KEY: str = ""
     ZVONOK_CAMPAIGN_ID: str = ""

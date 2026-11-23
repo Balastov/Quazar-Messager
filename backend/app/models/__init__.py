@@ -14,6 +14,7 @@ from app.models.moderation import UserBlock, UserReport
 from app.models.support import SupportMessage, SupportTicket
 from app.models.attachment import Attachment
 from app.models.user import User
+from app.models.oauth_provider import OAuthAccessToken, OAuthCode
 from app.models.phone_verification import PhoneVerification
 from app.models.call import Call
 from app.models.push import FcmDevice, PushSubscription
@@ -50,6 +51,8 @@ from app.models.star import (
 )
 
 __all__ = [
+    "OAuthAccessToken",
+    "OAuthCode",
     "NewsNotice",
     "NewsRelease",
     "NewsDelivery",

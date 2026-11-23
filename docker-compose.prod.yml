@@ -53,6 +53,9 @@ services:
       # Вход через Яндекс ID: ключи приложения с oauth.yandex.ru. Пусто — кнопки входа нет.
       YANDEX_CLIENT_ID: ${YANDEX_CLIENT_ID:-}
       YANDEX_CLIENT_SECRET: ${YANDEX_CLIENT_SECRET:-}
+      PADMA_OAUTH_CLIENT_ID: ${PADMA_OAUTH_CLIENT_ID:-}
+      PADMA_OAUTH_CLIENT_SECRET: ${PADMA_OAUTH_CLIENT_SECRET:-}
+      PADMA_OAUTH_REDIRECT_URIS: ${PADMA_OAUTH_REDIRECT_URIS:-}
       PUBLIC_URL: ${PUBLIC_URL:-https://quazar-msg.ru}
       ZVONOK_API_KEY: ${ZVONOK_API_KEY:-}
       ZVONOK_CAMPAIGN_ID: ${ZVONOK_CAMPAIGN_ID:-}

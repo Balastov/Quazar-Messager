@@ -59,6 +59,7 @@ from app.api.bots import router as bots_router
 from app.api.workflows import router as workflows_router
 from app.api.oauth import me_router as oauth_me_router
 from app.api.oauth import router as oauth_router
+from app.api.oauth_provider import router as oauth_provider_router
 from app.api.search import router as search_router
 from app.api.link_preview import router as link_preview_router
 from app.api.webhooks import hooks_router, router as webhooks_router
@@ -421,6 +422,7 @@ app.include_router(phone_reminders_router)
 app.include_router(password_recovery_router)
 app.include_router(password_recovery_admin_router)
 app.include_router(oauth_router)
+app.include_router(oauth_provider_router)
 app.include_router(oauth_me_router)
 app.include_router(moderation_router)
 app.include_router(star_work_me_router)

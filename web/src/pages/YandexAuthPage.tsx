@@ -11,6 +11,7 @@ import PhoneVisibilityChoice from "../components/profile/PhoneVisibilityChoice";
 import PhoneVerification from "../components/profile/PhoneVerification";
 import s from "./AuthPage.module.css";
 import { forgetDesktopYandex } from "../auth/desktopYandex";
+import { pathAfterLogin } from "../auth/returnAfterLogin";
 
 const ERRORS: Record<string, string> = {
   mismatch: "Подтвердить можно только тем Яндекс ID, что привязан к аккаунту.",
@@ -57,7 +58,7 @@ export default function YandexAuthPage() {
         if (res.status === "login") {
           forgetDesktopYandex();
           await setToken(res.access_token);
-          navigate("/", { replace: true });
+          navigate(pathAfterLogin(), { replace: true });
         } else {
           setProfile(res.profile);
         }
@@ -163,7 +164,7 @@ function AlmostDone({ code, profile }: { code: string; profile: YandexProfile })
       });
       await setToken(data.access_token);
       forgetDesktopYandex();
-      navigate("/", { replace: true });
+      navigate(pathAfterLogin(), { replace: true });
     } catch (err) {
       const text = apiErrorText(err); setError(text);
       if (/Подтвердите телефон/.test(text)) setPhoneProof(undefined);

@@ -723,6 +723,7 @@ export default function SatelliteView({ detail, channel, onBack, onEdit, room = 
         />
       )}
       {formatOpen && <FormatBar disabled={!draft.ready} onFormat={(kind) => composerHandle.current?.format(kind)} />}
+      <div className={s.composerBox}>
       <form className={s.composer} onSubmit={(e) => void submit(e)}>
         <button
           type="button"
@@ -800,6 +801,7 @@ export default function SatelliteView({ detail, channel, onBack, onEdit, room = 
           {editing ? "✓" : <IconSend size={18} />}
         </button>
       </form>
+      </div>
       </div>
       )}
       </>

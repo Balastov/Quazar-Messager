@@ -42,6 +42,9 @@ export const useInboxStore = create<InboxState>((set, get) => {
     } else if (event.type === "inbox_read") {
       readLocally(event.ids);
       set({ unread: event.unread });
+    } else if (event.type === "inbox_removed") {
+      const gone = new Set(event.ids);
+      set((s) => ({ items: s.items.filter((i) => !gone.has(i.id)), unread: event.unread }));
     }
   });
   // После входа и после обрыва связи — свежий список (пока не было связи, могло прийти новое).

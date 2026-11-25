@@ -53,3 +53,11 @@ it("follows reads made on another device", async () => {
   expect(useInboxStore.getState().items.every((i) => i.read_at)).toBe(true);
   expect(useInboxStore.getState().unread).toBe(0);
 });
+
+it("drops notifications the server cleaned up after ten days", async () => {
+  api.list.mockResolvedValue({items: [item("a"), item("b")], unread: 2});
+  await useInboxStore.getState().load();
+  emit({type: "inbox_removed", ids: ["a"], unread: 1});
+  expect(useInboxStore.getState().items.map((i) => i.id)).toEqual(["b"]);
+  expect(useInboxStore.getState().unread).toBe(1);
+});

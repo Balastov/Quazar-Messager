@@ -62,7 +62,9 @@
   z-index: 70;
   width: 360px;
   max-height: min(70vh, 560px);
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   padding: 12px;
   border-radius: var(--qz-radius-lg);
   border: 1px solid var(--qz-glass-border);
@@ -77,7 +79,15 @@
   width: min(360px, calc(100vw - 16px));
 }
 
+.scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
 .head {
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;

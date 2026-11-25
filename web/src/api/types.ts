@@ -154,6 +154,8 @@ export type WsEvent =
   | { type: "inbox_new"; notification: InboxItem; unread: number }
   /** Прочитали (на этом или другом устройстве): ids — какие, null — все. */
   | { type: "inbox_read"; ids: string[] | null; unread: number }
+  /** Сервер убрал уведомления старше 10 календарных дней. */
+  | { type: "inbox_removed"; ids: string[]; unread: number }
   /** Мои отложенные сообщения в чате изменились (запланировал, отменил, отправилось). */
   | { type: "scheduled_changed"; chat_id: string }
   /** Пора напомнить о сообщении. */

@@ -3,8 +3,12 @@
 from datetime import datetime, timedelta, timezone
 from unittest import mock
 
+from sqlalchemy import select, update
+
 from app.api import inbox as inbox_api
 from app.api import star_work as work
+from app.core import inbox
+from app.models.inbox import InboxNotification
 from tests.stars_base import StarsTestBase
 
 
@@ -105,3 +109,36 @@ class InboxTest(StarsTestBase):
         await self.call(work.cancel_booking, self.star.id, booking.id, user="alice")
         self.assertEqual([i.kind for i in (await self.inbox("bob")).items], ["booking_cancelled", "booking_invite"])
         self.assertEqual((await self.inbox("alice")).items, [])
+
+    def test_older_than_ten_calendar_days_is_counted_by_moscow_dates(self):
+        # 26.11 в 02:00 по Москве (25.11 23:00 UTC): хранится всё с 16.11 00:00 по Москве.
+        now = datetime(2026, 11, 25, 23, 0, tzinfo=timezone.utc)
+        self.assertEqual(inbox.cutoff(now), datetime(2026, 11, 15, 21, 0, tzinfo=timezone.utc))
+
+    async def test_cleanup_removes_read_and_unread_after_ten_calendar_days(self):
+        await self.book(title="Старое")
+        await self.book(title="Свежее", start=100, end=120)
+        box = await self.inbox("bob")
+        old = next(i for i in box.items if "Старое" in i.title + i.body)
+        async with self.Session() as db:
+            await db.execute(update(InboxNotification).where(InboxNotification.id == old.id)
+                             .values(created_at=inbox.cutoff() - timedelta(minutes=1)))
+            # Ровно на границе (начало 10-го дня назад) — ещё хранится.
+            await db.execute(update(InboxNotification).where(InboxNotification.id != old.id)
+                             .values(created_at=inbox.cutoff()))
+            await db.commit()
+        self.events.clear()
+        with mock.patch.dict(inbox.manager.user_connections, {self.uid("bob"): [object()]}):
+            async with self.Session() as db:
+                removed = await inbox.cleanup(db, force=True)
+                # Раз в час: повторный вызов из планировщика ничего не делает.
+                self.assertEqual(await inbox.cleanup(db), 0)
+        self.assertEqual(removed, 1)
+        left = await self.inbox("bob")
+        self.assertEqual([i.id for i in left.items if i.id == old.id], [])
+        self.assertEqual(left.unread, 1)
+        self.assertIn((self.uid("bob"), {"type": "inbox_removed", "ids": [old.id], "unread": 1}), self.events)
+        # Остальные — ровно на границе — остались: у bob «Свежее», у mod оба.
+        async with self.Session() as db:
+            self.assertEqual(len((await db.execute(select(InboxNotification))).scalars().all()), 3)
+

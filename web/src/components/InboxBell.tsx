@@ -115,6 +115,9 @@ function InboxPanel({ onDone }: { onDone: () => void }) {
           </button>
         )}
       </div>
+      {/* Прокручивается только список — внутри отступов панели, а не вся панель: иначе полоса
+          прокрутки заходит в скруглённые углы. Заголовок с «Прочитать все» остаётся на месте. */}
+      <div className={s.scroll}>
       {error && <div className={s.empty}>{error}</div>}
       {!error && loaded && items.length === 0 && (
         <div className={s.empty}>Здесь появятся приглашения на встречи, их отмены и напоминания.</div>
@@ -140,6 +143,7 @@ function InboxPanel({ onDone }: { onDone: () => void }) {
           Показать ещё
         </button>
       )}
+      </div>
     </>
   );
 }

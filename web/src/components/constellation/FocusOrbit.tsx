@@ -5,6 +5,7 @@ import { useAuthStore } from "../../store/auth";
 import { useRoomActivities, type RoomCache } from "../../store/roomActivities";
 import type { FocusAction } from "../../api/roomActivities";
 import { displayName } from "../../utils/profile";
+import { IconFocusRestart } from "../icons";
 import { apiError } from "./rules";
 import { clock, focusAt, remaining } from "./roomActivityMath";
 import s from "./RoomActivities.module.css";
@@ -52,6 +53,18 @@ export default function FocusOrbit({ detail, channel, room, readOnly, compact = 
       <RefreshCw size={16} aria-hidden />
     </button>
   );
+  // Фокус заново: в сеансе — с полным временем работы, после завершения — новый сеанс с теми же настройками.
+  const restartLabel = focus
+    ? active
+      ? `Фокус заново: снова ${Math.round(focus.work_seconds / 60)} мин работы для всей комнаты`
+      : `Снова фокус: ${Math.round(focus.work_seconds / 60)} / ${Math.round(focus.break_seconds / 60)} мин, как в прошлый раз`
+    : "";
+  const restartButton = focus && (
+    <button type="button" className={s.restart} disabled={busy || readOnly || (active && !canControl)}
+      title={restartLabel} aria-label={restartLabel} onClick={() => void run("restart", !!focus.loop)}>
+      <IconFocusRestart size={18} />
+    </button>
+  );
   const duration = focus?.phase === "work" ? focus.work_seconds : focus?.break_seconds ?? 1;
   const progress = active ? Math.min(1, seconds / duration) : 0;
   if (compact) return active ? <div className={s.focusCompact} role="timer">
@@ -75,6 +88,7 @@ export default function FocusOrbit({ detail, channel, room, readOnly, compact = 
             : focus ? "Сеанс завершён. Можно начать новый." : "Работаем вместе, затем отдыхаем"}</span>
         </div>
         {active && <span className={s.countdown} role="timer" aria-label={`Осталось ${clock(seconds)}`}>{clock(seconds)}</span>}
+        {restartButton}
         {(active || open) && loopButton}
         <button type="button" className={s.button} onClick={() => setOpen(!open)} aria-expanded={open}>
           {active ? "Управление" : "Начать"}

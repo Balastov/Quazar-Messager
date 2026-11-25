@@ -63,7 +63,7 @@ export type RoomActivityEvent =
   | { type: "room_board_reset"; star_id: string; channel_id: string; revision: number }
   | ({ type: "room_pointer"; star_id: string; channel_id: string } & ScreenPointer);
 
-export type FocusAction = "start" | "pause" | "resume" | "stop" | "break" | "loop";
+export type FocusAction = "start" | "pause" | "resume" | "stop" | "break" | "loop" | "restart";
 export type VideoAction = "select" | "play" | "pause" | "seek" | "share" | "next" | "stop";
 const base = (starId: string, channelId: string) => `/stars/${starId}/planets/${channelId}/activities`;
 

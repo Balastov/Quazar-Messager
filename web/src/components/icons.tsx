@@ -307,6 +307,16 @@ export const IconStarAudioSettings = (p: IconProps) => (
   </Svg>
 );
 
+/** Фокус заново: стрелка по орбите возвращается к началу, в центре — точка фокуса. */
+export const IconFocusRestart = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M4 12a8 8 0 1 0 2.35-5.65L4 8.7" />
+    <path d="M4 4.5v4.2h4.2" />
+    <circle cx="12" cy="12" r="3.2" />
+    <circle cx="12" cy="12" r="0.9" fill="currentColor" stroke="none" />
+  </Svg>
+);
+
 /** Позвать: человек и звёздочка-«плюс». */
 export const IconStarInvite = (p: IconProps) => (
   <Svg {...p}>

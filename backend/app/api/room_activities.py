@@ -176,6 +176,13 @@ async def focus_action(star_id: str, channel_id: str, body: FocusAction, current
         focus = {"owner_id": current_user.id, "phase": "work", "running": True, "loop": body.loop,
                  "work_seconds": body.work_minutes * 60, "break_seconds": body.break_minutes * 60,
                  "remaining_seconds": body.work_minutes * 60, "ends_at": (at + timedelta(minutes=body.work_minutes)).isoformat()}
+    elif body.action == "restart":
+        if not focus:
+            raise HTTPException(status_code=409, detail="В комнате ещё не было сеанса фокуса")
+        # Завершённый сеанс начинает заново тот, кто нажал, — он и ведущий.
+        owner = current_user.id if focus.get("phase") == "done" else focus["owner_id"]
+        focus = {**focus, "owner_id": owner, "phase": "work", "running": True, "remaining_seconds": focus["work_seconds"],
+                 "ends_at": (at + timedelta(seconds=focus["work_seconds"])).isoformat()}
     elif not focus or focus.get("phase") == "done":
         raise HTTPException(status_code=409, detail="Сеанс фокуса уже завершён")
     elif body.action == "pause":

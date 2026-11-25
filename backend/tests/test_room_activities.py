@@ -161,6 +161,32 @@ class RoomActivitiesTest(StarsTestBase):
             await activity.tick(db, start + timedelta(seconds=241))
         self.assertEqual((await self.state())["focus"]["phase"], "done")
 
+    async def test_focus_restart_from_break_pause_and_after_finish(self):
+        start = datetime.now(timezone.utc)
+        with mock.patch.object(activity, "now", return_value=start):
+            await self.focus("start", work_minutes=2, break_minutes=1, loop=False)
+        with mock.patch.object(activity, "now", return_value=start + timedelta(seconds=30)):
+            await self.focus("break")
+            await self.focus("pause")
+        # Из перерыва на паузе — снова фокус, полное время, таймер идёт.
+        at = start + timedelta(seconds=40)
+        with mock.patch.object(activity, "now", return_value=at):
+            again = (await self.focus("restart"))["focus"]
+        self.assertEqual((again["phase"], again["running"], again["remaining_seconds"]), ("work", True, 120))
+        self.assertEqual(datetime.fromisoformat(again["ends_at"]), at + timedelta(minutes=2))
+        self.assertEqual((again["break_seconds"], again["loop"]), (60, False))
+        # Чужой сеанс без прав — нельзя; завершённый — может начать заново любой, он и ведущий.
+        await self.expect_error(403, api.focus_action, self.star.id, self.planet.id,
+                                FocusAction(action="restart", version=again["version"]), user="bob")
+        with mock.patch.object(activity, "now", return_value=at):
+            await self.focus("stop")
+            fresh = (await self.focus("restart", user="bob"))["focus"]
+        self.assertEqual((fresh["phase"], fresh["work_seconds"], fresh["owner_id"]), ("work", 120, self.users["bob"].id))
+
+    async def test_focus_restart_needs_a_session(self):
+        await self.expect_error(409, api.focus_action, self.star.id, self.planet.id,
+                                FocusAction(action="restart", version=0), user="alice")
+
     def test_focus_loop_skips_whole_cycles_and_old_sessions_still_finish(self):
         start = datetime(2026, 11, 19, 12, 0, tzinfo=timezone.utc)
         base = {"owner_id": "a", "phase": "work", "running": True, "work_seconds": 60, "break_seconds": 30,

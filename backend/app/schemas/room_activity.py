@@ -29,7 +29,8 @@ class BoardItemBody(BaseModel):
 
 class FocusAction(BaseModel):
     # loop — включить или выключить бесконечный цикл «работа — перерыв» у идущего сеанса.
-    action: Literal["start", "pause", "resume", "stop", "break", "loop"]
+    # restart — фокус заново с полным временем (из работы или перерыва); после «done» — новый сеанс с прежними настройками.
+    action: Literal["start", "pause", "resume", "stop", "break", "loop", "restart"]
     version: int = Field(default=0, ge=0)
     work_minutes: int = Field(default=25, ge=1, le=180)
     break_minutes: int = Field(default=5, ge=1, le=60)

@@ -130,6 +130,30 @@ describe("room activities interface", () => {
     expect(roomActivitiesApi.focus).toHaveBeenCalledWith("star", "room", "start", 0, 25, 5, false);
   });
 
+  it("restarts focus from a break for the controller and after a finished session for anyone", async () => {
+    const session = (owner: string, phase: "work" | "break" | "done") => ({ ...state(), revision: 1,
+      focus: { owner_id: owner, version: 4, phase, running: phase !== "done", loop: false, work_seconds: 3000,
+        break_seconds: 600, remaining_seconds: phase === "done" ? 0 : 300,
+        ends_at: phase === "done" ? null : new Date(Date.now() + 300000).toISOString() } });
+    const restart = () => host.querySelector<HTMLButtonElement>('[aria-label^="Фокус заново"], [aria-label^="Снова фокус"]');
+    vi.mocked(roomActivitiesApi.focus).mockResolvedValue(session("me", "work"));
+    // Нет сеанса — нечего начинать заново.
+    await act(async () => root.render(createElement(Focus)));
+    expect(restart()).toBeNull();
+    // Перерыв ведущей Алисы, она в комнате — мне нельзя.
+    await act(async () => setRoom(session("alice", "break")));
+    expect(restart()?.disabled).toBe(true);
+    // Мой перерыв — снова 50 минут фокуса.
+    await act(async () => setRoom(session("me", "break")));
+    expect(restart()?.getAttribute("aria-label")).toContain("снова 50 мин работы");
+    await act(async () => restart()!.click());
+    expect(roomActivitiesApi.focus).toHaveBeenLastCalledWith("star", "room", "restart", 4, 25, 5, false);
+    // Сеанс Алисы закончился — начать заново с её настройками может любой.
+    await act(async () => setRoom({ ...session("alice", "done"), revision: 2 }));
+    expect(restart()?.getAttribute("aria-label")).toContain("50 / 10 мин");
+    expect(restart()?.disabled).toBe(false);
+  });
+
   it("keeps followers' playback controls locked while personal volume remains available", async () => {
     setRoom({ ...state(), revision: 1, videos: [{ id: "v", name: "Ролик.mp4", mime: "video/mp4", size: 1000, uploader_id: "alice" }],
       video: { owner_id: "alice", version: 1, file_id: "v", playing: false, position: 0,

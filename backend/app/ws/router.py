@@ -13,7 +13,7 @@ from app.core.security import decode_token, token_is_current
 from app.models.chat import Chat, ChatMember
 from app.models.message import Message, MessageReadReceipt
 from app.models.user import User
-from app.core import presence, device_sessions
+from app.core import auth_log, presence, device_sessions
 from app.api.messages import deliver, visible_to
 from app.ws import calls as call_signaling
 from app.ws import typing as typing_signals
@@ -28,12 +28,13 @@ _STATUS_RANK = {"sent": 0, "delivered": 1, "read": 2}
 @router.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket, token: str, state: str = "active"):
     user_id = decode_token(token)
-    if not user_id:
-        await websocket.close(code=4001)
-        return
     async with AsyncSessionLocal() as db:
-        user = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
+        user = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none() if user_id else None
         if not user or user.blocked_at or not token_is_current(token, user):
+            # Почему отказали — в журнал входов (повторы одного токена не чаще раза в 10 минут).
+            reason, detail = ("bad_token", None) if not user_id else ("user_missing", None) if not user else \
+                ("blocked", None) if user.blocked_at else auth_log.cutoff_reason(user)
+            await auth_log.rejected(db, reason, token_hash=device_sessions.digest(token), user_id=user_id, detail=detail)
             await websocket.close(code=4001)
             return
         try:

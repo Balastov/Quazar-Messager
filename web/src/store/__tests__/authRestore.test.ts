@@ -95,3 +95,34 @@ it("stops retrying after the user signs out by hand", async () => {
   await vi.advanceTimersByTimeAsync(60_000);
   expect(me).toHaveBeenCalledTimes(1);
 });
+
+it("tells the server why the app signed out", async () => {
+  const { http } = await import("../../api/client");
+  me.mockRejectedValue(failure(401));
+  await start();
+  // Сессию сервер уже отверг: в журнал входов уходит «rejected» и запрос, получивший 401.
+  expect(http.delete).toHaveBeenLastCalledWith("/auth/devices/current", expect.objectContaining({
+    headers: { Authorization: "Bearer t1" }, params: { reason: "rejected", source: "GET /users/me" } }));
+});
+
+it("passes the reason of a manual sign-out", async () => {
+  const { http } = await import("../../api/client");
+  me.mockResolvedValue(user);
+  const store = await start();
+  store.getState().logout("button");
+  expect(http.delete).toHaveBeenLastCalledWith("/auth/devices/current", expect.objectContaining({ params: { reason: "button" } }));
+});
+
+it("names the request whose 401 made the app sign out", async () => {
+  const { http } = await import("../../api/client");
+  me.mockResolvedValue(user);
+  await start();
+  const calls = vi.mocked(http.interceptors.response.use).mock.calls;
+  const onError = calls[calls.length - 1][1] as (err: unknown) => Promise<unknown>;
+  const err = failure(401);
+  err.config = { method: "post", url: "/auth/device-pairing/invites/x/accept?y=1", headers: { Authorization: "Bearer t1" } } as never;
+  (http.defaults.headers.common as Record<string, string>)["Authorization"] = "Bearer t1";
+  await onError(err).catch(() => {});
+  expect(http.delete).toHaveBeenLastCalledWith("/auth/devices/current", expect.objectContaining({
+    params: { reason: "rejected", source: "POST /auth/device-pairing/invites/x/accept" } }));
+});

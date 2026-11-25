@@ -86,7 +86,7 @@ async def account_status(body: StatusBody, me: Me, db: Db):
     attempt, state = await verification.status(db, body.verification_token, me.id)
     result = output(attempt, state)
     if state == "verified" and not was_verified:
-        result.access_token = create_access_token(me.id)
+        result.access_token = create_access_token(me.id, method="phone_verified")
         await close_sessions(me.id)
     return result
 
@@ -126,7 +126,7 @@ async def complete_login(body: StatusBody, db: Db):
         raise HTTPException(status_code=403, detail="Вход недоступен")
     await verification.consume(db, user.phone, body.verification_token, purpose="login", user_id=user.id)
     await db.commit()
-    return TokenResponse(access_token=create_access_token(user.id))
+    return TokenResponse(access_token=create_access_token(user.id, method="phone_call"))
 
 
 @router.post("/users/me/phone-reauth/start", response_model=VerificationOut)

@@ -122,7 +122,7 @@ export default function OAuthAuthorizePage() {
   const another = () => {
     rememberReturn(location.pathname + location.search, name);
     setFreshUser(null);
-    logout();
+    logout("switch_account");
     navigate("/auth", { replace: true });
   };
 

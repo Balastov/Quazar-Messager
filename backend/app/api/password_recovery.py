@@ -123,7 +123,7 @@ async def assign_password(ticket_id: str, body: AssignPasswordBody, me: Super, d
     passwords.assign_password(user, body.new_password)
     tickets = await passwords.complete_recoveries(db, user, me)
     await db.commit()
-    token = create_access_token(user.id) if user.id == me.id else None
+    token = create_access_token(user.id, method="password_reset") if user.id == me.id else None
     await passwords.close_sessions(user.id)
     for changed in tickets:
         await support.notify_team(db, changed)

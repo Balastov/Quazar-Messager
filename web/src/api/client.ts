@@ -1,6 +1,7 @@
 import axios from "axios";
+import { clientName } from "../platform/clientName";
 
-export const http = axios.create({ baseURL: "/api" });
+export const http = axios.create({ baseURL: "/api", headers: { "X-Quazar-Client": clientName() } });
 
 export function setAuthToken(token: string | null) {
   if (token) {

@@ -12,5 +12,5 @@ export async function logoutAndForgetDevice(userId: string): Promise<void> {
   await forgetAccountKeys(userId);
   await forgetDrafts(userId);
   clearAllTrustedKeys();
-  useAuthStore.getState().logout();
+  useAuthStore.getState().logout("forget_device");
 }

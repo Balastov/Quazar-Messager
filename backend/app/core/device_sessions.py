@@ -9,6 +9,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core import auth_log
 from app.core.security import create_access_token, token_claims, token_is_current
 from app.core.config import settings
 from app.models.device import DeviceSession
@@ -53,7 +54,13 @@ def device_name(agent: str) -> str:
 async def ensure(db: AsyncSession, token: str, user: User, agent: str = "") -> DeviceSession:
     # Срок в токене не проверяем: сессия живёт, пока устройством пользуются (см. ниже).
     claims = token_claims(token, verify_exp=False)
-    if not claims or claims.get("sub") != user.id or not token_is_current(token, user):
+    token_hash = digest(token)
+    if not claims or claims.get("sub") != user.id:
+        await auth_log.rejected(db, "bad_token", token_hash=token_hash, user_id=user.id)
+        raise HTTPException(status_code=401, detail="Сессия завершена. Войдите снова")
+    if not token_is_current(token, user):
+        reason, detail = auth_log.cutoff_reason(user)
+        await auth_log.rejected(db, reason, token_hash=token_hash, user_id=user.id, session_id=claims.get("sid"), detail=detail)
         raise HTTPException(status_code=401, detail="Сессия завершена. Войдите снова")
     try:
         issued, expires = float(claims["iat"]), float(claims["exp"])
@@ -61,21 +68,38 @@ async def ensure(db: AsyncSession, token: str, user: User, agent: str = "") -> D
             raise ValueError()
         issued_at, expires_at = datetime.fromtimestamp(issued, timezone.utc), datetime.fromtimestamp(expires, timezone.utc)
     except (KeyError, ValueError, OverflowError, TypeError):
+        await auth_log.rejected(db, "bad_token", token_hash=token_hash, user_id=user.id)
         raise HTTPException(status_code=401, detail="Некорректная сессия") from None
-    token_hash = digest(token)
     sid = claims.get("sid")
     row = (await db.execute(select(DeviceSession).where(DeviceSession.token_hash == token_hash).execution_options(populate_existing=True))).scalar_one_or_none()
     if row is None and not sid:
         # Токен без записи сессии (вход паролем, Яндексом…) регистрируется, только пока не истёк сам.
         if expires_at <= now():
+            await auth_log.rejected(db, "token_expired", token_hash=token_hash, user_id=user.id,
+                                    detail=f"Токен выдан {auth_log.when(issued_at)}, истёк {auth_log.when(expires_at)}")
             raise HTTPException(status_code=401, detail="Сессия завершена. Войдите снова")
-        await db.execute(insert(DeviceSession).values(id=str(uuid.uuid4()), user_id=user.id, token_hash=token_hash,
-            name=device_name(agent[:1024]), created_at=issued_at, issued_at=issued_at, last_seen_at=now(),
+        name = device_name(agent[:1024])
+        created = (await db.execute(insert(DeviceSession).values(id=str(uuid.uuid4()), user_id=user.id, token_hash=token_hash,
+            name=name, created_at=issued_at, issued_at=issued_at, last_seen_at=now(),
             expires_at=idle_deadline(), token_expires_at=expires_at)
-            .on_conflict_do_nothing(index_elements=[DeviceSession.token_hash]))
+            .on_conflict_do_nothing(index_elements=[DeviceSession.token_hash]).returning(DeviceSession.id))).scalar_one_or_none()
         await db.commit()
         row = (await db.execute(select(DeviceSession).where(DeviceSession.token_hash == token_hash))).scalar_one()
-    if row is None or row.user_id != user.id or (sid and row.id != sid) or row.revoked_at or row.expires_at <= now():
+        if created:
+            # Первый заход с токеном, выданным без записи сессии (пароль, Яндекс, звонок…): это и есть вход.
+            await auth_log.login(db, user.id, created, str(claims.get("amr") or "unknown"), name)
+    problem = None
+    if row is None:
+        problem = ("session_missing", None)
+    elif row.user_id != user.id or (sid and row.id != sid):
+        problem = ("session_mismatch", None)
+    elif row.revoked_at:
+        problem = ("session_revoked", f"Завершён {auth_log.when(row.revoked_at)}, устройство: {row.name}")
+    elif row.expires_at <= now():
+        problem = ("session_expired", f"Последний заход {auth_log.when(row.last_seen_at)}, устройство: {row.name}")
+    if problem:
+        await auth_log.rejected(db, problem[0], token_hash=token_hash, user_id=user.id,
+                                session_id=row.id if row else sid, detail=problem[1])
         raise HTTPException(status_code=401, detail="Сессия завершена. Войдите снова")
     if row.last_seen_at < now() - timedelta(minutes=1):
         # Заход продлевает сессию: выйти придётся, только если устройством не пользовались SESSION_IDLE_DAYS.
@@ -86,6 +110,7 @@ async def ensure(db: AsyncSession, token: str, user: User, agent: str = "") -> D
 
 
 async def create(db: AsyncSession, user: User, name: str, expires_at: datetime | None = None) -> tuple[DeviceSession, str]:
+    # Способ входа сюда не кладём: token_for пересобирает этот токен и сверяет хэш. Вход в журнал пишет вызывающий.
     sid = str(uuid.uuid4())
     issued_at = now()
     expires_at = min(expires_at or idle_deadline(), idle_deadline())

@@ -5,12 +5,12 @@ import ipaddress
 import secrets
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core import device_pairing as pairing, device_sessions as sessions
+from app.core import auth_log, device_pairing as pairing, device_sessions as sessions
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.deps import get_current_user
@@ -236,6 +236,8 @@ async def deny(pair_id: str, me: Me, device: CurrentDevice, db: Db):
     row = await pairing.deny(db, pair_id, me.id, device.id)
     await key_request_closed(row)
     if row.target_session_id:
+        await auth_log.record(db, "revoked", user_id=me.id, session_id=row.target_session_id, reason="pairing_denied",
+                              detail=f"«Это не я» нажали на устройстве {device.name}; завершён вход {row.device_name or ''}".strip())
         await sessions.close_connections(me.id, row.target_session_id)
 
 
@@ -364,9 +366,15 @@ async def report_device_key(body: DeviceKeyReport, me: Me, device: CurrentDevice
 
 
 @router.delete("/devices/current", status_code=204)
-async def logout_current(me: Me, device: CurrentDevice, db: Db):
+async def logout_current(me: Me, device: CurrentDevice, db: Db,
+                         reason: Annotated[str, Query(max_length=32)] = "unknown",
+                         source: Annotated[str | None, Query(max_length=120)] = None):
     device.revoked_at = sessions.now()
     await db.commit()
+    # Причину называет приложение: кнопка «Выйти», «забыть устройство»… Старые версии её не присылают.
+    await auth_log.record(db, "logout", user_id=me.id, session_id=device.id,
+                          reason=reason if reason in auth_log.LOGOUT_REASONS else "unknown",
+                          detail=device.name + (f"; 401 пришёл на {source}" if source else ""))
     await sessions.close_connections(me.id, device.id)
 
 
@@ -380,6 +388,8 @@ async def revoke_others(me: Me, device: CurrentDevice, db: Db):
     token = create_access_token(user.id, row.id, issued_at=row.issued_at, expires_at=row.token_expires_at, jti=row.token_jti)
     row.token_hash = sessions.digest(token)
     await db.commit()
+    await auth_log.record(db, "revoked", user_id=user.id, session_id=row.id, reason="others",
+                          detail=f"Нажали на устройстве {row.name}")
     await sessions.close_connections(user.id, except_id=row.id)
     return {"access_token": token}
 
@@ -391,4 +401,6 @@ async def revoke(session_id: str, me: Me, device: CurrentDevice, db: Db):
         raise HTTPException(status_code=404, detail="Устройство не найдено")
     row.revoked_at = sessions.now()
     await db.commit()
+    await auth_log.record(db, "revoked", user_id=me.id, session_id=row.id, reason="device_list",
+                          detail=f"Завершён вход «{row.name}» с устройства {device.name}")
     await sessions.close_connections(me.id, row.id)

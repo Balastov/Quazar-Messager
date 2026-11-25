@@ -16,7 +16,7 @@ from fastapi import HTTPException
 from sqlalchemy import delete, func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core import device_sessions as sessions, support
+from app.core import auth_log, device_sessions as sessions, support
 from app.core.config import settings
 from app.core.device_pairing import rate_limit
 from app.models.device import DeviceSession, LoginCode
@@ -153,8 +153,9 @@ async def complete(db: AsyncSession, token: str, code: str, ip: str) -> str:
             raise HTTPException(status_code=429, detail="Слишком много неверных попыток. Запросите новый код")
         raise HTTPException(status_code=400, detail=f"Неверный код. Осталось попыток: {left}")
     row.state, row.used_at = "used", now()
-    _, access_token = await sessions.create(db, user, row.device_name)
+    target, access_token = await sessions.create(db, user, row.device_name)
     await db.commit()
+    await auth_log.login(db, user.id, target.id, "login_code", row.device_name)
     if row.message_id:
         # Код в чате больше не нужен — на его месте остаётся отметка о входе.
         try:

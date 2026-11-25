@@ -26,7 +26,16 @@ interface AuthState {
   setToken: (token: string, beforeSession?: (user: User) => Promise<void>) => Promise<void>;
   setUser: (user: User) => void;
   refreshSession: (token: string) => Promise<void>;
-  logout: () => void;
+  /** reason и source — для журнала входов на сервере: почему приложение вышло. */
+  logout: (reason?: LogoutReason, source?: string) => void;
+}
+
+/** Почему приложение выходит из аккаунта (коды — как в backend/app/core/auth_log.py). */
+export type LogoutReason = "button" | "forget_device" | "switch_account" | "device_connect" | "rejected" | "unknown";
+
+/** «GET /users/me» — какой запрос получил 401 (без параметров). */
+function requestName(config: { method?: string; url?: string } | undefined): string {
+  return `${(config?.method ?? "").toUpperCase()} ${(config?.url ?? "").split("?")[0]}`.trim().slice(0, 120);
 }
 
 // Сервер перестал принимать сессию (заблокировали аккаунт, токен устарел) — выходим,
@@ -35,7 +44,7 @@ http.interceptors.response.use(undefined, (err) => {
   const sentToken = axios.isAxiosError(err) && !!err.config?.headers?.Authorization;
   if (sentToken && axios.isAxiosError(err) && err.response?.status === 401 && useAuthStore.getState().token &&
       err.config?.headers?.Authorization === http.defaults.headers.common["Authorization"]) {
-    useAuthStore.getState().logout();
+    useAuthStore.getState().logout("rejected", requestName(err.config));
   }
   return Promise.reject(err);
 });
@@ -99,10 +108,11 @@ export const useAuthStore = create<AuthState>()(
         if (get().token === token) set({ user });
       },
 
-      logout: () => {
+      logout: (reason = "unknown", source) => {
         authRevision++;
         const token = get().token;
-        if (token) void http.delete("/auth/devices/current", { headers: { Authorization: `Bearer ${token}` } }).catch(() => {});
+        if (token) void http.delete("/auth/devices/current", { headers: { Authorization: `Bearer ${token}` },
+          params: { reason, ...(source ? { source } : {}) } }).catch(() => {});
         void dropPushSubscription();
         void dropAndroidPush();
         setNotificationUser(null);
@@ -170,7 +180,7 @@ function restoreSession(token: string) {
       afterAuth(token, user.id);
     } catch (err) {
       if (!ours()) { stop(); return; }
-      if (sessionRejected(err)) { stop(); useAuthStore.getState().logout(); return; }
+      if (sessionRejected(err)) { stop(); useAuthStore.getState().logout("rejected", "GET /users/me"); return; }
       clearTimeout(timer);
       timer = setTimeout(() => void check(), RESTORE_RETRY_MS[Math.min(attempt++, RESTORE_RETRY_MS.length - 1)]);
     } finally {

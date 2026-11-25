@@ -88,6 +88,7 @@ async def status(db, token, user_id=None, *, purpose=None):
         raise HTTPException(status_code=503, detail="Не удалось проверить результат звонка. Повторите позже") from None
     attempt.state = state
     closed_recoveries = []
+    revoked_all = None
     if state == "verified":
         attempt.verified_at = stamp
         if user_id and purpose == "verify":
@@ -101,9 +102,14 @@ async def status(db, token, user_id=None, *, purpose=None):
                 confirmed_at = now()
                 user.phone_verified_at = confirmed_at
                 user.sessions_revoked_at = confirmed_at
+                revoked_all = user.id
                 from app.core.passwords import complete_recoveries
                 closed_recoveries = await complete_recoveries(db, user, phone_verified=True)
     await db.commit()
+    if revoked_all:
+        from app.core import auth_log
+        await auth_log.record(db, "revoked", user_id=revoked_all, reason="phone_verified",
+                              detail="Все прежние входы завершены; устройство, где подтверждали, получило новый токен")
     if closed_recoveries:
         from app.core.support import notify_team
         for ticket in closed_recoveries:

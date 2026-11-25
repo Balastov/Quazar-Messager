@@ -19,6 +19,8 @@ from app.core.legacy_usernames import migrate_legacy_usernames
 from app.core.legacy_avatars import migrate_legacy_avatar_urls
 from app.models import Attachment, Call, PushSubscription, Star  # noqa: F401
 from app.models.premium import PremiumGrant  # noqa: F401 — register the table for create_all
+from app.models.auth_event import AuthEvent  # noqa: F401 — журнал входов
+from app.core.auth_log import RequestContext as AuthLogContext
 from app.api.auth import router as auth_router
 from app.api.device_pairing import router as device_pairing_router
 from app.api.login_codes import router as login_codes_router
@@ -411,6 +413,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.add_middleware(SecurityHeadersMiddleware)
+# Снаружи всех: IP, браузер и приложение запроса — для журнала входов (HTTP и WebSocket).
+app.add_middleware(AuthLogContext)
 
 app.include_router(auth_router)
 app.include_router(device_pairing_router)

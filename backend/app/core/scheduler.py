@@ -212,6 +212,7 @@ async def run_forever(session_factory: async_sessionmaker) -> None:
     from app.core.premium import remind as remind_premium_trials
     from app.core.device_pairing import cleanup as cleanup_pairings
     from app.core.device_sessions import cleanup as cleanup_device_sessions
+    from app.core.auth_log import cleanup as cleanup_auth_log
     from app.core.login_codes import cleanup as cleanup_login_codes
     from app.api.guests import expire_room_passes
     from app.core.recordings import sweep as sweep_recordings
@@ -230,6 +231,7 @@ async def run_forever(session_factory: async_sessionmaker) -> None:
             send_release_news,
             cleanup_pairings,
             cleanup_device_sessions,
+            cleanup_auth_log,
             cleanup_login_codes,
             expire_room_passes,
             sweep_recordings,

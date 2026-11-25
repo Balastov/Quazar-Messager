@@ -5,6 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core import auth_log
 from app.core.accounts import TAKEN, email_taken, phone_taken, username_taken
 from app.core.phone_verification import consume as consume_phone_verification
 from app.core.database import get_db
@@ -64,7 +65,7 @@ async def register(body: UserRegister, db: Annotated[AsyncSession, Depends(get_d
         ) from None
     await db.refresh(user)
 
-    return TokenResponse(access_token=create_access_token(user.id))
+    return TokenResponse(access_token=create_access_token(user.id, method="register"))
 
 
 @router.post("/login", response_model=TokenResponse)
@@ -73,8 +74,12 @@ async def login(body: UserLogin, db: Annotated[AsyncSession, Depends(get_db)]):
     user = result.scalar_one_or_none()
 
     if user and user.phone_verified_at:
+        await auth_log.record(db, "login_failed", user_id=user.id, reason="use_phone")
         raise HTTPException(status_code=403, detail="Телефон подтверждён. Войдите звонком или через привязанный Яндекс ID")
     if not user or not verify_password(body.password, user.password_hash):
+        # Неизвестный номер не пишем: в журнале только попытки войти в существующие аккаунты.
+        if user:
+            await auth_log.record(db, "login_failed", user_id=user.id, reason="wrong_password")
         raise HTTPException(status_code=401, detail="Invalid credentials")
     # Пока проверяли хэш, администратор мог назначить другой пароль.
     # Короткая блокировка после проверки не даёт выпустить новую сессию по старому хэшу.
@@ -86,6 +91,7 @@ async def login(body: UserLogin, db: Annotated[AsyncSession, Depends(get_db)]):
     if user.phone_verified_at:
         raise HTTPException(status_code=403, detail="Телефон подтверждён. Войдите звонком или через привязанный Яндекс ID")
     if user.blocked_at:
+        await auth_log.record(db, "login_failed", user_id=user.id, reason="blocked")
         raise HTTPException(status_code=403, detail="Аккаунт заблокирован администрацией")
 
-    return TokenResponse(access_token=create_access_token(user.id))
+    return TokenResponse(access_token=create_access_token(user.id, method="password"))

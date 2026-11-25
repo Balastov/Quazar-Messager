@@ -107,7 +107,35 @@ export interface AdminTicketDetail extends AdminTicket {
 
 export type TicketFilter = "open" | "all" | TicketStatus;
 
+/** Журнал входов: login / login_failed / rejected / logout / revoked. label — по-русски, что и почему. */
+export type AuthEventKind = "login" | "login_failed" | "rejected" | "logout" | "revoked";
+export interface AuthEvent {
+  id: string;
+  at: string;
+  event: AuthEventKind;
+  reason: string | null;
+  label: string;
+  detail: string | null;
+  session_id: string | null;
+  ip: string | null;
+  user_agent: string | null;
+  /** web, desktop/2.8.0, android, ios; null — сборка до появления журнала. */
+  client: string | null;
+  path: string | null;
+}
+export interface AuthCount { event: AuthEventKind; reason: string | null; label: string; events: number; users: number }
+export interface AuthSummary {
+  days: number;
+  keep_days: number;
+  counts: AuthCount[];
+  /** Входы, когда прежний вход на похожем устройстве ещё действовал: устройство потеряло его само. */
+  lost_on_device: number;
+  lost_on_device_users: number;
+}
+
 export const adminApi = {
+  authEvents: (userId: string) => http.get<AuthEvent[]>(`/admin/users/${userId}/auth-events`).then((r) => r.data),
+  authSummary: (days: number) => http.get<AuthSummary>("/admin/auth-summary", { params: { days } }).then((r) => r.data),
   news: () => http.get<{ items: AdminNews[]; recipients: number }>("/admin/news").then((r) => r.data),
   editNews: (version: string, text: NewsText, revision: number) =>
     http.put<AdminNews>(`/admin/news/${version}`, { ...text, revision }).then((r) => r.data),

@@ -324,7 +324,7 @@ async def yandex_exchange(body: ExchangeBody, db: Db):
             raise HTTPException(status_code=410, detail="Аккаунт не найден")
         if user.blocked_at:
             raise HTTPException(status_code=403, detail="Аккаунт заблокирован администрацией")
-        return ExchangeOut(status="login", access_token=create_access_token(user.id))
+        return ExchangeOut(status="login", access_token=create_access_token(user.id, method="yandex"))
     p = flow.profile or {}
     phone = _clean(normalize_ru_phone, p.get("phone"))
     email = _clean(normalize_email, p.get("email"))
@@ -413,7 +413,7 @@ async def yandex_complete(body: CompleteBody, db: Db):
         if detected:
             user.avatar_url = save_avatar(user.id, data, detected[1])
             await db.commit()
-    return TokenResponse(access_token=create_access_token(user.id))
+    return TokenResponse(access_token=create_access_token(user.id, method="yandex_register"))
 
 
 # --- Мои входы и пароль -------------------------------------------------------------
@@ -503,7 +503,7 @@ async def set_password(body: PasswordBody, current_user: CurrentUser, db: Db):
     passwords.assign_password(user, body.new_password)
     tickets = await passwords.complete_recoveries(db, user)
     await db.commit()
-    token = create_access_token(user.id)
+    token = create_access_token(user.id, method="password_changed")
     await passwords.close_sessions(user.id)
     for ticket in tickets:
         await support.notify_team(db, ticket)

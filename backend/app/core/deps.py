@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.security import decode_token, token_is_current
 from app.models.user import User
-from app.core import device_sessions
+from app.core import auth_log, device_sessions
 
 bearer = HTTPBearer()
 _optional_bearer = HTTPBearer(auto_error=False)
@@ -19,18 +19,24 @@ async def get_current_user(
     db: Annotated[AsyncSession, Depends(get_db)],
     request: Request = None,
 ) -> User:
-    user_id = decode_token(credentials.credentials)
+    token = credentials.credentials
+    user_id = decode_token(token)
     if not user_id:
+        await auth_log.rejected(db, "bad_token", token_hash=device_sessions.digest(token))
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
 
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
     if not user:
+        await auth_log.rejected(db, "user_missing", token_hash=device_sessions.digest(token), user_id=user_id)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
     if user.blocked_at:
         # 401 — клиент выйдет из аккаунта.
+        await auth_log.rejected(db, "blocked", token_hash=device_sessions.digest(token), user_id=user_id)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Аккаунт заблокирован")
-    if not token_is_current(credentials.credentials, user):
+    if not token_is_current(token, user):
+        reason, detail = auth_log.cutoff_reason(user)
+        await auth_log.rejected(db, reason, token_hash=device_sessions.digest(token), user_id=user_id, detail=detail)
         raise HTTPException(status_code=401, detail="Сессия завершена. Войдите снова")
     session = await device_sessions.ensure(db, credentials.credentials, user, request.headers.get("user-agent", "") if request else "")
     if request is not None:

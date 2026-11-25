@@ -10,11 +10,12 @@ import Tickets from "./Tickets";
 import PremiumBadge from "../premium/PremiumBadge";
 import PremiumGrantDialog, { premiumLabel } from "./PremiumGrantDialog";
 import News from "./News";
+import { AuthLogDialog, AuthSummaryView } from "./AuthLog";
 import { compareUsers } from "../../utils/profile";
 import { stamp } from "./stamp";
 import s from "./BlackHole.module.css";
 
-type Section = "users" | "stars" | "reports" | "tickets" | "news";
+type Section = "users" | "stars" | "reports" | "tickets" | "news" | "auth";
 
 const REASON: Record<string, string> = { spam: "Спам", abuse: "Оскорбления", fraud: "Мошенничество", other: "Другое" };
 
@@ -68,6 +69,7 @@ export default function BlackHoleView() {
             ["reports", `Жалобы${stats?.open_reports ? ` · ${stats.open_reports}` : ""}`],
             ["tickets", `Обращения${stats?.queued_tickets ? ` · ${stats.queued_tickets}` : ""}`],
             ["news", `Новости${stats?.news_drafts ? ` · ${stats.news_drafts}` : ""}`],
+            ["auth", "Входы"],
           ] as const
         ).map(([id, label]) => (
           <button key={id} type="button" className={section === id ? `${s.tab} ${s.tabOn}` : s.tab} onClick={() => setSection(id)}>
@@ -81,6 +83,7 @@ export default function BlackHoleView() {
         {section === "reports" && <Reports onChange={reloadStats} />}
         {section === "tickets" && <Tickets onChange={reloadStats} />}
         {section === "news" && <News onChange={reloadStats} />}
+        {section === "auth" && <AuthSummaryView />}
       </div>
     </div>
   );
@@ -102,6 +105,7 @@ function Users({ onChange }: { onChange: () => void }) {
   const [users, setUsers] = useState<AdminUser[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [premiumFor, setPremiumFor] = useState<AdminUser | null>(null);
+  const [logFor, setLogFor] = useState<AdminUser | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -178,6 +182,9 @@ function Users({ onChange }: { onChange: () => void }) {
               </span>
             </div>
             <div className={s.actions}>
+              <button type="button" className={s.btn} onClick={() => setLogFor(u)}>
+                Журнал входов
+              </button>
               {!u.is_superuser && (
                 <button type="button" className={s.btn} onClick={() => setPremiumFor(u)}>
                   {u.premium_kind ? "Premium…" : "Выдать Premium"}
@@ -230,6 +237,7 @@ function Users({ onChange }: { onChange: () => void }) {
           </div>
         ))}
         {users && users.length === 0 && <p className={s.empty}>Никого не нашлось</p>}
+        {logFor && <AuthLogDialog user={logFor} onClose={() => setLogFor(null)} />}
         {premiumFor && (
           <PremiumGrantDialog
             user={premiumFor}

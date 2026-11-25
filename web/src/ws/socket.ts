@@ -1,5 +1,6 @@
 import type { WsEvent } from "../api/types";
 import { publicOrigin } from "../platform/desktop";
+import { clientName } from "../platform/clientName";
 
 type Handler = (event: WsEvent) => void;
 type StatusHandler = (open: boolean) => void;
@@ -9,7 +10,7 @@ export type Activity = "active" | "idle";
 function wsUrl(token: string, activity: Activity): string {
   const origin = new URL(publicOrigin());
   const proto = origin.protocol === "https:" ? "wss:" : "ws:";
-  return `${proto}//${origin.host}/ws?token=${encodeURIComponent(token)}&state=${activity}`;
+  return `${proto}//${origin.host}/ws?token=${encodeURIComponent(token)}&state=${activity}&client=${encodeURIComponent(clientName())}`;
 }
 
 class SocketManager {

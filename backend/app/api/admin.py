@@ -5,7 +5,7 @@
 """
 
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -13,9 +13,11 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core import news, premium, presence, support, voice
+from app.core import auth_log, news, premium, presence, support, voice
+from app.core.config import settings
 from app.core.database import get_db
 from app.core.deps import get_superuser
+from app.models.auth_event import AuthEvent
 from app.models.chat import Chat
 from app.models.message import Message
 from app.models.moderation import UserReport
@@ -143,6 +145,66 @@ async def list_users(
         query = query.where(User.is_superuser.is_(True))
     rows = await db.execute(query.order_by(User.created_at.desc(), User.id).offset(offset).limit(limit))
     return [_user_out(u) for u in rows.scalars()]
+
+
+class AuthEventOut(BaseModel):
+    id: str
+    at: datetime
+    event: str
+    reason: str | None
+    # Подписи по-русски: что произошло и почему.
+    label: str
+    detail: str | None
+    session_id: str | None
+    ip: str | None
+    user_agent: str | None
+    client: str | None
+    path: str | None
+
+
+def _event_out(row: AuthEvent) -> AuthEventOut:
+    return AuthEventOut(id=row.id, at=row.at, event=row.event, reason=row.reason, label=auth_log.label(row.event, row.reason),
+                        detail=row.detail, session_id=row.session_id, ip=row.ip, user_agent=row.user_agent,
+                        client=row.client, path=row.path)
+
+
+@router.get("/users/{user_id}/auth-events", response_model=list[AuthEventOut])
+async def user_auth_events(user_id: str, me: Super, db: Db, limit: int = Query(200, ge=1, le=500)):
+    """Журнал входов человека, новые сверху: входы, выходы, отзывы и отказы сервера с причинами."""
+    rows = await db.execute(select(AuthEvent).where(AuthEvent.user_id == user_id)
+                            .order_by(AuthEvent.at.desc(), AuthEvent.id).limit(limit))
+    return [_event_out(r) for r in rows.scalars()]
+
+
+class AuthCount(BaseModel):
+    event: str
+    reason: str | None
+    label: str
+    events: int
+    users: int
+
+
+class AuthSummaryOut(BaseModel):
+    days: int
+    keep_days: int
+    counts: list[AuthCount]
+    # Входы, при которых на похожем устройстве ещё действовал прежний вход: устройство потеряло его само.
+    lost_on_device: int
+    lost_on_device_users: int
+
+
+@router.get("/auth-summary", response_model=AuthSummaryOut)
+async def auth_summary(me: Super, db: Db, days: int = Query(30, ge=1, le=365)):
+    """Почему выходят из аккаунта: сколько отказов, выходов и входов каждого вида за последние дни."""
+    since = _now() - timedelta(days=days)
+    rows = await db.execute(select(AuthEvent.event, AuthEvent.reason, func.count(), func.count(AuthEvent.user_id.distinct()))
+                            .where(AuthEvent.at >= since).group_by(AuthEvent.event, AuthEvent.reason))
+    counts = sorted((AuthCount(event=e, reason=r, label=auth_log.label(e, r), events=n, users=u) for e, r, n, u in rows),
+                    key=lambda c: (c.event, -c.events))
+    lost, lost_users = (await db.execute(select(func.count(), func.count(AuthEvent.user_id.distinct())).where(
+        AuthEvent.at >= since, AuthEvent.event == "login", AuthEvent.detail.like(auth_log.LOST_ON_DEVICE + "%")))).one()
+    return AuthSummaryOut(days=days, keep_days=settings.AUTH_LOG_DAYS, counts=counts,
+                          lost_on_device=lost, lost_on_device_users=lost_users)
 
 
 async def _target(db: AsyncSession, user_id: str) -> User:

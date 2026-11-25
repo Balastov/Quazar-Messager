@@ -25,7 +25,7 @@ def verify_password(password: str, hashed: str | None) -> bool:
 
 
 def create_access_token(user_id: str, session_id: str | None = None, *, issued_at: datetime | None = None,
-                        expires_at: datetime | None = None, jti: str | None = None) -> str:
+                        expires_at: datetime | None = None, jti: str | None = None, method: str | None = None) -> str:
     payload = {
         "sub": user_id,
         "iat": (issued_at or datetime.now(timezone.utc)).timestamp(),
@@ -34,6 +34,9 @@ def create_access_token(user_id: str, session_id: str | None = None, *, issued_a
     }
     if session_id:
         payload["sid"] = session_id
+    if method:
+        # Как вошли — для журнала входов (запись сессии появляется при первом заходе с токеном).
+        payload["amr"] = method
     return jwt.encode(payload, settings.JWT_SECRET, algorithm=settings.JWT_ALGORITHM)
 
 

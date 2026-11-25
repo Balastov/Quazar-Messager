@@ -12,7 +12,7 @@ from sqlalchemy import delete, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core import device_sessions as sessions
+from app.core import auth_log, device_sessions as sessions
 from app.core.config import settings
 from app.models.device import DevicePairing, DevicePairLimit, DeviceSession
 from app.models.user import User
@@ -256,6 +256,7 @@ async def consume(db: AsyncSession, pair_id: str, secret: str) -> tuple[DevicePa
     await db.flush([target])
     row.target_session_id, row.consumed_at, row.state = target.id, now(), "consumed"
     await db.commit()
+    await auth_log.login(db, user.id, target.id, "device_pairing", row.device_name)
     return row, token
 
 

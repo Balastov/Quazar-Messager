@@ -37,7 +37,7 @@ export default function LogoutDialog({ onClose }: { onClose(): void }) {
 
   const leave = async () => {
     if (!forget || !userId) {
-      useAuthStore.getState().logout();
+      useAuthStore.getState().logout("button");
       return;
     }
     setBusy(true);

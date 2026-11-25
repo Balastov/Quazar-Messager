@@ -1,8 +1,9 @@
 import axios from "axios";
 import { http } from "./client";
+import { clientName } from "../platform/clientName";
 import type { WsEvent } from "./types";
 
-const anonymous = axios.create({ baseURL: "/api" });
+const anonymous = axios.create({ baseURL: "/api", headers: { "X-Quazar-Client": clientName() } });
 
 export interface DeviceSession {
   id: string; name: string; current: boolean; created_at: string; last_seen_at: string; expires_at: string;

@@ -24,7 +24,7 @@ export default function DeviceConnectPage() {
     {link?.kind === "invite" && (token ? <>
       <p className={p.hint}>Вы уже вошли как {user?.display_name || user?.username || "пользователь"}. Чтобы подключить другой аккаунт, сначала выйдите из текущего.</p>
       <button type="button" className={p.primary} onClick={() => navigate("/")}>Открыть Quazar</button>
-      <button type="button" className={p.secondary} onClick={() => useAuthStore.getState().logout()}>Выйти из текущего аккаунта</button>
+      <button type="button" className={p.secondary} onClick={() => useAuthStore.getState().logout("device_connect")}>Выйти из текущего аккаунта</button>
     </> : <DeviceReceiver invite={link} onDone={() => navigate("/", { replace: true })} />)}
     {link?.kind === "request" && (token ? <DeviceAuthorizer link={link} /> : <>
       <p className={p.hint}>Этот QR нужно открыть на устройстве, где вы уже вошли в Quazar. В его настройках выберите «Безопасность → Подключить по QR или коду».</p>

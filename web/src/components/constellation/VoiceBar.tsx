@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import { useStarsStore } from "../../store/stars";
 import { useUiStore } from "../../store/ui";
 import { useVoiceStore } from "../../store/voice";
-import { IconPlanet, IconScreenStop, IconStarMic, IconStarMicOff, IconStarVolume } from "../icons";
+import { IconPlanet, IconScreenStop, IconStarMic, IconStarHeadphones, IconStarHeadphonesOff, IconStarMicOff } from "../icons";
 import { placeNouns, roomWords } from "./words";
 import s from "./Constellation.module.css";
 
@@ -72,7 +72,7 @@ export function VoiceBar({ floating = false }: { floating?: boolean }) {
         aria-label={deafened ? "Включить звук собеседников" : "Выключить звук собеседников"}
         title={deafened ? "Вы никого не слышите — включить звук собеседников" : "Выключить звук собеседников и свой микрофон"}
       >
-        <IconStarVolume volume={deafened ? 0 : 1} size={18} />
+        {deafened ? <IconStarHeadphonesOff size={18} /> : <IconStarHeadphones size={18} />}
       </button>
       {sharingScreen && (
         <button

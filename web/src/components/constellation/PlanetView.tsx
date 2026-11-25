@@ -6,7 +6,7 @@ import { useDoorsStore } from "../../store/doors";
 import { canShareScreen, useVoiceStore, type VoicePeer } from "../../store/voice";
 import UserAvatar from "../UserAvatar";
 import ProfileLink from "../profile/ProfileLink";
-import { IconBack, IconGear, IconPlanet, IconStarCamera, IconStarCameraOff, IconStarMic, IconStarMicOff, IconNoiseFilter, IconScreenShare, IconScreenStop, IconStarHeadphones, IconStarInvite, IconStarVolume } from "../icons";
+import { IconBack, IconGear, IconPlanet, IconStarCamera, IconStarCameraOff, IconStarMic, IconStarMicOff, IconNoiseFilter, IconScreenShare, IconScreenStop, IconStarAudioSettings, IconStarHeadphones, IconStarHeadphonesOff, IconStarInvite, IconStarVolume } from "../icons";
 import { ActiveTime, activeSince } from "./ActiveTime";
 import Dialog from "./Dialog";
 import AudioDevices from "../AudioDevices";
@@ -573,6 +573,20 @@ export function RoomControls({ detail, channel }: { detail: StarDetail; channel:
     (roleRank(detail.my_role) >= roleRank("moderator") || !!mine?.is_host) &&
     canRecordMeetings();
 
+  // «Не слышать собеседников»: между шумоподавлением и камерой (в «Только слушать» — после значка).
+  const deafenButton = (
+    <ControlButton
+      icon={voice.deafened ? <IconStarHeadphonesOff /> : <IconStarHeadphones />}
+      tone={voice.deafened ? "off" : "default"}
+      label={voice.deafened
+        ? "Вы никого не слышите — включить звук собеседников (Ctrl+Shift+D)"
+        : "Выключить звук собеседников и свой микрофон (Ctrl+Shift+D)"}
+      pressed={voice.deafened}
+      disabled={voice.status !== "connected"}
+      onClick={() => void voice.toggleDeafen()}
+    />
+  );
+
   return (
     <>
       <div className={s.voiceControls} role="toolbar" aria-label="Управление разговором">
@@ -591,9 +605,12 @@ export function RoomControls({ detail, channel }: { detail: StarDetail; channel:
           </div>
         )}
         {voice.listenOnly ? (
-          <span className={s.listenOnlyBadge} title={`Микрофон ${nouns.inside} не используется`}>
-            🎧 Только слушать
-          </span>
+          <>
+            <span className={s.listenOnlyBadge} title={`Микрофон ${nouns.inside} не используется`}>
+              🎧 Только слушать
+            </span>
+            {deafenButton}
+          </>
         ) : (
           <>
             <ControlButton
@@ -627,6 +644,7 @@ export function RoomControls({ detail, channel }: { detail: StarDetail; channel:
               pressed={voice.noiseSuppression}
               onClick={() => void voice.toggleNoise()}
             />
+            {deafenButton}
             <ControlButton
               icon={voice.cameraOn ? <IconStarCamera /> : <IconStarCameraOff />}
               tone={voice.cameraOn ? "on" : "default"}
@@ -647,16 +665,6 @@ export function RoomControls({ detail, channel }: { detail: StarDetail; channel:
             />
           </>
         )}
-        <ControlButton
-          icon={<IconStarVolume volume={voice.deafened ? 0 : 1} />}
-          tone={voice.deafened ? "off" : "default"}
-          label={voice.deafened
-            ? "Вы никого не слышите — включить звук собеседников (Ctrl+Shift+D)"
-            : "Выключить звук собеседников и свой микрофон (Ctrl+Shift+D)"}
-          pressed={voice.deafened}
-          disabled={voice.status !== "connected"}
-          onClick={() => void voice.toggleDeafen()}
-        />
         {detail.soundboard !== false && !visitor && (
           <ControlButton
             icon={<span aria-hidden>🎵</span>}
@@ -727,7 +735,7 @@ export function RoomControls({ detail, channel }: { detail: StarDetail; channel:
           )
         )}
         <ControlButton
-          icon={<IconStarHeadphones />}
+          icon={<IconStarAudioSettings />}
           label="Микрофон и динамик"
           onClick={() => setDevicesOpen(true)}
         />

@@ -275,15 +275,35 @@ export const IconScreenStop = (p: IconProps) => (
 );
 
 /** Устройства: наушники, а между чашками — маленькое созвездие. */
+/** Слышу собеседников: наушники с искоркой, как у микрофона. */
 export const IconStarHeadphones = (p: IconProps) => (
   <Svg {...p}>
-    <path d="M4 15v-3a8 8 0 0 1 16 0v3" />
-    <rect x="3" y="14" width="4.5" height="7" rx="2" />
-    <rect x="16.5" y="14" width="4.5" height="7" rx="2" />
-    <path d="M10 16.5l2-2 2 1.5" opacity="0.6" />
-    <circle cx="10" cy="16.5" r="0.8" fill="currentColor" stroke="none" />
-    <circle cx="12" cy="14.5" r="0.8" fill="currentColor" stroke="none" />
-    <circle cx="14" cy="16" r="0.8" fill="currentColor" stroke="none" />
+    <path d="M4.5 14.5v-2.5a7 7 0 0 1 14 0v2.5" />
+    <rect x="3" y="13.5" width="4.5" height="7.5" rx="2" />
+    <rect x="15.5" y="13.5" width="4.5" height="7.5" rx="2" />
+    <Sparkle cx={20} cy={4.5} r={2.3} />
+  </Svg>
+);
+
+/** Не слышу никого: наушники перечёркнуты, как выключенный микрофон. */
+export const IconStarHeadphonesOff = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M8.2 6.1A7 7 0 0 1 18.5 12v2.5" />
+    <path d="M4.5 14.5v-2.5c0-1.6.5-3 1.4-4.2" />
+    <rect x="3" y="13.5" width="4.5" height="7.5" rx="2" />
+    <path d="M15.5 13.5h2.5a2 2 0 0 1 2 2v2.2M18.4 21h-.9a2 2 0 0 1-2-2v-3.3" />
+    <path d="M3.5 3.5l17 17" />
+  </Svg>
+);
+
+/** Настройки звука: микшер — три ползунка, над ним искорка. */
+export const IconStarAudioSettings = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M5 21v-6M5 11V3" />
+    <path d="M11 21v-9M11 8V3" />
+    <path d="M17 21v-4M17 13V9" />
+    <path d="M3 13h4M9 10h4M15 15h4" />
+    <Sparkle cx={19.5} cy={4.5} r={2.3} />
   </Svg>
 );
 

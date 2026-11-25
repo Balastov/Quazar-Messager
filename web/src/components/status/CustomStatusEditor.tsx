@@ -64,6 +64,14 @@ export default function CustomStatusEditor({ onDone }: { onDone?: () => void }) 
     setCustom(current?.until ? toLocalInput(new Date(current.until)) : "");
   }, [current?.icon, current?.text, current?.until]);
 
+  const pickChoice = (next: UntilChoice) => {
+    setChoice(next);
+    // Своё время: сразу подставляем «через 30 минут», если поле пустое или там уже прошедшее время.
+    if (next === "custom" && (!custom || new Date(custom) <= new Date())) {
+      setCustom(toLocalInput(new Date(Date.now() + 30 * 60_000)));
+    }
+  };
+
   const save = async () => {
     const until = untilFor(choice, custom);
     if (choice === "custom" && (!until || Number.isNaN(until.getTime()) || until <= new Date())) {
@@ -133,7 +141,7 @@ export default function CustomStatusEditor({ onDone }: { onDone?: () => void }) 
       </div>
       <label className={s.label}>
         Снять статус
-        <select className={s.select} value={choice} onChange={(e) => setChoice(e.target.value as UntilChoice)}>
+        <select className={s.select} value={choice} onChange={(e) => pickChoice(e.target.value as UntilChoice)}>
           {UNTIL_OPTIONS.map((o) => (
             <option key={o.id} value={o.id}>
               {o.label}

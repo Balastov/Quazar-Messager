@@ -266,6 +266,36 @@ describe("guest screen viewing", () => {
     expect(replacement.setVolume).toHaveBeenLastCalledWith(0.23);
   });
 
+  it("silences everyone for the guest only and turns the guest's microphone off and back on", async () => {
+    const screenAudio = mediaTrack("audio", "screen_share_audio"), voice = mediaTrack("audio", "microphone");
+    addTrack(mediaTrack("video", "screen_share")); addTrack(screenAudio); addTrack(voice);
+    await enter();
+    expect(room.localParticipant.isMicrophoneEnabled).toBe(true);
+    await act(async () => Simulate.click(button("🔇 Не слышать собеседников")));
+    expect(voice.setVolume).toHaveBeenLastCalledWith(0);
+    expect(screenAudio.setVolume).toHaveBeenLastCalledWith(0);
+    expect(room.localParticipant.isMicrophoneEnabled).toBe(false);
+    expect(button("🔈 Включить звук собеседников").getAttribute("aria-pressed")).toBe("true");
+    // Новый собеседник, пока гость никого не слышит, тоже молчит.
+    const late = mediaTrack("audio", "microphone");
+    await act(async () => room.emit("TrackSubscribed", late, { track: late, source: "microphone", isMuted: false }, room.remote));
+    expect(late.setVolume).toHaveBeenLastCalledWith(0);
+    await act(async () => Simulate.click(button("🔈 Включить звук собеседников")));
+    expect(voice.setVolume).toHaveBeenLastCalledWith(1);
+    expect(screenAudio.setVolume).toHaveBeenLastCalledWith(1);
+    expect(room.localParticipant.isMicrophoneEnabled).toBe(true);
+  });
+
+  it("brings the sound back when the guest turns the microphone on while silenced", async () => {
+    const voice = mediaTrack("audio", "microphone");
+    addTrack(voice); await enter();
+    await act(async () => Simulate.click(button("🔇 Не слышать собеседников")));
+    await act(async () => Simulate.click(button("🔇 Включить микрофон")));
+    expect(voice.setVolume).toHaveBeenLastCalledWith(1);
+    expect(room.localParticipant.isMicrophoneEnabled).toBe(true);
+    expect(button("🔇 Не слышать собеседников")).toBeDefined();
+  });
+
   it("allows screen viewing in listen-only rooms without requesting a microphone", async () => {
     listenOnly = true; addTrack(mediaTrack("video", "screen_share"));
     await enter();

@@ -116,6 +116,10 @@ export default function GuestPage() {
   const [list, setList] = useState<Person[]>([]);
   const [micOn, setMicOn] = useState(false);
   const [needsUnlock, setNeedsUnlock] = useState(false);
+  // «Не слышать никого»: голоса и звук показов — в ноль, свой микрофон выключен (остальные слышат друг друга).
+  const [deafened, setDeafened] = useState(false);
+  const deafenedRef = useRef(false);
+  const micBeforeDeafen = useRef(false);
   // Показы экрана: в рабочей Комнате их может быть два.
   const [screens, setScreens] = useState<GuestScreen[]>([]);
   // Кто-то из участников записывает встречу (метаданные комнаты LiveKit).
@@ -166,11 +170,18 @@ export default function GuestPage() {
     void room?.disconnect();
   }, [code]);
 
-  useEffect(() => useScreenAudio.subscribe(() => {
+  /** Громкость плеера: при «не слышать» — 0, иначе голос 1, показ — по своей настройке. */
+  const volumeOf = (sharer: string | null) =>
+    deafenedRef.current ? 0 : sharer === null ? 1 : screenAudioVolume(sharer || undefined);
+
+  /** voices — заодно и голоса (только когда переключили «не слышать»). */
+  const applyVolumes = (voices = false) => {
     for (const [track, sharer] of audioTracks.current) {
-      if (sharer) track.setVolume(screenAudioVolume(sharer));
+      if (sharer !== null || voices) track.setVolume(volumeOf(sharer));
     }
-  }), []);
+  };
+
+  useEffect(() => useScreenAudio.subscribe(() => applyVolumes()), []);
 
   const join = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -237,7 +248,7 @@ export default function GuestPage() {
               const isScreen = publication.source === lk.Track.Source.ScreenShareAudio || track.source === lk.Track.Source.ScreenShareAudio;
               const sharer = isScreen ? (participant?.identity ?? "") : null;
               audioTracks.current.set(audio, sharer);
-              if (sharer !== null) audio.setVolume(screenAudioVolume(sharer || undefined));
+              if (sharer !== null || deafenedRef.current) audio.setVolume(volumeOf(sharer));
               audioRef.current?.appendChild(audio.attach());
             }
           }
@@ -259,7 +270,8 @@ export default function GuestPage() {
           roomRef.current = null;
           clearAudio();
           meRef.current = null;
-          setScreens([]); setList([]); setMicOn(false); setNeedsUnlock(false); setCameraBusy(false); setState("left");
+          deafenedRef.current = false;
+          setScreens([]); setList([]); setMicOn(false); setNeedsUnlock(false); setCameraBusy(false); setDeafened(false); setState("left");
         });
       await room.connect(data.url, data.token);
       if (attempt !== attemptRef.current || roomRef.current !== room) return;
@@ -285,10 +297,37 @@ export default function GuestPage() {
     }
   };
 
+  const setDeafen = (on: boolean) => {
+    deafenedRef.current = on;
+    setDeafened(on);
+    applyVolumes(true);
+  };
+
   const toggleMic = async () => {
     const room = roomRef.current;
     if (!room) return;
-    await room.localParticipant.setMicrophoneEnabled(!room.localParticipant.isMicrophoneEnabled).catch(() => {});
+    const enable = !room.localParticipant.isMicrophoneEnabled;
+    // Включили микрофон, никого не слыша, — возвращаем и звук.
+    if (enable && deafenedRef.current) setDeafen(false);
+    await room.localParticipant.setMicrophoneEnabled(enable).catch(() => {});
+    if (roomRef.current !== room) return;
+    setMicOn(room.localParticipant.isMicrophoneEnabled);
+    setList(people(room));
+  };
+
+  const toggleDeafen = async () => {
+    const room = roomRef.current;
+    if (!room) return;
+    const on = !deafenedRef.current;
+    setDeafen(on);
+    if (!info?.listen_only) {
+      if (on) {
+        micBeforeDeafen.current = room.localParticipant.isMicrophoneEnabled;
+        if (micBeforeDeafen.current) await room.localParticipant.setMicrophoneEnabled(false).catch(() => {});
+      } else if (micBeforeDeafen.current) {
+        await room.localParticipant.setMicrophoneEnabled(true).catch(() => {});
+      }
+    }
     if (roomRef.current !== room) return;
     setMicOn(room.localParticipant.isMicrophoneEnabled);
     setList(people(room));
@@ -389,6 +428,9 @@ export default function GuestPage() {
     {!info?.listen_only && <button type="button" className={micOn ? s.secondary : s.danger} onClick={() => void toggleMic()}>
       {micOn ? "🎙 Выключить микрофон" : "🔇 Включить микрофон"}
     </button>}
+    <button type="button" className={deafened ? s.danger : s.secondary} aria-pressed={deafened} onClick={() => void toggleDeafen()}>
+      {deafened ? "🔈 Включить звук собеседников" : "🔇 Не слышать собеседников"}
+    </button>
     {!info?.listen_only && <button type="button" className={s.secondary} disabled={cameraBusy} aria-pressed={!!me?.camera}
       onClick={() => void toggleCamera()}>
       {cameraBusy ? "📷 Включаем камеру…" : me?.camera ? "📷 Выключить камеру" : "📷 Включить камеру"}

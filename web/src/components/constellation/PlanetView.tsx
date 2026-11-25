@@ -648,9 +648,11 @@ export function RoomControls({ detail, channel }: { detail: StarDetail; channel:
           </>
         )}
         <ControlButton
-          icon={<span aria-hidden>{voice.deafened ? "🔇" : "🔈"}</span>}
+          icon={<IconStarVolume volume={voice.deafened ? 0 : 1} />}
           tone={voice.deafened ? "off" : "default"}
-          label={voice.deafened ? "Включить звук собеседников (Ctrl+Shift+D)" : "Выключить звук собеседников (Ctrl+Shift+D)"}
+          label={voice.deafened
+            ? "Вы никого не слышите — включить звук собеседников (Ctrl+Shift+D)"
+            : "Выключить звук собеседников и свой микрофон (Ctrl+Shift+D)"}
           pressed={voice.deafened}
           disabled={voice.status !== "connected"}
           onClick={() => void voice.toggleDeafen()}

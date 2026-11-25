@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import { useStarsStore } from "../../store/stars";
 import { useUiStore } from "../../store/ui";
 import { useVoiceStore } from "../../store/voice";
-import { IconPlanet, IconScreenStop, IconStarMic, IconStarMicOff } from "../icons";
+import { IconPlanet, IconScreenStop, IconStarMic, IconStarMicOff, IconStarVolume } from "../icons";
 import { placeNouns, roomWords } from "./words";
 import s from "./Constellation.module.css";
 
@@ -16,6 +16,8 @@ export function VoiceBar({ floating = false }: { floating?: boolean }) {
   const serverMuted = useVoiceStore((st) => st.serverMuted);
   const listenOnly = useVoiceStore((st) => st.listenOnly);
   const toggleMic = useVoiceStore((st) => st.toggleMic);
+  const deafened = useVoiceStore((st) => st.deafened);
+  const toggleDeafen = useVoiceStore((st) => st.toggleDeafen);
   const retryMic = useVoiceStore((st) => st.retryMic);
   const leave = useVoiceStore((st) => st.leave);
   const sharingScreen = useVoiceStore((st) => st.sharingScreen);
@@ -61,6 +63,17 @@ export function VoiceBar({ floating = false }: { floating?: boolean }) {
           {micOn ? <IconStarMic size={18} /> : <IconStarMicOff size={18} />}
         </button>
       )}
+      <button
+        type="button"
+        className={`${s.secondary} ${s.small} ${deafened ? s.voiceToggleOff : ""}`}
+        onClick={() => void toggleDeafen()}
+        disabled={status !== "connected"}
+        aria-pressed={deafened}
+        aria-label={deafened ? "Включить звук собеседников" : "Выключить звук собеседников"}
+        title={deafened ? "Вы никого не слышите — включить звук собеседников" : "Выключить звук собеседников и свой микрофон"}
+      >
+        <IconStarVolume volume={deafened ? 0 : 1} size={18} />
+      </button>
       {sharingScreen && (
         <button
           type="button"

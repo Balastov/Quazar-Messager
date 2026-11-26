@@ -129,11 +129,19 @@ export function EditedMark({ at, onOpen }: { at: string | null | undefined; onOp
 
 const LONG_PRESS_MS = 450;
 
+/** Подпись к «Ответить» в меню: «⌥+клик» на Mac, «Alt+клик» на остальных; без мыши — не нужна. */
+export function altClickHint(): string | undefined {
+  if (typeof window === "undefined" || !window.matchMedia?.("(hover: hover) and (pointer: fine)").matches) return undefined;
+  const platform = (navigator as Navigator & { userAgentData?: { platform?: string } }).userAgentData?.platform || navigator.platform || "";
+  return /mac/i.test(platform) ? "⌥+клик" : "Alt+клик";
+}
+
 /**
  * Открыть меню сообщения: правой кнопкой мыши или долгим нажатием пальцем
  * (iOS Safari contextmenu на долгое нажатие не шлёт — считаем сами).
+ * onAltClick — клик с зажатым Alt (⌥ на Mac): сразу ответить на сообщение.
  */
-export function useMessageMenuTrigger(open: (x: number, y: number) => void) {
+export function useMessageMenuTrigger(open: (x: number, y: number) => void, onAltClick?: () => void) {
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const start = useRef<{ x: number; y: number } | null>(null);
 
@@ -144,6 +152,15 @@ export function useMessageMenuTrigger(open: (x: number, y: number) => void) {
   };
 
   return {
+    onClickCapture: (e: React.MouseEvent) => {
+      // Alt+клик — ответ на сообщение. Обычные клики (ссылки, картинки, кнопки) — как раньше.
+      // На фазе захвата: раньше ссылок, цитат и аватаров внутри (Alt+клик по ссылке иначе скачал бы её).
+      if (!e.altKey || !onAltClick || e.button !== 0) return;
+      e.preventDefault();
+      e.stopPropagation();
+      window.getSelection()?.removeAllRanges();
+      onAltClick();
+    },
     onContextMenu: (e: React.MouseEvent) => {
       // Ссылку и картинку правой кнопкой — как обычно (открыть, сохранить).
       if ((e.target as HTMLElement).closest("a, img, video")) return;

@@ -79,6 +79,19 @@
   color: var(--qz-danger);
 }
 
+.menuItem:has(.menuHint) {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.menuHint {
+  font-size: 12px;
+  color: var(--qz-text-dim);
+  white-space: nowrap;
+}
+
 /* Кнопка меню на пузыре — видна при наведении мыши; на телефоне — долгое нажатие. */
 .menuHost {
   position: relative;

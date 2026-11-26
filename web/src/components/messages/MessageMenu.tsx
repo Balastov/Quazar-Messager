@@ -7,6 +7,8 @@ export interface MenuAction {
   label: string;
   onClick: () => void;
   danger?: boolean;
+  /** Подсказка справа, например быстрый способ: «Alt+клик». */
+  hint?: string;
 }
 
 interface Props {
@@ -97,6 +99,7 @@ export default function MessageMenu({ at, reaction, actions, onClose }: Props) {
           onClick={() => run(a.onClick)}
         >
           {a.label}
+          {a.hint && <span className={s.menuHint}>{a.hint}</span>}
         </button>
       ))}
     </div>,

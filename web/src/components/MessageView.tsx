@@ -89,6 +89,7 @@ import {
   ReplyQuote,
   revealMessage,
   useMessageMenuTrigger,
+  altClickHint,
 } from "./messages/parts";
 import { displayName } from "../utils/profile";
 
@@ -642,7 +643,7 @@ export default function MessageView({ showBack = false }: Props) {
     const plain = isPlainText(msg.payload);
     const actions: MenuAction[] = [];
     if (own && chat?.type === "group") actions.push({ label: "Кто прочитал", onClick: () => setReadersFor(msg.id) });
-    if (!inputDisabled) actions.push({ label: "Ответить", onClick: () => startReply(msg) });
+    if (!inputDisabled) actions.push({ label: "Ответить", hint: altClickHint(), onClick: () => startReply(msg) });
     if (own && plain && !msg.forwarded_from && !inputDisabled) actions.push({ label: "Изменить", onClick: () => startEdit(msg) });
     if (plain) {
       actions.push({
@@ -897,6 +898,7 @@ export default function MessageView({ showBack = false }: Props) {
             statusIcon={statusIcon}
             statusClass={statusClass}
             onOpenMenu={(x, y) => setMenu({ msg, x, y })}
+            onReply={inputDisabled ? undefined : () => startReply(msg)}
             onReact={inputDisabled ? undefined : (emoji) => void handleReact(msg, emoji)}
             onQuoteClick={(id) => revealMessage(listRef.current, id)}
             mention={mentionKind}
@@ -1248,6 +1250,8 @@ interface ChatMessageProps {
   statusIcon: (status: string) => string;
   statusClass: (status: string) => string;
   onOpenMenu: (x: number, y: number) => void;
+  /** Alt+клик по сообщению — ответить на него (нет — отвечать здесь нельзя). */
+  onReply?: () => void;
   onReact?: (emoji: string) => void;
   onQuoteClick: (messageId: string) => void;
   /** Подсветка @имён (в группах). */
@@ -1271,6 +1275,7 @@ function ChatMessage({
   statusIcon,
   statusClass,
   onOpenMenu,
+  onReply,
   onReact,
   onQuoteClick,
   mention,
@@ -1278,7 +1283,7 @@ function ChatMessage({
   onShowReaders,
   withDate = false,
 }: ChatMessageProps) {
-  const trigger = useMessageMenuTrigger(onOpenMenu);
+  const trigger = useMessageMenuTrigger(onOpenMenu, onReply);
   const unavailable = msg.payload.startsWith("Сообщение недоступно");
   const ticket = unavailable ? null : parseTicket(msg.payload);
   const album = unavailable ? null : parseAlbum(msg.payload);

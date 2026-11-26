@@ -70,6 +70,7 @@ import {
   ReplyQuote,
   revealMessage,
   useMessageMenuTrigger,
+  altClickHint,
 } from "../messages/parts";
 import { useStarDisplayName } from "./StarProfiles";
 import type { LinkPreview } from "../../chat/linkPreview";
@@ -360,7 +361,7 @@ export default function SatelliteView({ detail, channel, onBack, onEdit, room = 
 
   const menuActions = (msg: StarMessage): MenuAction[] => {
     const actions: MenuAction[] = [];
-    if (!announcement || isAdmin) actions.push({ label: "Ответить", onClick: () => startReply(msg) });
+    if (!announcement || isAdmin) actions.push({ label: "Ответить", hint: altClickHint(), onClick: () => startReply(msg) });
     if (msg.kind !== "system") {
       actions.push({ label: "💬 Ответить в ветке", onClick: () => showThread(msg) });
     }
@@ -660,6 +661,7 @@ export default function SatelliteView({ detail, channel, onBack, onEdit, room = 
             myId={myId}
             nameOf={nameOf}
             onOpenMenu={(x, y) => setMenu({ msg, x, y })}
+            onReply={!announcement || isAdmin ? () => startReply(msg) : undefined}
             onReact={(emoji) => onReact(msg, emoji)}
             onQuoteClick={(id) => {
               stickToBottom.current = false;
@@ -925,6 +927,7 @@ export function SatelliteMessage({
   myId,
   nameOf,
   onOpenMenu,
+  onReply,
   onReact,
   onQuoteClick,
   onOpenThread,
@@ -939,6 +942,8 @@ export function SatelliteMessage({
   myId: string | undefined;
   nameOf: (userId: string) => string;
   onOpenMenu: (x: number, y: number) => void;
+  /** Alt+клик по сообщению — ответить на него (нет — отвечать здесь нельзя). */
+  onReply?: () => void;
   onReact: (emoji: string) => void;
   onQuoteClick: (messageId: string) => void;
   /** Нет — сообщение уже в ветке (сводку и кнопку не показываем). */
@@ -950,7 +955,7 @@ export function SatelliteMessage({
   mention?: MentionKind;
 }) {
   const displayName = useStarDisplayName(detail);
-  const trigger = useMessageMenuTrigger(onOpenMenu);
+  const trigger = useMessageMenuTrigger(onOpenMenu, onReply);
   const stickersByKey = useStickersStore((st) => st.byKey);
   const [showEdits, setShowEdits] = useState(false);
   if (msg.kind === "system") {

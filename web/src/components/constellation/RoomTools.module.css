@@ -42,7 +42,8 @@
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
   gap: 8px;
-  align-items: start;
+  /* Блоки в одном ряду — одной высоты: верх и низ совпадают, содержимое прижато к верху. */
+  align-items: stretch;
   padding: 0 8px 8px;
 }
 .body[hidden] { display: none; }

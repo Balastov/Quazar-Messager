@@ -20,12 +20,13 @@ import shutil
 import subprocess
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import room_chat, star_files, voice
 from app.core import stars as rules
 from app.models.recording import RoomRecording
+from app.models.transcription import RecordingTranscript
 from app.models.star import Star, StarChannel, StarFile, StarMember, StarMessage
 from app.models.user import User
 
@@ -197,6 +198,7 @@ async def sweep(db: AsyncSession, now: datetime | None = None) -> int:
         )
     ).scalars().all()
     for rec in old:
+        await db.execute(delete(RecordingTranscript).where(RecordingTranscript.recording_id == rec.id))
         for fid in (rec.video_file_id, rec.audio_file_id):
             file = await db.get(StarFile, fid)
             if file:

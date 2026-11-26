@@ -491,6 +491,15 @@ export interface StarRecording {
   audio?: StarFile | null;
 }
 
+export interface RecordingTranscript {
+  enabled: boolean;
+  status: "idle" | "queued" | "running" | "failed" | "ready";
+  text: string;
+  processed_seconds: number;
+  total_seconds: number;
+  error: string | null;
+}
+
 export interface VoicePresence {
   user_id: string;
   joined_at: string;
@@ -933,6 +942,11 @@ export const starsApi = {
     }),
   stopRecording: (starId: string, recordingId: string) =>
     http.post(`${base(starId)}/recordings/${recordingId}/stop`),
+  recordingTranscript: (starId: string, recordingId: string) =>
+    http.get<RecordingTranscript>(`${base(starId)}/recordings/${recordingId}/transcription`).then((r) => r.data),
+  transcribeRecording: (starId: string, recordingId: string) =>
+    http.post<RecordingTranscript>(`${base(starId)}/recordings/${recordingId}/transcription`, null,
+      { headers: { "X-Transcription-Consent": "cloudflare" } }).then((r) => r.data),
   /** Остановить запись, которая идёт в комнате (модератор — чужую). */
   stopRoomRecording: (starId: string, channelId: string) =>
     http.post(`${base(starId)}/planets/${channelId}/recording/stop`),

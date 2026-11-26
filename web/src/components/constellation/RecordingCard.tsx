@@ -4,6 +4,7 @@ import { formatSize } from "../../attachments/file";
 import { apiError } from "./rules";
 import { keptUntil, recordingWhen, RETENTION_DAYS } from "./recordingText";
 import r from "./RecordingCard.module.css";
+import RecordingTranscript from "./RecordingTranscript";
 
 /** Скачать файл записи по ссылке на час (без загрузки сотен мегабайт в память вкладки). */
 async function download(starId: string, file: StarFile) {
@@ -75,6 +76,8 @@ export default function RecordingCard({ message }: { message: StarMessage }) {
             )}
           </div>
           <div className={r.hint}>Хранится {keptUntil(rec.started_at)}</div>
+          {rec.audio && <RecordingTranscript key={`${message.star_id}:${rec.id}`}
+            starId={message.star_id} recordingId={rec.id} />}
         </>
       )}
       {error && <div className={r.error}>{error}</div>}

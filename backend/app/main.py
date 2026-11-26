@@ -12,7 +12,7 @@ from sqlalchemy import text
 from app.core.avatars import avatars_dir
 from app.core.backgrounds import backgrounds_dir
 from app.core.star_assets import stars_media_dir
-from app.core import attachments, news, scheduler, support, voice
+from app.core import attachments, news, recording_transcription, scheduler, support, voice
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal, Base, engine
 from app.core.legacy_usernames import migrate_legacy_usernames
@@ -39,6 +39,7 @@ from app.api.star_later import router as star_scheduled_router
 from app.api.moderation import router as moderation_router
 from app.api.attachments import router as attachments_router
 from app.api.transcription import router as transcription_router
+from app.api.recording_transcription import router as recording_transcription_router
 from app.api.calls import router as calls_router
 from app.api.push import router as push_router
 from app.api.doors import router as doors_router
@@ -406,7 +407,13 @@ async def lifespan(app: FastAPI):
     )
     # Отложенные сообщения, напоминания, исчезающие сообщения — раз в 5 секунд.
     app.state.scheduler = asyncio.create_task(scheduler.run_forever(AsyncSessionLocal))
+    app.state.recording_transcription = asyncio.create_task(recording_transcription.run_forever(AsyncSessionLocal))
     yield
+    app.state.recording_transcription.cancel()
+    try:
+        await app.state.recording_transcription
+    except asyncio.CancelledError:
+        pass
     app.state.attachments_sweep.cancel()
     app.state.scheduler.cancel()
 
@@ -453,6 +460,7 @@ app.include_router(star_scheduled_router)
 app.include_router(reminders_router)
 app.include_router(attachments_router)
 app.include_router(transcription_router)
+app.include_router(recording_transcription_router)
 app.include_router(calls_router)
 app.include_router(push_router)
 app.include_router(stars_router)

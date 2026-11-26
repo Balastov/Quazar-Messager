@@ -1,13 +1,14 @@
 """Рабочие Звёзды: ветки, объявления с «Ознакомлен(а)», рабочее время, брони комнат, табличка на двери."""
 
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
+from types import SimpleNamespace
 from typing import Annotated, Literal
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import and_, delete, func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -27,12 +28,12 @@ from app.api.stars import (
     broadcast_member,
 )
 from app.core import floors as floors_svc
-from app.core import inbox, presence, star_audit, work_hours
+from app.core import inbox, presence, recurrence, star_audit, work_hours
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.core.push import send_push_to_user
 from app.core.stars import Perm
-from app.models.star import Star, StarBooking, StarChannel, StarMember, StarMessage, StarMessageAck
+from app.models.star import Star, StarBooking, StarBookingSeries, StarChannel, StarMember, StarMessage, StarMessageAck
 from app.models.user import User
 from app.schemas.star import StarMessageOut, StarUserOut
 from app.core import pseudonyms
@@ -229,6 +230,19 @@ async def get_my_schedule(current_user: CurrentUser):
 MAX_BOOKING = timedelta(hours=8)
 BOOK_AHEAD = timedelta(days=60)
 REMIND_BEFORE = timedelta(minutes=10)
+# Сколько занятых дней серии перечислить в ответе 409.
+BUSY_SHOWN = 20
+
+
+class RepeatBody(BaseModel):
+    """Повтор брони — см. app/core/recurrence.py."""
+
+    freq: Literal["daily", "weekly", "monthly"]
+    interval: int = Field(1, ge=1, le=recurrence.MAX_INTERVAL)
+    weekdays: list[int] = Field(default_factory=list, max_length=7)
+    monthly: Literal["day", "weekday", "last_weekday"] = "day"
+    until: date | None = None
+    count: int | None = Field(None, ge=2, le=recurrence.MAX_COUNT)
 
 
 class BookingBody(BaseModel):
@@ -236,6 +250,11 @@ class BookingBody(BaseModel):
     starts_at: datetime
     ends_at: datetime
     attendees: list[str] = Field(default_factory=list, max_length=50)
+    repeat: RepeatBody | None = None
+    # Часовой пояс, в котором повторяется встреча (у человека в браузере); по умолчанию — Звезды.
+    tz: str | None = Field(None, max_length=64)
+    # Комната занята в часть дней серии — забронировать остальные.
+    skip_busy: bool = False
 
     @field_validator("title")
     @classmethod
@@ -254,8 +273,17 @@ class BookingOut(BaseModel):
     ends_at: datetime
     created_by: str | None
     attendees: list[str]
+    # Встреча повторяющейся серии: её id и правило повтора.
+    series_id: str | None = None
+    repeat: dict | None = None
 
-    model_config = {"from_attributes": True}
+
+def _out(booking: StarBooking, rules: dict[str, dict]) -> BookingOut:
+    return BookingOut(
+        id=booking.id, channel_id=booking.channel_id, title=booking.title, starts_at=booking.starts_at,
+        ends_at=booking.ends_at, created_by=booking.created_by, attendees=booking.attendees,
+        series_id=booking.series_id, repeat=rules.get(booking.series_id or ""),
+    )
 
 
 async def _bookings_event(db: AsyncSession, star_id: str, channel_id: str) -> None:
@@ -263,7 +291,7 @@ async def _bookings_event(db: AsyncSession, star_id: str, channel_id: str) -> No
 
 
 async def _tell(
-    db: AsyncSession, star: Star | None, booking: StarBooking, user_ids, kind: str, title: str, body: str, *, push: bool
+    db: AsyncSession, star: Star | None, booking, user_ids, kind: str, title: str, body: str, *, push: bool
 ) -> None:
     """Уведомление о брони в зелёный колокольчик (и push, если просили): нажатие откроет комнату."""
     data = {
@@ -274,6 +302,8 @@ async def _tell(
         "starts_at": booking.starts_at.isoformat(),
         "ends_at": booking.ends_at.isoformat(),
     }
+    if getattr(booking, "series_id", None):
+        data["series_id"] = booking.series_id
     rows = await inbox.notify(db, user_ids, kind, title, body, data)
     if not push:
         return
@@ -287,6 +317,59 @@ async def _tell(
 
 async def _room_name(db: AsyncSession, channel_id: str) -> str:
     return (await db.execute(select(StarChannel.name).where(StarChannel.id == channel_id))).scalar_one_or_none() or "комната"
+
+
+def _series_text(star: Star | None, series: StarBookingSeries) -> str:
+    """«по вторникам, 14:00–15:00»."""
+    first = series.first_starts_at.astimezone(ZoneInfo(series.tz)).date()
+    end = series.first_starts_at + timedelta(minutes=series.duration_min)
+    return f"{recurrence.describe(series.rule, first)}, {_local(star, series.first_starts_at)}–{_local(star, end)}"
+
+
+def _zone(name: str | None, star: Star) -> str:
+    if name:
+        try:
+            ZoneInfo(name)
+            return name
+        except (ValueError, KeyError):
+            pass
+    return ((star.work_hours or None) or work_hours.DEFAULT_SCHEDULE)["tz"]
+
+
+def _window(series: StarBookingSeries, until: datetime) -> tuple[list[datetime], bool]:
+    """Ещё не разобранные встречи серии до until и закончилось ли на этом правило."""
+    starts = []
+    for start in recurrence.occurrences(series.rule, series.first_starts_at, series.tz):
+        if start > until:
+            return starts, False
+        if start > series.generated_until or start == series.first_starts_at == series.generated_until:
+            starts.append(start)
+    return starts, True
+
+
+async def _busy(db: AsyncSession, channel_id: str, spans: list[tuple[datetime, datetime]]) -> dict[int, tuple]:
+    """Какие из промежутков пересекаются с бронями комнаты: номер → (бронь, её автор)."""
+    if not spans:
+        return {}
+    rows = (
+        await db.execute(
+            select(StarBooking, User)
+            .outerjoin(User, User.id == StarBooking.created_by)
+            .where(
+                StarBooking.channel_id == channel_id,
+                StarBooking.starts_at < max(end for _, end in spans),
+                StarBooking.ends_at > min(start for start, _ in spans),
+            )
+            .order_by(StarBooking.starts_at)
+        )
+    ).all()
+    busy = {}
+    for index, (start, end) in enumerate(spans):
+        for booking, owner in rows:
+            if booking.starts_at < end and booking.ends_at > start:
+                busy[index] = (booking, owner)
+                break
+    return busy
 
 
 @router.get("/{star_id}/bookings", response_model=list[BookingOut])
@@ -309,10 +392,16 @@ async def list_bookings(
         .order_by(StarBooking.starts_at)
     )
     bookings = list(rows.scalars().all())
-    if not view.closed:
-        return bookings
-    rooms = {c.id: c for c in (await db.execute(select(StarChannel).where(StarChannel.star_id == star_id))).scalars()}
-    return [b for b in bookings if b.channel_id not in rooms or view.sees_room(rooms[b.channel_id])]
+    if view.closed:
+        rooms = {c.id: c for c in (await db.execute(select(StarChannel).where(StarChannel.star_id == star_id))).scalars()}
+        bookings = [b for b in bookings if b.channel_id not in rooms or view.sees_room(rooms[b.channel_id])]
+    series_ids = {b.series_id for b in bookings if b.series_id}
+    rules = {}
+    if series_ids:
+        rules = dict((await db.execute(
+            select(StarBookingSeries.id, StarBookingSeries.rule).where(StarBookingSeries.id.in_(series_ids))
+        )).all())
+    return [_out(b, rules) for b in bookings]
 
 
 @router.post("/{star_id}/channels/{channel_id}/bookings", response_model=BookingOut, status_code=status.HTTP_201_CREATED)
@@ -341,20 +430,12 @@ async def create_booking(star_id: str, channel_id: str, body: BookingBody, curre
         (await db.execute(select(StarMember.user_id).where(StarMember.star_id == star_id))).scalars().all()
     )
     attendees = [uid for uid in dict.fromkeys(body.attendees) if uid in members and uid != current_user.id]
+    if body.repeat:
+        return await _create_series(db, star, channel, current_user, body, attendees)
 
     # Блокируем комнату: две одновременные брони не пересекутся.
     await db.execute(select(StarChannel.id).where(StarChannel.id == channel_id).with_for_update())
-    clash = (
-        await db.execute(
-            select(StarBooking, User)
-            .outerjoin(User, User.id == StarBooking.created_by)
-            .where(
-                StarBooking.channel_id == channel_id,
-                and_(StarBooking.starts_at < body.ends_at, StarBooking.ends_at > body.starts_at),
-            )
-            .limit(1)
-        )
-    ).first()
+    clash = (await _busy(db, channel_id, [(body.starts_at, body.ends_at)])).get(0)
     if clash:
         booking, owner = clash
         owner_name = await pseudonyms.name_in_star(db, star_id, owner)
@@ -378,11 +459,148 @@ async def create_booking(star_id: str, channel_id: str, body: BookingBody, curre
             f"«{channel.name}» · {_span(star, booking.starts_at, booking.ends_at)} · {star.name}",
             push=True,
         )
-    return booking
+    return _out(booking, {})
+
+
+async def _create_series(
+    db: AsyncSession, star: Star, channel: StarChannel, user: User, body: BookingBody, attendees: list[str]
+) -> BookingOut:
+    """Повторяющаяся бронь: встречи на BOOK_AHEAD вперёд сразу, дальше — планировщик (extend_series)."""
+    tz = _zone(body.tz, star)
+    try:
+        rule = recurrence.normalize(body.repeat.model_dump(), body.starts_at.astimezone(ZoneInfo(tz)).date())
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
+    duration = body.ends_at - body.starts_at
+    series = StarBookingSeries(
+        star_id=star.id, channel_id=channel.id, title=body.title, created_by=user.id, attendees=attendees,
+        rule=rule, tz=tz, first_starts_at=body.starts_at, duration_min=int(duration.total_seconds() // 60),
+        generated_until=body.starts_at,
+    )
+    duration = timedelta(minutes=series.duration_min)
+    horizon = _now() + BOOK_AHEAD
+    starts, finished = _window(series, horizon)
+    spans = [(start, start + duration) for start in starts]
+
+    await db.execute(select(StarChannel.id).where(StarChannel.id == channel.id).with_for_update())
+    busy = await _busy(db, channel.id, spans)
+    if busy and (not body.skip_busy or len(busy) == len(spans)):
+        names = {}
+        listed = []
+        for index in sorted(busy)[:BUSY_SHOWN]:
+            booking, owner = busy[index]
+            if owner and owner.id not in names:
+                names[owner.id] = await pseudonyms.name_in_star(db, star.id, owner)
+            listed.append({
+                "starts_at": spans[index][0].isoformat(), "ends_at": spans[index][1].isoformat(),
+                "title": booking.title, "who": names.get(owner.id) if owner else None,
+            })
+        free = len(spans) - len(busy)
+        message = (
+            "Комната занята во все дни этой серии" if not free
+            else f"Комната занята в {len(busy)} {_days(len(busy))} из {len(spans)} на ближайшие 60 дней"
+        )
+        raise HTTPException(status_code=409, detail={"message": message, "busy": listed, "free": free})
+
+    db.add(series)
+    await db.flush()
+    created = [
+        StarBooking(star_id=star.id, channel_id=channel.id, title=body.title, starts_at=start, ends_at=end,
+                    created_by=user.id, attendees=attendees, series_id=series.id)
+        for index, (start, end) in enumerate(spans) if index not in busy
+    ]
+    db.add_all(created)
+    series.generated_until = horizon
+    series.finished = finished
+    await db.commit()
+    await _bookings_event(db, star.id, channel.id)
+    first = created[0]
+    if attendees:
+        who = await pseudonyms.name_in_star(db, star.id, user) or user.display_name
+        await _tell(
+            db, star, first, attendees, "booking_invite",
+            f"{who} зовёт вас на регулярную встречу «{first.title}»",
+            f"«{channel.name}» · {_series_text(star, series)} · с {first.starts_at.astimezone(ZoneInfo(tz)).strftime('%d.%m')}"
+            f" · {star.name}",
+            push=True,
+        )
+    return _out(first, {series.id: rule})
+
+
+def _days(n: int) -> str:
+    return "день" if n % 10 == 1 and n % 100 != 11 else "дня" if 2 <= n % 10 <= 4 and not 12 <= n % 100 <= 14 else "дней"
+
+
+async def extend_series(db: AsyncSession, now: datetime | None = None) -> int:
+    """Дописывает встречи серий, чьи дни вошли в окно BOOK_AHEAD. Занятый день пропускаем и говорим
+    автору серии. Каждую серию трогаем не чаще раза в час: окно сдвигается медленно."""
+    now = now or _now()
+    horizon = now + BOOK_AHEAD
+    due = (
+        await db.execute(
+            select(StarBookingSeries)
+            .where(StarBookingSeries.finished.is_(False), StarBookingSeries.generated_until < horizon - timedelta(hours=1))
+            .with_for_update(skip_locked=True)
+            .limit(50)
+        )
+    ).scalars().all()
+    made = 0
+    for series in due:
+        star = await db.get(Star, series.star_id)
+        members = set(
+            (await db.execute(select(StarMember.user_id).where(StarMember.star_id == series.star_id))).scalars().all()
+        )
+        if not star or star.kind != "work" or series.created_by not in members:
+            # Автор ушёл из Звезды — новых встреч от его имени не ставим.
+            series.finished = True
+            await db.commit()
+            continue
+        duration = timedelta(minutes=series.duration_min)
+        starts, finished = _window(series, horizon)
+        spans = [(start, start + duration) for start in starts]
+        await db.execute(select(StarChannel.id).where(StarChannel.id == series.channel_id).with_for_update())
+        busy = await _busy(db, series.channel_id, spans)
+        attendees = [uid for uid in series.attendees if uid in members]
+        created = [
+            StarBooking(star_id=series.star_id, channel_id=series.channel_id, title=series.title, starts_at=start,
+                        ends_at=end, created_by=series.created_by, attendees=attendees, series_id=series.id)
+            for index, (start, end) in enumerate(spans) if index not in busy
+        ]
+        db.add_all(created)
+        series.attendees = attendees
+        series.generated_until = horizon
+        series.finished = finished
+        await db.commit()
+        made += len(created)
+        if created:
+            await _bookings_event(db, series.star_id, series.channel_id)
+        if busy:
+            room = await _room_name(db, series.channel_id)
+        for index in sorted(busy):
+            other, owner = busy[index]
+            owner_name = await pseudonyms.name_in_star(db, series.star_id, owner) if owner else None
+            skipped = SimpleNamespace(
+                star_id=series.star_id, channel_id=series.channel_id, id=None, series_id=series.id,
+                title=series.title, starts_at=spans[index][0], ends_at=spans[index][1],
+            )
+            await _tell(
+                db, star, skipped, [series.created_by], "booking_busy",
+                f"«{series.title}» {spans[index][0].astimezone(ZoneInfo(series.tz)).strftime('%d.%m')} не забронирована",
+                f"«{room}» в это время занята: «{other.title}» ({owner_name or 'кто-то'}) · {star.name}",
+                push=True,
+            )
+    return made
 
 
 @router.delete("/{star_id}/bookings/{booking_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def cancel_booking(star_id: str, booking_id: str, current_user: CurrentUser, db: Db):
+async def cancel_booking(
+    star_id: str,
+    booking_id: str,
+    current_user: CurrentUser,
+    db: Db,
+    # Для встречи серии: one — только эту, following — эту и следующие, all — всю серию.
+    scope: Annotated[Literal["one", "following", "all"], Query()] = "one",
+):
     star, me = await _load_membership(db, star_id, current_user.id)
     booking = (
         await db.execute(select(StarBooking).where(StarBooking.id == booking_id, StarBooking.star_id == star_id))
@@ -391,20 +609,51 @@ async def cancel_booking(star_id: str, booking_id: str, current_user: CurrentUse
         raise HTTPException(status_code=404, detail="Бронь не найдена")
     if booking.created_by != current_user.id and me.role not in ("owner", "admin"):
         raise _forbid("Отменить может автор брони, владелец или админ")
+    series = await db.get(StarBookingSeries, booking.series_id) if booking.series_id and scope != "one" else None
     channel_id = booking.channel_id
-    # Прошедшую встречу отменять не о чем сообщать — только ещё не закончившуюся.
-    tell = [uid for uid in {booking.created_by, *booking.attendees} if uid and uid != current_user.id] \
-        if booking.ends_at > _now() else []
     room = await _room_name(db, channel_id)
     who = await pseudonyms.name_in_star(db, star_id, current_user) or current_user.display_name
-    await db.delete(booking)
+    if series is None:
+        # Прошедшую встречу отменять не о чем сообщать — только ещё не закончившуюся.
+        tell = [uid for uid in {booking.created_by, *booking.attendees} if uid and uid != current_user.id] \
+            if booking.ends_at > _now() else []
+        await db.delete(booking)
+        await db.commit()
+        await _bookings_event(db, star_id, channel_id)
+        if tell:
+            await _tell(
+                db, star, booking, tell, "booking_cancelled",
+                f"Встреча «{booking.title}» отменена",
+                f"«{room}» · {_span(star, booking.starts_at, booking.ends_at)} · {star.name} · отменил(а) {who}",
+                push=True,
+            )
+        return
+
+    query = select(StarBooking).where(StarBooking.series_id == series.id)
+    if scope == "following":
+        query = query.where(StarBooking.starts_at >= booking.starts_at)
+    else:
+        query = query.where(StarBooking.ends_at > _now())
+    doomed = list((await db.execute(query)).scalars().all())
+    tell = [uid for uid in {series.created_by, *series.attendees} if uid and uid != current_user.id] \
+        if any(b.ends_at > _now() for b in doomed) else []
+    text = _series_text(star, series)
+    for b in doomed:
+        await db.delete(b)
+    if scope == "following":
+        series.finished = True
+    else:
+        # Прошедшие встречи остаются в истории разовыми (series_id обнулит база).
+        await db.delete(series)
     await db.commit()
     await _bookings_event(db, star_id, channel_id)
     if tell:
+        since = booking.starts_at.astimezone(ZoneInfo(series.tz)).strftime("%d.%m")
+        title = (f"Встречи «{booking.title}» отменены с {since}" if scope == "following"
+                 else f"Регулярная встреча «{booking.title}» отменена")
         await _tell(
-            db, star, booking, tell, "booking_cancelled",
-            f"Встреча «{booking.title}» отменена",
-            f"«{room}» · {_span(star, booking.starts_at, booking.ends_at)} · {star.name} · отменил(а) {who}",
+            db, star, booking, tell, "booking_cancelled", title,
+            f"«{room}» · {text} · {star.name} · отменил(а) {who}",
             push=True,
         )
 

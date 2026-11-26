@@ -329,6 +329,10 @@ async def lifespan(app: FastAPI):
             "ALTER TABLE oauth_flows ADD COLUMN IF NOT EXISTS client_challenge VARCHAR(64)",
             "ALTER TABLE star_messages ADD COLUMN IF NOT EXISTS bot_id VARCHAR(36) REFERENCES star_bots(id) ON DELETE SET NULL",
             "ALTER TABLE star_messages ADD COLUMN IF NOT EXISTS buttons JSON",
+            # Повторяющиеся брони (таблица star_booking_series — create_all выше).
+            "ALTER TABLE star_bookings ADD COLUMN IF NOT EXISTS series_id VARCHAR(36) "
+            "REFERENCES star_booking_series(id) ON DELETE SET NULL",
+            "CREATE INDEX IF NOT EXISTS ix_star_bookings_series_id ON star_bookings (series_id)",
         ):
             await conn.execute(text(ddl))
         await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS password_changed_at TIMESTAMP WITH TIME ZONE"))

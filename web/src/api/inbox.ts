@@ -1,6 +1,12 @@
 import { http } from "./client";
 
-export type InboxKind = "booking_invite" | "booking_cancelled" | "booking_soon" | "booking_started";
+export type InboxKind =
+  | "booking_invite"
+  | "booking_cancelled"
+  | "booking_soon"
+  | "booking_started"
+  /** День серии не забронирован: комната была занята. */
+  | "booking_busy";
 
 /** Уведомление зелёного колокольчика. */
 export interface InboxItem {

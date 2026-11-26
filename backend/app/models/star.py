@@ -445,6 +445,37 @@ class StarMessageAck(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
 
+class StarBookingSeries(Base):
+    """Повторяющаяся бронь: правило повтора (app/core/recurrence.py) и общие тема и участники.
+
+    Сами встречи — обычные StarBooking с series_id: их создают на BOOK_AHEAD вперёд, а планировщик
+    дописывает следующие по мере того, как подходят их дни (generated_until — до какого момента
+    встречи уже разобраны: созданы или пропущены, потому что комната была занята)."""
+
+    __tablename__ = "star_booking_series"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    star_id: Mapped[str] = mapped_column(
+        ForeignKey("stars.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    channel_id: Mapped[str] = mapped_column(
+        ForeignKey("star_channels.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    title: Mapped[str] = mapped_column(String(100), nullable=False)
+    created_by: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    attendees: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    rule: Mapped[dict] = mapped_column(JSON, nullable=False)
+    tz: Mapped[str] = mapped_column(String(64), nullable=False)
+    first_starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    duration_min: Mapped[int] = mapped_column(Integer, nullable=False)
+    generated_until: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    # Больше встреч не будет: правило кончилось или серию отменили «с этой и дальше».
+    finished: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
 class StarBooking(Base):
     """Бронь комнаты (Планеты рабочей Звезды) на время: напоминание и статус «на встрече»."""
 
@@ -464,6 +495,10 @@ class StarBooking(Base):
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
     attendees: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    # Встреча повторяющейся серии (null — разовая бронь).
+    series_id: Mapped[str | None] = mapped_column(
+        ForeignKey("star_booking_series.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     # Уже напомнили (за 10 минут) и уже поставили «на встрече» в начале.
     reminded: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     started: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)

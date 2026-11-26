@@ -20,6 +20,8 @@ import {
   type StarRole,
   type StarAsset,
   type StarBooking,
+  type BookingRequest,
+  type CancelScope,
   type StarBookmark,
   type StarSummary,
   type DoorSignKind,
@@ -199,11 +201,9 @@ interface StarsState {
   loadMySchedule: () => Promise<void>;
   setMySchedule: (schedule: WorkSchedule | null) => Promise<void>;
   loadBookings: (starId: string) => Promise<void>;
-  book: (
-    channelId: string,
-    body: { title: string; starts_at: string; ends_at: string; attendees: string[] }
-  ) => Promise<void>;
-  cancelBooking: (booking: StarBooking) => Promise<void>;
+  book: (channelId: string, body: BookingRequest) => Promise<void>;
+  /** Встречу серии можно отменить одну, с этой и дальше или всю серию. */
+  cancelBooking: (booking: StarBooking, scope?: CancelScope) => Promise<void>;
   setDoorSign: (
     channelId: string,
     body: { kind: DoorSignKind | null; text?: string | null; until?: string | null }
@@ -1153,10 +1153,14 @@ export const useStarsStore = create<StarsState>((set, get) => {
       await get().loadBookings(starId);
     },
 
-    cancelBooking: async (booking) => {
+    cancelBooking: async (booking, scope = "one") => {
       const starId = get().activeStarId;
       if (!starId) return;
-      await starsApi.cancelBooking(starId, booking.id);
+      await starsApi.cancelBooking(starId, booking.id, scope);
+      if (scope !== "one") {
+        await get().loadBookings(starId);
+        return;
+      }
       set((s) => ({
         bookings: {
           ...s.bookings,

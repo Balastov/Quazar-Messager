@@ -200,6 +200,12 @@ async def booking_tick(db: AsyncSession, now: datetime | None = None) -> int:
     return await tick(db, now)
 
 
+async def extend_booking_series(db: AsyncSession, now: datetime | None = None) -> int:
+    from app.api.star_work import extend_series
+
+    return await extend_series(db, now)
+
+
 async def run_due_workflows(db: AsyncSession, now: datetime | None = None) -> int:
     from app.core import workflows
 
@@ -227,6 +233,7 @@ async def run_forever(session_factory: async_sessionmaker) -> None:
             start_due_lfg,
             sweep_temporary_planets,
             booking_tick,
+            extend_booking_series,
             run_due_workflows,
             remind_premium_trials,
             send_release_news,

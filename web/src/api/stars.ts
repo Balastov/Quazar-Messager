@@ -58,6 +58,20 @@ export interface WorkSchedule {
 
 export type DoorSignKind = "dnd" | "welcome" | "away" | "custom";
 
+/** Повтор брони — как в календаре (backend/app/core/recurrence.py). */
+export interface RepeatRule {
+  freq: "daily" | "weekly" | "monthly";
+  interval?: number;
+  /** Для weekly: 0 — понедельник … 6 — воскресенье. */
+  weekdays?: number[];
+  /** Для monthly: того же числа, в тот же N-й день недели или в последний такой день недели. */
+  monthly?: "day" | "weekday" | "last_weekday";
+  /** Последний день серии «ГГГГ-ММ-ДД» (включительно). */
+  until?: string | null;
+  /** Сколько встреч всего. */
+  count?: number | null;
+}
+
 /** Бронь переговорной. */
 export interface StarBooking {
   id: string;
@@ -67,7 +81,31 @@ export interface StarBooking {
   ends_at: string;
   created_by: string | null;
   attendees: string[];
+  /** Встреча повторяющейся серии. */
+  series_id?: string | null;
+  repeat?: RepeatRule | null;
 }
+
+export interface BookingRequest {
+  title: string;
+  starts_at: string;
+  ends_at: string;
+  attendees: string[];
+  repeat?: RepeatRule | null;
+  /** Часовой пояс, в котором повторяется встреча. */
+  tz?: string;
+  /** Комната занята в часть дней серии — забронировать остальные. */
+  skip_busy?: boolean;
+}
+
+/** Ответ 409 на серию: в какие дни комната занята. */
+export interface BookingBusy {
+  message: string;
+  busy: { starts_at: string; ends_at: string; title: string; who: string | null }[];
+  free: number;
+}
+
+export type CancelScope = "one" | "following" | "all";
 
 /** Файл в сообщении Спутника. */
 export interface StarFile {
@@ -997,16 +1035,12 @@ export const starsApi = {
     http
       .get<StarBooking[]>(`${base(starId)}/bookings`, { params: { from, to } })
       .then((r) => r.data),
-  book: (
-    starId: string,
-    channelId: string,
-    body: { title: string; starts_at: string; ends_at: string; attendees: string[] }
-  ) =>
+  book: (starId: string, channelId: string, body: BookingRequest) =>
     http
       .post<StarBooking>(`${base(starId)}/channels/${channelId}/bookings`, body)
       .then((r) => r.data),
-  cancelBooking: (starId: string, bookingId: string) =>
-    http.delete(`${base(starId)}/bookings/${bookingId}`),
+  cancelBooking: (starId: string, bookingId: string, scope: CancelScope = "one") =>
+    http.delete(`${base(starId)}/bookings/${bookingId}`, { params: scope === "one" ? undefined : { scope } }),
   doorSign: (
     starId: string,
     channelId: string,

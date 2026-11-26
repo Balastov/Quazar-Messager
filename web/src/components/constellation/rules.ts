@@ -173,6 +173,7 @@ export function apiError(err: unknown, fallback = "Не получилось. П
     const detail = err.response?.data?.detail;
     if (typeof detail === "string") return detail;
     if (Array.isArray(detail) && detail[0]?.msg) return String(detail[0].msg);
+    if (detail && typeof detail === "object" && typeof detail.message === "string") return detail.message;
     if (!err.response) return "Нет связи с сервером";
   }
   return fallback;

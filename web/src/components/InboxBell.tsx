@@ -11,6 +11,7 @@ const ICON: Record<string, string> = {
   booking_cancelled: "🚫",
   booking_soon: "⏰",
   booking_started: "▶️",
+  booking_busy: "⚠️",
 };
 
 function ago(iso: string, now = Date.now()): string {

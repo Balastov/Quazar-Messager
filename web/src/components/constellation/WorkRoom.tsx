@@ -1,6 +1,18 @@
 import { useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { guestLinkUrl, starsApi, type DoorSignKind, type GuestLink, type StarChannel, type StarDetail } from "../../api/stars";
+import axios from "axios";
+import {
+  guestLinkUrl,
+  starsApi,
+  type BookingBusy,
+  type CancelScope,
+  type DoorSignKind,
+  type GuestLink,
+  type RepeatRule,
+  type StarBooking,
+  type StarChannel,
+  type StarDetail,
+} from "../../api/stars";
 import { can, roomDoor } from "./rules";
 import { formatWhen } from "../../chat/when";
 import { useAuthStore } from "../../store/auth";
@@ -8,6 +20,16 @@ import { useStarsStore } from "../../store/stars";
 import Dialog from "./Dialog";
 import { apiError } from "./rules";
 import { bookingRange, currentBooking, DOOR_SIGNS, doorSign, hhmm, upcomingBookings, useBookings } from "./work";
+import {
+  describeRepeat,
+  isLastInMonth,
+  plural,
+  presetRule,
+  repeatPresets,
+  weekdayOf,
+  WEEKDAY_SHORT,
+  type RepeatPreset,
+} from "./repeat";
 import s from "./Constellation.module.css";
 import g from "./Gaming.module.css";
 import w from "./Work.module.css";
@@ -166,6 +188,7 @@ function RoomBookings({ detail, channel }: { detail: StarDetail; channel: StarCh
   const cancelBooking = useStarsStore((st) => st.cancelBooking);
   const { bookings, now } = useBookings(detail);
   const [open, setOpen] = useState(false);
+  const [cancelling, setCancelling] = useState<StarBooking | null>(null);
   const [error, setError] = useState<string | null>(null);
   const list = upcomingBookings(bookings, channel.id, now);
   const current = currentBooking(bookings, channel.id, now);
@@ -190,7 +213,15 @@ function RoomBookings({ detail, channel }: { detail: StarDetail; channel: StarCh
         return (
           <div key={b.id} className={b.id === current?.id ? `${w.booking} ${w.bookingNow}` : w.booking}>
             <span className={w.bookingWhen}>{bookingRange(b)}</span>
-            <span className={w.bookingTitle} title={`${b.title} · бронь: ${nameOf(b.created_by)}`}>
+            <span
+              className={w.bookingTitle}
+              title={[
+                b.title,
+                b.repeat ? `повтор: ${describeRepeat(b.repeat, new Date(b.starts_at))}` : "",
+                `бронь: ${nameOf(b.created_by)}`,
+              ].filter(Boolean).join(" · ")}
+            >
+              {b.repeat && <span className={w.repeatMark} aria-label="Повторяется">🔁 </span>}
               {b.title}
               {invited ? " · вас позвали" : ""}
             </span>
@@ -199,8 +230,12 @@ function RoomBookings({ detail, channel }: { detail: StarDetail; channel: StarCh
                 type="button"
                 className={`${s.secondary} ${s.small}`}
                 onClick={() => {
-                  if (!window.confirm(`Отменить бронь «${b.title}»?`)) return;
                   setError(null);
+                  if (b.series_id) {
+                    setCancelling(b);
+                    return;
+                  }
+                  if (!window.confirm(`Отменить бронь «${b.title}»?`)) return;
                   void cancelBooking(b).catch((err) => setError(apiError(err, "Не удалось отменить")));
                 }}
               >
@@ -212,7 +247,63 @@ function RoomBookings({ detail, channel }: { detail: StarDetail; channel: StarCh
       })}</div>}
       {error && <div className={s.error}>{error}</div>}
       {open && createPortal(<BookingDialog detail={detail} channel={channel} onClose={() => setOpen(false)} />, document.body)}
+      {cancelling &&
+        createPortal(<CancelSeriesDialog booking={cancelling} onClose={() => setCancelling(null)} />, document.body)}
     </div>
+  );
+}
+
+const CANCEL_SCOPES: { value: CancelScope; label: string }[] = [
+  { value: "one", label: "Только эту встречу" },
+  { value: "following", label: "Эту и следующие" },
+  { value: "all", label: "Все встречи серии" },
+];
+
+/** Отмена встречи повторяющейся серии: одну, с этой и дальше или всю серию. */
+export function CancelSeriesDialog({ booking, onClose }: { booking: StarBooking; onClose: () => void }) {
+  const cancelBooking = useStarsStore((st) => st.cancelBooking);
+  const [scope, setScope] = useState<CancelScope>("one");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const submit = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await cancelBooking(booking, scope);
+      onClose();
+    } catch (err) {
+      setError(apiError(err, "Не удалось отменить"));
+      setBusy(false);
+    }
+  };
+  return (
+    <Dialog title={`Отменить «${booking.title}»`} onClose={onClose}>
+      <div className={g.form}>
+        {booking.repeat && (
+          <p className={s.hint}>
+            🔁 {capitalize(describeRepeat(booking.repeat, new Date(booking.starts_at)))}. Эта встреча — {bookingRange(booking)}.
+          </p>
+        )}
+        <div className={w.repeatEnd} role="radiogroup" aria-label="Что отменить">
+          {CANCEL_SCOPES.map((option) => (
+            <label key={option.value} className={g.check}>
+              <input
+                type="radio"
+                name="cancel-scope"
+                checked={scope === option.value}
+                onChange={() => setScope(option.value)}
+              />
+              {option.label}
+            </label>
+          ))}
+        </div>
+        <p className={s.hint}>Участникам придёт уведомление об отмене.</p>
+        {error && <div className={s.error}>{error}</div>}
+        <button type="button" className={s.danger} disabled={busy} onClick={() => void submit()}>
+          Отменить
+        </button>
+      </div>
+    </Dialog>
   );
 }
 
@@ -236,26 +327,95 @@ function nextSlot(): Date {
   return d;
 }
 
-function BookingDialog({ detail, channel, onClose }: { detail: StarDetail; channel: StarChannel; onClose: () => void }) {
+type RepeatEnd = "never" | "until" | "count";
+
+function capitalize(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+function busyDetail(err: unknown): BookingBusy | null {
+  if (!axios.isAxiosError(err) || err.response?.status !== 409) return null;
+  const detail = err.response.data?.detail;
+  return detail && typeof detail === "object" && Array.isArray(detail.busy) ? (detail as BookingBusy) : null;
+}
+
+/** Через сколько месяцев по умолчанию кончается серия «до даты». */
+function monthsLater(d: Date, months: number): string {
+  const next = new Date(d);
+  next.setMonth(next.getMonth() + months);
+  return localDate(next);
+}
+
+export function BookingDialog({ detail, channel, onClose }: { detail: StarDetail; channel: StarChannel; onClose: () => void }) {
   const myId = useAuthStore((st) => st.user?.id);
   const book = useStarsStore((st) => st.book);
-  const start = nextSlot();
+  const [start] = useState(nextSlot);
   const [date, setDate] = useState(localDate(start));
   const [from, setFrom] = useState(localTime(start));
   const [to, setTo] = useState(localTime(new Date(start.getTime() + 60 * 60_000)));
   const [title, setTitle] = useState("");
   const [attendees, setAttendees] = useState<Set<string>>(new Set());
   const [query, setQuery] = useState("");
+  const [preset, setPreset] = useState<RepeatPreset>("none");
+  const [freq, setFreq] = useState<RepeatRule["freq"]>("weekly");
+  const [every, setEvery] = useState(1);
+  const [weekdays, setWeekdays] = useState<Set<number>>(new Set([weekdayOf(start)]));
+  const [monthly, setMonthly] = useState<NonNullable<RepeatRule["monthly"]>>("day");
+  const [ending, setEnding] = useState<RepeatEnd>("never");
+  const [until, setUntil] = useState(monthsLater(start, 3));
+  const [count, setCount] = useState(10);
   const [busy, setBusy] = useState(false);
+  const [busyDays, setBusyDays] = useState<BookingBusy | null>(null);
   const [error, setError] = useState<string | null>(null);
   const others = detail.members.filter(
     (m) =>
       m.user.id !== myId &&
       [m.user.username, displayName(m.user)].some((n) => n.toLowerCase().includes(query.trim().toLowerCase()))
   );
+  const parsedFirst = new Date(`${date}T${from || "00:00"}`);
+  const first = Number.isNaN(parsedFirst.getTime()) ? start : parsedFirst;
+  const presets = repeatPresets(first);
+  // Сменили день — вариант «во второй вторник» мог пропасть.
+  const shownPreset = presets.some((p) => p.value === preset) ? preset : "none";
 
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const baseRule: RepeatRule | null =
+    shownPreset === "custom"
+      ? {
+          freq,
+          interval: every,
+          ...(freq === "weekly" ? { weekdays: [...weekdays].sort((a, b) => a - b) } : {}),
+          ...(freq === "monthly" ? { monthly: monthly === "last_weekday" && !isLastInMonth(first) ? "weekday" : monthly } : {}),
+        }
+      : presetRule(shownPreset, first);
+  const rule: RepeatRule | null = baseRule && {
+    ...baseRule,
+    until: ending === "until" ? until : null,
+    count: ending === "count" ? count : null,
+  };
+
+  const choosePreset = (value: RepeatPreset) => {
+    if (value === "custom" && shownPreset !== "custom") {
+      // «Настроить…» начинается с того, что было выбрано.
+      const current = presetRule(shownPreset, first) ?? { freq: "weekly" as const, weekdays: [weekdayOf(first)] };
+      setFreq(current.freq);
+      setEvery(1);
+      setWeekdays(new Set(current.weekdays ?? [weekdayOf(first)]));
+      setMonthly(current.monthly ?? "day");
+    }
+    setPreset(value);
+    setBusyDays(null);
+  };
+
+  const toggleWeekday = (day: number) =>
+    setWeekdays((prev) => {
+      const next = new Set(prev);
+      if (next.has(day)) {
+        if (next.size > 1) next.delete(day);
+      } else next.add(day);
+      return next;
+    });
+
+  const submit = async (skipBusy = false) => {
     const startsAt = new Date(`${date}T${from}`);
     const endsAt = new Date(`${date}T${to}`);
     if (Number.isNaN(startsAt.getTime()) || Number.isNaN(endsAt.getTime())) {
@@ -266,25 +426,43 @@ function BookingDialog({ detail, channel, onClose }: { detail: StarDetail; chann
       setError("Конец должен быть позже начала");
       return;
     }
+    if (rule?.until && rule.until < date) {
+      setError("Повтор заканчивается раньше первой встречи");
+      return;
+    }
     setBusy(true);
     setError(null);
+    setBusyDays(null);
     try {
       await book(channel.id, {
         title: title.trim() || "Встреча",
         starts_at: startsAt.toISOString(),
         ends_at: endsAt.toISOString(),
         attendees: [...attendees],
+        ...(rule
+          ? { repeat: rule, tz: Intl.DateTimeFormat().resolvedOptions().timeZone, skip_busy: skipBusy }
+          : {}),
       });
       onClose();
     } catch (err) {
-      setError(apiError(err, "Не удалось забронировать"));
+      const days = busyDetail(err);
+      if (days) setBusyDays(days);
+      else setError(apiError(err, "Не удалось забронировать"));
       setBusy(false);
     }
   };
 
+  const unit = (one: string, few: string, many: string) => plural(every, one, few, many);
+
   return (
     <Dialog title={`Бронь: ${channel.name}`} onClose={onClose}>
-      <form className={g.form} onSubmit={(e) => void submit(e)}>
+      <form
+        className={g.form}
+        onSubmit={(e) => {
+          e.preventDefault();
+          void submit();
+        }}
+      >
         <label className={s.label}>
           Тема
           <input className={s.input} value={title} maxLength={100} autoFocus placeholder="Планёрка" onChange={(e) => setTitle(e.target.value)} />
@@ -303,6 +481,122 @@ function BookingDialog({ detail, channel, onClose }: { detail: StarDetail; chann
             <input className={s.input} type="time" value={to} onChange={(e) => setTo(e.target.value)} />
           </label>
         </div>
+        <label className={s.label}>
+          Повторять
+          <select
+            className={s.select}
+            value={shownPreset}
+            data-testid="booking-repeat"
+            onChange={(e) => choosePreset(e.target.value as RepeatPreset)}
+          >
+            {presets.map((p) => (
+              <option key={p.value} value={p.value}>
+                {p.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        {shownPreset === "custom" && (
+          <div className={w.repeatBox}>
+            <div className={w.repeatEvery}>
+              Раз в
+              <input
+                className={s.input}
+                type="number"
+                min={1}
+                max={30}
+                value={every}
+                aria-label="Интервал повтора"
+                onChange={(e) => setEvery(Math.min(30, Math.max(1, Math.round(Number(e.target.value)) || 1)))}
+              />
+              <select
+                className={s.select}
+                value={freq}
+                aria-label="Единица повтора"
+                onChange={(e) => setFreq(e.target.value as RepeatRule["freq"])}
+              >
+                <option value="daily">{unit("день", "дня", "дней")}</option>
+                <option value="weekly">{unit("неделю", "недели", "недель")}</option>
+                <option value="monthly">{unit("месяц", "месяца", "месяцев")}</option>
+              </select>
+            </div>
+            {freq === "weekly" && (
+              <div className={w.days} role="group" aria-label="Дни недели">
+                {WEEKDAY_SHORT.map((label, day) => (
+                  <button
+                    key={label}
+                    type="button"
+                    className={weekdays.has(day) ? `${w.day} ${w.dayOn}` : w.day}
+                    aria-pressed={weekdays.has(day)}
+                    onClick={() => toggleWeekday(day)}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            )}
+            {freq === "monthly" && (
+              <select
+                className={s.select}
+                value={monthly === "last_weekday" && !isLastInMonth(first) ? "weekday" : monthly}
+                aria-label="День месяца"
+                onChange={(e) => setMonthly(e.target.value as NonNullable<RepeatRule["monthly"]>)}
+              >
+                <option value="day">{first.getDate()}-го числа</option>
+                <option value="weekday">
+                  {describeRepeat({ freq: "monthly", monthly: "weekday" }, first).replace("каждый месяц, ", "")}
+                </option>
+                {isLastInMonth(first) && (
+                  <option value="last_weekday">
+                    {describeRepeat({ freq: "monthly", monthly: "last_weekday" }, first).replace("каждый месяц, ", "")}
+                  </option>
+                )}
+              </select>
+            )}
+          </div>
+        )}
+        {rule && (
+          <div className={s.label}>
+            Окончание
+            <div className={w.repeatEnd} role="radiogroup" aria-label="Окончание повтора">
+              <label className={g.check}>
+                <input type="radio" name="repeat-end" checked={ending === "never"} onChange={() => setEnding("never")} />
+                Никогда
+              </label>
+              <label className={g.check}>
+                <input type="radio" name="repeat-end" checked={ending === "until"} onChange={() => setEnding("until")} />
+                До
+                <input
+                  className={s.input}
+                  type="date"
+                  value={until}
+                  min={date}
+                  aria-label="Последний день серии"
+                  onFocus={() => setEnding("until")}
+                  onChange={(e) => setUntil(e.target.value)}
+                />
+              </label>
+              <label className={g.check}>
+                <input type="radio" name="repeat-end" checked={ending === "count"} onChange={() => setEnding("count")} />
+                После
+                <input
+                  className={s.input}
+                  type="number"
+                  min={2}
+                  max={365}
+                  value={count}
+                  aria-label="Сколько встреч"
+                  onFocus={() => setEnding("count")}
+                  onChange={(e) => setCount(Math.min(365, Math.max(2, Math.round(Number(e.target.value)) || 2)))}
+                />
+                {plural(count, "встречи", "встреч", "встреч")}
+              </label>
+            </div>
+            <span className={w.repeatSummary}>
+              🔁 {capitalize(describeRepeat(rule, first))}, {from}–{to}
+            </span>
+          </div>
+        )}
         <div className={s.label}>
           Позвать · {attendees.size}
           <input className={s.input} value={query} placeholder="Найти участника" onChange={(e) => setQuery(e.target.value)} />
@@ -329,7 +623,26 @@ function BookingDialog({ detail, channel, onClose }: { detail: StarDetail; chann
         <p className={s.hint}>
           За 10 минут всем придёт напоминание, а на время встречи статус станет «на встрече» (кроме
           тех, кто сам поставил «не беспокоить»). До 8 часов, не дальше чем на 60 дней вперёд.
+          {rule && " Повторяющиеся встречи бронируются на 60 дней вперёд, следующие — сами по мере приближения."}
         </p>
+        {busyDays && (
+          <div className={w.busyDays} role="alert">
+            <strong>{busyDays.message}</strong>
+            <ul>
+              {busyDays.busy.map((b) => (
+                <li key={b.starts_at}>
+                  {bookingRange({ starts_at: b.starts_at, ends_at: b.ends_at } as StarBooking)} — «{b.title}»
+                  {b.who ? ` (${b.who})` : ""}
+                </li>
+              ))}
+            </ul>
+            {busyDays.free > 0 && (
+              <button type="button" className={`${s.secondary} ${s.small}`} disabled={busy} onClick={() => void submit(true)}>
+                Забронировать остальные ({busyDays.free})
+              </button>
+            )}
+          </div>
+        )}
         {error && <div className={s.error}>{error}</div>}
         <button type="submit" className={s.primary} disabled={busy}>
           Забронировать

@@ -105,6 +105,12 @@ export default function CallOverlay() {
   const [screenDialogOpen, setScreenDialogOpen] = useState(false);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const localVideoRef = useRef<HTMLVideoElement>(null);
+  // «На весь экран»: разворачиваем всё окно звонка — кнопки и окна настроек остаются видны.
+  // nativeFull — полноэкранный режим браузера; expanded — запасной (iPhone): на всю страницу.
+  const rootRef = useRef<HTMLDivElement>(null);
+  const [nativeFull, setNativeFull] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const stageFull = nativeFull || expanded;
 
   const isVideo = media.video === true;
   const remoteShows = remoteVideo.video || remoteVideo.screen;
@@ -153,6 +159,42 @@ export default function CallOverlay() {
       el.srcObject = null;
     }
   }, [localStream, localVideo, cameraOff, showVideoStage]);
+
+  useEffect(() => {
+    const onChange = () => setNativeFull(!!rootRef.current && document.fullscreenElement === rootRef.current);
+    document.addEventListener("fullscreenchange", onChange);
+    return () => document.removeEventListener("fullscreenchange", onChange);
+  }, []);
+
+  // Видео пропало (звонок закончился, собеседник выключил показ) — выходим из полноэкранного режима.
+  useEffect(() => {
+    if (showVideoStage) return;
+    setExpanded(false);
+    if (rootRef.current && document.fullscreenElement === rootRef.current) void document.exitFullscreen().catch(() => {});
+  }, [showVideoStage]);
+
+  useEffect(() => {
+    if (!expanded) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !event.defaultPrevented) setExpanded(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [expanded]);
+
+  const toggleStageFull = () => {
+    if (expanded) {
+      setExpanded(false);
+      return;
+    }
+    const root = rootRef.current;
+    if (root && document.fullscreenElement === root) {
+      void document.exitFullscreen().catch(() => {});
+      return;
+    }
+    if (root?.requestFullscreen) void root.requestFullscreen().catch(() => setExpanded(true));
+    else setExpanded(true);
+  };
 
   if (phase === "idle" || (phase === "incoming" && presenting)) return null;
 
@@ -207,6 +249,18 @@ export default function CallOverlay() {
     </>
   );
 
+  const fullButton = showRemoteVideo ? (
+    <button
+      type="button"
+      className={s.mute}
+      onClick={toggleStageFull}
+      aria-label={stageFull ? "Выйти из полноэкранного режима" : "На весь экран"}
+      title={stageFull ? "Выйти из полноэкранного режима (Esc)" : "На весь экран (двойной клик по видео)"}
+    >
+      {stageFull ? "↙" : "⛶"}
+    </button>
+  ) : null;
+
   const pipButton = canPip ? (
     <button
       type="button"
@@ -238,7 +292,12 @@ export default function CallOverlay() {
   );
 
   return (
-    <div className={s.root} role="dialog" aria-label={isVideo ? "Видеозвонок" : "Звонок"}>
+    <div
+      ref={rootRef}
+      className={stageFull && showVideoStage ? `${s.root} ${s.rootFull}` : s.root}
+      role="dialog"
+      aria-label={isVideo ? "Видеозвонок" : "Звонок"}
+    >
       <audio ref={audioRef} autoPlay playsInline />
 
       {showVideoStage ? (
@@ -250,6 +309,7 @@ export default function CallOverlay() {
               autoPlay
               playsInline
               muted
+              onDoubleClick={toggleStageFull}
             />
           ) : (
             <div className={s.videoPlaceholder}>
@@ -326,6 +386,7 @@ export default function CallOverlay() {
                   >
                     Flip
                   </button>
+                  {fullButton}
                   {pipButton}
                   <button type="button" className={s.reject} onClick={hangup} aria-label="Завершить">
                     <IconPhone size={22} />

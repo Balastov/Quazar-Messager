@@ -272,6 +272,20 @@
   object-fit: contain;
 }
 
+/* «На весь экран»: окно звонка во весь монитор (или во всю страницу, где браузер не умеет). */
+.rootFull {
+  padding: 0;
+  background: #000;
+}
+
+.rootFull .videoStage {
+  width: 100%;
+  height: 100%;
+  max-height: none;
+  border-radius: 0;
+  border: none;
+}
+
 .localScreen {
   object-fit: contain;
   transform: none;

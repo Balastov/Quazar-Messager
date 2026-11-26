@@ -172,7 +172,7 @@ describe("CancelSeriesDialog", () => {
       repeat: { freq: "weekly", interval: 1, weekdays: [1] } } as StarBooking;
     const onClose = vi.fn();
     render(createElement(CancelSeriesDialog, { booking, onClose }));
-    expect(document.body.textContent).toContain("по вторникам");
+    expect(document.body.textContent).toContain("🔁 По вторникам.");
     const following = [...document.body.querySelectorAll("label")].find((l) => l.textContent === "Эту и следующие")!;
     act(() => Simulate.change(following.querySelector("input")!));
     act(() => Simulate.click(button("Отменить")));

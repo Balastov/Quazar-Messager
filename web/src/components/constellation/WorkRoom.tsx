@@ -356,6 +356,15 @@ function nextSlot(): Date {
   return d;
 }
 
+/** Конец по умолчанию — через час, но в тот же день: бронь не переходит за полночь. */
+function defaultEnd(start: Date): Date {
+  const end = new Date(start.getTime() + 60 * 60_000);
+  if (end.getDate() === start.getDate()) return end;
+  const late = new Date(start);
+  late.setHours(23, 59, 0, 0);
+  return late;
+}
+
 type RepeatEnd = "never" | "until" | "count";
 
 function capitalize(text: string): string {
@@ -393,7 +402,7 @@ export function BookingDialog({
   const [start] = useState(() => (editing ? new Date(editing.starts_at) : nextSlot()));
   const [date, setDate] = useState(localDate(start));
   const [from, setFrom] = useState(localTime(start));
-  const [to, setTo] = useState(localTime(editing ? new Date(editing.ends_at) : new Date(start.getTime() + 60 * 60_000)));
+  const [to, setTo] = useState(localTime(editing ? new Date(editing.ends_at) : defaultEnd(start)));
   const [title, setTitle] = useState(editing?.title ?? "");
   const [attendees, setAttendees] = useState<Set<string>>(new Set(editing?.attendees ?? []));
   const [scope, setScope] = useState<CancelScope>("one");

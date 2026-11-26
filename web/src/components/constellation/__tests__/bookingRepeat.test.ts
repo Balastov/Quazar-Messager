@@ -107,6 +107,23 @@ describe("BookingDialog — повтор", () => {
     expect(onClose).toHaveBeenCalled();
   });
 
+  it("поздно вечером конец по умолчанию — 23:59 того же дня, бронь уходит", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-11-26T23:10:00"));
+    try {
+      const book = vi.fn().mockResolvedValue(undefined);
+      useStarsStore.setState({ book });
+      render(createElement(BookingDialog, { detail, channel, onClose: vi.fn() }));
+      act(() => Simulate.submit(host.querySelector("form")!));
+      await flush();
+      const body = book.mock.calls[0][1];
+      expect(new Date(body.starts_at)).toEqual(new Date("2026-11-26T23:30:00"));
+      expect(new Date(body.ends_at)).toEqual(new Date("2026-11-26T23:59:00"));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("свой повтор: раз в 2 недели по выбранным дням, после 6 встреч", async () => {
     const book = vi.fn().mockResolvedValue(undefined);
     useStarsStore.setState({ book });

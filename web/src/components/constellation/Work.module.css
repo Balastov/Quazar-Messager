@@ -257,6 +257,45 @@ button.ackCount:hover {
   white-space: nowrap;
 }
 
+/* Карандаш и крестик у брони: без заливки, цветной значок. */
+.bookingIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 50%;
+  background: transparent;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.bookingEdit {
+  color: var(--qz-online);
+}
+
+.bookingEdit:hover {
+  border-color: rgba(52, 211, 153, 0.55);
+  background: rgba(52, 211, 153, 0.1);
+}
+
+.bookingCancel {
+  color: var(--qz-danger);
+}
+
+.bookingCancel:hover {
+  border-color: rgba(239, 68, 68, 0.55);
+  background: rgba(239, 68, 68, 0.1);
+}
+
+.bookingIcon:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 1px;
+}
+
 .repeatMark {
   font-size: 11px;
 }

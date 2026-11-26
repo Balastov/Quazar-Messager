@@ -1041,6 +1041,16 @@ export const starsApi = {
     http
       .post<StarBooking>(`${base(starId)}/channels/${channelId}/bookings`, body)
       .then((r) => r.data),
+  /** Изменить тему, время и участников; у встречи серии — эту, эту и следующие или все. */
+  updateBooking: (
+    starId: string,
+    bookingId: string,
+    body: { title: string; starts_at: string; ends_at: string; attendees: string[] },
+    scope: CancelScope = "one"
+  ) =>
+    http
+      .put<StarBooking>(`${base(starId)}/bookings/${bookingId}`, body, { params: scope === "one" ? undefined : { scope } })
+      .then((r) => r.data),
   cancelBooking: (starId: string, bookingId: string, scope: CancelScope = "one") =>
     http.delete(`${base(starId)}/bookings/${bookingId}`, { params: scope === "one" ? undefined : { scope } }),
   doorSign: (

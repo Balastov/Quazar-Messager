@@ -181,3 +181,54 @@ describe("CancelSeriesDialog", () => {
     expect(onClose).toHaveBeenCalled();
   });
 });
+
+describe("BookingDialog — изменение брони", () => {
+  const detailWithBob = { ...detail, members: [...detail.members,
+    { user: { id: "bob", username: "bob", display_name: "Боб" }, role: "member" }] } as unknown as StarDetail;
+  const single = { id: "b1", channel_id: "room", title: "Демо", starts_at: "2026-12-01T07:00:00Z",
+    ends_at: "2026-12-01T08:30:00Z", created_by: "me", attendees: ["bob"] } as StarBooking;
+
+  it("заполняет поля из брони и сохраняет изменения", async () => {
+    const updateBooking = vi.fn().mockResolvedValue(undefined);
+    const book = vi.fn();
+    useStarsStore.setState({ updateBooking, book });
+    const onClose = vi.fn();
+    render(createElement(BookingDialog, { detail: detailWithBob, channel, onClose, editing: single }));
+    expect(host.textContent).toContain("Изменить бронь: Переговорка");
+    expect(host.querySelector<HTMLInputElement>('input[placeholder="Планёрка"]')!.value).toBe("Демо");
+    expect(host.querySelector('[data-testid="booking-repeat"]')).toBeNull();
+    const bob = [...host.querySelectorAll("label")].find((l) => l.textContent === "Боб")!.querySelector("input")!;
+    expect(bob.checked).toBe(true);
+    const title = host.querySelector<HTMLInputElement>('input[placeholder="Планёрка"]')!;
+    act(() => {
+      title.value = "Демо v2";
+      Simulate.change(title);
+    });
+    act(() => Simulate.change(bob, { target: { checked: false } } as never));
+    act(() => Simulate.submit(host.querySelector("form")!));
+    await flush();
+    expect(book).not.toHaveBeenCalled();
+    const [booking, body, scope] = updateBooking.mock.calls[0];
+    expect(booking).toBe(single);
+    expect(body).toEqual({ title: "Демо v2", starts_at: "2026-12-01T07:00:00.000Z", ends_at: "2026-12-01T08:30:00.000Z", attendees: [] });
+    expect(scope).toBe("one");
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it("у встречи серии: «Эту и следующие» — день не меняется", async () => {
+    const updateBooking = vi.fn().mockResolvedValue(undefined);
+    useStarsStore.setState({ updateBooking });
+    const occurrence = { ...single, series_id: "s1", repeat: { freq: "weekly", interval: 1, weekdays: [1] } } as StarBooking;
+    render(createElement(BookingDialog, { detail: detailWithBob, channel, onClose: vi.fn(), editing: occurrence }));
+    const day = host.querySelector<HTMLInputElement>('input[type="date"]')!;
+    expect(day.disabled).toBe(false);
+    expect(host.textContent).toContain("Повтор не меняется");
+    const following = [...host.querySelectorAll("label")].find((l) => l.textContent === "Эту и следующие")!;
+    act(() => Simulate.change(following.querySelector("input")!));
+    expect(day.disabled).toBe(true);
+    expect(host.textContent).toContain("Каждая встреча останется в свой день");
+    act(() => Simulate.submit(host.querySelector("form")!));
+    await flush();
+    expect(updateBooking.mock.calls[0][2]).toBe("following");
+  });
+});

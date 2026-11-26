@@ -5,6 +5,8 @@ export type InboxKind =
   | "booking_cancelled"
   | "booking_soon"
   | "booking_started"
+  /** Бронь изменили: тема, время или участники. */
+  | "booking_changed"
   /** День серии не забронирован: комната была занята. */
   | "booking_busy";
 

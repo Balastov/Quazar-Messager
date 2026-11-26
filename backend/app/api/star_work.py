@@ -347,22 +347,26 @@ def _window(series: StarBookingSeries, until: datetime) -> tuple[list[datetime],
     return starts, True
 
 
-async def _busy(db: AsyncSession, channel_id: str, spans: list[tuple[datetime, datetime]]) -> dict[int, tuple]:
-    """Какие из промежутков пересекаются с бронями комнаты: номер → (бронь, её автор)."""
+async def _busy(
+    db: AsyncSession, channel_id: str, spans: list[tuple[datetime, datetime]], exclude: set[str] | None = None
+) -> dict[int, tuple]:
+    """Какие из промежутков пересекаются с бронями комнаты: номер → (бронь, её автор).
+    exclude — брони, которые сейчас переносим (сами с собой они не пересекаются)."""
     if not spans:
         return {}
-    rows = (
-        await db.execute(
-            select(StarBooking, User)
-            .outerjoin(User, User.id == StarBooking.created_by)
-            .where(
-                StarBooking.channel_id == channel_id,
-                StarBooking.starts_at < max(end for _, end in spans),
-                StarBooking.ends_at > min(start for start, _ in spans),
-            )
-            .order_by(StarBooking.starts_at)
+    query = (
+        select(StarBooking, User)
+        .outerjoin(User, User.id == StarBooking.created_by)
+        .where(
+            StarBooking.channel_id == channel_id,
+            StarBooking.starts_at < max(end for _, end in spans),
+            StarBooking.ends_at > min(start for start, _ in spans),
         )
-    ).all()
+        .order_by(StarBooking.starts_at)
+    )
+    if exclude:
+        query = query.where(StarBooking.id.not_in(exclude))
+    rows = (await db.execute(query)).all()
     busy = {}
     for index, (start, end) in enumerate(spans):
         for booking, owner in rows:
@@ -656,6 +660,152 @@ async def cancel_booking(
             f"«{room}» · {text} · {star.name} · отменил(а) {who}",
             push=True,
         )
+
+
+class BookingEdit(BaseModel):
+    """Новые тема, время и участники брони (присылают всё целиком)."""
+
+    title: str = Field(min_length=1, max_length=100)
+    starts_at: datetime
+    ends_at: datetime
+    attendees: list[str] = Field(default_factory=list, max_length=50)
+
+    @field_validator("title")
+    @classmethod
+    def _title(cls, v: str) -> str:
+        return BookingBody._title(v)
+
+
+async def _busy_detail(db: AsyncSession, star: Star, busy: dict[int, tuple], spans: list[tuple[datetime, datetime]]) -> list[dict]:
+    names: dict[str, str | None] = {}
+    listed = []
+    for index in sorted(busy)[:BUSY_SHOWN]:
+        other, owner = busy[index]
+        if owner and owner.id not in names:
+            names[owner.id] = await pseudonyms.name_in_star(db, star.id, owner)
+        listed.append({
+            "starts_at": spans[index][0].isoformat(), "ends_at": spans[index][1].isoformat(),
+            "title": other.title, "who": names.get(owner.id) if owner else None,
+        })
+    return listed
+
+
+@router.put("/{star_id}/bookings/{booking_id}", response_model=BookingOut)
+async def update_booking(
+    star_id: str,
+    booking_id: str,
+    body: BookingEdit,
+    current_user: CurrentUser,
+    db: Db,
+    # Для встречи серии: one — только эту, following — эту и следующие, all — все ещё не прошедшие.
+    scope: Annotated[Literal["one", "following", "all"], Query()] = "one",
+):
+    """Изменить тему, время и участников. У нескольких встреч серии день не меняется — только время:
+    каждая встреча остаётся в свой день. Комната занята в новое время — ничего не меняем (409)."""
+    star, me = await _load_membership(db, star_id, current_user.id)
+    booking = (
+        await db.execute(select(StarBooking).where(StarBooking.id == booking_id, StarBooking.star_id == star_id))
+    ).scalar_one_or_none()
+    if not booking:
+        raise HTTPException(status_code=404, detail="Бронь не найдена")
+    if booking.created_by != current_user.id and me.role not in ("owner", "admin"):
+        raise _forbid("Изменить может автор брони, владелец или админ")
+    for at in (body.starts_at, body.ends_at):
+        if at.tzinfo is None:
+            raise HTTPException(status_code=422, detail="Время нужно с часовым поясом")
+    if body.ends_at <= body.starts_at:
+        raise HTTPException(status_code=422, detail="Конец раньше начала")
+    if body.ends_at - body.starts_at > MAX_BOOKING:
+        raise HTTPException(status_code=422, detail="Не дольше 8 часов")
+    now = _now()
+    members = set(
+        (await db.execute(select(StarMember.user_id).where(StarMember.star_id == star_id))).scalars().all()
+    )
+    attendees = [uid for uid in dict.fromkeys(body.attendees) if uid in members and uid != booking.created_by]
+    series = await db.get(StarBookingSeries, booking.series_id) if booking.series_id and scope != "one" else None
+
+    if series is None:
+        if body.ends_at <= now:
+            raise HTTPException(status_code=422, detail="Это время уже прошло")
+        if body.starts_at > now + BOOK_AHEAD:
+            raise HTTPException(status_code=422, detail="Бронировать можно на 60 дней вперёд")
+        targets = [(booking, body.starts_at, body.ends_at)]
+    else:
+        zone = ZoneInfo(series.tz)
+        if body.starts_at.astimezone(zone).date() != booking.starts_at.astimezone(zone).date():
+            raise HTTPException(status_code=422, detail="День меняют только у одной встречи — выберите «Только эту встречу»")
+        wall = body.starts_at.astimezone(zone).time()
+        duration = body.ends_at - body.starts_at
+        query = select(StarBooking).where(StarBooking.series_id == series.id).order_by(StarBooking.starts_at)
+        query = query.where(StarBooking.starts_at >= booking.starts_at) if scope == "following" \
+            else query.where(StarBooking.ends_at > now)
+        targets = []
+        for b in (await db.execute(query)).scalars().all():
+            start = datetime.combine(b.starts_at.astimezone(zone).date(), wall, tzinfo=zone)
+            if start + duration > now:  # уже закончившуюся в новом времени не трогаем
+                targets.append((b, start, start + duration))
+        if not targets:
+            raise HTTPException(status_code=422, detail="Это время уже прошло")
+
+    await db.execute(select(StarChannel.id).where(StarChannel.id == booking.channel_id).with_for_update())
+    spans = [(start, end) for _, start, end in targets]
+    busy = await _busy(db, booking.channel_id, spans, exclude={b.id for b, _, _ in targets})
+    if busy and series is None:
+        other, owner = busy[0]
+        owner_name = await pseudonyms.name_in_star(db, star_id, owner)
+        raise HTTPException(
+            status_code=409,
+            detail=f"Комната занята: «{other.title}» ({owner_name or 'кто-то'}) "
+            f"с {_local(star, other.starts_at)} до {_local(star, other.ends_at)}",
+        )
+    if busy:
+        raise HTTPException(status_code=409, detail={
+            "message": f"В новое время комната занята в {len(busy)} {_days(len(busy))} из {len(spans)} — ничего не изменено",
+            "busy": await _busy_detail(db, star, busy, spans), "free": 0,
+        })
+
+    before = set(booking.attendees)
+    old_span = (booking.starts_at, booking.ends_at)
+    for b, start, end in targets:
+        if start != b.starts_at and start > now:
+            # Новое время — напомнить и поставить «на встрече» заново.
+            b.reminded = False
+            b.started = False
+        b.title, b.attendees, b.starts_at, b.ends_at = body.title, attendees, start, end
+    if series is not None:
+        # Следующие встречи серии планировщик создаст уже по-новому.
+        zone = ZoneInfo(series.tz)
+        first_day = series.first_starts_at.astimezone(zone).date()
+        series.first_starts_at = datetime.combine(first_day, body.starts_at.astimezone(zone).time(), tzinfo=zone)
+        series.duration_min = int((body.ends_at - body.starts_at).total_seconds() // 60)
+        series.title, series.attendees = body.title, attendees
+    await db.commit()
+    await _bookings_event(db, star_id, booking.channel_id)
+
+    first = targets[0][0]
+    room = await _room_name(db, booking.channel_id)
+    who = await pseudonyms.name_in_star(db, star_id, current_user) or current_user.display_name
+    when = _series_text(star, series) if series is not None else _span(star, first.starts_at, first.ends_at)
+    regular = "регулярную " if series is not None else ""
+    after = set(attendees)
+    added = [uid for uid in attendees if uid not in before and uid != current_user.id]
+    removed = [uid for uid in before - after if uid != current_user.id]
+    kept = [uid for uid in {booking.created_by, *(before & after)} if uid and uid != current_user.id]
+    if added:
+        await _tell(db, star, first, added, "booking_invite", f"{who} зовёт вас на {regular}встречу «{first.title}»",
+                    f"«{room}» · {when} · {star.name}", push=True)
+    if removed:
+        await _tell(db, star, first, removed, "booking_cancelled", f"Вас убрали из встречи «{first.title}»",
+                    f"«{room}» · {when} · {star.name} · изменил(а) {who}", push=True)
+    if kept:
+        moved = series is not None or (first.starts_at, first.ends_at) != old_span
+        await _tell(db, star, first, kept, "booking_changed", f"Встреча «{first.title}» изменена",
+                    f"«{room}» · {when} · {star.name} · изменил(а) {who}", push=moved)
+    rules = {series.id: series.rule} if series is not None else {}
+    if first.series_id and not rules:
+        rule = (await db.execute(select(StarBookingSeries.rule).where(StarBookingSeries.id == first.series_id))).scalar_one_or_none()
+        rules = {first.series_id: rule} if rule else {}
+    return _out(first, rules)
 
 
 async def booking_tick(db: AsyncSession, now: datetime | None = None) -> int:

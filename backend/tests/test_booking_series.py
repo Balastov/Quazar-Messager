@@ -251,3 +251,97 @@ class BookingSeriesTest(StarsTestBase):
             self.assertEqual(await work.extend_series(db, work._now() + timedelta(days=30)), 0)
             self.assertEqual(len(await self.series_rows()), count)
             self.assertTrue((await db.execute(select(StarBookingSeries))).scalar_one().finished)
+
+
+class BookingEditTest(BookingSeriesTest):
+    """Изменение брони: одной встречи и нескольких встреч серии."""
+
+    def edit(self, title, start, minutes=60, attendees=()):
+        return work.BookingEdit(title=title, starts_at=start, ends_at=start + timedelta(minutes=minutes),
+                                attendees=list(attendees))
+
+    async def test_single_booking_edit_notifies_added_removed_and_kept_people(self):
+        b = await self.call(work.create_booking, self.star.id, self.room.id, work.BookingBody(
+            title="Демо", starts_at=self.first, ends_at=self.first + timedelta(hours=1),
+            attendees=[self.uid("bob"), self.uid("owner")]), user="alice")
+        await self.expect_error(403, work.update_booking, self.star.id, b.id, self.edit("x", self.first), user="bob")
+        later = self.first + timedelta(days=1, hours=3)
+        out = await self.call(work.update_booking, self.star.id, b.id,
+                              self.edit("Демо v2", later, 90, [self.uid("owner"), self.uid("mod")]), user="alice")
+        self.assertEqual((out.title, out.starts_at, out.ends_at), ("Демо v2", later, later + timedelta(minutes=90)))
+        self.assertEqual(out.attendees, [self.uid("owner"), self.uid("mod")])
+        self.assertEqual(len(await self.inbox("mod", "booking_invite")), 1)
+        self.assertIn("Вас убрали", (await self.inbox("bob", "booking_cancelled"))[0].title)
+        [changed] = await self.inbox("owner", "booking_changed")
+        self.assertIn("Демо v2", changed.title)
+        self.assertEqual(await self.inbox("alice", "booking_changed"), [])  # сама себе не сообщает
+        # Админ поменял чужую бронь — автору придёт «изменена».
+        await self.call(work.update_booking, self.star.id, b.id,
+                        self.edit("Демо v3", later, 90, [self.uid("owner"), self.uid("mod")]), user="admin")
+        self.assertEqual(len(await self.inbox("alice", "booking_changed")), 1)
+
+    async def test_single_booking_cannot_move_onto_another_or_into_the_past(self):
+        b = await self.call(work.create_booking, self.star.id, self.room.id, work.BookingBody(
+            title="Моё", starts_at=self.first, ends_at=self.first + timedelta(hours=1)), user="alice")
+        other = self.first + timedelta(hours=3)
+        await self.call(work.create_booking, self.star.id, self.room.id, work.BookingBody(
+            title="Чужое", starts_at=other, ends_at=other + timedelta(hours=1)), user="bob")
+        clash = await self.expect_error(409, work.update_booking, self.star.id, b.id,
+                                        self.edit("Моё", other + timedelta(minutes=30)), user="alice")
+        self.assertIn("Чужое", clash.detail)
+        await self.expect_error(422, work.update_booking, self.star.id, b.id,
+                                self.edit("Моё", work._now() - timedelta(hours=3)), user="alice")
+        # Сдвиг внутри своего же времени — не пересечение с собой.
+        moved = await self.call(work.update_booking, self.star.id, b.id,
+                                self.edit("Моё", self.first + timedelta(minutes=30)), user="alice")
+        self.assertEqual(moved.starts_at, self.first + timedelta(minutes=30))
+
+    async def test_new_time_brings_back_the_reminder(self):
+        b = await self.call(work.create_booking, self.star.id, self.room.id, work.BookingBody(
+            title="Демо", starts_at=self.first, ends_at=self.first + timedelta(hours=1)), user="alice")
+        async with self.Session() as db:
+            row = await db.get(StarBooking, b.id)
+            row.reminded = True
+            await db.commit()
+        await self.call(work.update_booking, self.star.id, b.id, self.edit("Демо", self.first + timedelta(hours=2)), user="alice")
+        async with self.Session() as db:
+            self.assertFalse((await db.get(StarBooking, b.id)).reminded)
+
+    async def test_series_edit_following_changes_time_and_template(self):
+        await self.call(work.create_booking, self.star.id, self.room.id, self.weekly(), user="alice")
+        rows = await self.series_rows()
+        msk = lambda b: b.starts_at.astimezone(MSK)  # noqa: E731
+        third_day = msk(rows[2]).date()
+        new_start = datetime(third_day.year, third_day.month, third_day.day, 14, tzinfo=MSK)
+        await self.expect_error(422, work.update_booking, self.star.id, rows[2].id,
+                                self.edit("Синк", new_start + timedelta(days=1)), user="alice", scope="following")
+        await self.call(work.update_booking, self.star.id, rows[2].id, self.edit("Синк", new_start, 90),
+                        user="alice", scope="following")
+        after = await self.series_rows()
+        self.assertEqual([msk(b).hour for b in after[:2]], [10, 10])
+        self.assertEqual({(msk(b).hour, b.title) for b in after[2:]}, {(14, "Синк")})
+        self.assertTrue(all(b.ends_at - b.starts_at == timedelta(minutes=90) for b in after[2:]))
+        self.assertEqual([msk(b).date() for b in after], [msk(b).date() for b in rows])  # дни те же
+        async with self.Session() as db:
+            series = await db.get(StarBookingSeries, rows[0].series_id)
+            self.assertEqual((series.title, series.duration_min, series.first_starts_at.astimezone(MSK).hour), ("Синк", 90, 14))
+            # Новые встречи серии — уже в новое время.
+            self.assertGreater(await work.extend_series(db, work._now() + timedelta(days=21)), 0)
+        newest = (await self.series_rows())[-1]
+        self.assertEqual((msk(newest).hour, newest.title), (14, "Синк"))
+
+    async def test_series_edit_is_refused_whole_when_some_day_is_busy(self):
+        await self.call(work.create_booking, self.star.id, self.room.id, self.weekly(), user="alice")
+        rows = await self.series_rows()
+        day = rows[3].starts_at.astimezone(MSK).date()
+        await self.call(work.create_booking, self.star.id, self.room.id, work.BookingBody(
+            title="Ретро", starts_at=datetime(day.year, day.month, day.day, 15, tzinfo=MSK),
+            ends_at=datetime(day.year, day.month, day.day, 16, tzinfo=MSK)), user="bob")
+        first_day = rows[0].starts_at.astimezone(MSK).date()
+        clash = await self.expect_error(
+            409, work.update_booking, self.star.id, rows[0].id,
+            self.edit("Планёрка", datetime(first_day.year, first_day.month, first_day.day, 15, tzinfo=MSK)),
+            user="alice", scope="all")
+        self.assertEqual([b["title"] for b in clash.detail["busy"]], ["Ретро"])
+        self.assertEqual(clash.detail["free"], 0)
+        self.assertEqual({b.starts_at.astimezone(MSK).hour for b in await self.series_rows()}, {10})

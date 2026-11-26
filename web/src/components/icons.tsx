@@ -296,6 +296,21 @@ export const IconStarHeadphonesOff = (p: IconProps) => (
   </Svg>
 );
 
+/** Карандаш: изменить. */
+export const IconPencil = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M15.5 4.5l4 4L8 20H4v-4L15.5 4.5z" />
+    <path d="M13 7l4 4" />
+  </Svg>
+);
+
+/** Крестик: отменить, убрать. */
+export const IconCross = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M6 6l12 12M18 6L6 18" />
+  </Svg>
+);
+
 /** Настройки звука: микшер — три ползунка, над ним искорка. */
 export const IconStarAudioSettings = (p: IconProps) => (
   <Svg {...p}>

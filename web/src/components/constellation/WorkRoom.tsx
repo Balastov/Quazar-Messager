@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { IconCross, IconPencil } from "../icons";
 import { createPortal } from "react-dom";
 import axios from "axios";
 import {
@@ -189,6 +190,7 @@ function RoomBookings({ detail, channel }: { detail: StarDetail; channel: StarCh
   const { bookings, now } = useBookings(detail);
   const [open, setOpen] = useState(false);
   const [cancelling, setCancelling] = useState<StarBooking | null>(null);
+  const [editingBooking, setEditingBooking] = useState<StarBooking | null>(null);
   const [error, setError] = useState<string | null>(null);
   const list = upcomingBookings(bookings, channel.id, now);
   const current = currentBooking(bookings, channel.id, now);
@@ -226,27 +228,54 @@ function RoomBookings({ detail, channel }: { detail: StarDetail; channel: StarCh
               {invited ? " · вас позвали" : ""}
             </span>
             {(mine || isAdmin) && (
-              <button
-                type="button"
-                className={`${s.secondary} ${s.small}`}
-                onClick={() => {
-                  setError(null);
-                  if (b.series_id) {
-                    setCancelling(b);
-                    return;
-                  }
-                  if (!window.confirm(`Отменить бронь «${b.title}»?`)) return;
-                  void cancelBooking(b).catch((err) => setError(apiError(err, "Не удалось отменить")));
-                }}
-              >
-                Отменить
-              </button>
+              <>
+                <button
+                  type="button"
+                  className={`${w.bookingIcon} ${w.bookingEdit}`}
+                  aria-label={`Изменить бронь «${b.title}»`}
+                  title="Изменить"
+                  onClick={() => {
+                    setError(null);
+                    setEditingBooking(b);
+                  }}
+                >
+                  <IconPencil size={16} />
+                </button>
+                <button
+                  type="button"
+                  className={`${w.bookingIcon} ${w.bookingCancel}`}
+                  aria-label={`Отменить бронь «${b.title}»`}
+                  title="Отменить"
+                  onClick={() => {
+                    setError(null);
+                    if (b.series_id) {
+                      setCancelling(b);
+                      return;
+                    }
+                    if (!window.confirm(`Отменить бронь «${b.title}»?`)) return;
+                    void cancelBooking(b).catch((err) => setError(apiError(err, "Не удалось отменить")));
+                  }}
+                >
+                  <IconCross size={16} />
+                </button>
+              </>
             )}
           </div>
         );
       })}</div>}
       {error && <div className={s.error}>{error}</div>}
       {open && createPortal(<BookingDialog detail={detail} channel={channel} onClose={() => setOpen(false)} />, document.body)}
+      {editingBooking &&
+        createPortal(
+          <BookingDialog
+            key={editingBooking.id}
+            detail={detail}
+            channel={channel}
+            editing={editingBooking}
+            onClose={() => setEditingBooking(null)}
+          />,
+          document.body
+        )}
       {cancelling &&
         createPortal(<CancelSeriesDialog booking={cancelling} onClose={() => setCancelling(null)} />, document.body)}
     </div>
@@ -346,15 +375,30 @@ function monthsLater(d: Date, months: number): string {
   return localDate(next);
 }
 
-export function BookingDialog({ detail, channel, onClose }: { detail: StarDetail; channel: StarChannel; onClose: () => void }) {
+/** Бронь: новая или (editing) изменение существующей — у встречи серии с выбором, какие встречи менять. */
+export function BookingDialog({
+  detail,
+  channel,
+  onClose,
+  editing,
+}: {
+  detail: StarDetail;
+  channel: StarChannel;
+  onClose: () => void;
+  editing?: StarBooking;
+}) {
   const myId = useAuthStore((st) => st.user?.id);
   const book = useStarsStore((st) => st.book);
-  const [start] = useState(nextSlot);
+  const updateBooking = useStarsStore((st) => st.updateBooking);
+  const [start] = useState(() => (editing ? new Date(editing.starts_at) : nextSlot()));
   const [date, setDate] = useState(localDate(start));
   const [from, setFrom] = useState(localTime(start));
-  const [to, setTo] = useState(localTime(new Date(start.getTime() + 60 * 60_000)));
-  const [title, setTitle] = useState("");
-  const [attendees, setAttendees] = useState<Set<string>>(new Set());
+  const [to, setTo] = useState(localTime(editing ? new Date(editing.ends_at) : new Date(start.getTime() + 60 * 60_000)));
+  const [title, setTitle] = useState(editing?.title ?? "");
+  const [attendees, setAttendees] = useState<Set<string>>(new Set(editing?.attendees ?? []));
+  const [scope, setScope] = useState<CancelScope>("one");
+  // У нескольких встреч серии меняется время, а день у каждой остаётся свой.
+  const dayLocked = !!editing?.series_id && scope !== "one";
   const [query, setQuery] = useState("");
   const [preset, setPreset] = useState<RepeatPreset>("none");
   const [freq, setFreq] = useState<RepeatRule["freq"]>("weekly");
@@ -367,16 +411,18 @@ export function BookingDialog({ detail, channel, onClose }: { detail: StarDetail
   const [busy, setBusy] = useState(false);
   const [busyDays, setBusyDays] = useState<BookingBusy | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Позвать можно всех, кроме автора брони (он и так на встрече).
+  const owner = editing ? editing.created_by : myId;
   const others = detail.members.filter(
     (m) =>
-      m.user.id !== myId &&
+      m.user.id !== owner &&
       [m.user.username, displayName(m.user)].some((n) => n.toLowerCase().includes(query.trim().toLowerCase()))
   );
   const parsedFirst = new Date(`${date}T${from || "00:00"}`);
   const first = Number.isNaN(parsedFirst.getTime()) ? start : parsedFirst;
   const presets = repeatPresets(first);
   // Сменили день — вариант «во второй вторник» мог пропасть.
-  const shownPreset = presets.some((p) => p.value === preset) ? preset : "none";
+  const shownPreset = !editing && presets.some((p) => p.value === preset) ? preset : "none";
 
   const baseRule: RepeatRule | null =
     shownPreset === "custom"
@@ -433,6 +479,27 @@ export function BookingDialog({ detail, channel, onClose }: { detail: StarDetail
     setBusy(true);
     setError(null);
     setBusyDays(null);
+    if (editing) {
+      try {
+        await updateBooking(
+          editing,
+          {
+            title: title.trim() || "Встреча",
+            starts_at: startsAt.toISOString(),
+            ends_at: endsAt.toISOString(),
+            attendees: [...attendees],
+          },
+          editing.series_id ? scope : "one"
+        );
+        onClose();
+      } catch (err) {
+        const days = busyDetail(err);
+        if (days) setBusyDays(days);
+        else setError(apiError(err, "Не удалось сохранить"));
+        setBusy(false);
+      }
+      return;
+    }
     try {
       await book(channel.id, {
         title: title.trim() || "Встреча",
@@ -455,7 +522,7 @@ export function BookingDialog({ detail, channel, onClose }: { detail: StarDetail
   const unit = (one: string, few: string, many: string) => plural(every, one, few, many);
 
   return (
-    <Dialog title={`Бронь: ${channel.name}`} onClose={onClose}>
+    <Dialog title={editing ? `Изменить бронь: ${channel.name}` : `Бронь: ${channel.name}`} onClose={onClose}>
       <form
         className={g.form}
         onSubmit={(e) => {
@@ -467,9 +534,40 @@ export function BookingDialog({ detail, channel, onClose }: { detail: StarDetail
           Тема
           <input className={s.input} value={title} maxLength={100} autoFocus placeholder="Планёрка" onChange={(e) => setTitle(e.target.value)} />
         </label>
+        {editing?.series_id && (
+          <div className={s.label}>
+            Какие встречи изменить
+            <div className={w.repeatEnd} role="radiogroup" aria-label="Какие встречи изменить">
+              {CANCEL_SCOPES.map((option) => (
+                <label key={option.value} className={g.check}>
+                  <input
+                    type="radio"
+                    name="edit-scope"
+                    checked={scope === option.value}
+                    onChange={() => {
+                      setScope(option.value);
+                      // День у нескольких встреч не меняется — вернуть день этой встречи.
+                      if (option.value !== "one") setDate(localDate(start));
+                    }}
+                  />
+                  {option.label}
+                </label>
+              ))}
+            </div>
+          </div>
+        )}
         <label className={s.label}>
           День
-          <input className={s.input} type="date" value={date} min={localDate(new Date())} onChange={(e) => setDate(e.target.value)} />
+          <input
+            className={s.input}
+            type="date"
+            value={date}
+            min={localDate(new Date())}
+            disabled={dayLocked}
+            style={dayLocked ? { opacity: 0.55, cursor: "not-allowed" } : undefined}
+            onChange={(e) => setDate(e.target.value)}
+          />
+          {dayLocked && <span className={s.hint}>Каждая встреча останется в свой день — меняются время, тема и участники.</span>}
         </label>
         <div className={w.times}>
           <label className={s.label}>
@@ -481,7 +579,7 @@ export function BookingDialog({ detail, channel, onClose }: { detail: StarDetail
             <input className={s.input} type="time" value={to} onChange={(e) => setTo(e.target.value)} />
           </label>
         </div>
-        <label className={s.label}>
+        {!editing && <label className={s.label}>
           Повторять
           <select
             className={s.select}
@@ -495,7 +593,13 @@ export function BookingDialog({ detail, channel, onClose }: { detail: StarDetail
               </option>
             ))}
           </select>
-        </label>
+        </label>}
+        {editing?.repeat && !dayLocked && (
+          <p className={s.hint}>
+            🔁 Встреча серии ({describeRepeat(editing.repeat, new Date(editing.starts_at))}). Повтор не меняется — чтобы
+            поменять его, отмените серию и создайте заново.
+          </p>
+        )}
         {shownPreset === "custom" && (
           <div className={w.repeatBox}>
             <div className={w.repeatEvery}>
@@ -645,7 +749,7 @@ export function BookingDialog({ detail, channel, onClose }: { detail: StarDetail
         )}
         {error && <div className={s.error}>{error}</div>}
         <button type="submit" className={s.primary} disabled={busy}>
-          Забронировать
+          {editing ? "Сохранить" : "Забронировать"}
         </button>
       </form>
     </Dialog>

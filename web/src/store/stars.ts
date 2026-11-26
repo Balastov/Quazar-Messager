@@ -204,6 +204,12 @@ interface StarsState {
   book: (channelId: string, body: BookingRequest) => Promise<void>;
   /** Встречу серии можно отменить одну, с этой и дальше или всю серию. */
   cancelBooking: (booking: StarBooking, scope?: CancelScope) => Promise<void>;
+  /** Изменить бронь; у встречи серии — эту, эту и следующие или все. */
+  updateBooking: (
+    booking: StarBooking,
+    body: { title: string; starts_at: string; ends_at: string; attendees: string[] },
+    scope?: CancelScope
+  ) => Promise<void>;
   setDoorSign: (
     channelId: string,
     body: { kind: DoorSignKind | null; text?: string | null; until?: string | null }
@@ -1150,6 +1156,13 @@ export const useStarsStore = create<StarsState>((set, get) => {
       const starId = get().activeStarId;
       if (!starId) return;
       await starsApi.book(starId, channelId, body);
+      await get().loadBookings(starId);
+    },
+
+    updateBooking: async (booking, body, scope = "one") => {
+      const starId = get().activeStarId;
+      if (!starId) return;
+      await starsApi.updateBooking(starId, booking.id, body, scope);
       await get().loadBookings(starId);
     },
 

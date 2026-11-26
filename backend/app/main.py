@@ -38,6 +38,7 @@ from app.api.later import reminders_router, scheduled_router
 from app.api.star_later import router as star_scheduled_router
 from app.api.moderation import router as moderation_router
 from app.api.attachments import router as attachments_router
+from app.api.transcription import router as transcription_router
 from app.api.calls import router as calls_router
 from app.api.push import router as push_router
 from app.api.doors import router as doors_router
@@ -451,6 +452,7 @@ app.include_router(scheduled_router)
 app.include_router(star_scheduled_router)
 app.include_router(reminders_router)
 app.include_router(attachments_router)
+app.include_router(transcription_router)
 app.include_router(calls_router)
 app.include_router(push_router)
 app.include_router(stars_router)

@@ -17,6 +17,7 @@ import { useDoorsStore } from "./doors";
 import { useWallpaperStore } from "./wallpaper";
 import type { User } from "../api/types";
 import { useUnreadStore } from "./unread";
+import { clearVoiceTranscripts } from "../attachments/transcription";
 
 interface AuthState {
   token: string | null;
@@ -109,6 +110,7 @@ export const useAuthStore = create<AuthState>()(
       },
 
       logout: (reason = "unknown", source) => {
+        clearVoiceTranscripts();
         authRevision++;
         const token = get().token;
         if (token) void http.delete("/auth/devices/current", { headers: { Authorization: `Bearer ${token}` },

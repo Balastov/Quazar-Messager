@@ -13,6 +13,7 @@ from app.models.message import (
 from app.models.moderation import UserBlock, UserReport
 from app.models.support import SupportMessage, SupportTicket
 from app.models.attachment import Attachment
+from app.models.transcription import TranscriptionUsage
 from app.models.user import User
 from app.models.oauth_provider import OAuthAccessToken, OAuthCode
 from app.models.phone_verification import PhoneVerification

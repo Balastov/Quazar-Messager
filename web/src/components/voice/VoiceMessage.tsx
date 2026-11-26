@@ -4,6 +4,7 @@ import { loadVoiceUrl } from "../../attachments/cache";
 import { formatDuration, WAVE_MAX, type VoiceRef } from "../../attachments/voice";
 import { applyOutput } from "../../calls/devices";
 import s from "./Voice.module.css";
+import VoiceTranscript from "./VoiceTranscript";
 
 const SPEEDS = [1, 1.5, 2] as const;
 
@@ -111,46 +112,49 @@ export default function VoiceMessage({ chatId, voice, tone }: Props) {
   const active = state === "playing" || state === "paused" || position > 0;
 
   return (
-    <div className={tone === "own" ? s.ownVoice : s.voice}>
-      <button
-        type="button"
-        className={s.play}
-        onClick={(e) => {
-          e.stopPropagation();
-          toggle();
-        }}
-        aria-label={state === "playing" ? "Пауза" : "Слушать"}
-        disabled={state === "loading"}
-      >
-        {state === "loading" ? <span className={s.spinner} /> : state === "playing" ? <PauseIcon /> : <PlayIcon />}
-      </button>
-      <div className={s.body}>
-        <div
-          className={s.wave}
-          onClick={seek}
-          role="slider"
-          aria-label="Перемотка"
-          aria-valuemin={0}
-          aria-valuemax={Math.round(voice.dur)}
-          aria-valuenow={Math.round(position)}
+    <div className={s.voiceWithTranscript}>
+      <div className={tone === "own" ? s.ownVoice : s.voice}>
+        <button
+          type="button"
+          className={s.play}
+          onClick={(e) => {
+            e.stopPropagation();
+            toggle();
+          }}
+          aria-label={state === "playing" ? "Пауза" : "Слушать"}
+          disabled={state === "loading"}
         >
-          {voice.wave.map((v, i) => (
-            <span
-              key={i}
-              className={(i + 0.5) / voice.wave.length <= progress ? s.barPlayed : s.bar}
-              style={{ height: `${Math.max(12, (v / WAVE_MAX) * 100)}%` }}
-            />
-          ))}
-        </div>
-        <div className={s.info}>
-          <span>{formatDuration(active ? position : voice.dur)}</span>
-          {active && (
-            <button type="button" className={s.speed} onClick={cycleSpeed} aria-label="Скорость">
-              {speed}×
-            </button>
-          )}
+          {state === "loading" ? <span className={s.spinner} /> : state === "playing" ? <PauseIcon /> : <PlayIcon />}
+        </button>
+        <div className={s.body}>
+          <div
+            className={s.wave}
+            onClick={seek}
+            role="slider"
+            aria-label="Перемотка"
+            aria-valuemin={0}
+            aria-valuemax={Math.round(voice.dur)}
+            aria-valuenow={Math.round(position)}
+          >
+            {voice.wave.map((v, i) => (
+              <span
+                key={i}
+                className={(i + 0.5) / voice.wave.length <= progress ? s.barPlayed : s.bar}
+                style={{ height: `${Math.max(12, (v / WAVE_MAX) * 100)}%` }}
+              />
+            ))}
+          </div>
+          <div className={s.info}>
+            <span>{formatDuration(active ? position : voice.dur)}</span>
+            {active && (
+              <button type="button" className={s.speed} onClick={cycleSpeed} aria-label="Скорость">
+                {speed}×
+              </button>
+            )}
+          </div>
         </div>
       </div>
+      <VoiceTranscript key={`${chatId}:${voice.id}`} chatId={chatId} voice={voice} />
     </div>
   );
 }

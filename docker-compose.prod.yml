@@ -70,6 +70,11 @@ services:
       LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-}
       # Ники владельцев ресурса через запятую (роль выдаётся при старте).
       SUPERUSER_BOOTSTRAP: ${SUPERUSER_BOOTSTRAP:-}
+      CLOUDFLARE_ACCOUNT_ID: ${CLOUDFLARE_ACCOUNT_ID:-}
+      CLOUDFLARE_API_TOKEN: ${CLOUDFLARE_API_TOKEN:-}
+      CLOUDFLARE_ASR_MODEL: ${CLOUDFLARE_ASR_MODEL:-@cf/openai/whisper-large-v3-turbo}
+      TRANSCRIPTION_USER_MINUTES_PER_DAY: ${TRANSCRIPTION_USER_MINUTES_PER_DAY:-30}
+      TRANSCRIPTION_TOTAL_MINUTES_PER_DAY: ${TRANSCRIPTION_TOTAL_MINUTES_PER_DAY:-180}
     volumes:
       # Пусто — docker-том media_data; на проде — каталог на HDD (deploy/scripts/move-media-to-hdd.sh).
       - ${MEDIA_DIR:-media_data}:/app/media

@@ -1,5 +1,23 @@
 /* --- Голосовое в пузыре --- */
 
+.voiceWithTranscript { width: min(280px, 62vw); }
+.transcript { margin-top: 8px; font-size: 13px; line-height: 1.45; }
+.transcribeButton {
+  border: 1px solid currentColor;
+  border-radius: 8px;
+  padding: 4px 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.transcribeButton:disabled { cursor: progress; opacity: 0.65; }
+.transcriptLabel { font-size: 11px; opacity: 0.7; margin-bottom: 4px; }
+.transcriptText { white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+.consentText { margin: 0 0 8px; }
+.transcriptActions { display: flex; flex-wrap: wrap; gap: 6px; }
+.transcriptError { margin-top: 6px; }
+
 .voice,
 .ownVoice {
   display: flex;

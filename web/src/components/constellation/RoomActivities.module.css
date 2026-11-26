@@ -22,6 +22,18 @@
 .focusTitle strong { font-size: 13px; }
 .countdown { font-size: 20px; line-height: 1; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--qz-online); }
 .focusActions { padding-top: 8px; }
+.countdownPaused { opacity: .45; }
+/* Кнопки плеера в «Орбите фокуса»: фиолетово-серые, «Завершить» — красная. */
+.playerButton { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 34px; height: 34px;
+  padding: 0; border-radius: 50%; border: 1px solid rgba(168, 85, 247, .32); background: rgba(124, 58, 237, .12);
+  color: #c4b5fd; cursor: pointer; transition: border-color .15s ease, background .15s ease, box-shadow .15s ease; }
+.playerButton:hover:not(:disabled) { border-color: rgba(168, 85, 247, .6); background: rgba(124, 58, 237, .22);
+  box-shadow: 0 0 10px rgba(168, 85, 247, .25); }
+.playerStop { border-color: rgba(248, 113, 113, .4); background: rgba(248, 113, 113, .08); color: var(--qz-danger); }
+.playerStop:hover:not(:disabled) { border-color: rgba(248, 113, 113, .7); background: rgba(248, 113, 113, .16);
+  box-shadow: 0 0 10px rgba(248, 113, 113, .25); }
+.playerButton:disabled { opacity: .45; cursor: not-allowed; }
+.playerButton:focus-visible { outline: 2px solid var(--qz-accent); outline-offset: 2px; }
 /* Цикл «работа — перерыв»: круглая зелёная стрелка, приглушённая — когда выключен. */
 .loop, .loopOn { display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px;
   border-radius: 50%; cursor: pointer; transition: background .15s ease, color .15s ease, box-shadow .15s ease; }

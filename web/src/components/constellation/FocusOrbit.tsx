@@ -5,7 +5,7 @@ import { useAuthStore } from "../../store/auth";
 import { useRoomActivities, type RoomCache } from "../../store/roomActivities";
 import type { FocusAction } from "../../api/roomActivities";
 import { displayName } from "../../utils/profile";
-import { IconFocusRestart } from "../icons";
+import { IconFocusRestart, IconPlayerBreak, IconPlayerPause, IconPlayerPlay, IconPlayerStop } from "../icons";
 import { apiError } from "./rules";
 import { clock, focusAt, remaining } from "./roomActivityMath";
 import s from "./RoomActivities.module.css";
@@ -65,13 +65,20 @@ export default function FocusOrbit({ detail, channel, room, readOnly, compact = 
       <IconFocusRestart size={18} />
     </button>
   );
+  // Кнопки плеера: пауза ‖ / продолжить ▶, к перерыву Zzz, завершить ■. Подпись — в подсказке.
+  const pauseButton = active && (
+    <button type="button" className={s.playerButton} disabled={busy || !canControl}
+      title={focus.running ? "Пауза" : "Продолжить"} aria-label={focus.running ? "Пауза" : "Продолжить"}
+      onClick={() => void run(focus.running ? "pause" : "resume")}>
+      {focus.running ? <IconPlayerPause size={16} /> : <IconPlayerPlay size={16} />}
+    </button>
+  );
   const duration = focus?.phase === "work" ? focus.work_seconds : focus?.break_seconds ?? 1;
   const progress = active ? Math.min(1, seconds / duration) : 0;
   if (compact) return active ? <div className={s.focusCompact} role="timer">
     <strong>{focus.phase === "work" ? "Фокус" : "Общий перерыв"} · {clock(seconds)}</strong>
     {!focus.running && <span>На паузе</span>}
-    {canControl && <button type="button" className={s.button} disabled={busy}
-      onClick={() => void run(focus.running ? "pause" : "resume")}>{focus.running ? "Пауза" : "Продолжить"}</button>}
+    {canControl && pauseButton}
     {error && <span role="alert" className={s.error}>{error}</span>}
   </div> : null;
   return (
@@ -84,10 +91,10 @@ export default function FocusOrbit({ detail, channel, room, readOnly, compact = 
         </svg>
         <div className={s.focusTitle}>
           <strong>{active ? focus.phase === "work" ? "Фокус" : "Общий перерыв" : "Орбита фокуса"}</strong>
-          <span className={s.hint}>{active ? `${owner} · ${focus.running ? "общий таймер комнаты" : "на паузе"}${focus.loop ? " · по кругу" : ""}`
-            : focus ? "Сеанс завершён. Можно начать новый." : "Работаем вместе, затем отдыхаем"}</span>
+          {!active && <span className={s.hint}>{focus ? "Сеанс завершён. Можно начать новый." : "Работаем вместе, затем отдыхаем"}</span>}
         </div>
-        {active && <span className={s.countdown} role="timer" aria-label={`Осталось ${clock(seconds)}`}>{clock(seconds)}</span>}
+        {active && <span className={focus.running ? s.countdown : `${s.countdown} ${s.countdownPaused}`} role="timer"
+          aria-label={focus.running ? `Осталось ${clock(seconds)}` : `На паузе, осталось ${clock(seconds)}`}>{clock(seconds)}</span>}
         {restartButton}
         {(active || open) && loopButton}
         <button type="button" className={s.button} onClick={() => setOpen(!open)} aria-expanded={open}>
@@ -105,11 +112,11 @@ export default function FocusOrbit({ detail, channel, room, readOnly, compact = 
           <button type="button" className={s.primary} disabled={busy || readOnly || !Number.isInteger(work) || !Number.isInteger(rest) || work < 1 || work > 180 || rest < 1 || rest > 60}
             onClick={() => void run("start")}>Запустить для комнаты</button>
         </> : <>
-          <button type="button" className={s.button} disabled={busy || !canControl}
-            onClick={() => void run(focus.running ? "pause" : "resume")}>{focus.running ? "Пауза" : "Продолжить"}</button>
-          {focus.phase === "work" && <button type="button" className={s.button} disabled={busy || !canControl}
-            onClick={() => void run("break")}>К перерыву</button>}
-          <button type="button" className={s.danger} disabled={busy || !canControl} onClick={() => void run("stop")}>Завершить</button>
+          {pauseButton}
+          {focus.phase === "work" && <button type="button" className={s.playerButton} disabled={busy || !canControl}
+            title="К перерыву" aria-label="К перерыву" onClick={() => void run("break")}><IconPlayerBreak size={16} /></button>}
+          <button type="button" className={`${s.playerButton} ${s.playerStop}`} disabled={busy || !canControl}
+            title="Завершить" aria-label="Завершить" onClick={() => void run("stop")}><IconPlayerStop size={16} /></button>
           {!canControl && <span className={s.hint}>Таймером управляет {owner}</span>}
         </>}
       </div>}

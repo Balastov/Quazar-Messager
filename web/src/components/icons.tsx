@@ -296,6 +296,37 @@ export const IconStarHeadphonesOff = (p: IconProps) => (
   </Svg>
 );
 
+/** Плеер: пауза — две вертикальные палочки. */
+export const IconPlayerPause = (p: IconProps) => (
+  <Svg {...p}>
+    <rect x="6.5" y="5" width="3.6" height="14" rx="1.2" fill="currentColor" stroke="none" />
+    <rect x="13.9" y="5" width="3.6" height="14" rx="1.2" fill="currentColor" stroke="none" />
+  </Svg>
+);
+
+/** Плеер: продолжить — треугольник. */
+export const IconPlayerPlay = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M8 5.2v13.6a1 1 0 0 0 1.5.86l10.6-6.8a1 1 0 0 0 0-1.72L9.5 4.34A1 1 0 0 0 8 5.2z" fill="currentColor" stroke="none" />
+  </Svg>
+);
+
+/** Плеер: завершить — квадрат. */
+export const IconPlayerStop = (p: IconProps) => (
+  <Svg {...p}>
+    <rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" stroke="none" />
+  </Svg>
+);
+
+/** К перерыву: «Zzz» — три буквы Z, каждая меньше и выше предыдущей. */
+export const IconPlayerBreak = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M3.5 13.5h6.5l-6.5 7h6.5" strokeWidth="2" />
+    <path d="M12 7.5h4.5l-4.5 5h4.5" strokeWidth="1.9" />
+    <path d="M18 3h3l-3 3.5h3" strokeWidth="1.7" />
+  </Svg>
+);
+
 /** Карандаш: изменить. */
 export const IconPencil = (p: IconProps) => (
   <Svg {...p}>

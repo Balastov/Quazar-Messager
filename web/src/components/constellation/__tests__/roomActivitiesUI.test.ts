@@ -117,7 +117,21 @@ describe("room activities interface", () => {
     await act(async () => button("Запустить для комнаты").click());
     expect(roomActivitiesApi.focus).toHaveBeenCalledWith("star", "room", "start", 0, 25, 5, true);
     expect(host.textContent).toContain("Фокус");
-    expect(button("Пауза").disabled).toBe(false);
+    // Ни автора, ни «общий таймер комнаты · по кругу» — только фаза и время.
+    expect(host.textContent).not.toContain("Анна");
+    expect(host.textContent).not.toContain("общий таймер");
+    expect(host.textContent).not.toContain("по кругу");
+    // Кнопки плеера (панель управления открыта с «Начать»): пауза, к перерыву, завершить (красная).
+    const control = (label: string) => host.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)!;
+    expect(control("Пауза").disabled).toBe(false);
+    expect(control("Пауза").textContent).toBe("");
+    expect(control("К перерыву").querySelector("svg")).not.toBeNull();
+    expect(control("Завершить").className).toMatch(/playerStop/);
+    vi.mocked(roomActivitiesApi.focus).mockResolvedValue({ ...next, revision: 2, focus: { ...next.focus, version: 2, running: false } });
+    await act(async () => control("Пауза").click());
+    expect(roomActivitiesApi.focus).toHaveBeenLastCalledWith("star", "room", "pause", 1, 25, 5, true);
+    expect(control("Продолжить")).not.toBeNull();
+    expect(host.querySelector('[role="timer"]')?.getAttribute("aria-label")).toMatch(/^На паузе/);
   });
 
   it("starts a single round when the loop button is switched off", async () => {

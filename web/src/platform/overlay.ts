@@ -7,7 +7,9 @@ import { create } from "zustand";
 import type { StarDetail } from "../api/stars";
 import { presenceName } from "../components/constellation/rules";
 import { useAuthStore } from "../store/auth";
-import { useCallStore } from "../store/call";
+import { useCallStore, type LocalVideo, type RemoteVideo } from "../store/call";
+import { useRoomActivities, type RoomCache } from "../store/roomActivities";
+import { focusAt } from "../components/constellation/roomActivityMath";
 import { useStarsStore } from "../store/stars";
 import { useVoiceStore, type VoicePeer } from "../store/voice";
 import { displayName } from "../utils/profile";
@@ -38,6 +40,18 @@ export interface OverlayPeer {
   micOn: boolean;
   isLocal: boolean;
   deafened: boolean;
+  /** Показывает экран. */
+  sharing: boolean;
+}
+
+/** «Орбита фокуса» комнаты для оверлея; время — по часам этого компьютера. */
+export interface OverlayFocus {
+  phase: "work" | "break";
+  running: boolean;
+  /** Когда закончится фаза (мс), если таймер идёт. */
+  endsAt: number | null;
+  /** Сколько секунд осталось — для паузы. */
+  remaining: number;
 }
 
 export interface OverlayRecording {
@@ -55,6 +69,7 @@ export interface OverlayState extends OverlayPrefs {
   /** Сколько участников не поместилось. */
   more: number;
   recording: OverlayRecording | null;
+  focus: OverlayFocus | null;
 }
 
 export const OVERLAY_MAX_PEERS = 12;
@@ -145,6 +160,7 @@ export function overlaySnapshot(
     micOn: p.micOn,
     isLocal: p.isLocal,
     deafened: p.isLocal && voice.deafened,
+    sharing: p.screenSharing,
   });
   const candidates = filter ? voice.peers.filter((p) => filter(p.userId, row(p))) : voice.peers;
   const shown = pickPeers(candidates);
@@ -158,12 +174,14 @@ export function overlaySnapshot(
     recording: recorder && detail
       ? { by: recorder.user_id === myId ? "вы" : presenceName(detail, recorder), since: recorder.recording_since ?? null }
       : null,
+    focus: null,
   };
 }
 
 /** Личный звонок: я и собеседник. Входящий, который ещё звонит, — не разговор, его не показываем. */
 export function callOverlaySnapshot(
-  call: { phase: string; peerUsername: string | null; muted: boolean; reconnecting: string | null },
+  call: { phase: string; peerUsername: string | null; muted: boolean; reconnecting: string | null;
+    localVideo?: LocalVideo; remoteVideo?: RemoteVideo },
   myName: string,
   speaking: ReadonlySet<string>,
   prefs: OverlayPrefs,
@@ -172,9 +190,11 @@ export function callOverlaySnapshot(
   if (!["outgoing", "connecting", "active"].includes(call.phase)) return null;
   const peer = call.peerUsername || "Собеседник";
   const rows: [string, OverlayPeer][] = [
-    [ME, { name: myName, speaking: !call.muted && speaking.has(ME), micOn: !call.muted, isLocal: true, deafened: false }],
+    [ME, { name: myName, speaking: !call.muted && speaking.has(ME), micOn: !call.muted, isLocal: true, deafened: false,
+      sharing: call.localVideo === "screen" }],
     // Выключил ли собеседник микрофон, звонок не сообщает — значок не рисуем.
-    [PEER, { name: peer, speaking: speaking.has(PEER), micOn: true, isLocal: false, deafened: false }],
+    [PEER, { name: peer, speaking: speaking.has(PEER), micOn: true, isLocal: false, deafened: false,
+      sharing: !!call.remoteVideo?.screen }],
   ];
   return {
     ...prefsOf(prefs),
@@ -183,6 +203,23 @@ export function callOverlaySnapshot(
     peers: rows.filter(([key, p]) => !filter || filter(key, p)).map(([, p]) => p),
     more: 0,
     recording: null,
+    focus: null,
+  };
+}
+
+/**
+ * «Орбита фокуса» комнаты: фаза и её конец по часам этого компьютера. wakeIn — через сколько мс
+ * фаза сменится (тогда снимок собирают заново: после работы — перерыв, по кругу — снова работа).
+ */
+export function overlayFocus(room: RoomCache | undefined, now: number): { focus: OverlayFocus | null; wakeIn: number | null } {
+  if (!room?.focus) return { focus: null, wakeIn: null };
+  const serverNow = now + room.clockOffset;
+  const focus = focusAt(room.focus, serverNow);
+  if (!focus || focus.phase === "done") return { focus: null, wakeIn: null };
+  const ends = focus.running && focus.ends_at ? Date.parse(focus.ends_at) - room.clockOffset : null;
+  return {
+    focus: { phase: focus.phase, running: focus.running, endsAt: ends, remaining: Math.max(0, Math.ceil(focus.remaining_seconds)) },
+    wakeIn: ends !== null ? Math.max(0, ends - now) : null,
   };
 }
 
@@ -191,7 +228,8 @@ const PEER = "peer";
 
 /**
  * «Только говорящие»: строка видна, пока человек говорит, и ещё SPEAKING_LINGER_MS после — чтобы
- * паузы между словами не мигали. Я виден и тогда, когда у меня выключен микрофон или звук — напоминание.
+ * паузы между словами не мигали. Я виден и тогда, когда у меня выключен микрофон или звук или я показываю
+ * экран — напоминание.
  * wakeAt(ms) — когда снова собрать снимок, чтобы погасить замолчавших.
  */
 export function speakingOnly(lastSpoke: Map<string, number>, now: number, wakeAt: (ms: number) => void): PeerFilter {
@@ -200,7 +238,7 @@ export function speakingOnly(lastSpoke: Map<string, number>, now: number, wakeAt
     const since = lastSpoke.get(key);
     const lingering = since !== undefined && now - since < SPEAKING_LINGER_MS;
     if (lingering && !peer.speaking) wakeAt(since + SPEAKING_LINGER_MS - now);
-    return peer.speaking || lingering || (peer.isLocal && (!peer.micOn || peer.deafened));
+    return peer.speaking || lingering || (peer.isLocal && (!peer.micOn || peer.deafened || peer.sharing));
   };
 }
 
@@ -255,8 +293,13 @@ export function startOverlay(bridge: DesktopBridge): void {
     wakeIn = Infinity;
     if (!prefs.onlySpeaking) lastSpoke.clear();
     const filter = prefs.onlySpeaking ? speakingOnly(lastSpoke, Date.now(), wakeAt) : undefined;
-    const state = callOverlaySnapshot(call, displayName(me) ?? "Я", speaking, prefs, filter)
-      ?? overlaySnapshot(voice, detail, prefs, me?.id, filter);
+    const roomState = overlaySnapshot(voice, detail, prefs, me?.id, filter);
+    if (roomState && voice.channelId) {
+      const { focus, wakeIn } = overlayFocus(useRoomActivities.getState().rooms[voice.channelId], Date.now());
+      roomState.focus = focus;
+      if (wakeIn !== null) wakeAt(wakeIn);
+    }
+    const state = callOverlaySnapshot(call, displayName(me) ?? "Я", speaking, prefs, filter) ?? roomState;
     if (wake) clearTimeout(wake);
     wake = state && wakeIn < Infinity ? setTimeout(push, wakeIn + 20) : null;
     if (!state) lastSpoke.clear();
@@ -270,6 +313,7 @@ export function startOverlay(bridge: DesktopBridge): void {
   useStarsStore.subscribe(push);
   useCallStore.subscribe(push);
   useOverlayPrefs.subscribe(push);
+  useRoomActivities.subscribe(push);
   bridge.onHotkey?.(overlayHotkey);
   bridge.onOverlayKeys?.((taken) => {
     const list = Array.isArray(taken) ? taken.filter((k): k is string => k === "mic" || k === "deafen") : [];

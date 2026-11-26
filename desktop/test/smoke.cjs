@@ -117,7 +117,8 @@ app.whenReady().then(async () => {
   const base = { globalKeys: false, room: 'Комната', peers: [{ name: 'Анна', micOn: true, isLocal: true }, { name: 'Боб', speaking: true, micOn: false }] };
   const since = new Date().toISOString();
   for (const variant of [{ ...base, recording: { by: 'Боб', since } }, base, { ...base, more: 4 }, { ...base, reconnecting: true },
-    { ...base, scale: 1.5, opacity: 40 }, { ...base, scale: 0.75, more: 2, recording: { by: 'Боб', since } }, { ...base, scale: 1.25 }]) {
+    { ...base, scale: 1.5, opacity: 40, focus: { phase: 'work', running: true, endsAt: Date.now() + 600_000 } },
+    { ...base, focus: { phase: 'break', running: false, remaining: 90 }, recording: { by: 'Боб', since }, peers: [{ name: 'Боб', sharing: true, micOn: true }] }, { ...base, scale: 0.75, more: 2, recording: { by: 'Боб', since } }, { ...base, scale: 1.25 }]) {
     overlay.update(variant);
     let drawn = null;
     for (let i = 0; i < 60; i++) {

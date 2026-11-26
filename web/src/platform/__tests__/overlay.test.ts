@@ -11,10 +11,12 @@ vi.stubGlobal("localStorage", { getItem: (k: string) => memory.get(k) ?? null,
   setItem: (k: string, v: string) => void memory.set(k, v), removeItem: (k: string) => void memory.delete(k) });
 vi.mock("../../ws/socket", () => ({ socket: { on: () => () => {}, onStatus: () => () => {}, send: vi.fn(), isOpen: () => true } }));
 
-const { overlaySnapshot, callOverlaySnapshot, overlayHotkey, startOverlay, useOverlayPrefs, speakingOnly, OVERLAY_MAX_PEERS, SPEAKING_LINGER_MS } = await import("../overlay");
+const { overlaySnapshot, callOverlaySnapshot, overlayHotkey, overlayFocus, startOverlay, useOverlayPrefs, speakingOnly, OVERLAY_MAX_PEERS, SPEAKING_LINGER_MS } = await import("../overlay");
+const { emptyRoom } = await import("../../store/roomActivities");
 const { useCallStore } = await import("../../store/call");
 const { useVoiceStore } = await import("../../store/voice");
 const { useStarsStore } = await import("../../store/stars");
+const { useRoomActivities } = await import("../../store/roomActivities");
 const { VoiceKeysSettings } = await import("../../components/constellation/VoicePanels");
 
 const PREFS = { enabled: true, globalKeys: true, corner: "top-left" as const, onlySpeaking: false, scale: 1, opacity: 78, display: null };
@@ -36,9 +38,9 @@ describe("снимок комнаты для оверлея", () => {
     const state = overlaySnapshot({ status: "connected", channelId: "room", peers, deafened: true }, detail, PREFS)!;
     expect(state).toMatchObject({ room: "Переговорная", reconnecting: false, more: 0, corner: "top-left" });
     expect(state.peers).toEqual([
-      { name: "Анна", speaking: true, micOn: true, isLocal: true, deafened: true },
+      { name: "Анна", speaking: true, micOn: true, isLocal: true, deafened: true, sharing: false },
       // Микрофон выключен — «говорит» не показываем, даже если монитор что-то услышал.
-      { name: "Боб", speaking: false, micOn: false, isLocal: false, deafened: false },
+      { name: "Боб", speaking: false, micOn: false, isLocal: false, deafened: false, sharing: false },
     ]);
     expect(overlaySnapshot({ status: "reconnecting", channelId: "room", peers, deafened: false }, detail, PREFS)?.reconnecting).toBe(true);
   });
@@ -76,8 +78,8 @@ describe("запись и личный звонок", () => {
     const active = callOverlaySnapshot({ ...call, phase: "active", muted: true, reconnecting: "peer" }, "Анна", new Set(["me", "peer"]), PREFS)!;
     expect(active).toMatchObject({ room: "Звонок: Боб", reconnecting: true, more: 0, recording: null });
     expect(active.peers).toEqual([
-      { name: "Анна", speaking: false, micOn: false, isLocal: true, deafened: false },
-      { name: "Боб", speaking: true, micOn: true, isLocal: false, deafened: false },
+      { name: "Анна", speaking: false, micOn: false, isLocal: true, deafened: false, sharing: false },
+      { name: "Боб", speaking: true, micOn: true, isLocal: false, deafened: false, sharing: false },
     ]);
   });
 
@@ -242,5 +244,47 @@ describe("только говорящие, размер, монитор, зан�
     expect(host.textContent).not.toContain("заняты другой программой");
     act(() => root.unmount());
     useOverlayPrefs.setState({ ...PREFS, keysTaken: [] });
+  });
+});
+
+describe("показ экрана и «Орбита фокуса»", () => {
+  it("значок у того, кто показывает экран; в «только говорящих» я виден, пока показываю", () => {
+    const voice = { status: "connected", channelId: "room", peers: [peer("Я", { isLocal: true, screenSharing: true }), peer("Боб", { screenSharing: true })], deafened: false };
+    expect(overlaySnapshot(voice, detail, PREFS)!.peers.map((p) => p.sharing)).toEqual([true, true]);
+    const only = overlaySnapshot(voice, detail, { ...PREFS, onlySpeaking: true }, "me", speakingOnly(new Map(), 0, () => {}))!;
+    expect(only.peers.map((p) => p.name)).toEqual(["Я"]);
+    const call = { phase: "active", peerUsername: "Боб", muted: false, reconnecting: null, localVideo: null, remoteVideo: { video: false, screen: true } };
+    expect(callOverlaySnapshot(call, "Анна", new Set(), PREFS)!.peers.map((p) => p.sharing)).toEqual([false, true]);
+    expect(callOverlaySnapshot({ ...call, localVideo: "screen" as const }, "Анна", new Set(), PREFS)!.peers[0].sharing).toBe(true);
+  });
+
+  it("фаза и её конец по часам компьютера; после конца работы — перерыв; на паузе — остаток", () => {
+    const now = Date.parse("2026-11-27T10:00:00Z");
+    const room = { ...emptyRoom("star", "room"), clockOffset: 5000, focus: {
+      version: 1, owner_id: "bob", phase: "work" as const, running: true, work_seconds: 1500, break_seconds: 300,
+      remaining_seconds: 1500, ends_at: "2026-11-27T10:10:05Z", loop: true } };
+    expect(overlayFocus(undefined, now)).toEqual({ focus: null, wakeIn: null });
+    // Сервер спешит на 5 с: конец работы в 10:10:05 по серверу — это 10:10:00 по нашим часам.
+    expect(overlayFocus(room, now)).toEqual({ focus: { phase: "work", running: true, endsAt: Date.parse("2026-11-27T10:10:00Z"), remaining: 1500 }, wakeIn: 600_000 });
+    const later = overlayFocus(room, Date.parse("2026-11-27T10:11:00Z"));
+    expect(later.focus).toMatchObject({ phase: "break", running: true });
+    expect(later.wakeIn).toBe(240_000);
+    const paused = { ...room, focus: { ...room.focus, running: false, ends_at: null, remaining_seconds: 431.2 } };
+    expect(overlayFocus(paused, now)).toEqual({ focus: { phase: "work", running: false, endsAt: null, remaining: 432 }, wakeIn: null });
+    expect(overlayFocus({ ...room, focus: { ...room.focus, phase: "done" as const, running: false } }, now).focus).toBeNull();
+  });
+
+  it("в десктоп уходит таймер комнаты, в которой я сейчас", () => {
+    const setOverlay = vi.fn();
+    useOverlayPrefs.setState(PREFS);
+    useCallStore.setState({ phase: "idle" });
+    useStarsStore.setState({ details: { star: detail } });
+    useVoiceStore.setState({ status: "connected", starId: "star", channelId: "room", peers: [peer("Я", { isLocal: true })] });
+    startOverlay({ setOverlay } as unknown as DesktopBridge);
+    expect(setOverlay.mock.lastCall![0].focus).toBeNull();
+    act(() => useRoomActivities.setState({ rooms: { room: { ...emptyRoom("star", "room"), focus: {
+      version: 1, owner_id: "bob", phase: "break", running: false, work_seconds: 1500, break_seconds: 300, remaining_seconds: 120, ends_at: null } } } }));
+    expect(setOverlay.mock.lastCall![0].focus).toEqual({ phase: "break", running: false, endsAt: null, remaining: 120 });
+    useVoiceStore.setState({ status: "idle", channelId: null, starId: null, peers: [] });
   });
 });

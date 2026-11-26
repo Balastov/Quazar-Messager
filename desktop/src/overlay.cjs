@@ -8,7 +8,7 @@ const MAX_PEERS = 12;
 const WIDTH = 240;
 const MARGIN = 16;
 // Высоты из overlay.html: отступы панели (рамка — тенью, места не занимает), строка названия, «Запись», строка участника, «и ещё N».
-const PAD = 16, HEADER = 24, REC = 22, ROW = 28, MORE = 20;
+const PAD = 16, HEADER = 24, REC = 22, FOCUS = 22, ROW = 28, MORE = 20;
 const KEYS = { 'Control+Shift+M': 'mic', 'Control+Shift+D': 'deafen' };
 // Размер оверлея и непрозрачность фона панели (%), по умолчанию — как в первой версии.
 const SCALES = [0.75, 1, 1.25, 1.5];
@@ -25,6 +25,7 @@ function sanitizeOverlay(value) {
     micOn: peer?.micOn === true,
     isLocal: peer?.isLocal === true,
     deafened: peer?.isLocal === true && peer?.deafened === true,
+    sharing: peer?.sharing === true,
   }));
   return {
     enabled: value.enabled !== false,
@@ -35,6 +36,7 @@ function sanitizeOverlay(value) {
     peers,
     more: Number.isInteger(value.more) && value.more > 0 ? Math.min(value.more, 999) : 0,
     recording: recording(value.recording),
+    focus: focus(value.focus),
     scale: SCALES.includes(value.scale) ? value.scale : 1,
     opacity: Number.isInteger(value.opacity) && value.opacity >= 20 && value.opacity <= 100 ? value.opacity : OPACITY,
     // Какой монитор (id из screen.getAllDisplays); null или исчезнувший монитор — основной.
@@ -49,11 +51,23 @@ function recording(value) {
   return { by: text(value.by, 60) || 'Участник', since: Number.isFinite(since) ? since : null };
 }
 
+/** «Орбита фокуса» комнаты: фаза и когда она закончится (мс, часы этого компьютера) или сколько осталось на паузе. */
+function focus(value) {
+  if (!value || typeof value !== 'object' || !['work', 'break'].includes(value.phase)) return null;
+  const running = value.running === true;
+  return {
+    phase: value.phase,
+    running,
+    endsAt: running && Number.isFinite(value.endsAt) ? value.endsAt : null,
+    remaining: Number.isFinite(value.remaining) ? Math.max(0, Math.min(Math.round(value.remaining), 24 * 3600)) : 0,
+  };
+}
+
 /** Где и какого размера окно: угол выбранного экрана, высота — по числу участников, всё — в масштабе. */
 function overlayBounds(state, area) {
   const scale = state.scale ?? 1;
   const width = Math.ceil(WIDTH * scale);
-  const height = Math.ceil((PAD + HEADER + (state.recording ? REC : 0) + state.peers.length * ROW + (state.more ? MORE : 0)) * scale);
+  const height = Math.ceil((PAD + HEADER + (state.recording ? REC : 0) + (state.focus ? FOCUS : 0) + state.peers.length * ROW + (state.more ? MORE : 0)) * scale);
   const left = state.corner.endsWith('left');
   const top = state.corner.startsWith('top');
   return {

@@ -11,6 +11,9 @@ body{font:13px/1.2 system-ui,-apple-system,"Segoe UI",sans-serif;color:#f4f1ff}
 #rec{display:flex;align-items:center;gap:6px;height:22px;color:#fca5a5;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #rec .dot{flex:none;width:8px;height:8px;border-radius:50%;background:#ef4444;animation:blink 1.6s ease-in-out infinite}
 @keyframes blink{50%{opacity:.35}}
+#focus{display:flex;align-items:center;gap:6px;height:22px;color:#c4b5fd;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#focus svg{flex:none;width:13px;height:13px}
+.state .screen{color:#60a5fa}
 .peer{display:flex;align-items:center;gap:8px;height:28px;opacity:.82;transition:opacity .15s}
 .peer.speaking{opacity:1}
 .avatar{flex:none;display:grid;place-items:center;width:22px;height:22px;border-radius:50%;background:#2a2340;color:#cfc6e6;font-size:11px;font-weight:700;box-shadow:0 0 0 2px transparent;transition:box-shadow .12s}
@@ -21,4 +24,4 @@ body{font:13px/1.2 system-ui,-apple-system,"Segoe UI",sans-serif;color:#f4f1ff}
 .state svg{width:14px;height:14px}
 #more{height:20px;color:#b6adc6;font-size:12px;padding-left:30px}
 </style></head>
-<body><div id="panel" role="status" aria-live="off"><div id="room"></div><div id="rec" hidden><span class="dot"></span><span id="rec-text"></span></div><div id="peers"></div><div id="more" hidden></div></div><script src="overlay.js"></script></body></html>
+<body><div id="panel" role="status" aria-live="off"><div id="room"></div><div id="rec" hidden><span class="dot"></span><span id="rec-text"></span></div><div id="focus" hidden></div><div id="peers"></div><div id="more" hidden></div></div><script src="overlay.js"></script></body></html>

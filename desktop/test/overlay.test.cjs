@@ -47,7 +47,7 @@ test('sanitizes renderer state: bounded strings, booleans and peer count', () =>
   assert.equal(out.peers.length, MAX_PEERS);
   assert.equal(out.peers[0].name.length, 60);
   assert.ok(!out.peers[0].name.includes('\n'));
-  assert.deepEqual({ ...out.peers[0], name: '' }, { name: '', speaking: false, micOn: false, isLocal: false, deafened: false });
+  assert.deepEqual({ ...out.peers[0], name: '' }, { name: '', speaking: false, micOn: false, isLocal: false, deafened: false, sharing: false });
   assert.deepEqual({ corner: out.corner, room: out.room, more: out.more, enabled: out.enabled, extra: out.extra }, { corner: 'top-left', room: '', more: 0, enabled: true, extra: undefined });
 });
 
@@ -166,4 +166,13 @@ test('tells the Quazar window which global keys another program has taken', () =
   globalShortcut.register = (acc, fn) => { keys.set(acc, fn); return true; };
   main.focused = true; overlay.refresh(); main.focused = false; overlay.refresh();
   assert.deepEqual(taken, [['mic'], []]);
+});
+
+test('screen sharing mark and focus timer line', () => {
+  const out = sanitizeOverlay(room({ peers: [{ name: 'Боб', sharing: true }], focus: { phase: 'work', running: true, endsAt: 1_800_000, remaining: 99.6, x: 1 } }));
+  assert.equal(out.peers[0].sharing, true);
+  assert.deepEqual(out.focus, { phase: 'work', running: true, endsAt: 1_800_000, remaining: 100 });
+  assert.deepEqual(sanitizeOverlay(room({ focus: { phase: 'break', running: false, endsAt: 5, remaining: -3 } })).focus, { phase: 'break', running: false, endsAt: null, remaining: 0 });
+  assert.equal(sanitizeOverlay(room({ focus: { phase: 'done' } })).focus, null);
+  assert.equal(overlayBounds(out, AREA).height, overlayBounds(sanitizeOverlay(room({ peers: [{ name: 'Боб' }] })), AREA).height + 22);
 });

@@ -72,6 +72,8 @@ class VoiceParticipant:
     camera_blocked: bool = False
     # Ведёт запись встречи (app/core/recordings.py): все в комнате видят «Идёт запись».
     recording: bool = False
+    # С какого момента идёт запись: все видят, сколько она уже длится.
+    recording_since: datetime | None = None
     # Имя гостя по ссылке (у участников Звезды имя берут из списка участников).
     guest_name: str | None = None
     # Имя в Звезде и фото из токена: по ним посетителя по ссылке видят участники, а он — их.
@@ -89,6 +91,7 @@ class VoiceParticipant:
             "camera": self.camera,
             "camera_blocked": self.camera_blocked,
             "recording": self.recording,
+            "recording_since": self.recording_since.isoformat() if self.recording_since else None,
             "guest_name": self.guest_name,
             "name": self.name,
             "avatar_url": self.avatar_url,
@@ -305,6 +308,7 @@ async def set_recording(star_id: str, channel_id: str, user_id: str, on: bool) -
             await _remember_start(channel_id)  # включивший уже вышел — снять отметку у гостей
         return False
     participant.recording = on
+    participant.recording_since = datetime.now(timezone.utc) if on else None
     await broadcast(star_id, channel_id)
     await _remember_start(channel_id)
     return True
@@ -554,8 +558,13 @@ async def _remember_start(channel_id: str) -> None:
     if not planet:
         return
     meta: dict = {"active_since": planet.active_since.isoformat()}
-    if any(p.recording for p in planet.participants.values()):
+    recorder = next((p for p in planet.participants.values() if p.recording), None)
+    if recorder:
+        # Гости видят, кто записывает (по identity находят имя участника) и сколько идёт запись.
         meta["recording"] = True
+        meta["recording_by"] = recorder.user_id
+        if recorder.recording_since:
+            meta["recording_since"] = recorder.recording_since.isoformat()
     try:
         await livekit.room_service.update_room_metadata(room_name(channel_id), json.dumps(meta))
     except livekit.LiveKitError as exc:

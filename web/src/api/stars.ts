@@ -502,6 +502,8 @@ export interface VoicePresence {
   camera_blocked?: boolean;
   /** Ведёт запись встречи — все в комнате видят «Идёт запись». */
   recording?: boolean;
+  /** С какого момента идёт запись — все видят, сколько она уже длится. */
+  recording_since?: string | null;
   /** Главный в комнате «По приглашениям». */
   is_host?: boolean;
   /** Гость по ссылке (без аккаунта): его имя; user_id тогда — guest-…. */

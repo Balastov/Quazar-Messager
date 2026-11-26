@@ -324,8 +324,9 @@ class VoiceParticipantOut(BaseModel):
     joined_at: datetime
     server_muted: bool
     screen_sharing: bool = False
-    # Ведёт запись встречи — все в комнате видят «Идёт запись».
+    # Ведёт запись встречи — все в комнате видят «Идёт запись» и сколько она уже идёт.
     recording: bool = False
+    recording_since: datetime | None = None
     # Включил камеру; camera_blocked — модератор выключил её и пока не разрешает.
     camera: bool = False
     camera_blocked: bool = False

@@ -1,9 +1,12 @@
 import { useEffect } from "react";
+import { useAuthStore } from "../../store/auth";
 import { useStarsStore } from "../../store/stars";
 import { useUiStore } from "../../store/ui";
 import { useVoiceStore } from "../../store/voice";
 import { IconPlanet, IconScreenStop, IconStarMic, IconStarHeadphones, IconStarHeadphonesOff, IconStarMicOff } from "../icons";
 import { placeNouns, roomWords } from "./words";
+import { RecordingClock, RecordingAlertHost } from "./RecordingAlert";
+import { presenceName } from "./rules";
 import s from "./Constellation.module.css";
 
 /** «Вы на Планете …» с микрофоном и выходом. floating — поверх других вкладок. */
@@ -23,9 +26,13 @@ export function VoiceBar({ floating = false }: { floating?: boolean }) {
   const sharingScreen = useVoiceStore((st) => st.sharingScreen);
   const stopScreenShare = useVoiceStore((st) => st.stopScreenShare);
   const detail = useStarsStore((st) => (starId ? st.details[starId] : undefined));
+  const myId = useAuthStore((st) => st.user?.id);
 
   if (status === "idle" || !starId || !channelId) return null;
   const planet = detail?.channels.find((c) => c.id === channelId);
+  // Запись в комнате видна и отсюда — с другой вкладки: кто записывает и сколько уже.
+  const recorder = status === "connected" ? detail?.voice?.[channelId]?.find((p) => p.recording) : undefined;
+  const recorderName = recorder && detail ? (recorder.user_id === myId ? "вы" : presenceName(detail, recorder)) : "";
   const words = roomWords(detail?.kind, planet?.name ?? "");
 
   const open = () => {
@@ -94,6 +101,18 @@ export function VoiceBar({ floating = false }: { floating?: boolean }) {
       >
         ✕
       </button>
+      {recorder && (
+        <span className={s.voiceBarRecording} role="status" title={`Идёт запись — записывает ${recorderName}`}>
+          <span className={s.recordingDot} aria-hidden />
+          Идёт запись · {recorderName}
+          {recorder.recording_since && (
+            <>
+              {" · "}
+              <RecordingClock since={recorder.recording_since} />
+            </>
+          )}
+        </span>
+      )}
     </div>
   );
 }
@@ -123,6 +142,7 @@ export default function VoiceBarHost() {
   return (
     <>
       {floating && <VoiceBar floating />}
+      <RecordingAlertHost />
       {notice && (
         <div className={s.notice} role="status">
           <span className={s.noticeText}>{notice}</span>

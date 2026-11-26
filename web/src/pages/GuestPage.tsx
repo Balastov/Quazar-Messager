@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import { RecordingAlert, RecordingClock, recordingAlertOff, turnRecordingAlertOff } from "../components/constellation/RecordingAlert";
 import axios from "axios";
 import type { LocalTrack, Participant, RemoteAudioTrack, Room, Track } from "livekit-client";
 import { http } from "../api/client";
@@ -65,12 +66,22 @@ interface GuestScreen {
 
 const NAME_KEY = "quazar-guest-name";
 
-/** Идёт ли в комнате запись встречи: сервер пишет это в метаданные комнаты. */
-function roomRecording(metadata: string | undefined): boolean {
+/** Запись встречи в комнате: сервер пишет в метаданные комнаты, кто записывает и с какого момента. */
+export interface GuestRecording {
+  by: string | null;
+  since: string | null;
+}
+
+export function roomRecording(metadata: string | undefined): GuestRecording | null {
   try {
-    return !!JSON.parse(metadata || "{}").recording;
+    const meta = JSON.parse(metadata || "{}");
+    if (!meta.recording) return null;
+    return {
+      by: typeof meta.recording_by === "string" ? meta.recording_by : null,
+      since: typeof meta.recording_since === "string" ? meta.recording_since : null,
+    };
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -123,7 +134,9 @@ export default function GuestPage() {
   // Показы экрана: в рабочей Комнате их может быть два.
   const [screens, setScreens] = useState<GuestScreen[]>([]);
   // Кто-то из участников записывает встречу (метаданные комнаты LiveKit).
-  const [recording, setRecording] = useState(false);
+  const [recording, setRecording] = useState<GuestRecording | null>(null);
+  // Окно «Ведётся запись разговора» уже закрыли для этой записи (кто:с какого времени).
+  const [recordingSeen, setRecordingSeen] = useState<string | null>(null);
   const roomRef = useRef<Room | null>(null);
   const audioRef = useRef<HTMLDivElement>(null);
   // Аудиоплееры: для звука показа — чей это показ (своя громкость у каждого), для голоса — null.
@@ -207,7 +220,10 @@ export default function GuestPage() {
         if (roomRef.current !== room) return;
         setList(people(room));
         setMicOn(room.localParticipant.isMicrophoneEnabled);
-        setRecording(roomRecording(room.metadata));
+        setRecording((prev) => {
+          const next = roomRecording(room.metadata);
+          return prev && next && prev.by === next.by && prev.since === next.since ? prev : next;
+        });
         setScreens([...room.remoteParticipants.values()].flatMap((sharer) => {
           const video = sharer.getTrackPublication(lk.Track.Source.ScreenShare);
           const audio = sharer.getTrackPublication(lk.Track.Source.ScreenShareAudio);
@@ -420,8 +436,25 @@ export default function GuestPage() {
   const me = list.find((p) => p.me);
   const cameras = list.filter((p) => p.camera);
 
+  const recorderName = recording?.by ? list.find((p) => p.id === recording.by)?.name ?? null : null;
+  const recordingKey = recording ? `${recording.by ?? ""}:${recording.since ?? ""}` : null;
+  const recordingAlert = recording && recordingKey !== recordingSeen && !recordingAlertOff(`guest:${code}`) && (
+    <RecordingAlert
+      who={recorderName ?? "Участник"}
+      where="Запись сохранится в чате комнаты у участников Звезды."
+      onClose={(dontShow) => {
+        if (dontShow) turnRecordingAlertOff(`guest:${code}`);
+        setRecordingSeen(recordingKey);
+      }}
+    />
+  );
+
   const controls = <div className={s.controls}>
-    {recording && <div className={s.recording} role="status">● Идёт запись встречи</div>}
+    {recording && <div className={s.recording} role="status">
+      ● Идёт запись встречи{recorderName ? ` · ${recorderName}` : ""}
+      {recording.since && <> · <RecordingClock since={recording.since} /></>}
+    </div>}
+    {recordingAlert}
     {needsUnlock && <button type="button" className={s.primary} onClick={() => void roomRef.current?.startAudio().then(() => setNeedsUnlock(false))}>
       🔊 Нажмите, чтобы слышать собеседников
     </button>}

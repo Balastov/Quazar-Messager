@@ -1241,6 +1241,7 @@
 
 .voiceBar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
   padding: 10px 12px;
@@ -2338,6 +2339,86 @@
   border-radius: 50%;
   background: #ef4444;
   animation: recordingPulse 1.4s ease-in-out infinite;
+}
+
+.recordingClock {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Окно «Ведётся запись разговора». */
+.recordingAlert {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.recordingAlertText {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--qz-text);
+}
+
+.recordingAlertText .recordingDot {
+  display: inline-block;
+  vertical-align: middle;
+}
+
+.recordingAlertCheck {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: var(--qz-text-muted);
+  cursor: pointer;
+}
+
+.recordingAlertCheck input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--qz-online);
+}
+
+/* Зелёная кнопка без заливки: «Понятно». */
+.okGreen {
+  align-self: flex-end;
+  min-height: 40px;
+  padding: 0 22px;
+  border: 1px solid rgba(52, 211, 153, 0.6);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--qz-online);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.okGreen:hover {
+  border-color: var(--qz-online);
+  box-shadow: 0 0 10px rgba(52, 211, 153, 0.25);
+}
+
+.okGreen:focus-visible {
+  outline: 2px solid var(--qz-online);
+  outline-offset: 2px;
+}
+
+/* Отдельной строкой под кнопками: в узкой плашке иначе сжимает название комнаты. */
+.voiceBarRecording {
+  display: flex;
+  flex-basis: 100%;
+  justify-content: center;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border: 1px solid rgba(239, 68, 68, 0.5);
+  border-radius: 999px;
+  background: rgba(239, 68, 68, 0.14);
+  color: #fecaca;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
 }
 
 @keyframes recordingPulse {

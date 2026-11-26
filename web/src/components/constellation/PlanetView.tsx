@@ -24,6 +24,7 @@ import { savedChatWidth, saveChatWidth } from "./roomChatWidth";
 import UnreadBadge from "../chat/UnreadBadge";
 import { hasRoomChat, roleRank, useStarsStore } from "../../store/stars";
 import { useRecordingStore } from "../../store/recording";
+import { RecordingClock } from "./RecordingAlert";
 import { canRecordMeetings } from "../../voice/meetingRecorder";
 import w from "./Work.module.css";
 import { confirmKnock } from "./work";
@@ -594,6 +595,12 @@ export function RoomControls({ detail, channel }: { detail: StarDetail; channel:
           <div className={s.recordingBadge} role="status">
             <span className={s.recordingDot} aria-hidden />
             Идёт запись{recorderHere ? ` · ${recorderHere.user_id === myId ? "вы" : presenceName(detail, recorderHere)}` : ""}
+            {(recorderHere?.recording_since || myRecordingHere) && (
+              <>
+                {" · "}
+                <RecordingClock since={recorderHere?.recording_since ?? recording.active!.startedAt} />
+              </>
+            )}
           </div>
         )}
         {recording.notice && (

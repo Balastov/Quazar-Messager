@@ -4,7 +4,7 @@
 import json
 import subprocess
 import tempfile
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest import mock
 
@@ -109,8 +109,15 @@ class RecordingsTest(StarsTestBase):
         self.assertEqual((await self.start("bob")).status_code, 409)  # уже идёт
         # Гости по ссылке узнают о записи из метаданных комнаты LiveKit.
         room = voice.room_name(self.room.id)
-        self.assertTrue(json.loads(self.lk.metadata[room])["recording"])
+        meta = json.loads(self.lk.metadata[room])
+        self.assertTrue(meta["recording"])
+        self.assertEqual(meta["recording_by"], self.uid("mod"))
+        # Сколько идёт запись — видят все: время начала в присутствии и в метаданных для гостей.
+        since = next(p["recording_since"] for p in voice.presence(self.room.id) if p["recording"])
+        self.assertEqual(meta["recording_since"], since)
+        self.assertLess(abs((datetime.fromisoformat(since) - datetime.now(timezone.utc)).total_seconds()), 30)
         await self.stop(response.json()["id"])
+        self.assertFalse(any(p["recording_since"] for p in voice.presence(self.room.id)))
         self.assertNotIn("recording", json.loads(self.lk.metadata[room]))
 
     async def test_gaming_stars_do_not_record(self):

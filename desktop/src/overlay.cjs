@@ -7,8 +7,8 @@ const CORNERS = ['top-left', 'top-right', 'bottom-left', 'bottom-right'];
 const MAX_PEERS = 12;
 const WIDTH = 240;
 const MARGIN = 16;
-// Высоты из overlay.html: отступы и рамка панели, строка названия, строка участника, «и ещё N».
-const PAD = 18, HEADER = 24, ROW = 28, MORE = 20;
+// Высоты из overlay.html: отступы и рамка панели, строка названия, «Запись», строка участника, «и ещё N».
+const PAD = 18, HEADER = 24, REC = 22, ROW = 28, MORE = 20;
 const KEYS = { 'Control+Shift+M': 'mic', 'Control+Shift+D': 'deafen' };
 
 const text = (value, max) => (typeof value === 'string' ? value.replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, max) : '');
@@ -31,12 +31,20 @@ function sanitizeOverlay(value) {
     reconnecting: value.reconnecting === true,
     peers,
     more: Number.isInteger(value.more) && value.more > 0 ? Math.min(value.more, 999) : 0,
+    recording: recording(value.recording),
   };
+}
+
+/** Кто записывает и с какого момента (мс), чтобы оверлей сам показывал, сколько идёт запись. */
+function recording(value) {
+  if (!value || typeof value !== 'object') return null;
+  const since = typeof value.since === 'string' ? Date.parse(value.since) : NaN;
+  return { by: text(value.by, 60) || 'Участник', since: Number.isFinite(since) ? since : null };
 }
 
 /** Где и какого размера окно: угол основного экрана, высота — по числу участников. */
 function overlayBounds(state, area) {
-  const height = PAD + HEADER + state.peers.length * ROW + (state.more ? MORE : 0);
+  const height = PAD + HEADER + (state.recording ? REC : 0) + state.peers.length * ROW + (state.more ? MORE : 0);
   const left = state.corner.endsWith('left');
   const top = state.corner.startsWith('top');
   return {

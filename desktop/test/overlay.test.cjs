@@ -113,3 +113,11 @@ test('a hotkey taken by another program does not break the overlay', () => {
   assert.doesNotThrow(() => overlay.update(room()));
   assert.equal(FakeWindow.created[0].visible, true);
 });
+
+test('recording line: who records and since when, window grows by one line', () => {
+  const out = sanitizeOverlay(room({ recording: { by: 'Боб\u0007', since: '2026-11-26T10:00:00Z', extra: 1 } }));
+  assert.deepEqual(out.recording, { by: 'Боб', since: Date.parse('2026-11-26T10:00:00Z') });
+  assert.deepEqual(sanitizeOverlay(room({ recording: { since: 'вчера' } })).recording, { by: 'Участник', since: null });
+  assert.equal(sanitizeOverlay(room({ recording: 'yes' })).recording, null);
+  assert.equal(overlayBounds(out, AREA).height, overlayBounds(sanitizeOverlay(room()), AREA).height + 22);
+});

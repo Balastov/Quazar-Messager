@@ -2,11 +2,15 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; object-src 'none'">
 <title>Quazar — оверлей</title>
 <style>
+[hidden]{display:none!important}
 html,body{margin:0;background:transparent;overflow:hidden;user-select:none;cursor:default}
 body{font:13px/1.2 system-ui,-apple-system,"Segoe UI",sans-serif;color:#f4f1ff}
 #panel{box-sizing:border-box;margin:0;padding:8px 10px;border:1px solid #ffffff1f;border-radius:12px;background:#0c0b14c7}
 #room{display:flex;align-items:center;gap:6px;height:24px;color:#34d399;font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #room.lost{color:#fbbf24}
+#rec{display:flex;align-items:center;gap:6px;height:22px;color:#fca5a5;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#rec .dot{flex:none;width:8px;height:8px;border-radius:50%;background:#ef4444;animation:blink 1.6s ease-in-out infinite}
+@keyframes blink{50%{opacity:.35}}
 .peer{display:flex;align-items:center;gap:8px;height:28px;opacity:.82;transition:opacity .15s}
 .peer.speaking{opacity:1}
 .avatar{flex:none;display:grid;place-items:center;width:22px;height:22px;border-radius:50%;background:#2a2340;color:#cfc6e6;font-size:11px;font-weight:700;box-shadow:0 0 0 2px transparent;transition:box-shadow .12s}
@@ -17,4 +21,4 @@ body{font:13px/1.2 system-ui,-apple-system,"Segoe UI",sans-serif;color:#f4f1ff}
 .state svg{width:14px;height:14px}
 #more{height:20px;color:#b6adc6;font-size:12px;padding-left:30px}
 </style></head>
-<body><div id="panel" role="status" aria-live="off"><div id="room"></div><div id="peers"></div><div id="more" hidden></div></div><script src="overlay.js"></script></body></html>
+<body><div id="panel" role="status" aria-live="off"><div id="room"></div><div id="rec" hidden><span class="dot"></span><span id="rec-text"></span></div><div id="peers"></div><div id="more" hidden></div></div><script src="overlay.js"></script></body></html>

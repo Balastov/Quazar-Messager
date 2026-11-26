@@ -11,7 +11,8 @@ vi.stubGlobal("localStorage", { getItem: (k: string) => memory.get(k) ?? null,
   setItem: (k: string, v: string) => void memory.set(k, v), removeItem: (k: string) => void memory.delete(k) });
 vi.mock("../../ws/socket", () => ({ socket: { on: () => () => {}, onStatus: () => () => {}, send: vi.fn(), isOpen: () => true } }));
 
-const { overlaySnapshot, overlayHotkey, startOverlay, useOverlayPrefs, OVERLAY_MAX_PEERS } = await import("../overlay");
+const { overlaySnapshot, callOverlaySnapshot, overlayHotkey, startOverlay, useOverlayPrefs, OVERLAY_MAX_PEERS } = await import("../overlay");
+const { useCallStore } = await import("../../store/call");
 const { useVoiceStore } = await import("../../store/voice");
 const { useStarsStore } = await import("../../store/stars");
 const { VoiceKeysSettings } = await import("../../components/constellation/VoicePanels");
@@ -51,6 +52,48 @@ describe("снимок комнаты для оверлея", () => {
     expect(names[0]).toBe("Я");
     expect(names[names.length - 1]).toBe("П18");
     expect(names.slice(1, -1)).toEqual(Array.from({ length: OVERLAY_MAX_PEERS - 2 }, (_, i) => `П${i + 1}`));
+  });
+});
+
+describe("запись и личный звонок", () => {
+  it("строка записи: кто записывает (я — «вы») и с какого времени", () => {
+    const withVoice = {
+      ...detail,
+      members: [{ user: { id: "bob", username: "bob", display_name: "Боб" }, role: "member" }],
+      voice: { room: [{ user_id: "bob", recording: true, recording_since: "2026-11-26T10:00:00Z" }] },
+    } as unknown as StarDetail;
+    const voice = { status: "connected", channelId: "room", peers: [peer("Анна", { isLocal: true })], deafened: false };
+    expect(overlaySnapshot(voice, detail, PREFS)?.recording).toBeNull();
+    expect(overlaySnapshot(voice, withVoice, PREFS, "me")?.recording).toEqual({ by: "Боб", since: "2026-11-26T10:00:00Z" });
+    expect(overlaySnapshot(voice, withVoice, PREFS, "bob")?.recording).toEqual({ by: "вы", since: "2026-11-26T10:00:00Z" });
+  });
+
+  it("звонок: «Вызов», потом «Звонок» с собеседником; входящий, который ещё звонит, — нет", () => {
+    const call = { phase: "outgoing", peerUsername: "Боб", muted: false, reconnecting: null };
+    expect(callOverlaySnapshot({ ...call, phase: "incoming" }, "Анна", new Set(), PREFS)).toBeNull();
+    expect(callOverlaySnapshot({ ...call, phase: "ended" }, "Анна", new Set(), PREFS)).toBeNull();
+    expect(callOverlaySnapshot(call, "Анна", new Set(), PREFS)?.room).toBe("Вызов: Боб");
+    const active = callOverlaySnapshot({ ...call, phase: "active", muted: true, reconnecting: "peer" }, "Анна", new Set(["me", "peer"]), PREFS)!;
+    expect(active).toMatchObject({ room: "Звонок: Боб", reconnecting: true, more: 0, recording: null });
+    expect(active.peers).toEqual([
+      { name: "Анна", speaking: false, micOn: false, isLocal: true, deafened: false },
+      { name: "Боб", speaking: true, micOn: true, isLocal: false, deafened: false },
+    ]);
+  });
+
+  it("Ctrl+Shift+M в звонке — микрофон звонка (и в окне Quazar, и из другой программы)", () => {
+    const toggleMute = vi.fn();
+    const toggleDeafen = vi.fn(async () => {});
+    useVoiceStore.setState({ status: "idle", toggleDeafen });
+    useCallStore.setState({ phase: "active", toggleMute });
+    overlayHotkey("mic");
+    overlayHotkey("deafen");
+    window.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyM", ctrlKey: true, shiftKey: true }));
+    expect(toggleMute).toHaveBeenCalledTimes(2);
+    expect(toggleDeafen).not.toHaveBeenCalled();
+    useCallStore.setState({ phase: "idle" });
+    window.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyM", ctrlKey: true, shiftKey: true }));
+    expect(toggleMute).toHaveBeenCalledTimes(2);
   });
 });
 

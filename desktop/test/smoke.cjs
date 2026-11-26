@@ -1,5 +1,5 @@
 // Интеграционный тест Electron на CI: временный профиль, скрытое окно, API без реальных пользователей.
-const { app, BrowserWindow, session, protocol, ipcMain, net } = require('electron');
+const { app, BrowserWindow, session, protocol, ipcMain, net, screen, globalShortcut } = require('electron');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -9,6 +9,7 @@ const { pathToFileURL } = require('node:url');
 const { APP_URL, SERVER_ORIGIN, trustedMainFrame } = require('../src/policy.cjs');
 const { createProtocolHandler } = require('../src/protocol.cjs');
 const { waitForMainWindow } = require('../src/startup-window.cjs');
+const { Overlay } = require('../src/overlay.cjs');
 const version = require('../package.json').version;
 const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'quazar-smoke-'));
 app.setPath('userData', profile);
@@ -111,8 +112,29 @@ app.whenReady().then(async () => {
   assert.equal(persisted.keyWorks, true);
   assert.equal(persisted.extractable, false);
   server.close();
+  // Оверлей: окно ровно по панели в каждом состоянии, ушедшая строка «Запись» не остаётся на экране.
+  const overlay = new Overlay({ BrowserWindow, screen, globalShortcut, getMain: () => null, onHotkey: () => {} });
+  const base = { globalKeys: false, room: 'Комната', peers: [{ name: 'Анна', micOn: true, isLocal: true }, { name: 'Боб', speaking: true, micOn: false }] };
+  for (const variant of [{ ...base, recording: { by: 'Боб', since: new Date().toISOString() } }, base, { ...base, more: 4 }, { ...base, reconnecting: true }]) {
+    overlay.update(variant);
+    let drawn = null;
+    for (let i = 0; i < 60; i++) {
+      await new Promise(resolve => setTimeout(resolve, 50));
+      if (!overlay.loaded) continue;
+      drawn = await overlay.window.webContents.executeJavaScript(`({ height: Math.round(document.getElementById('panel').getBoundingClientRect().height),
+        rec: document.getElementById('rec').getClientRects().length > 0, text: document.getElementById('panel').textContent })`);
+      if (drawn.height === overlay.window.getBounds().height && drawn.rec === !!variant.recording) break;
+    }
+    assert.ok(drawn, 'overlay page did not load');
+    assert.equal(drawn.height, overlay.window.getBounds().height, JSON.stringify({ variant, drawn }));
+    assert.equal(drawn.rec, !!variant.recording, JSON.stringify({ variant, drawn }));
+  }
+  assert.equal(overlay.window.isVisible(), true);
+  overlay.update(null);
+  assert.equal(overlay.window.isVisible(), false);
+  overlay.dispose();
   clearTimeout(timeout); win.destroy();
-  console.log('DESKTOP_SMOKE_OK: shared renderer, isolated preload, native GET/POST, persistent non-extractable crypto key');
+  console.log('DESKTOP_SMOKE_OK: shared renderer, isolated preload, native GET/POST, persistent non-extractable crypto key, overlay sized to its panel');
   app.quit();
 }).catch(error => {
   console.error(error);

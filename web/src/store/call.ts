@@ -15,6 +15,7 @@ import { useVoiceStore } from "./voice";
 import { displayName } from "../utils/profile";
 import { useScreenAudio } from "./screenAudio";
 import { NO_SCREEN_AUDIO } from "../calls/screenCapture";
+import { hotkey } from "../voice/keys";
 
 type EndReason =
   | "hangup"
@@ -949,3 +950,13 @@ useCallStore.subscribe((st, prev) => {
   if (st.phase === "active") void playCallSound("connected");
   else if ((st.phase === "ended" || st.phase === "idle") && TALKING.includes(prev.phase)) void playCallSound("ended");
 });
+
+// Ctrl+Shift+M — микрофон и в личном звонке, как на Планете (в другой программе — через оверлей десктопа).
+if (typeof window !== "undefined") {
+  window.addEventListener("keydown", (e) => {
+    const call = useCallStore.getState();
+    if (call.phase !== "active" || hotkey(e) !== "mic") return;
+    e.preventDefault();
+    call.toggleMute();
+  });
+}

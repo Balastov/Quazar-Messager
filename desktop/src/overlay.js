@@ -13,7 +13,23 @@ function icon(name, title) {
   const p = document.createElementNS(SVG, 'path'); p.setAttribute('d', ICONS[name]); svg.append(p);
   return svg;
 }
+// Сколько идёт запись: «0:07», «12:34», «1:02:03» — как в окне Quazar.
+function elapsed(since, now = Date.now()) {
+  const total = Math.max(0, Math.floor((now - since) / 1000));
+  const h = Math.floor(total / 3600), m = Math.floor((total % 3600) / 60), s = String(total % 60).padStart(2, '0');
+  return h ? `${h}:${String(m).padStart(2, '0')}:${s}` : `${m}:${s}`;
+}
+let current = null;
+function renderRecording() {
+  const rec = current?.recording;
+  document.getElementById('rec').hidden = !rec;
+  if (!rec) return;
+  document.getElementById('rec-text').textContent = ['Запись', rec.by, rec.since != null ? elapsed(rec.since) : ''].filter(Boolean).join(' · ');
+}
+setInterval(renderRecording, 1000);
 function render(state) {
+  current = state;
+  renderRecording();
   const room = document.getElementById('room');
   room.textContent = state.reconnecting ? 'Переподключение…' : state.room || 'Комната';
   room.classList.toggle('lost', state.reconnecting);

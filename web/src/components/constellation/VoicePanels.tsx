@@ -3,6 +3,8 @@ import { starsApi, type StarAsset, type StarDetail } from "../../api/stars";
 import { useStarsStore } from "../../store/stars";
 import { useVoiceStore } from "../../store/voice";
 import { keyLabel } from "../../voice/keys";
+import { desktop } from "../../platform/desktop";
+import { overlaySupported, useOverlayPrefs, type OverlayCorner } from "../../platform/overlay";
 import { BUILTIN_SOUNDS } from "./soundboard";
 import { apiError } from "./rules";
 import s from "./Constellation.module.css";
@@ -80,10 +82,52 @@ export function VoiceKeysSettings() {
           </button>
         </div>
       )}
-      <p className={s.hint}>
-        Ctrl+Shift+M — микрофон, Ctrl+Shift+D — выключить звук собеседников. Клавиши работают, пока
-        открыта вкладка Quazar.
-      </p>
+      {overlaySupported(desktop()) ? (
+        <OverlaySettings />
+      ) : (
+        <p className={s.hint}>
+          Ctrl+Shift+M — микрофон, Ctrl+Shift+D — выключить звук собеседников. Клавиши работают, пока
+          открыта вкладка Quazar.
+        </p>
+      )}
     </div>
+  );
+}
+
+const CORNERS: { value: OverlayCorner; label: string }[] = [
+  { value: "top-left", label: "Слева сверху" },
+  { value: "top-right", label: "Справа сверху" },
+  { value: "bottom-left", label: "Слева снизу" },
+  { value: "bottom-right", label: "Справа снизу" },
+];
+
+/** Десктоп: оверлей поверх окон и клавиши в других программах. */
+function OverlaySettings() {
+  const { enabled, globalKeys, corner, setPrefs } = useOverlayPrefs();
+  return (
+    <>
+      <label className={g.check}>
+        <input type="checkbox" checked={enabled} onChange={(e) => setPrefs({ enabled: e.target.checked })} />
+        Оверлей поверх окон: кто в комнате и кто говорит
+      </label>
+      {enabled && (
+        <div className={s.row}>
+          <span className={s.hint}>Где:</span>
+          <select className={s.select} value={corner} aria-label="Где показывать оверлей"
+            onChange={(e) => setPrefs({ corner: e.target.value as OverlayCorner })}>
+            {CORNERS.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
+          </select>
+        </div>
+      )}
+      <label className={g.check}>
+        <input type="checkbox" checked={globalKeys} onChange={(e) => setPrefs({ globalKeys: e.target.checked })} />
+        Клавиши работают и в других программах
+      </label>
+      <p className={s.hint}>
+        Ctrl+Shift+M — микрофон, Ctrl+Shift+D — выключить звук собеседников. Оверлей появляется, когда
+        окно Quazar не впереди; его видно поверх программ и игр в оконном режиме, но не в полноэкранном
+        режиме игр. В показ экрана он не попадает.
+      </p>
+    </>
   );
 }

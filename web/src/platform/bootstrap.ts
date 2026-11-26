@@ -3,6 +3,7 @@ import { useCallStore } from "../store/call";
 import { useVoiceStore } from "../store/voice";
 import { useAuthStore } from "../store/auth";
 import { socket } from "../ws/socket";
+import { startOverlay } from "./overlay";
 
 export function startDesktop() {
   const bridge = desktop();
@@ -12,6 +13,7 @@ export function startDesktop() {
     bridge.setSessionBusy((call !== "idle" && call !== "ended") || useVoiceStore.getState().status !== "idle");
   };
   busy(); useCallStore.subscribe(busy); useVoiceStore.subscribe(busy);
+  startOverlay(bridge);
   const authReturn = (fragment: string) => window.location.assign(`/auth/yandex${fragment}`);
   bridge.onAuthReturn(authReturn);
   void bridge.takeAuthReturn().then(fragment => { if (fragment) authReturn(fragment); }).catch(() => {});

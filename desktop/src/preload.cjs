@@ -14,6 +14,8 @@ contextBridge.exposeInMainWorld('quazarDesktop', {
   installUpdate: () => ipcRenderer.invoke('desktop:update-install'),
   onUpdate: callback => subscribe('desktop:update', callback),
   setSessionBusy: busy => ipcRenderer.send('desktop:busy', busy === true),
+  setOverlay: state => ipcRenderer.send('desktop:overlay', state ?? null),
+  onHotkey: callback => subscribe('desktop:hotkey', callback),
   showNotification: options => ipcRenderer.invoke('desktop:notification', options),
   clearNotifications: () => ipcRenderer.send('desktop:clear-notifications'),
   closeNotification: tag => ipcRenderer.send('desktop:close-notification', tag),

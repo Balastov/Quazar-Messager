@@ -13,6 +13,10 @@ export interface DesktopBridge {
   installUpdate(): Promise<{ ok: boolean; reason?: string }>;
   onUpdate(callback: (state: DesktopUpdate) => void): () => void;
   setSessionBusy(busy: boolean): void;
+  /** Оверлей поверх окон (с 2.11.0): снимок комнаты или null. */
+  setOverlay?(state: import("./overlay").OverlayState | null): void;
+  /** Ctrl+Shift+M / Ctrl+Shift+D нажали в другой программе (с 2.11.0). */
+  onHotkey?(callback: (action: string) => void): () => void;
   showNotification(options: { title: string; body: string; tag: string; silent: boolean; data: DesktopNavigation }): Promise<boolean>;
   clearNotifications(): void;
   closeNotification(tag: string): void;

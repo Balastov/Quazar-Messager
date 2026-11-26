@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, Tray, nativeImage, ipcMain, protocol, session, net, shell, dialog, Notification, desktopCapturer, powerMonitor } = require('electron');
+const { app, BrowserWindow, Menu, Tray, nativeImage, ipcMain, protocol, session, net, shell, dialog, Notification, desktopCapturer, powerMonitor, screen, globalShortcut } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const { pathToFileURL } = require('node:url');
@@ -9,6 +9,7 @@ const { Updates } = require('./updates.cjs');
 const { Startup } = require('./startup.cjs');
 const { waitForMainWindow } = require('./startup-window.cjs');
 const { DesktopLauncher } = require('./launch.cjs');
+const { Overlay } = require('./overlay.cjs');
 
 protocol.registerSchemesAsPrivileged([{ scheme: 'quazar-app', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true } }]);
 app.setName('Quazar');
@@ -20,7 +21,7 @@ if (process.platform === 'win32') app.setAppUserModelId('ru.quazar.messenger');
 let window = null, tray = null, quitting = false, busy = false, updates = null;
 let startupWindow = null, startup = null, starting = true, opening = false;
 let pendingAuth = null, rendererReady = false;
-let launcher = null, pendingLaunch = false;
+let launcher = null, pendingLaunch = false, overlay = null;
 const notifications = new Map();
 const mainSender = event => !!window && !window.isDestroyed() && trustedMainFrame(event, window.webContents);
 const show = () => { const target = starting ? startupWindow : window; if (target && !target.isDestroyed()) { if (target.isMinimized()) target.restore(); target.show(); target.focus(); } };
@@ -82,7 +83,12 @@ else {
     });
     window.webContents.on('will-attach-webview', event => event.preventDefault());
     window.webContents.setWindowOpenHandler(({ url }) => { void openExternal(url); return { action: 'deny' }; });
-    window.webContents.on('render-process-gone', () => { busy = false; });
+    window.webContents.on('render-process-gone', () => { busy = false; overlay?.update(null); });
+    // Оверлей поверх окон: пока я в комнате, а окно Quazar не впереди.
+    overlay = new Overlay({ BrowserWindow, screen, globalShortcut, getMain: () => window, onHotkey: action => send('desktop:hotkey', action) });
+    for (const name of ['focus', 'blur', 'show', 'hide', 'minimize', 'restore']) window.on(name, () => overlay?.refresh());
+    window.webContents.on('did-start-navigation', (_event, _url, inPlace, mainFrame) => { if (mainFrame && !inPlace) overlay?.update(null); });
+    app.on('will-quit', () => overlay?.dispose());
     installCapture({ session: ses, BrowserWindow, desktopCapturer, ipcMain, getWindow: () => window });
 
     const { autoUpdater } = require('electron-updater');
@@ -111,6 +117,7 @@ else {
     ipcMain.handle('desktop:update-install', guarded(() => updates.install()));
     ipcMain.handle('desktop:auth-open', guarded(value => { const url = authUrl(value); if (!url) throw new Error('Invalid auth URL'); return shell.openExternal(url); }));
     ipcMain.handle('desktop:auth-return', guarded(() => { const fragment = pendingAuth; pendingAuth = null; return fragment; }));
+    ipcMain.on('desktop:overlay', (event, value) => { if (mainSender(event)) overlay?.update(value); });
     ipcMain.on('desktop:busy', (event, value) => { if (mainSender(event)) busy = value === true; });
     ipcMain.on('desktop:clear-notifications', event => { if (mainSender(event)) { for (const note of notifications.values()) note.close(); notifications.clear(); } });
     ipcMain.on('desktop:close-notification', (event, tag) => { if (mainSender(event) && typeof tag === 'string') notifications.get(tag)?.close(); });

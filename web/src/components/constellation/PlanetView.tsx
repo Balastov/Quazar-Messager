@@ -14,7 +14,7 @@ import RoomActivities, { type RoomSharer } from "./RoomActivities";
 import ScreenShareDialog from "../ScreenShareDialog";
 import { Soundboard, VoiceKeysSettings } from "./VoicePanels";
 import { keyLabel } from "../../voice/keys";
-import { apiError, can, canStopScreen, MAX_CAMERAS, outranks, passUntil, presenceAvatar, presenceName, ROOM_LABEL, roomDoor, screenLimit } from "./rules";
+import { apiError, can, canStopScreen, HIDDEN_PEOPLE_HINT, MAX_CAMERAS, outranks, passUntil, presenceAvatar, presenceName, ROOM_LABEL, roomDoor, screenLimit, splitHidden } from "./rules";
 import { placeNouns, roomWords } from "./words";
 import RoomTools from "./RoomTools";
 import RoomChat from "./RoomChat";
@@ -81,7 +81,8 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
   const member = (userId: string) => detail.members.find((m) => m.user.id === userId);
   const userName = (userId: string, fallback?: string | null) =>
     displayName(member(userId)?.user) ?? (fallback?.trim() || "Участник");
-  const sortedPresence = [...presence].sort((a, b) =>
+  const hiddenPeople = splitHidden(presence).hidden;
+  const sortedPresence = [...splitHidden(presence).shown].sort((a, b) =>
     compareNames(presenceName(detail, a), presenceName(detail, b))
   );
   const pass = passUntil(detail, channel.id);
@@ -234,7 +235,8 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
               `Пока никого · до ${capacity} человек`
             )}
           </div>
-          {presence.length > 0 && (
+          {hiddenPeople > 0 && <p className={s.hint}>🙈 {HIDDEN_PEOPLE_HINT}.</p>}
+          {sortedPresence.length > 0 && (
             <div className={s.list} style={{ width: "100%" }}>
               {sortedPresence.map((p) => {
                 return (

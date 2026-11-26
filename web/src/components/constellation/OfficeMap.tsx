@@ -20,7 +20,7 @@ import {
   type Rect,
 } from "./office";
 import { ActiveTime, activeSince } from "./ActiveTime";
-import { apiError, can, doorKind, doorLabel, initials, passUntil, presenceName, roomDoor } from "./rules";
+import { apiError, can, doorKind, doorLabel, HIDDEN_PEOPLE_HINT, initials, passUntil, presenceName, roomDoor, splitHidden } from "./rules";
 import s from "./Constellation.module.css";
 import w from "./Work.module.css";
 import { currentBooking, doorSign, hhmm, useBookings } from "./work";
@@ -346,9 +346,10 @@ export default function OfficeMap({ detail, onBack, onOpenPlanet, onAddRoom }: P
         >
           {placed.map((c) => {
             const r = rectFor(c);
-            const inside = [...(detail.voice?.[c.id] ?? [])].sort((a, b) =>
-              compareNames(memberName(a.user_id), memberName(b.user_id))
-            );
+            const inside = detail.voice?.[c.id] ?? [];
+            // Кого мне не показывают («Скрывать, кто в комнате») — только счёт, без кружков.
+            const { shown, hidden } = splitHidden(inside);
+            const faces = [...shown].sort((a, b) => compareNames(memberName(a.user_id), memberName(b.user_id)));
             const capacity = c.capacity ?? 10;
             const mine = iAmIn(c) || inside.some((p) => p.user_id === myId);
             const full = inside.length >= capacity && !mine;
@@ -426,12 +427,17 @@ export default function OfficeMap({ detail, onBack, onOpenPlanet, onAddRoom }: P
                 )}
                 {inside.length > 0 && r.h >= 2 && (
                   <div className={s.roomPeople}>
-                    {inside.slice(0, 6).map((p) => (
+                    {faces.slice(0, 6).map((p) => (
                       <span key={p.user_id} className={s.roomPerson} title={memberName(p.user_id)}>
                         {initials(memberName(p.user_id))}
                       </span>
                     ))}
-                    {inside.length > 6 && <span className={s.roomCount}>+{inside.length - 6}</span>}
+                    {faces.length > 6 && <span className={s.roomCount}>+{faces.length - 6}</span>}
+                    {hidden > 0 && (
+                      <span className={s.roomPerson} title={`${HIDDEN_PEOPLE_HINT}.`} aria-label="Кто внутри — скрыто">
+                        🙈
+                      </span>
+                    )}
                   </div>
                 )}
                 {!editing && (

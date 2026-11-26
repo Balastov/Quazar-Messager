@@ -387,6 +387,8 @@ export interface StarChannel {
   cabinet_owner_id?: string | null;
   /** «Только слушать»: микрофоны на Планете не открываются (показ экрана работает). */
   listen_only?: boolean;
+  /** Рабочая комната со стуком: остальным не показывать, кто внутри (только сколько). */
+  hide_people?: boolean;
   /** Медленный режим Спутника, секунды (0 — выключен). */
   slow_mode_sec?: number;
   /** Временная Планета: исчезнет, когда опустеет. */
@@ -506,6 +508,8 @@ export interface VoicePresence {
   recording_since?: string | null;
   /** Главный в комнате «По приглашениям». */
   is_host?: boolean;
+  /** «Скрывать, кто в комнате»: здесь кто-то есть, но кто — мне не сообщают (user_id — hidden-N). */
+  hidden?: boolean;
   /** Гость по ссылке (без аккаунта): его имя; user_id тогда — guest-…. */
   guest_name?: string | null;
   /** Имя в этой Звезде и фото — для тех, кого нет в моём списке участников. */
@@ -845,6 +849,7 @@ export const starsApi = {
       access?: RoomAccess;
       cabinet_owner_id?: string;
       listen_only?: boolean;
+      hide_people?: boolean;
       announcement?: boolean;
       floor_id?: string;
     }
@@ -859,6 +864,7 @@ export const starsApi = {
       access?: RoomAccess;
       cabinet_owner_id?: string;
       listen_only?: boolean;
+      hide_people?: boolean;
       slow_mode_sec?: number;
       announcement?: boolean;
       floor_id?: string;

@@ -73,6 +73,9 @@ export default function ChannelDialog({
   const [access, setAccess] = useState<RoomAccess>(channel?.access ?? "open");
   const [cabinetOwnerId, setCabinetOwnerId] = useState<string>(channel?.cabinet_owner_id ?? "");
   const [listenOnly, setListenOnly] = useState<boolean>(channel?.listen_only ?? false);
+  const [hidePeople, setHidePeople] = useState<boolean>(channel?.hide_people ?? false);
+  // «Скрывать, кто в комнате» — только в рабочих комнатах со стуком.
+  const canHidePeople = isPlanet && isWork && !isLobby && access !== "open";
   const [slowMode, setSlowMode] = useState<number>(channel?.slow_mode_sec ?? 0);
   const [announcement, setAnnouncement] = useState<boolean>(channel?.announcement ?? false);
   const sortedMembers = [...members].sort((a, b) => compareUsers(a.user, b.user));
@@ -118,6 +121,7 @@ export default function ChannelDialog({
           ...(isLobby || access === "gathering" ? {} : { access }),
           ...(!isLobby && access === "personal" ? { cabinet_owner_id: cabinetOwnerId } : {}),
           listen_only: listenOnly,
+          ...(isWork && !isLobby ? { hide_people: canHidePeople && hidePeople } : {}),
           ...(floorChanged && floorEditable ? { floor_id: floorId } : {}),
         }
       : {};
@@ -193,6 +197,24 @@ export default function ChannelDialog({
                 </option>
               ))}
             </select>
+          </label>
+        )}
+
+        {canHidePeople && (
+          <label className={s.checkRow}>
+            <input
+              type="checkbox"
+              checked={hidePeople}
+              onChange={(e) => setHidePeople(e.target.checked)}
+              disabled={busy}
+            />
+            <span>
+              🙈 Скрывать, кто в комнате
+              <span className={s.checkHint}>
+                Остальные видят только, сколько человек внутри. Всех видят владелец Звезды, админы,
+                модераторы{access === "personal" ? ", хозяин кабинета" : ""} и те, кто сам в комнате.
+              </span>
+            </span>
           </label>
         )}
 

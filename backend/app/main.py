@@ -228,6 +228,10 @@ async def lifespan(app: FastAPI):
                 "NOT NULL DEFAULT false"
             )
         )
+        # «Скрывать, кто в комнате» для комнат со стуком.
+        await conn.execute(
+            text("ALTER TABLE star_channels ADD COLUMN IF NOT EXISTS hide_people BOOLEAN NOT NULL DEFAULT false")
+        )
         await conn.execute(
             text(
                 "ALTER TABLE star_channels ADD COLUMN IF NOT EXISTS cabinet_owner_id VARCHAR(36) "

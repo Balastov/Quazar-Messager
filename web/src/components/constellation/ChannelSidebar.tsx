@@ -7,7 +7,7 @@ import { IconContacts, IconGear, IconPlanet, IconSatellite } from "../icons";
 import { usePresenceStore } from "../../store/presence";
 import { useVoiceStore } from "../../store/voice";
 import { ActiveTime, activeSince } from "./ActiveTime";
-import { apiError, can, GAMING_LIMITS, initials, KIND_LABEL, latestPass, passUntil, presenceName, ROLE_LABEL } from "./rules";
+import { apiError, can, GAMING_LIMITS, HIDDEN_PEOPLE_HINT, initials, KIND_LABEL, latestPass, passUntil, presenceName, ROLE_LABEL, splitHidden } from "./rules";
 import { starsApi } from "../../api/stars";
 import { VoiceBar } from "./VoiceBar";
 import { placeNouns, roomWords } from "./words";
@@ -84,9 +84,9 @@ export default function ChannelSidebar({
     const count = unread[c.id]?.count ?? 0;
     const mentionCount = unread[c.id]?.mentions ?? 0;
     const quiet = channelLevel(notifySettings, detail.id, c.id, Date.now(), kind === "planet") === "none";
-    const inside = kind === "planet" ? [...(detail.voice?.[c.id] ?? [])].sort((a, b) =>
-      compareNames(presenceName(detail, a), presenceName(detail, b))
-    ) : [];
+    const everyone = kind === "planet" ? detail.voice?.[c.id] ?? [] : [];
+    const { shown, hidden } = splitHidden(everyone);
+    const inside = [...shown].sort((a, b) => compareNames(presenceName(detail, a), presenceName(detail, b)));
     const pass = passUntil(detail, c.id);
     const busy = kind === "planet" ? currentBooking(bookings, c.id, now) : null;
     const sign = kind === "planet" ? doorSign(c, now) : null;
@@ -138,9 +138,9 @@ export default function ChannelSidebar({
           </span>
           {kind === "planet" && (
             <span className={s.channelHint}>
-              {inside.length ? (
+              {everyone.length ? (
                 <>
-                  <ActiveTime since={activeSince(detail, c.id)} /> {inside.length}/{c.capacity}
+                  <ActiveTime since={activeSince(detail, c.id)} /> {everyone.length}/{c.capacity}
                 </>
               ) : (
                 `до ${c.capacity}`
@@ -149,7 +149,7 @@ export default function ChannelSidebar({
           )}
           <UnreadBadge count={count} mentions={mentionCount} quiet={quiet} />
         </button>
-        {inside.length > 0 && (
+        {everyone.length > 0 && (
           <div className={s.presence}>
             {inside.map((p) => {
               const name = presenceName(detail, p);
@@ -172,6 +172,14 @@ export default function ChannelSidebar({
                 </div>
               );
             })}
+            {hidden > 0 && (
+              <div className={s.presenceRow} title={HIDDEN_PEOPLE_HINT}>
+                <span className={s.presenceDot} aria-hidden>🙈</span>
+                <span className={s.presenceName}>
+                  {inside.length ? `и ещё ${hidden} — скрыто` : "Кто внутри — скрыто"}
+                </span>
+              </div>
+            )}
           </div>
         )}
       </div>

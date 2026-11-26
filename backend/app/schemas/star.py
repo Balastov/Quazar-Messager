@@ -79,6 +79,8 @@ class CreateChannel(_Named):
     cabinet_owner_id: str | None = None
     # «Только слушать»: без микрофонов.
     listen_only: bool = False
+    # Комната со стуком в рабочей Звезде: не показывать остальным, кто внутри.
+    hide_people: bool = False
     # Спутник-объявления: пишут только владелец и админы.
     announcement: bool = False
     # Этаж для комнаты в Звезде «Работа»; по умолчанию — первый.
@@ -92,6 +94,7 @@ class UpdateChannel(_Named):
     access: Access | None = None
     cabinet_owner_id: str | None = None
     listen_only: bool | None = None
+    hide_people: bool | None = None
     # Медленный режим Спутника: 0, 10, 30, 60 или 300 секунд.
     slow_mode_sec: int | None = None
     announcement: bool | None = None
@@ -263,6 +266,7 @@ class StarChannelOut(BaseModel):
     access: str = "open"
     cabinet_owner_id: str | None = None
     listen_only: bool = False
+    hide_people: bool = False
     slow_mode_sec: int = 0
     temporary: bool = False
     created_by: str | None = None
@@ -339,6 +343,8 @@ class VoiceParticipantOut(BaseModel):
     # Имя в этой Звезде и фото: участники найдут посетителя только так, а посетитель — участников.
     name: str | None = None
     avatar_url: str | None = None
+    # «Скрывать, кто в комнате»: здесь кто-то есть, но кто — не сообщаем (user_id — «hidden-N»).
+    hidden: bool = False
 
 
 class StarDetailOut(StarSummaryOut):

@@ -470,7 +470,12 @@ async def _detail(db: AsyncSession, star: Star, me: StarMember) -> StarDetailOut
         role_permissions=rules.normalize_role_permissions(star.role_permissions),
         channels=channels,
         members=members,
-        voice={k: v for k, v in voice.star_presence(star.id).items() if k not in concealed},
+        # «Скрывать, кто в комнате»: мне — только сколько там человек, если я не из тех, кто видит всех.
+        voice={
+            k: voice.presence_for(by_id[k], star.kind, me.role, me.user_id) if k in by_id else v
+            for k, v in voice.star_presence(star.id).items()
+            if k not in concealed
+        },
         voice_since={k: v for k, v in voice.star_active_since(star.id).items() if k not in concealed},
         floors=[StarFloorOut.model_validate(f) for f in floors],
         rules_text=None if visitor else star.rules_text,
@@ -1201,6 +1206,7 @@ async def create_channel(star_id: str, body: CreateChannel, current_user: Curren
         channel.access = body.access
         channel.cabinet_owner_id = await _cabinet_owner(db, star, body.access, body.cabinet_owner_id)
         channel.listen_only = body.listen_only
+        channel.hide_people = body.hide_people and star.kind == "work"
     db.add(channel)
 
     floor = None
@@ -1231,6 +1237,8 @@ async def update_channel(
     star, me = await _require_perm(db, star_id, current_user, Perm.MANAGE_CHANNELS)
     channel = await _channel(db, star_id, channel_id)
     await assert_room_access(db, star, me, channel)
+    # Кому видно, кто в комнате, зависит и от настройки, и от двери — если поменялось, пересчитываем у всех.
+    before_hidden = voice.hides_people(channel, star.kind)
     if body.name is not None:
         channel.name = body.name
     if channel.kind == "planet":
@@ -1243,6 +1251,9 @@ async def update_channel(
             owner_id = body.cabinet_owner_id or channel.cabinet_owner_id
             channel.cabinet_owner_id = await _cabinet_owner(db, star, access, owner_id)
             channel.access = access
+    if channel.kind == "planet" and star.kind == "work" and body.hide_people is not None:
+        channel.hide_people = body.hide_people
+    privacy_changed = voice.hides_people(channel, star.kind) != before_hidden
     listen_only_changed = (
         channel.kind == "planet"
         and body.listen_only is not None
@@ -1279,6 +1290,8 @@ async def update_channel(
     if listen_only_changed:
         # Кто уже внутри — сразу забираем (или возвращаем) право на микрофон.
         await voice.set_listen_only(star_id, channel_id, channel.listen_only)
+    if privacy_changed and voice.participants(channel_id):
+        await voice.broadcast(star_id, channel_id)
     if moved:
         await _broadcast(db, star_id, floors_event(await floors_svc.list_floors(db, star_id)))
         await enforce_floor_access(db, star)

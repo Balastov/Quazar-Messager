@@ -27,8 +27,9 @@ from datetime import datetime, timezone
 from sqlalchemy import select
 
 from app.core import doors, floors, livekit
+from app.core import stars as roles
 from app.core.database import AsyncSessionLocal
-from app.models.star import StarChannel, StarMember
+from app.models.star import Star, StarChannel, StarMember
 from app.ws.hub import manager
 
 logger = logging.getLogger(__name__)
@@ -177,6 +178,52 @@ def star_presence(star_id: str) -> dict[str, list[dict]]:
     }
 
 
+# «Скрывать, кто в комнате»: тем, кому людей не показываем, вместо них — обезличенные места.
+HIDDEN_PREFIX = "hidden-"
+_CLOSED_DOORS = ("invite", "personal", "gathering")
+
+
+def hides_people(channel: StarChannel, star_kind: str) -> bool:
+    """Настройка действует только в рабочих комнатах со стуком (не в зале ожидания)."""
+    return (
+        bool(channel.hide_people)
+        and star_kind == "work"
+        and channel.kind == "planet"
+        and channel.room_kind != "lobby"
+        and channel.access in _CLOSED_DOORS
+    )
+
+
+def sees_people(channel: StarChannel, role: str | None, user_id: str) -> bool:
+    """Кто видит людей в скрытой комнате: владелец, админы, модераторы, хозяин кабинета и те, кто внутри."""
+    planet = _planets.get(channel.id)
+    return (
+        roles.is_staff(role or "")
+        or user_id == channel.cabinet_owner_id
+        or bool(planet and user_id in planet.participants)
+    )
+
+
+def masked_presence(channel_id: str) -> list[dict]:
+    """Сколько человек в комнате — без имён, фото, ролей и того, кто что делает."""
+    since = active_since(channel_id) or datetime.now(timezone.utc)
+    return [
+        {
+            "user_id": f"{HIDDEN_PREFIX}{n}", "joined_at": since.isoformat(), "server_muted": False,
+            "screen_sharing": False, "camera": False, "camera_blocked": False, "recording": False,
+            "recording_since": None, "guest_name": None, "name": None, "avatar_url": None,
+            "visitor": False, "is_host": False, "hidden": True,
+        }
+        for n in range(1, len(participants(channel_id)) + 1)
+    ]
+
+
+def presence_for(channel: StarChannel, star_kind: str, role: str | None, user_id: str) -> list[dict]:
+    if hides_people(channel, star_kind) and not sees_people(channel, role, user_id):
+        return masked_presence(channel.id)
+    return presence(channel.id)
+
+
 def active_since(channel_id: str) -> datetime | None:
     planet = _planets.get(channel_id)
     return planet.active_since if planet else None
@@ -201,27 +248,35 @@ def channels_with_user(star_id: str, user_id: str) -> list[str]:
 
 async def broadcast(star_id: str, channel_id: str) -> None:
     async with session_factory() as db:
-        member_ids = [
-            row[0]
-            for row in (
-                await db.execute(select(StarMember.user_id).where(StarMember.star_id == star_id))
-            ).all()
-        ]
+        member_roles: dict[str, str] = dict(
+            (await db.execute(select(StarMember.user_id, StarMember.role).where(StarMember.star_id == star_id))).all()
+        )
+        member_ids = list(member_roles)
         # Кто сидит в комнате закрытого этажа, видят только те, у кого к нему есть доступ
         # (и посетители по гостевой ссылке в эту комнату).
         audience = await floors.room_audience(db, channel_id)
         if audience is not None:
             member_ids = list(audience)
-    await manager.broadcast_to_users(
-        member_ids,
-        {
+        channel = await db.get(StarChannel, channel_id)
+        star = await db.get(Star, star_id)
+
+    def event(people: list[dict]) -> dict:
+        return {
             "type": "star_voice",
             "star_id": star_id,
             "channel_id": channel_id,
-            "participants": presence(channel_id),
+            "participants": people,
             "active_since": since.isoformat() if (since := active_since(channel_id)) else None,
-        },
-    )
+        }
+
+    if channel and star and hides_people(channel, star.kind):
+        seeing = [uid for uid in member_ids if sees_people(channel, member_roles.get(uid), uid)]
+        others = [uid for uid in member_ids if uid not in set(seeing)]
+        await manager.broadcast_to_users(seeing, event(presence(channel_id)))
+        if others:
+            await manager.broadcast_to_users(others, event(masked_presence(channel_id)))
+        return
+    await manager.broadcast_to_users(member_ids, event(presence(channel_id)))
 
 
 def _metadata(raw) -> dict:

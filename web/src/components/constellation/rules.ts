@@ -123,6 +123,15 @@ export interface RoomDoor {
   canAnswer: boolean;
 }
 
+/** «Скрывать, кто в комнате»: людей, которых мне не показывают, сервер присылает обезличенными местами. */
+export function splitHidden(presence: VoicePresence[]): { shown: VoicePresence[]; hidden: number } {
+  const shown = presence.filter((p) => !p.hidden);
+  return { shown, hidden: presence.length - shown.length };
+}
+
+/** Подпись вместо скрытых людей: «Кто внутри — скрыто». */
+export const HIDDEN_PEOPLE_HINT = "Кто внутри, видят только те, кто в комнате, а также владелец, админы и модераторы";
+
 /** Правила двери комнаты для меня. Повторяют backend/app/api/doors.py. */
 export function roomDoor(detail: StarDetail, channel: StarChannel, myId: string | undefined): RoomDoor {
   const door = baseDoor(detail, channel, myId);

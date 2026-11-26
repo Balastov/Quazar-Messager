@@ -126,6 +126,9 @@ class StarChannel(Base):
     cabinet_owner_id: Mapped[str | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
+    # «Скрывать, кто в комнате» (рабочие комнаты со стуком): остальные видят только, сколько человек
+    # внутри. Всех видят владелец, админы, модераторы, хозяин кабинета и те, кто сам в комнате.
+    hide_people: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     # «Только слушать»: микрофоны на Планете не открываются вообще (сервер их и не пропустит).
     # Показ экрана остаётся.
     listen_only: Mapped[bool] = mapped_column(

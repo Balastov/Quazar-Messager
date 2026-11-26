@@ -232,6 +232,7 @@ interface StarsState {
     access?: RoomAccess;
     cabinet_owner_id?: string;
     listen_only?: boolean;
+    hide_people?: boolean;
     announcement?: boolean;
     floor_id?: string;
   }) => Promise<void>;
@@ -244,6 +245,7 @@ interface StarsState {
       access?: RoomAccess;
       cabinet_owner_id?: string;
       listen_only?: boolean;
+      hide_people?: boolean;
       slow_mode_sec?: number;
       announcement?: boolean;
       floor_id?: string;

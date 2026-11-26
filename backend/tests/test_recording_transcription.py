@@ -9,7 +9,7 @@ from unittest import mock
 
 import httpx
 from fastapi import FastAPI, HTTPException
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from app.api import recording_transcription as api
 from app.core import recording_transcription as service, recordings, star_files, transcription
@@ -19,6 +19,7 @@ from app.core.deps import get_current_user
 from app.models.recording import RoomRecording
 from app.models.star import StarChannel, StarFile, StarMessage
 from app.models.transcription import RecordingTranscript, TranscriptionUsage
+from app.models.user import User
 from tests.stars_base import StarsTestBase
 
 
@@ -61,7 +62,7 @@ class RecordingTranscriptionTest(StarsTestBase):
         await super().asyncSetUp()
         self.tmp = tempfile.TemporaryDirectory(); self.addCleanup(self.tmp.cleanup)
         patcher = mock.patch.multiple(settings, MEDIA_ROOT=self.tmp.name, CLOUDFLARE_ACCOUNT_ID="a" * 32,
-            CLOUDFLARE_API_TOKEN="private-secret", TRANSCRIPTION_USER_MINUTES_PER_DAY=30,
+            CLOUDFLARE_API_TOKEN="private-secret", TRANSCRIPTION_USER_MINUTES_PER_DAY=100,
             TRANSCRIPTION_TOTAL_MINUTES_PER_DAY=180)
         patcher.start(); self.addCleanup(patcher.stop)
         self.star = await self.star_with_roles("work")
@@ -179,3 +180,34 @@ class RecordingTranscriptionTest(StarsTestBase):
         self.assertEqual((saved["status"], saved["processed_seconds"]), ("failed", 300))
         self.assertIn("Первая часть", saved["text"])
         self.assertFalse(await service.run_next(self.Session))
+
+    async def test_superuser_meeting_bypasses_early_and_per_chunk_budget_checks(self):
+        async with self.Session() as db:
+            await db.execute(update(User).where(User.id == self.users["alice"].id).values(is_superuser=True))
+            await db.commit()
+        await self.start()
+        with mock.patch.multiple(settings, TRANSCRIPTION_USER_MINUTES_PER_DAY=0,
+                                 TRANSCRIPTION_TOTAL_MINUTES_PER_DAY=0):
+            await service.run_next(self.Session)
+        saved = (await self.client.get(self.url)).json()
+        self.assertEqual((saved["status"], saved["processed_seconds"]), ("ready", 601))
+        self.assertEqual(self.provider.await_count, 3)
+
+    async def test_revoked_superuser_role_is_checked_before_next_paid_chunk(self):
+        async with self.Session() as db:
+            await db.execute(update(User).where(User.id == self.users["alice"].id).values(is_superuser=True))
+            await db.commit()
+        async def revoke_after_first_chunk(_data):
+            async with self.Session() as db:
+                await db.execute(update(User).where(User.id == self.users["alice"].id).values(is_superuser=False))
+                await db.commit()
+            return "Первая часть"
+        self.provider.side_effect = revoke_after_first_chunk
+        await self.start()
+        with mock.patch.multiple(settings, TRANSCRIPTION_USER_MINUTES_PER_DAY=0,
+                                 TRANSCRIPTION_TOTAL_MINUTES_PER_DAY=0):
+            await service.run_next(self.Session)
+        saved = (await self.client.get(self.url)).json()
+        self.assertEqual((saved["status"], saved["processed_seconds"]), ("failed", 300))
+        self.assertIn("Первая часть", saved["text"])
+        self.provider.assert_awaited_once()

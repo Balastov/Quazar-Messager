@@ -115,6 +115,8 @@ async def process(factory: async_sessionmaker, recording_id: str) -> None:
                 ("total", settings.TRANSCRIPTION_TOTAL_MINUTES_PER_DAY, 1000),
                 (f"user:{user.id}", settings.TRANSCRIPTION_USER_MINUTES_PER_DAY, 100),
             ):
+                if user.is_superuser:
+                    break
                 usage = await db.get(TranscriptionUsage, (datetime.now(timezone.utc).date(), bucket))
                 if minutes <= 0 or (usage and (usage.seconds >= minutes * 60 or usage.requests >= max_requests)):
                     raise HTTPException(429, "Дневной лимит расшифровки исчерпан")

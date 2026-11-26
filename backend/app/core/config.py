@@ -41,7 +41,7 @@ class Settings(BaseSettings):
     CLOUDFLARE_ACCOUNT_ID: str = ""
     CLOUDFLARE_API_TOKEN: str = ""
     CLOUDFLARE_ASR_MODEL: str = "@cf/openai/whisper-large-v3-turbo"
-    TRANSCRIPTION_USER_MINUTES_PER_DAY: int = 30
+    TRANSCRIPTION_USER_MINUTES_PER_DAY: int = 100
     TRANSCRIPTION_TOTAL_MINUTES_PER_DAY: int = 180
 
     # WebRTC ICE — comma-separated URLs. TURN strongly recommended for production mobile.

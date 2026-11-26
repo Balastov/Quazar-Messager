@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.models.transcription import TranscriptionUsage
+from app.models.user import User
 
 MAX_BYTES = 5 * 1024 * 1024
 MAX_SECONDS = 600
@@ -60,12 +61,15 @@ def prepare_audio(data: bytes) -> tuple[bytes, int]:
 
 async def reserve_usage(db: AsyncSession, user_id: str, seconds: int) -> None:
     """Оба лимита резервируются атомарно и переживают перезапуск/несколько workers."""
+    # Роль берём из БД: привилегию нельзя передать через клиент или сохранить в задании очереди.
+    user = await db.get(User, user_id)
+    unlimited = bool(user and user.is_superuser)
     day = datetime.now(timezone.utc).date()
     for bucket, minutes, max_requests in (
         ("total", settings.TRANSCRIPTION_TOTAL_MINUTES_PER_DAY, 1000),
         (f"user:{user_id}", settings.TRANSCRIPTION_USER_MINUTES_PER_DAY, 100),
     ):
-        if minutes <= 0 or seconds > minutes * 60:
+        if not unlimited and (minutes <= 0 or seconds > minutes * 60):
             await db.rollback()
             raise HTTPException(429, "Дневной лимит расшифровки исчерпан")
         stmt = insert(TranscriptionUsage).values(day=day, bucket=bucket, seconds=seconds, requests=1)
@@ -73,8 +77,10 @@ async def reserve_usage(db: AsyncSession, user_id: str, seconds: int) -> None:
             index_elements=[TranscriptionUsage.day, TranscriptionUsage.bucket],
             set_={"seconds": TranscriptionUsage.seconds + seconds,
                   "requests": TranscriptionUsage.requests + 1},
-            where=(TranscriptionUsage.seconds + seconds <= minutes * 60)
-            & (TranscriptionUsage.requests < max_requests),
+            where=None if unlimited else (
+                (TranscriptionUsage.seconds + seconds <= minutes * 60)
+                & (TranscriptionUsage.requests < max_requests)
+            ),
         ).returning(TranscriptionUsage.seconds)
         if (await db.execute(stmt)).scalar_one_or_none() is None:
             await db.rollback()

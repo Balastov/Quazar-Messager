@@ -10,7 +10,7 @@ from unittest import mock
 
 import httpx
 from fastapi import FastAPI, HTTPException
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from app.api import transcription as api
 from app.core import transcription as asr
@@ -21,6 +21,7 @@ from app.models.attachment import Attachment
 from app.models.chat import Chat, ChatMember
 from app.models.message import Message
 from app.models.transcription import TranscriptionUsage
+from app.models.user import User
 from tests.stars_base import StarsTestBase
 
 
@@ -166,3 +167,36 @@ class TranscriptionTest(StarsTestBase):
         attachment_path(self.attachment.id).unlink()
         self.assertEqual((await self.post()).status_code, 404)
         self.provider.assert_not_awaited()
+
+    async def test_regular_user_has_exactly_100_minutes_and_failed_reservation_is_atomic(self):
+        with mock.patch.multiple(settings, TRANSCRIPTION_USER_MINUTES_PER_DAY=100,
+                                 TRANSCRIPTION_TOTAL_MINUTES_PER_DAY=180):
+            async with self.Session() as db:
+                await asr.reserve_usage(db, self.users["alice"].id, 6000)
+            async with self.Session() as db:
+                with self.assertRaises(HTTPException) as raised:
+                    await asr.reserve_usage(db, self.users["alice"].id, 1)
+                self.assertEqual(raised.exception.status_code, 429)
+            async with self.Session() as db:
+                rows = (await db.execute(select(TranscriptionUsage))).scalars().all()
+                self.assertEqual(sorted(row.seconds for row in rows), [6000, 6000])
+
+    async def test_superuser_bypasses_personal_total_and_request_limits_but_usage_is_counted(self):
+        day = datetime.now(timezone.utc).date()
+        async with self.Session() as db:
+            await db.execute(update(User).where(User.id == self.users["alice"].id).values(is_superuser=True))
+            for bucket in ("total", f"user:{self.users['alice'].id}"):
+                db.add(TranscriptionUsage(day=day, bucket=bucket, seconds=10800, requests=1000))
+            await db.commit()
+        # В объекте из HTTP dependency по-прежнему старая роль: reserve_usage берёт её из БД.
+        with mock.patch.multiple(settings, TRANSCRIPTION_USER_MINUTES_PER_DAY=0,
+                                 TRANSCRIPTION_TOTAL_MINUTES_PER_DAY=0):
+            for _ in range(2):
+                response = await self.post()
+                self.assertEqual(response.status_code, 200, response.text)
+        async with self.Session() as db:
+            rows = (await db.execute(select(TranscriptionUsage))).scalars().all()
+            self.assertEqual([(row.seconds, row.requests) for row in rows], [(10880, 1002), (10880, 1002)])
+            await db.execute(update(User).where(User.id == self.users["alice"].id).values(is_superuser=False))
+            await db.commit()
+        self.assertEqual((await self.post()).status_code, 429)

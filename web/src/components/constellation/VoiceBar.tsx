@@ -34,6 +34,7 @@ export function VoiceBar({ floating = false }: { floating?: boolean }) {
   const recorder = status === "connected" ? detail?.voice?.[channelId]?.find((p) => p.recording) : undefined;
   const recorderName = recorder && detail ? (recorder.user_id === myId ? "вы" : presenceName(detail, recorder)) : "";
   const words = roomWords(detail?.kind, planet?.name ?? "");
+  const roomName = planet?.name ?? placeNouns(detail?.kind).one;
 
   const open = () => {
     useUiStore.getState().setTab("stars");
@@ -44,14 +45,16 @@ export function VoiceBar({ floating = false }: { floating?: boolean }) {
 
   return (
     <div className={floating ? `${s.voiceBar} ${s.voiceBarFloating}` : s.voiceBar}>
-      <IconPlanet />
-      <button type="button" className={s.voiceBarInfo} onClick={open}>
-        <span className={s.voiceBarTitle}>
-          {status === "connected" ? words.here : words.entering}
-        </span>
-        <span className={s.voiceBarSub}>
-          {planet?.name ?? placeNouns(detail?.kind).one}
-          {detail ? ` · ${detail.name}` : ""}
+      <IconPlanet className={s.voiceBarIcon} />
+      {/* Зелёным — только название комнаты; Звезда и «подключаемся» — в подсказке. */}
+      <button
+        type="button"
+        className={s.voiceBarInfo}
+        onClick={open}
+        title={`${status === "connected" ? words.here : words.entering}: ${roomName}${detail ? ` · ${detail.name}` : ""}`}
+      >
+        <span className={status === "connected" ? s.voiceBarTitle : `${s.voiceBarTitle} ${s.voiceBarConnecting}`}>
+          {roomName}
         </span>
       </button>
       {/* Кнопки — одной группой: в узкой плашке уходят строкой ниже, не сжимая название. */}

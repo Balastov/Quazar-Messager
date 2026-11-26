@@ -120,6 +120,16 @@ describe("окно «Ведётся запись разговора»", () => {
 });
 
 describe("плашка «Вы в Комнате»", () => {
+  it("зелёным — только название комнаты, без «Вы в Комнате» и Звезды", () => {
+    inRoom("room", { room: [] });
+    render(createElement(VoiceBar, {}));
+    const info = host.querySelector("button[title]")!;
+    expect(info.textContent).toBe("Переговорная");
+    expect(host.textContent).not.toContain("Вы в Комнате");
+    expect(host.textContent).not.toContain("Офис");
+    expect(info.getAttribute("title")).toBe("Вы в Комнате: Переговорная · Офис");
+  });
+
   it("показывает, кто записывает и сколько идёт запись", () => {
     const since = new Date(Date.now() - 65_000).toISOString();
     inRoom("room", { room: [recorder("bob", since)] });

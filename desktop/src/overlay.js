@@ -29,6 +29,10 @@ function renderRecording() {
 setInterval(renderRecording, 1000);
 function render(state) {
   current = state;
+  // Размер — масштабом всей панели (окно main-процесс уже подогнал), фон — своей непрозрачностью.
+  const panel = document.getElementById('panel');
+  panel.style.zoom = String(state.scale);
+  panel.style.setProperty('--bg', String(state.opacity / 100));
   renderRecording();
   const room = document.getElementById('room');
   room.textContent = state.reconnecting ? 'Переподключение…' : state.room || 'Комната';

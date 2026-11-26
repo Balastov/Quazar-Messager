@@ -101,9 +101,39 @@ const CORNERS: { value: OverlayCorner; label: string }[] = [
   { value: "bottom-right", label: "Справа снизу" },
 ];
 
+const SIZES: { value: number; label: string }[] = [
+  { value: 0.75, label: "Маленький" },
+  { value: 1, label: "Обычный" },
+  { value: 1.25, label: "Крупный" },
+  { value: 1.5, label: "Очень крупный" },
+];
+
+const KEY_NAMES: Record<string, string> = { mic: "Ctrl+Shift+M", deafen: "Ctrl+Shift+D" };
+
+type Display = { id: number; name: string; primary: boolean };
+
+/** Мониторы от десктопа; перечитываем, когда окно Quazar снова в фокусе (могли подключить второй). */
+function useDisplays(): Display[] {
+  const [displays, setDisplays] = useState<Display[]>([]);
+  useEffect(() => {
+    const bridge = desktop();
+    if (!bridge?.listDisplays) return;
+    let alive = true;
+    const load = () => void bridge.listDisplays!().then((next) => { if (alive && Array.isArray(next)) setDisplays(next); }, () => {});
+    load();
+    window.addEventListener("focus", load);
+    return () => { alive = false; window.removeEventListener("focus", load); };
+  }, []);
+  return displays;
+}
+
 /** Десктоп: оверлей поверх окон и клавиши в других программах. */
 function OverlaySettings() {
-  const { enabled, globalKeys, corner, setPrefs } = useOverlayPrefs();
+  const { enabled, globalKeys, corner, onlySpeaking, scale, opacity, display, keysTaken, setPrefs } = useOverlayPrefs();
+  const displays = useDisplays();
+  // Выбранный монитор отключили — оверлей на основном, так и показываем.
+  const shownDisplay = displays.some((d) => d.id === display) ? String(display) : "";
+  const taken = keysTaken.map((k) => KEY_NAMES[k]).filter(Boolean);
   return (
     <>
       <label className={g.check}>
@@ -111,18 +141,53 @@ function OverlaySettings() {
         Оверлей поверх окон: кто в комнате и кто говорит
       </label>
       {enabled && (
-        <div className={s.row}>
-          <span className={s.hint}>Где:</span>
-          <select className={s.select} value={corner} aria-label="Где показывать оверлей"
-            onChange={(e) => setPrefs({ corner: e.target.value as OverlayCorner })}>
-            {CORNERS.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
-          </select>
-        </div>
+        <>
+          <label className={g.check}>
+            <input type="checkbox" checked={onlySpeaking} onChange={(e) => setPrefs({ onlySpeaking: e.target.checked })} />
+            Только те, кто говорит
+          </label>
+          {onlySpeaking && (
+            <p className={s.hint}>Строка гаснет через 2 секунды после того, как человек замолчал. Вас видно и тогда, когда у вас выключен микрофон или звук.</p>
+          )}
+          <div className={s.row}>
+            <span className={s.hint}>Где:</span>
+            <select className={s.select} value={corner} aria-label="Где показывать оверлей"
+              onChange={(e) => setPrefs({ corner: e.target.value as OverlayCorner })}>
+              {CORNERS.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
+            </select>
+            {displays.length > 1 && (
+              <select className={s.select} value={shownDisplay} aria-label="На каком мониторе"
+                onChange={(e) => setPrefs({ display: e.target.value ? Number(e.target.value) : null })}>
+                <option value="">Основной монитор</option>
+                {displays.filter((d) => !d.primary).map((d) => <option key={d.id} value={String(d.id)}>{d.name}</option>)}
+              </select>
+            )}
+          </div>
+          <div className={s.row}>
+            <span className={s.hint}>Размер:</span>
+            <select className={s.select} value={String(scale)} aria-label="Размер оверлея"
+              onChange={(e) => setPrefs({ scale: Number(e.target.value) })}>
+              {SIZES.map((size) => <option key={size.value} value={String(size.value)}>{size.label}</option>)}
+            </select>
+            <label className={s.hint}>
+              Фон: {opacity}%{" "}
+              <input type="range" min={20} max={100} step={1} value={opacity} aria-label="Непрозрачность фона оверлея"
+                onChange={(e) => setPrefs({ opacity: Number(e.target.value) })} />
+            </label>
+          </div>
+        </>
       )}
       <label className={g.check}>
         <input type="checkbox" checked={globalKeys} onChange={(e) => setPrefs({ globalKeys: e.target.checked })} />
         Клавиши работают и в других программах
       </label>
+      {globalKeys && taken.length > 0 && (
+        <p className={`${s.hint} ${s.warn}`} role="status">
+          {taken.join(" и ")} {taken.length > 1 ? "заняты" : "занята"} другой программой: в других программах{" "}
+          {taken.length > 1 ? "они не сработают" : "она не сработает"}. В окне Quazar — работает. Закройте ту программу или
+          смените в ней сочетание — Quazar попробует снова, когда вы в следующий раз переключитесь на другое окно.
+        </p>
+      )}
       <p className={s.hint}>
         Ctrl+Shift+M — микрофон, Ctrl+Shift+D — выключить звук собеседников. Оверлей появляется, когда
         окно Quazar не впереди; его видно поверх программ и игр в оконном режиме, но не в полноэкранном

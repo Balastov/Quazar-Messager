@@ -115,19 +115,27 @@ app.whenReady().then(async () => {
   // Оверлей: окно ровно по панели в каждом состоянии, ушедшая строка «Запись» не остаётся на экране.
   const overlay = new Overlay({ BrowserWindow, screen, globalShortcut, getMain: () => null, onHotkey: () => {} });
   const base = { globalKeys: false, room: 'Комната', peers: [{ name: 'Анна', micOn: true, isLocal: true }, { name: 'Боб', speaking: true, micOn: false }] };
-  for (const variant of [{ ...base, recording: { by: 'Боб', since: new Date().toISOString() } }, base, { ...base, more: 4 }, { ...base, reconnecting: true }]) {
+  const since = new Date().toISOString();
+  for (const variant of [{ ...base, recording: { by: 'Боб', since } }, base, { ...base, more: 4 }, { ...base, reconnecting: true },
+    { ...base, scale: 1.5, opacity: 40 }, { ...base, scale: 0.75, more: 2, recording: { by: 'Боб', since } }, { ...base, scale: 1.25 }]) {
     overlay.update(variant);
     let drawn = null;
     for (let i = 0; i < 60; i++) {
       await new Promise(resolve => setTimeout(resolve, 50));
       if (!overlay.loaded) continue;
-      drawn = await overlay.window.webContents.executeJavaScript(`({ height: Math.round(document.getElementById('panel').getBoundingClientRect().height),
-        rec: document.getElementById('rec').getClientRects().length > 0, text: document.getElementById('panel').textContent })`);
-      if (drawn.height === overlay.window.getBounds().height && drawn.rec === !!variant.recording) break;
+      // Панель на экране — во весь размер окна: ничего не обрезано и нет пустой полосы.
+      drawn = await overlay.window.webContents.executeJavaScript(`(() => { const panel = document.getElementById('panel'); const r = panel.getBoundingClientRect();
+        return { height: r.height, width: r.width, inner: innerHeight, innerWidth, scroll: document.documentElement.scrollHeight,
+          rec: document.getElementById('rec').getClientRects().length > 0, bg: getComputedStyle(panel).backgroundColor }; })()`);
+      if (Math.abs(drawn.height - drawn.inner) <= 1 && drawn.inner === overlay.window.getBounds().height && drawn.rec === !!variant.recording) break;
     }
     assert.ok(drawn, 'overlay page did not load');
-    assert.equal(drawn.height, overlay.window.getBounds().height, JSON.stringify({ variant, drawn }));
-    assert.equal(drawn.rec, !!variant.recording, JSON.stringify({ variant, drawn }));
+    const info = JSON.stringify({ variant, drawn });
+    assert.equal(drawn.inner, overlay.window.getBounds().height, info);
+    assert.ok(Math.abs(drawn.height - drawn.inner) <= 1 && drawn.scroll <= drawn.inner, info);
+    assert.ok(Math.abs(drawn.width - drawn.innerWidth) <= 1, info);
+    assert.equal(drawn.rec, !!variant.recording, info);
+    assert.ok(drawn.bg.includes(variant.opacity ? `${variant.opacity / 100})` : '0.78)'), info);
   }
   assert.equal(overlay.window.isVisible(), true);
   overlay.update(null);

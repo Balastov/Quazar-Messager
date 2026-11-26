@@ -17,6 +17,10 @@ export interface DesktopBridge {
   setOverlay?(state: import("./overlay").OverlayState | null): void;
   /** Ctrl+Shift+M / Ctrl+Shift+D нажали в другой программе (с 2.11.0). */
   onHotkey?(callback: (action: string) => void): () => void;
+  /** Мониторы для оверлея (с 2.12.0). */
+  listDisplays?(): Promise<{ id: number; name: string; primary: boolean }[]>;
+  /** Какие из Ctrl+Shift+M / Ctrl+Shift+D заняты другой программой (с 2.12.0). */
+  onOverlayKeys?(callback: (taken: string[]) => void): () => void;
   showNotification(options: { title: string; body: string; tag: string; silent: boolean; data: DesktopNavigation }): Promise<boolean>;
   clearNotifications(): void;
   closeNotification(tag: string): void;

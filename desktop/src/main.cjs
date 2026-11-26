@@ -9,7 +9,7 @@ const { Updates } = require('./updates.cjs');
 const { Startup } = require('./startup.cjs');
 const { waitForMainWindow } = require('./startup-window.cjs');
 const { DesktopLauncher } = require('./launch.cjs');
-const { Overlay } = require('./overlay.cjs');
+const { Overlay, displayList } = require('./overlay.cjs');
 
 protocol.registerSchemesAsPrivileged([{ scheme: 'quazar-app', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true } }]);
 app.setName('Quazar');
@@ -85,7 +85,8 @@ else {
     window.webContents.setWindowOpenHandler(({ url }) => { void openExternal(url); return { action: 'deny' }; });
     window.webContents.on('render-process-gone', () => { busy = false; overlay?.update(null); });
     // Оверлей поверх окон: пока я в комнате, а окно Quazar не впереди.
-    overlay = new Overlay({ BrowserWindow, screen, globalShortcut, getMain: () => window, onHotkey: action => send('desktop:hotkey', action) });
+    overlay = new Overlay({ BrowserWindow, screen, globalShortcut, getMain: () => window, onHotkey: action => send('desktop:hotkey', action),
+      onKeys: taken => send('desktop:overlay-keys', taken) });
     for (const name of ['focus', 'blur', 'show', 'hide', 'minimize', 'restore']) window.on(name, () => overlay?.refresh());
     window.webContents.on('did-start-navigation', (_event, _url, inPlace, mainFrame) => { if (mainFrame && !inPlace) overlay?.update(null); });
     app.on('will-quit', () => overlay?.dispose());
@@ -118,6 +119,7 @@ else {
     ipcMain.handle('desktop:auth-open', guarded(value => { const url = authUrl(value); if (!url) throw new Error('Invalid auth URL'); return shell.openExternal(url); }));
     ipcMain.handle('desktop:auth-return', guarded(() => { const fragment = pendingAuth; pendingAuth = null; return fragment; }));
     ipcMain.on('desktop:overlay', (event, value) => { if (mainSender(event)) overlay?.update(value); });
+    ipcMain.handle('desktop:displays', guarded(() => displayList(screen)));
     ipcMain.on('desktop:busy', (event, value) => { if (mainSender(event)) busy = value === true; });
     ipcMain.on('desktop:clear-notifications', event => { if (mainSender(event)) { for (const note of notifications.values()) note.close(); notifications.clear(); } });
     ipcMain.on('desktop:close-notification', (event, tag) => { if (mainSender(event) && typeof tag === 'string') notifications.get(tag)?.close(); });

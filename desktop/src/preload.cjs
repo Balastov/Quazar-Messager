@@ -16,6 +16,8 @@ contextBridge.exposeInMainWorld('quazarDesktop', {
   setSessionBusy: busy => ipcRenderer.send('desktop:busy', busy === true),
   setOverlay: state => ipcRenderer.send('desktop:overlay', state ?? null),
   onHotkey: callback => subscribe('desktop:hotkey', callback),
+  listDisplays: () => ipcRenderer.invoke('desktop:displays'),
+  onOverlayKeys: callback => subscribe('desktop:overlay-keys', callback),
   showNotification: options => ipcRenderer.invoke('desktop:notification', options),
   clearNotifications: () => ipcRenderer.send('desktop:clear-notifications'),
   closeNotification: tag => ipcRenderer.send('desktop:close-notification', tag),

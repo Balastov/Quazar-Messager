@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { Overlay, sanitizeOverlay, overlayBounds, displayList, MAX_PEERS } = require('../src/overlay.cjs');
+const { Overlay, sanitizeOverlay, overlayBounds, toastHeight, displayList, MAX_PEERS } = require('../src/overlay.cjs');
 
 const AREA = { x: 0, y: 25, width: 1440, height: 875 };
 const room = (patch = {}) => ({ enabled: true, globalKeys: true, corner: 'top-left', room: 'Переговорная', reconnecting: false,
@@ -12,12 +12,14 @@ class FakeWindow {
     this.webContents = { send: (channel, value) => this.sent.push([channel, value]), setWindowOpenHandler() {}, on: (name, fn) => { this.handlers[name] = fn; } };
     FakeWindow.created.push(this); }
   setAlwaysOnTop(...args) { this.calls.push(['alwaysOnTop', ...args]); }
-  setIgnoreMouseEvents(value) { this.calls.push(['ignoreMouse', value]); }
+  setIgnoreMouseEvents(value, options) { this.calls.push(['ignoreMouse', value]); this.ignore = value; this.forward = options?.forward; }
+  setMovable(value) { this.movable = value; }
+  getBounds() { return this.bounds; }
   setContentProtection(value) { this.calls.push(['contentProtection', value]); }
   setVisibleOnAllWorkspaces(...args) { this.calls.push(['allWorkspaces', ...args]); }
   setBounds(bounds) { this.bounds = bounds; }
   loadFile() { setImmediate(() => this.handlers['did-finish-load']?.()); return Promise.resolve(); }
-  on() {}
+  on(name, fn) { this.events = { ...this.events, [name]: fn }; }
   isDestroyed() { return this.destroyed; }
   isVisible() { return this.visible; }
   showInactive() { this.visible = true; this.calls.push(['showInactive']); }
@@ -31,13 +33,16 @@ function setup({ focused = false, platform = 'darwin' } = {}) {
   const main = { focused, isDestroyed: () => false, isVisible: () => true, isMinimized: () => false, isFocused: () => main.focused };
   const keys = new Map();
   const globalShortcut = { register: (acc, fn) => { keys.set(acc, fn); return true; }, unregister: acc => keys.delete(acc), isRegistered: acc => keys.has(acc) };
-  const hotkeys = [], taken = [];
+  const hotkeys = [], taken = [], actions = [], moved = [], placing = [], timers = [];
   const primary = { id: 1, label: 'Встроенный дисплей', size: { width: 1440, height: 900 }, workArea: AREA };
   const screenEvents = {};
-  const screen = { displays: [primary, SECOND], getPrimaryDisplay: () => primary, getAllDisplays: () => screen.displays, on: (name, fn) => { screenEvents[name] = fn; } };
+  const screen = { displays: [primary, SECOND], getPrimaryDisplay: () => primary, getAllDisplays: () => screen.displays, on: (name, fn) => { screenEvents[name] = fn; },
+    getDisplayMatching: bounds => screen.displays.find(d => bounds.x >= d.workArea.x && bounds.x < d.workArea.x + d.workArea.width) ?? primary };
   const overlay = new Overlay({ BrowserWindow: FakeWindow, screen, globalShortcut,
-    getMain: () => main, onHotkey: action => hotkeys.push(action), onKeys: list => taken.push(list), platform });
-  return { overlay, main, keys, hotkeys, taken, screen, screenEvents, globalShortcut };
+    getMain: () => main, onHotkey: action => hotkeys.push(action), onKeys: list => taken.push(list), platform,
+    onAction: value => actions.push(value), onMoved: value => moved.push(value), onPlacing: on => placing.push(on),
+    setTimer: (fn, ms) => { timers.push({ fn, ms }); return timers.length; }, clearTimer: () => {} });
+  return { overlay, main, keys, hotkeys, taken, screen, screenEvents, globalShortcut, actions, moved, placing, timers };
 }
 
 test('sanitizes renderer state: bounded strings, booleans and peer count', () => {
@@ -175,4 +180,82 @@ test('screen sharing mark and focus timer line', () => {
   assert.deepEqual(sanitizeOverlay(room({ focus: { phase: 'break', running: false, endsAt: 5, remaining: -3 } })).focus, { phase: 'break', running: false, endsAt: null, remaining: 0 });
   assert.equal(sanitizeOverlay(room({ focus: { phase: 'done' } })).focus, null);
   assert.equal(overlayBounds(out, AREA).height, overlayBounds(sanitizeOverlay(room({ peers: [{ name: 'Боб' }] })), AREA).height + 22);
+});
+
+const knock = (patch = {}) => ({ id: 'knock:k1', kind: 'knock', title: 'Боб стучится', sub: 'в «Переговорную» · Офис',
+  actions: [{ id: 'admit', label: 'Впустить', tone: 'primary' }, { id: 'wait', label: 'В ожидание' }, { id: 'deny', label: 'Отказать', tone: 'danger' }], ...patch });
+
+test('toasts: at most three, known kinds and tones, short labels, no duplicates; no room — no people', () => {
+  const many = [knock(), knock(), knock({ id: 'call:c1', kind: 'call' }), knock({ id: 'x', kind: 'evil', actions: [{ id: 'go', label: 'y'.repeat(50), tone: 'red' }, {}] }), knock({ id: 'z' })];
+  const out = sanitizeOverlay(room({ toasts: many }));
+  assert.deepEqual(out.toasts.map(t => [t.id, t.kind]), [['knock:k1', 'knock'], ['call:c1', 'call']]);
+  const odd = sanitizeOverlay(room({ toasts: [many[3]] })).toasts[0];
+  assert.deepEqual([odd.kind, odd.actions.length, odd.actions[0].label.length, odd.actions[0].tone], ['info', 1, 20, 'plain']);
+  const alone = sanitizeOverlay(room({ room: null, recording: { by: 'Боб' }, more: 3, toasts: [knock()] }));
+  assert.deepEqual([alone.room, alone.peers, alone.recording, alone.more], [null, [], null, 0]);
+});
+
+test('toast heights match the page; toasts stack under the room panel, or alone', () => {
+  assert.equal(toastHeight(sanitizeOverlay(room({ toasts: [knock()] })).toasts[0]), 16 + 18 + 16 + 30);
+  assert.equal(toastHeight({ kind: 'info', title: 'Вам не разрешили войти', sub: '', actions: [] }), 16 + 34);
+  const panel = overlayBounds(sanitizeOverlay(room()), AREA).height;
+  assert.equal(overlayBounds(sanitizeOverlay(room({ toasts: [knock(), knock({ id: 'b' })] })), AREA).height, panel + 2 * (6 + 80));
+  assert.equal(overlayBounds(sanitizeOverlay(room({ room: null, toasts: [knock()] })), AREA).height, 80);
+  // Своё место — от угла рабочей области, но не за краем экрана.
+  const custom = overlayBounds(sanitizeOverlay(room({ corner: 'custom', position: { x: 300, y: 2000 } })), AREA);
+  assert.deepEqual([custom.x, custom.y + custom.height], [300, 25 + 875]);
+  assert.equal(sanitizeOverlay(room({ corner: 'custom' })).corner, 'top-left');
+});
+
+test('toasts alone show the overlay when Quazar is away, without grabbing global keys', () => {
+  const { overlay, main, keys } = setup({ focused: true });
+  overlay.update(room({ room: null, toasts: [knock()] }));
+  assert.equal(FakeWindow.created.length, 0);
+  main.focused = false; overlay.refresh();
+  assert.equal(FakeWindow.created[0].visible, true);
+  assert.equal(keys.size, 0);
+  overlay.update(room({ room: null, toasts: [] }));
+  assert.equal(FakeWindow.created[0].visible, false);
+});
+
+test('buttons: clicks pass through except over a button; only buttons on screen reach Quazar', () => {
+  const { overlay, actions } = setup();
+  overlay.update(room({ toasts: [knock()] }));
+  const win = FakeWindow.created[0];
+  assert.deepEqual([win.ignore, win.forward], [true, true]);
+  overlay.hover(true); assert.equal(win.ignore, false);
+  overlay.hover(false); assert.deepEqual([win.ignore, win.forward], [true, true]);
+  overlay.action('knock:k1', 'admit');
+  overlay.action('knock:k1', 'delete-star');
+  overlay.action('knock:other', 'admit');
+  assert.deepEqual(actions, [{ toast: 'knock:k1', action: 'admit' }]);
+  assert.equal(overlay.fromOverlay({ sender: win.webContents }), true);
+  assert.equal(overlay.fromOverlay({ sender: {} }), false);
+});
+
+test('«Переставить»: visible over Quazar, draggable, remembers the spot on the monitor it lands on', () => {
+  const { overlay, main, moved, placing, timers, actions } = setup({ focused: true });
+  overlay.update(null);
+  overlay.place(true);
+  const win = FakeWindow.created[0];
+  assert.deepEqual([win.visible, win.ignore, win.movable, placing], [true, false, true, [true]]);
+  // Не в комнате — пример, чтобы было за что тянуть.
+  assert.equal(overlay.view().room, 'Оверлей Quazar');
+  assert.equal(overlay.view().placing, true);
+  overlay.hover(false); assert.equal(win.ignore, false);
+  win.bounds = { x: 1440 + 500, y: 120, width: 240, height: 100 };
+  win.events.moved();
+  assert.deepEqual(moved, [{ display: SECOND.id, x: 500, y: 120 }]);
+  overlay.update(room({ display: SECOND.id, corner: 'custom', position: { x: 500, y: 120 } }));
+  assert.deepEqual([win.bounds.x, win.bounds.y], [1940, 120]);
+  overlay.action('placing', 'done');
+  assert.deepEqual([win.ignore, win.movable, placing, win.visible], [true, false, [true, false], false]);
+  assert.deepEqual(actions, []);
+  // Забыли нажать «Готово» — через две минуты само.
+  main.focused = false; overlay.place(true);
+  timers[timers.length - 1].fn();
+  assert.deepEqual([placing.at(-1), timers[timers.length - 1].ms], [false, 120_000]);
+  // Не в режиме перестановки перетаскивание не запоминаем.
+  win.events.moved();
+  assert.equal(moved.length, 1);
 });

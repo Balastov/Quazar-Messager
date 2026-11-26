@@ -83,12 +83,13 @@ else {
     });
     window.webContents.on('will-attach-webview', event => event.preventDefault());
     window.webContents.setWindowOpenHandler(({ url }) => { void openExternal(url); return { action: 'deny' }; });
-    window.webContents.on('render-process-gone', () => { busy = false; overlay?.update(null); });
+    window.webContents.on('render-process-gone', () => { busy = false; overlay?.place(false); overlay?.update(null); });
     // Оверлей поверх окон: пока я в комнате, а окно Quazar не впереди.
     overlay = new Overlay({ BrowserWindow, screen, globalShortcut, getMain: () => window, onHotkey: action => send('desktop:hotkey', action),
-      onKeys: taken => send('desktop:overlay-keys', taken) });
+      onKeys: taken => send('desktop:overlay-keys', taken), onAction: value => send('desktop:overlay-action', value),
+      onMoved: position => send('desktop:overlay-moved', position), onPlacing: on => send('desktop:overlay-placing', on) });
     for (const name of ['focus', 'blur', 'show', 'hide', 'minimize', 'restore']) window.on(name, () => overlay?.refresh());
-    window.webContents.on('did-start-navigation', (_event, _url, inPlace, mainFrame) => { if (mainFrame && !inPlace) overlay?.update(null); });
+    window.webContents.on('did-start-navigation', (_event, _url, inPlace, mainFrame) => { if (mainFrame && !inPlace) { overlay?.place(false); overlay?.update(null); } });
     app.on('will-quit', () => overlay?.dispose());
     installCapture({ session: ses, BrowserWindow, desktopCapturer, ipcMain, getWindow: () => window });
 
@@ -120,6 +121,10 @@ else {
     ipcMain.handle('desktop:auth-return', guarded(() => { const fragment = pendingAuth; pendingAuth = null; return fragment; }));
     ipcMain.on('desktop:overlay', (event, value) => { if (mainSender(event)) overlay?.update(value); });
     ipcMain.handle('desktop:displays', guarded(() => displayList(screen)));
+    ipcMain.on('desktop:overlay-place', (event, on) => { if (mainSender(event)) overlay?.place(on === true); });
+    // Из страницы оверлея — только «курсор над кнопкой» и нажатая кнопка.
+    ipcMain.on('overlay:hover', (event, on) => { if (overlay?.fromOverlay(event)) overlay.hover(on === true); });
+    ipcMain.on('overlay:action', (event, value) => { if (overlay?.fromOverlay(event)) overlay.action(value?.toast, value?.action); });
     ipcMain.on('desktop:busy', (event, value) => { if (mainSender(event)) busy = value === true; });
     ipcMain.on('desktop:clear-notifications', event => { if (mainSender(event)) { for (const note of notifications.values()) note.close(); notifications.clear(); } });
     ipcMain.on('desktop:close-notification', (event, tag) => { if (mainSender(event) && typeof tag === 'string') notifications.get(tag)?.close(); });

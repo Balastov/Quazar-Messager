@@ -116,19 +116,29 @@ app.whenReady().then(async () => {
   const overlay = new Overlay({ BrowserWindow, screen, globalShortcut, getMain: () => null, onHotkey: () => {} });
   const base = { globalKeys: false, room: 'Комната', peers: [{ name: 'Анна', micOn: true, isLocal: true }, { name: 'Боб', speaking: true, micOn: false }] };
   const since = new Date().toISOString();
+  const knockToast = { id: 'knock:1', kind: 'knock', title: 'Боб Петров стучится', sub: 'в «Переговорную» · Офис',
+    actions: [{ id: 'admit', label: 'Впустить', tone: 'primary' }, { id: 'wait', label: 'В зал' }, { id: 'deny', label: 'Отказать', tone: 'danger' }] };
+  const callToast = { id: 'call:1', kind: 'call', title: 'Анна звонит', sub: 'Аудиозвонок', actions: [{ id: 'accept', label: 'Принять', tone: 'primary' }, { id: 'reject', label: 'Отклонить', tone: 'danger' }] };
+  const infoToast = { id: 'info:1', kind: 'info', title: 'Никто не ответил на стук в «Переговорную». Попробуйте позже — или напишите в чат комнаты.' };
   for (const variant of [{ ...base, recording: { by: 'Боб', since } }, base, { ...base, more: 4 }, { ...base, reconnecting: true },
     { ...base, scale: 1.5, opacity: 40, focus: { phase: 'work', running: true, endsAt: Date.now() + 600_000 } },
-    { ...base, focus: { phase: 'break', running: false, remaining: 90 }, recording: { by: 'Боб', since }, peers: [{ name: 'Боб', sharing: true, micOn: true }] }, { ...base, scale: 0.75, more: 2, recording: { by: 'Боб', since } }, { ...base, scale: 1.25 }]) {
+    { ...base, focus: { phase: 'break', running: false, remaining: 90 }, recording: { by: 'Боб', since }, peers: [{ name: 'Боб', sharing: true, micOn: true }] }, { ...base, scale: 0.75, more: 2, recording: { by: 'Боб', since } }, { ...base, scale: 1.25 },
+    { ...base, toasts: [knockToast, infoToast] }, { ...base, room: null, toasts: [callToast] },
+    { ...base, corner: 'bottom-right', scale: 0.75, toasts: [callToast, knockToast, infoToast] }, { ...base, placing: true }, { room: null, placing: true }]) {
+    overlay.place(variant.placing === true);
     overlay.update(variant);
     let drawn = null;
     for (let i = 0; i < 60; i++) {
       await new Promise(resolve => setTimeout(resolve, 50));
       if (!overlay.loaded) continue;
       // Панель на экране — во весь размер окна: ничего не обрезано и нет пустой полосы.
-      drawn = await overlay.window.webContents.executeJavaScript(`(() => { const panel = document.getElementById('panel'); const r = panel.getBoundingClientRect();
+      drawn = await overlay.window.webContents.executeJavaScript(`(() => { const panel = document.getElementById('panel'); const r = document.getElementById('stack').getBoundingClientRect();
         return { height: r.height, width: r.width, inner: innerHeight, innerWidth, scroll: document.documentElement.scrollHeight,
-          rec: document.getElementById('rec').getClientRects().length > 0, bg: getComputedStyle(panel).backgroundColor }; })()`);
-      if (Math.abs(drawn.height - drawn.inner) <= 1 && drawn.inner === overlay.window.getBounds().height && drawn.rec === !!variant.recording) break;
+          rec: document.getElementById('rec').getClientRects().length > 0, bg: getComputedStyle(panel).backgroundColor,
+          toasts: document.querySelectorAll('.toast').length,
+          overflow: [...document.querySelectorAll('.t,.s,button')].filter(e => !e.matches('.info .t')).filter(e => e.scrollHeight > e.clientHeight + 1 || (e.matches('button') && e.scrollWidth > e.clientWidth)).map(e => e.textContent) }; })()`);
+      if (Math.abs(drawn.height - drawn.inner) <= 1 && drawn.inner === overlay.window.getBounds().height && drawn.rec === !!variant.recording &&
+          drawn.toasts === (variant.toasts?.length ?? 0)) break;
     }
     assert.ok(drawn, 'overlay page did not load');
     const info = JSON.stringify({ variant, drawn });
@@ -136,9 +146,11 @@ app.whenReady().then(async () => {
     assert.ok(Math.abs(drawn.height - drawn.inner) <= 1 && drawn.scroll <= drawn.inner, info);
     assert.ok(Math.abs(drawn.width - drawn.innerWidth) <= 1, info);
     assert.equal(drawn.rec, !!variant.recording, info);
+    assert.deepEqual(drawn.overflow, [], info);
     assert.ok(drawn.bg.includes(variant.opacity ? `${variant.opacity / 100})` : '0.78)'), info);
   }
   assert.equal(overlay.window.isVisible(), true);
+  overlay.place(false);
   overlay.update(null);
   assert.equal(overlay.window.isVisible(), false);
   overlay.dispose();

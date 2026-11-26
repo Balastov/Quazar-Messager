@@ -9,9 +9,13 @@ import type { DesktopBridge } from "../desktop";
 const memory = new Map<string, string>();
 vi.stubGlobal("localStorage", { getItem: (k: string) => memory.get(k) ?? null,
   setItem: (k: string, v: string) => void memory.set(k, v), removeItem: (k: string) => void memory.delete(k) });
-vi.mock("../../ws/socket", () => ({ socket: { on: () => () => {}, onStatus: () => () => {}, send: vi.fn(), isOpen: () => true } }));
+const sockets = vi.hoisted(() => ({ handlers: [] as ((event: unknown) => void)[] }));
+vi.mock("../../ws/socket", () => ({ socket: { on: (h: (event: unknown) => void) => { sockets.handlers.push(h); return () => {}; },
+  onStatus: () => () => {}, send: vi.fn(), isOpen: () => true } }));
 
-const { overlaySnapshot, callOverlaySnapshot, overlayHotkey, overlayFocus, startOverlay, useOverlayPrefs, speakingOnly, OVERLAY_MAX_PEERS, SPEAKING_LINGER_MS } = await import("../overlay");
+const { overlaySnapshot, callOverlaySnapshot, overlayHotkey, overlayFocus, overlayToasts, overlayAction, startOverlay, useOverlayPrefs, speakingOnly,
+  OVERLAY_MAX_PEERS, SPEAKING_LINGER_MS } = await import("../overlay");
+const { useDoorsStore } = await import("../../store/doors");
 const { emptyRoom } = await import("../../store/roomActivities");
 const { useCallStore } = await import("../../store/call");
 const { useVoiceStore } = await import("../../store/voice");
@@ -19,8 +23,8 @@ const { useStarsStore } = await import("../../store/stars");
 const { useRoomActivities } = await import("../../store/roomActivities");
 const { VoiceKeysSettings } = await import("../../components/constellation/VoicePanels");
 
-const PREFS = { enabled: true, globalKeys: true, corner: "top-left" as const, onlySpeaking: false, scale: 1, opacity: 78, display: null };
-const detail = { id: "star", channels: [{ id: "room", kind: "planet", name: "Переговорная" }] } as unknown as StarDetail;
+const PREFS = { enabled: true, globalKeys: true, corner: "top-left" as const, position: null, alerts: true, onlySpeaking: false, scale: 1, opacity: 78, display: null };
+const detail = { id: "star", members: [], my_permissions: [], channels: [{ id: "room", kind: "planet", name: "Переговорная" }] } as unknown as StarDetail;
 const peer = (name: string, patch: Partial<VoicePeer> = {}): VoicePeer =>
   ({ userId: name, name, isLocal: false, speaking: false, micOn: true, screenSharing: false, cameraOn: false, ...patch });
 
@@ -286,5 +290,145 @@ describe("показ экрана и «Орбита фокуса»", () => {
       version: 1, owner_id: "bob", phase: "break", running: false, work_seconds: 1500, break_seconds: 300, remaining_seconds: 120, ends_at: null } } } }));
     expect(setOverlay.mock.lastCall![0].focus).toEqual({ phase: "break", running: false, endsAt: null, remaining: 120 });
     useVoiceStore.setState({ status: "idle", channelId: null, starId: null, peers: [] });
+  });
+});
+
+const NOW = Date.parse("2026-11-27T10:50:00Z");
+const knockItem = (id: string, patch: Record<string, unknown> = {}) => ({
+  type: "planet_knock", star_id: "star", star_name: "Офис", room_name: "Переговорная", user_name: "Боб", expires_in: 120,
+  knock: { id, channel_id: "room", user_id: "bob", status: "pending" }, receivedAt: NOW - 10_000, ...patch,
+}) as never;
+const noDoors = { invites: [], knocks: {}, myKnock: null, notice: null };
+const idle = { phase: "idle", callId: null, peerUsername: null };
+const toastsOf = (patch: Partial<Parameters<typeof overlayToasts>[0]> = {}) => overlayToasts({
+  call: idle, doors: noDoors, details: {}, meetings: [], now: NOW, quiet: () => false, dnd: false, ...patch });
+
+describe("всплывашки в оверлее", () => {
+  it("звонок, стук, приглашение, встреча — по важности, не больше трёх, с кнопками", () => {
+    const { toasts, wakeIn } = toastsOf({
+      call: { phase: "incoming", callId: "c1", peerUsername: "Анна", media: { video: true } },
+      doors: { ...noDoors, knocks: { k1: knockItem("k1") },
+        invites: [{ starId: "star", channelId: "room2", fromName: "Ева", roomName: "Кухня", starName: "Офис", expiresAt: NOW + 30_000 }] },
+      meetings: [{ id: "b1", starId: "star", channelId: "room", title: "Планёрка", room: "Переговорная", startsAt: NOW + 600_000 }],
+    });
+    expect(toasts.map((t) => t.id)).toEqual(["call:c1", "knock:k1", "invite:room2"]);
+    expect(toasts[0]).toMatchObject({ kind: "call", title: "📞 Анна звонит", sub: "Видеозвонок" });
+    expect(toasts[1].actions.map((a) => a.label)).toEqual(["Впустить", "В зал", "Отказать"]);
+    expect(toasts[2]).toMatchObject({ title: "🚪 Ева зовёт вас", sub: "в «Кухня» · Офис" });
+    // Снимок соберут заново, когда истечёт первое — приглашение через 30 с.
+    expect(wakeIn).toBe(30_000);
+    const meeting = toastsOf({ meetings: [{ id: "b1", starId: "star", channelId: "room", title: "Планёрка", room: "Переговорная", startsAt: NOW + 600_000 }] }).toasts[0];
+    expect(meeting.title).toBe("⏰ Скоро встреча: Планёрка");
+    expect(meeting.sub).toMatch(/^Переговорная · в \d\d:\d\d$/);
+  });
+
+  it("истёкшее, чужие стуки и «Не беспокоить» не показываем; свой стук и ответ — показываем", () => {
+    const doors = { ...noDoors, knocks: { old: knockItem("old", { receivedAt: NOW - 200_000 }), done: knockItem("done", { knock: { id: "done", channel_id: "room", user_id: "bob", status: "waiting" } }) },
+      invites: [{ starId: "star", channelId: "room2", fromName: "Ева", roomName: "Кухня", starName: "Офис", expiresAt: NOW - 1 }] };
+    expect(toastsOf({ doors }).toasts).toEqual([]);
+    // Впускать в эту комнату я не могу — стук не мне.
+    const detail = { id: "star", kind: "work", my_role: "member", my_permissions: [], members: [], voice: {}, channels: [{ id: "room", kind: "planet", name: "Переговорная", access: "invite", host_id: "zoe" }] };
+    expect(toastsOf({ doors: { ...noDoors, knocks: { k1: knockItem("k1") } }, details: { star: detail as never }, myId: "me" }).toasts).toEqual([]);
+    const busy = { ...noDoors, knocks: { k1: knockItem("k1") }, myKnock: { knockId: "m1", starId: "star", channelId: "room", roomName: "Кабинет", status: "pending" as const, expiresAt: NOW + 60_000 },
+      notice: "Вас впустили" };
+    const call = { phase: "incoming", callId: "c1", peerUsername: "Анна" };
+    expect(toastsOf({ doors: busy, call, dnd: true }).toasts.map((t) => t.id)).toEqual(["call:c1", "myknock:m1", "info:Вас впустили"]);
+    expect(toastsOf({ doors: busy, quiet: (id) => id === "star" }).toasts.map((t) => t.kind)).toEqual(["knock", "info"]);
+    expect(toastsOf({ doors: { ...busy, myKnock: { ...busy.myKnock, status: "waiting" } } }).toasts[1]).toMatchObject({ title: "🛋 Вы в зале ожидания" });
+  });
+
+  it("кнопки делают то же, что в окне Quazar, и только для живых всплывашек", async () => {
+    const answer = vi.fn(async () => {}), acceptInvite = vi.fn(async () => {}), dismissInvite = vi.fn(), cancelKnock = vi.fn(async () => {});
+    const invite = { starId: "star", channelId: "room2", fromName: "Ева", roomName: "Кухня", starName: "Офис", expiresAt: NOW };
+    useDoorsStore.setState({ knocks: { k1: knockItem("k1") }, invites: [invite], answer, acceptInvite, dismissInvite, cancelKnock,
+      myKnock: { knockId: "m1", starId: "star", channelId: "room", roomName: "Кабинет", status: "pending", expiresAt: NOW } });
+    const accept = vi.fn(async () => {}), reject = vi.fn();
+    useCallStore.setState({ phase: "incoming", callId: "c1", accept, reject });
+    const meetings = new Map([["b1", { id: "b1", starId: "star", channelId: "room", title: "Планёрка", room: null, startsAt: NOW }]]);
+    await overlayAction({ toast: "knock:k1", action: "wait" }, meetings);
+    await overlayAction({ toast: "knock:k1", action: "drop-table" }, meetings);
+    await overlayAction({ toast: "knock:nope", action: "admit" }, meetings);
+    await overlayAction({ toast: "invite:room2", action: "join" }, meetings);
+    await overlayAction({ toast: "invite:room2", action: "dismiss" }, meetings);
+    await overlayAction({ toast: "call:old", action: "accept" }, meetings);
+    await overlayAction({ toast: "call:c1", action: "accept" }, meetings);
+    await overlayAction({ toast: "myknock:m1", action: "cancel" }, meetings);
+    await overlayAction({ toast: "meeting:b1", action: "dismiss" }, meetings);
+    await overlayAction("мусор", meetings);
+    expect(answer.mock.calls).toEqual([["k1", "wait"]]);
+    expect(acceptInvite).toHaveBeenCalledWith(invite);
+    expect(dismissInvite).toHaveBeenCalledWith(invite);
+    expect(accept).toHaveBeenCalledTimes(1);
+    expect(reject).not.toHaveBeenCalled();
+    expect(cancelKnock).toHaveBeenCalledTimes(1);
+    expect(meetings.size).toBe(0);
+    useCallStore.setState({ phase: "idle", callId: null });
+    useDoorsStore.setState({ knocks: {}, invites: [], myKnock: null, notice: null });
+  });
+
+  it("десктоп: стук вне комнаты, «Скоро встреча» от сервера, нажатая кнопка, перестановка и своё место", () => {
+    let action: (value: unknown) => void = () => {};
+    let moved: (value: unknown) => void = () => {};
+    let placing: (on: boolean) => void = () => {};
+    const setOverlay = vi.fn();
+    const bridge = { setOverlay, onOverlayAction: (cb: typeof action) => { action = cb; return () => {}; },
+      onOverlayMoved: (cb: typeof moved) => { moved = cb; return () => {}; }, onOverlayPlacing: (cb: typeof placing) => { placing = cb; return () => {}; } };
+    useOverlayPrefs.setState({ ...PREFS, placing: false });
+    useCallStore.setState({ phase: "idle", callId: null });
+    useVoiceStore.setState({ status: "idle", channelId: null, starId: null, peers: [] });
+    useDoorsStore.setState({ knocks: {}, invites: [], myKnock: null, notice: null });
+    useStarsStore.setState({ details: {} });
+    sockets.handlers.length = 0;
+    startOverlay(bridge as unknown as DesktopBridge);
+    expect(setOverlay).toHaveBeenLastCalledWith(null);
+    const answer = vi.fn(async () => {});
+    act(() => useDoorsStore.setState({ knocks: { k1: knockItem("k1", { receivedAt: Date.now() }) }, answer }));
+    expect(setOverlay.mock.lastCall![0]).toMatchObject({ room: null, peers: [], toasts: [{ id: "knock:k1" }] });
+    act(() => action({ toast: "knock:k1", action: "admit" }));
+    expect(answer).toHaveBeenCalledWith("k1", "admit");
+    act(() => useDoorsStore.setState({ knocks: {} }));
+    expect(setOverlay).toHaveBeenLastCalledWith(null);
+    // Сервер: через 10 минут встреча.
+    act(() => sockets.handlers.forEach((h) => h({ type: "star_booking_soon", star_id: "star", channel_id: "room", booking_id: "b1",
+      title: "Планёрка", room: "Переговорная", starts_at: new Date(Date.now() + 600_000).toISOString() })));
+    expect(setOverlay.mock.lastCall![0].toasts.map((t: { id: string }) => t.id)).toEqual(["meeting:b1"]);
+    act(() => useOverlayPrefs.getState().setPrefs({ alerts: false }));
+    expect(setOverlay).toHaveBeenLastCalledWith(null);
+    // «Переставить»: пока переставляют — оверлей есть и вне комнаты.
+    act(() => placing(true));
+    expect(setOverlay.mock.lastCall![0]).toMatchObject({ room: null, toasts: [] });
+    act(() => moved({ display: 7, x: 300, y: 120 }));
+    expect(useOverlayPrefs.getState()).toMatchObject({ corner: "custom", position: { x: 300, y: 120 }, display: 7 });
+    expect(setOverlay.mock.lastCall![0]).toMatchObject({ corner: "custom", position: { x: 300, y: 120 }, display: 7 });
+    act(() => moved({ x: "левее" }));
+    expect(useOverlayPrefs.getState().position).toEqual({ x: 300, y: 120 });
+    act(() => placing(false));
+    expect(setOverlay).toHaveBeenLastCalledWith(null);
+    useOverlayPrefs.setState({ ...PREFS, placing: false });
+  });
+
+  it("настройки: «Переставить», своё место и выбор угла, всплывашки — галочкой", () => {
+    const placeOverlay = vi.fn();
+    window.quazarDesktop = { setOverlay: vi.fn(), placeOverlay, onOverlayAction: () => () => {} } as unknown as DesktopBridge;
+    useOverlayPrefs.setState({ ...PREFS, corner: "custom", position: { x: 300, y: 120 }, placing: false });
+    const host = document.createElement("div");
+    const root = createRoot(host);
+    act(() => root.render(createElement(VoiceKeysSettings)));
+    const corner = host.querySelector<HTMLSelectElement>('select[aria-label="Где показывать оверлей"]')!;
+    expect(corner.value).toBe("custom");
+    const place = [...host.querySelectorAll("button")].find((b) => b.textContent === "Переставить")!;
+    act(() => Simulate.click(place));
+    expect(placeOverlay).toHaveBeenLastCalledWith(true);
+    act(() => useOverlayPrefs.setState({ placing: true }));
+    expect(host.textContent).toContain("Перетащите оверлей мышью");
+    act(() => Simulate.click([...host.querySelectorAll("button")].find((b) => b.textContent === "Готово")!));
+    expect(placeOverlay).toHaveBeenLastCalledWith(false);
+    act(() => Simulate.change(corner, { target: { value: "bottom-left" } } as never));
+    expect(useOverlayPrefs.getState()).toMatchObject({ corner: "bottom-left", position: null });
+    const alerts = [...host.querySelectorAll("label")].find((l) => l.textContent?.includes("стук, приглашения"))!.querySelector("input")!;
+    act(() => Simulate.change(alerts, { target: { checked: false } } as never));
+    expect(useOverlayPrefs.getState().alerts).toBe(false);
+    act(() => root.unmount());
+    useOverlayPrefs.setState({ ...PREFS, placing: false });
   });
 });

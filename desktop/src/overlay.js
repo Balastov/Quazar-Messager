@@ -44,13 +44,21 @@ setInterval(() => { renderRecording(); renderFocus(); }, 1000);
 function render(state) {
   current = state;
   renderFocus();
-  // Размер — масштабом всей панели (окно main-процесс уже подогнал), фон — своей непрозрачностью.
-  const panel = document.getElementById('panel');
-  panel.style.zoom = String(state.scale);
-  panel.style.setProperty('--bg', String(state.opacity / 100));
+  // Размер — масштабом всего оверлея (окно main-процесс уже подогнал), фон — своей непрозрачностью.
+  const stack = document.getElementById('stack');
+  stack.style.zoom = String(state.scale);
+  stack.style.setProperty('--bg', String(state.opacity / 100));
+  // В нижних углах всплывашки — над панелью, чтобы панель оставалась в углу.
+  stack.classList.toggle('up', state.corner.startsWith('bottom'));
+  document.body.classList.toggle('placing', state.placing);
+  document.getElementById('panel').hidden = state.room === null;
+  document.getElementById('place').hidden = !state.placing;
+  renderToasts(state.toasts);
+  syncHover();
   renderRecording();
   const room = document.getElementById('room');
   room.textContent = state.reconnecting ? 'Переподключение…' : state.room || 'Комната';
+  room.title = room.textContent;
   room.classList.toggle('lost', state.reconnecting);
   const list = document.getElementById('peers');
   list.replaceChildren(...state.peers.map(peer => {
@@ -69,4 +77,39 @@ function render(state) {
   more.hidden = !state.more;
   more.textContent = state.more ? `и ещё ${state.more}` : '';
 }
+// Стук, звонок, приглашение, встреча: заголовок, подпись и кнопки. Нажатие уходит в окно Quazar.
+function renderToasts(toasts) {
+  const box = document.getElementById('toasts');
+  box.hidden = !toasts.length;
+  box.replaceChildren(...toasts.map(toast => {
+    const card = document.createElement('div');
+    card.className = `toast ${toast.kind}`;
+    const title = document.createElement('div'); title.className = 't'; title.textContent = toast.title;
+    card.append(title);
+    if (toast.sub) { const sub = document.createElement('div'); sub.className = 's'; sub.textContent = toast.sub; card.append(sub); }
+    if (toast.actions.length) {
+      const row = document.createElement('div'); row.className = 'a';
+      row.append(...toast.actions.map(action => {
+        const button = document.createElement('button');
+        button.type = 'button'; button.textContent = action.label;
+        if (action.tone !== 'plain') button.className = action.tone;
+        button.addEventListener('click', () => window.quazarOverlay.act(toast.id, action.id));
+        return button;
+      }));
+      card.append(row);
+    }
+    return card;
+  }));
+}
+// Клики проходят сквозь оверлей, кроме кнопок: курсор над кнопкой — просим окно ловить клик.
+let hovering = false;
+function setHover(on) {
+  if (on === hovering) return;
+  hovering = on;
+  window.quazarOverlay.hover(on);
+}
+function syncHover() { setHover(!!document.querySelector('button:hover')); }
+document.addEventListener('mousemove', event => setHover(!!event.target.closest?.('button')));
+document.addEventListener('mouseleave', () => setHover(false));
+document.getElementById('place-done').addEventListener('click', () => window.quazarOverlay.act('placing', 'done'));
 window.quazarOverlay.onState(render);

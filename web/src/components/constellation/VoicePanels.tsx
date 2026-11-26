@@ -129,7 +129,8 @@ function useDisplays(): Display[] {
 
 /** Десктоп: оверлей поверх окон и клавиши в других программах. */
 function OverlaySettings() {
-  const { enabled, globalKeys, corner, onlySpeaking, scale, opacity, display, keysTaken, setPrefs } = useOverlayPrefs();
+  const { enabled, globalKeys, corner, onlySpeaking, scale, opacity, display, keysTaken, alerts, placing, setPrefs } = useOverlayPrefs();
+  const bridge = desktop();
   const displays = useDisplays();
   // Выбранный монитор отключили — оверлей на основном, так и показываем.
   const shownDisplay = displays.some((d) => d.id === display) ? String(display) : "";
@@ -146,14 +147,21 @@ function OverlaySettings() {
             <input type="checkbox" checked={onlySpeaking} onChange={(e) => setPrefs({ onlySpeaking: e.target.checked })} />
             Только те, кто говорит
           </label>
+          {bridge?.onOverlayAction && (
+            <label className={g.check}>
+              <input type="checkbox" checked={alerts} onChange={(e) => setPrefs({ alerts: e.target.checked })} />
+              Звонки, стук, приглашения и «Скоро встреча» — в оверлее, с кнопками
+            </label>
+          )}
           {onlySpeaking && (
             <p className={s.hint}>Строка гаснет через 2 секунды после того, как человек замолчал. Вас видно и тогда, когда у вас выключен микрофон или звук.</p>
           )}
           <div className={s.row}>
             <span className={s.hint}>Где:</span>
             <select className={s.select} value={corner} aria-label="Где показывать оверлей"
-              onChange={(e) => setPrefs({ corner: e.target.value as OverlayCorner })}>
+              onChange={(e) => setPrefs({ corner: e.target.value as OverlayCorner, position: null })}>
               {CORNERS.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
+              {corner === "custom" && <option value="custom">Своё место</option>}
             </select>
             {displays.length > 1 && (
               <select className={s.select} value={shownDisplay} aria-label="На каком мониторе"
@@ -162,7 +170,16 @@ function OverlaySettings() {
                 {displays.filter((d) => !d.primary).map((d) => <option key={d.id} value={String(d.id)}>{d.name}</option>)}
               </select>
             )}
+            {bridge?.placeOverlay && (
+              <button type="button" className={`${s.secondary} ${s.small}`} aria-pressed={placing}
+                onClick={() => bridge.placeOverlay!(!placing)}>
+                {placing ? "Готово" : "Переставить"}
+              </button>
+            )}
           </div>
+          {placing && (
+            <p className={s.hint} role="status">Перетащите оверлей мышью куда удобно — хоть на другой монитор — и нажмите «Готово».</p>
+          )}
           <div className={s.row}>
             <span className={s.hint}>Размер:</span>
             <select className={s.select} value={String(scale)} aria-label="Размер оверлея"

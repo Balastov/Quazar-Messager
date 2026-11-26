@@ -21,6 +21,14 @@ export interface DesktopBridge {
   listDisplays?(): Promise<{ id: number; name: string; primary: boolean }[]>;
   /** Какие из Ctrl+Shift+M / Ctrl+Shift+D заняты другой программой (с 2.12.0). */
   onOverlayKeys?(callback: (taken: string[]) => void): () => void;
+  /** «Переставить»: оверлей виден и перетаскивается, пока не нажмут «Готово» (с 2.12.0). */
+  placeOverlay?(on: boolean): void;
+  /** Нажали кнопку во всплывашке оверлея: { toast, action } (с 2.12.0). */
+  onOverlayAction?(callback: (value: unknown) => void): () => void;
+  /** Оверлей перетащили: { display, x, y } (с 2.12.0). */
+  onOverlayMoved?(callback: (value: unknown) => void): () => void;
+  /** Перестановка началась или закончилась (с 2.12.0). */
+  onOverlayPlacing?(callback: (on: boolean) => void): () => void;
   showNotification(options: { title: string; body: string; tag: string; silent: boolean; data: DesktopNavigation }): Promise<boolean>;
   clearNotifications(): void;
   closeNotification(tag: string): void;

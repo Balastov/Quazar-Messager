@@ -1,12 +1,20 @@
 /**
- * Оверлей поверх окон (десктоп): кто в комнате или в личном звонке и кто говорит, идёт ли запись —
+ * Оверлей поверх окон (десктоп): кто в комнате или в личном звонке и кто говорит, идёт ли запись,
+ * «Орбита фокуса», а ещё всплывашки с кнопками — звонок, стук, приглашение, «Скоро встреча» —
  * когда окно Quazar не впереди. Окно рисует десктоп-приложение; отсюда уходит только снимок
- * и настройки оверлея. Ctrl+Shift+M и Ctrl+Shift+D десктоп ловит и в других программах.
+ * и настройки оверлея, обратно приходят нажатые кнопки. Ctrl+Shift+M и Ctrl+Shift+D десктоп ловит
+ * и в других программах.
  */
 import { create } from "zustand";
 import type { StarDetail } from "../api/stars";
 import { presenceName } from "../components/constellation/rules";
 import { useAuthStore } from "../store/auth";
+import { useDoorsStore, type Invite, type MyKnock } from "../store/doors";
+import { isDoNotDisturb } from "../store/presence";
+import { roomDoor } from "../components/constellation/rules";
+import { amResting } from "../components/constellation/work";
+import { socket } from "../ws/socket";
+import type { KnockEvent } from "../api/stars";
 import { useCallStore, type LocalVideo, type RemoteVideo } from "../store/call";
 import { useRoomActivities, type RoomCache } from "../store/roomActivities";
 import { focusAt } from "../components/constellation/roomActivityMath";
@@ -17,13 +25,19 @@ import { SpeakingMonitor } from "../voice/speaking";
 import type { DesktopBridge } from "./desktop";
 
 export type OverlayCorner = "top-left" | "top-right" | "bottom-left" | "bottom-right";
+/** custom — своё место после «Переставить». */
+export type OverlayPlace = OverlayCorner | "custom";
 
 export interface OverlayPrefs {
   /** Показывать оверлей поверх других окон. */
   enabled: boolean;
   /** Клавиши микрофона и звука работают и в других программах. */
   globalKeys: boolean;
-  corner: OverlayCorner;
+  corner: OverlayPlace;
+  /** Своё место: левый верхний угол оверлея от угла рабочей области монитора. */
+  position: { x: number; y: number } | null;
+  /** Звонки, стук, приглашения и «Скоро встреча» — в оверлее, с кнопками. */
+  alerts: boolean;
   /** Только те, кто сейчас говорит (и я, если у меня выключен микрофон или звук). */
   onlySpeaking: boolean;
   /** Размер: 0.75, 1, 1.25 или 1.5. */
@@ -61,15 +75,41 @@ export interface OverlayRecording {
   since: string | null;
 }
 
+export interface OverlayToastAction {
+  id: string;
+  label: string;
+  tone?: "primary" | "danger" | "plain";
+}
+
+/** Всплывашка в оверлее; id — «вид:ключ» (knock:<id>, call:<id>…), по нему приходит нажатая кнопка. */
+export interface OverlayToast {
+  id: string;
+  kind: "call" | "knock" | "invite" | "meeting" | "info";
+  title: string;
+  sub: string;
+  actions: OverlayToastAction[];
+}
+
+/** «Скоро встреча», о которой сообщил сервер. */
+export interface SoonMeeting {
+  id: string;
+  starId: string;
+  channelId: string;
+  title: string;
+  room: string | null;
+  startsAt: number;
+}
+
 export interface OverlayState extends OverlayPrefs {
-  /** Название комнаты или «Звонок: Имя». */
-  room: string;
+  /** Название комнаты или «Звонок: Имя»; null — не в комнате, в оверлее только всплывашки. */
+  room: string | null;
   reconnecting: boolean;
   peers: OverlayPeer[];
   /** Сколько участников не поместилось. */
   more: number;
   recording: OverlayRecording | null;
   focus: OverlayFocus | null;
+  toasts: OverlayToast[];
 }
 
 export const OVERLAY_MAX_PEERS = 12;
@@ -77,17 +117,26 @@ const KEY = "quazar_overlay";
 export const OVERLAY_SCALES = [0.75, 1, 1.25, 1.5];
 /** Сколько строка говорившего ещё видна в режиме «только говорящие». */
 export const SPEAKING_LINGER_MS = 2000;
-const DEFAULTS: OverlayPrefs = { enabled: true, globalKeys: true, corner: "top-left", onlySpeaking: false, scale: 1, opacity: 78, display: null };
+export const OVERLAY_MAX_TOASTS = 3;
+/** Сколько после начала встречи ещё висит «Скоро встреча». */
+const MEETING_LINGER_MS = 5 * 60_000;
+const DEFAULTS: OverlayPrefs = { enabled: true, globalKeys: true, corner: "top-left", position: null, alerts: true,
+  onlySpeaking: false, scale: 1, opacity: 78, display: null };
 const CORNERS: OverlayCorner[] = ["top-left", "top-right", "bottom-left", "bottom-right"];
 const PREF_KEYS = Object.keys(DEFAULTS) as (keyof OverlayPrefs)[];
 
 function loadPrefs(): OverlayPrefs {
   try {
     const saved = JSON.parse(localStorage.getItem(KEY) ?? "{}") as Partial<OverlayPrefs>;
+    const at = saved.position;
+    const position = at && Number.isInteger(at.x) && Number.isInteger(at.y) ? { x: at.x, y: at.y } : null;
     return {
       enabled: typeof saved.enabled === "boolean" ? saved.enabled : DEFAULTS.enabled,
       globalKeys: typeof saved.globalKeys === "boolean" ? saved.globalKeys : DEFAULTS.globalKeys,
-      corner: CORNERS.includes(saved.corner as OverlayCorner) ? (saved.corner as OverlayCorner) : DEFAULTS.corner,
+      corner: saved.corner === "custom" && position ? "custom"
+        : CORNERS.includes(saved.corner as OverlayCorner) ? (saved.corner as OverlayCorner) : DEFAULTS.corner,
+      position: saved.corner === "custom" ? position : null,
+      alerts: typeof saved.alerts === "boolean" ? saved.alerts : DEFAULTS.alerts,
       onlySpeaking: typeof saved.onlySpeaking === "boolean" ? saved.onlySpeaking : DEFAULTS.onlySpeaking,
       scale: OVERLAY_SCALES.includes(saved.scale as number) ? (saved.scale as number) : DEFAULTS.scale,
       opacity: Number.isInteger(saved.opacity) && saved.opacity! >= 20 && saved.opacity! <= 100 ? saved.opacity! : DEFAULTS.opacity,
@@ -101,6 +150,8 @@ function loadPrefs(): OverlayPrefs {
 interface OverlayPrefsStore extends OverlayPrefs {
   /** Какие клавиши («mic», «deafen») заняты другой программой — по последней попытке десктопа. */
   keysTaken: string[];
+  /** Оверлей сейчас переставляют («Переставить» — «Готово»). */
+  placing: boolean;
   setPrefs(patch: Partial<OverlayPrefs>): void;
 }
 
@@ -108,6 +159,7 @@ interface OverlayPrefsStore extends OverlayPrefs {
 export const useOverlayPrefs = create<OverlayPrefsStore>((set, get) => ({
   ...loadPrefs(),
   keysTaken: [],
+  placing: false,
   setPrefs(patch) {
     set(patch);
     const state = get();
@@ -175,6 +227,7 @@ export function overlaySnapshot(
       ? { by: recorder.user_id === myId ? "вы" : presenceName(detail, recorder), since: recorder.recording_since ?? null }
       : null,
     focus: null,
+    toasts: [],
   };
 }
 
@@ -204,7 +257,135 @@ export function callOverlaySnapshot(
     more: 0,
     recording: null,
     focus: null,
+    toasts: [],
   };
+}
+
+/** Не в комнате и не в звонке: в оверлее только всплывашки (или пример при перестановке). */
+export function emptyOverlay(prefs: OverlayPrefs): OverlayState {
+  return { ...prefsOf(prefs), room: null, reconnecting: false, peers: [], more: 0, recording: null, focus: null, toasts: [] };
+}
+
+type KnockItem = KnockEvent & { receivedAt: number };
+
+/**
+ * Всплывашки по порядку важности: звонок, стук, приглашения, встречи, мой стук, ответ на него.
+ * В нерабочее время Звезды и в «Не беспокоить» — только звонок и то, что я сделал сам.
+ * wakeIn — когда первая из них истечёт (тогда снимок собирают заново).
+ */
+export function overlayToasts(src: {
+  call: { phase: string; callId: string | null; peerUsername: string | null; media?: { video: boolean } };
+  doors: { invites: Invite[]; knocks: Record<string, KnockItem>; myKnock: MyKnock | null; notice: string | null };
+  details: Record<string, StarDetail | undefined>;
+  myId?: string;
+  meetings: SoonMeeting[];
+  now: number;
+  quiet: (starId: string) => boolean;
+  dnd: boolean;
+}): { toasts: OverlayToast[]; wakeIn: number | null } {
+  const { call, doors, details, myId, now } = src;
+  const toasts: OverlayToast[] = [];
+  let wake = Infinity;
+  const until = (at: number) => { wake = Math.min(wake, at - now); };
+  const hushed = (starId: string) => src.dnd || src.quiet(starId);
+  if (call.phase === "incoming" && call.callId) {
+    toasts.push({
+      id: `call:${call.callId}`, kind: "call", title: `📞 ${call.peerUsername || "Собеседник"} звонит`,
+      sub: call.media?.video ? "Видеозвонок" : "Аудиозвонок",
+      actions: [{ id: "accept", label: "Принять", tone: "primary" }, { id: "reject", label: "Отклонить", tone: "danger" }],
+    });
+  }
+  for (const k of Object.values(doors.knocks)) {
+    const ends = k.receivedAt + k.expires_in * 1000;
+    if (k.knock.status !== "pending" || ends <= now || hushed(k.star_id)) continue;
+    // Как и в окне Quazar: стук — тем, кто может впустить в эту комнату.
+    const detail = details[k.star_id];
+    const channel = detail?.channels.find((c) => c.id === k.knock.channel_id);
+    if (detail && channel && !roomDoor(detail, channel, myId).canAnswer) continue;
+    until(ends);
+    toasts.push({
+      id: `knock:${k.knock.id}`, kind: "knock", title: `✊ ${k.user_name} стучится`, sub: `в «${k.room_name}» · ${k.star_name}`,
+      actions: [{ id: "admit", label: "Впустить", tone: "primary" }, { id: "wait", label: "В зал" }, { id: "deny", label: "Отказать", tone: "danger" }],
+    });
+  }
+  for (const invite of doors.invites) {
+    if (invite.expiresAt <= now || hushed(invite.starId)) continue;
+    until(invite.expiresAt);
+    toasts.push({
+      id: `invite:${invite.channelId}`, kind: "invite", title: `🚪 ${invite.fromName} зовёт вас`,
+      sub: `в «${invite.roomName}» · ${invite.starName}`,
+      actions: [{ id: "join", label: "Войти", tone: "primary" }, { id: "dismiss", label: "Не сейчас" }],
+    });
+  }
+  for (const meeting of src.meetings) {
+    const ends = meeting.startsAt + MEETING_LINGER_MS;
+    if (ends <= now || hushed(meeting.starId)) continue;
+    until(ends);
+    const at = new Date(meeting.startsAt).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+    toasts.push({
+      id: `meeting:${meeting.id}`, kind: "meeting", title: `⏰ Скоро встреча: ${meeting.title}`,
+      sub: [meeting.room, `в ${at}`].filter(Boolean).join(" · "),
+      actions: [{ id: "join", label: "Войти", tone: "primary" }, { id: "dismiss", label: "Скрыть" }],
+    });
+  }
+  const mine = doors.myKnock;
+  if (mine) {
+    toasts.push(mine.status === "pending"
+      ? { id: `myknock:${mine.knockId}`, kind: "knock", title: "✊ Вы постучались", sub: `в «${mine.roomName}» — ждём ответа…`,
+        actions: [{ id: "cancel", label: "Отменить стук" }] }
+      : { id: `myknock:${mine.knockId}`, kind: "knock", title: "🛋 Вы в зале ожидания", sub: `вас впустят в «${mine.roomName}»`,
+        actions: [{ id: "cancel", label: "Больше не ждать" }] });
+  }
+  if (doors.notice) toasts.push({ id: `info:${doors.notice}`, kind: "info", title: doors.notice, sub: "", actions: [] });
+  return { toasts: toasts.slice(0, OVERLAY_MAX_TOASTS), wakeIn: wake < Infinity ? Math.max(0, wake) : null };
+}
+
+/** Войти в комнату встречи — как кнопкой в окне Quazar: с дверью, стуком и местами. */
+async function enterMeeting(starId: string, channelId: string): Promise<void> {
+  const stars = useStarsStore.getState();
+  if (!stars.details[starId]) await stars.selectStar(starId);
+  const detail = useStarsStore.getState().details[starId];
+  const channel = detail?.channels.find((c) => c.id === channelId);
+  if (detail && channel) await useDoorsStore.getState().enterRoom(detail, channel);
+}
+
+/** Нажали кнопку во всплывашке оверлея. Проверяем, что такая всплывашка ещё есть. */
+export async function overlayAction(value: unknown, meetings: Map<string, SoonMeeting>): Promise<void> {
+  if (!value || typeof value !== "object") return;
+  const { toast, action } = value as { toast?: unknown; action?: unknown };
+  if (typeof toast !== "string" || typeof action !== "string") return;
+  const split = toast.indexOf(":");
+  const kind = toast.slice(0, split), key = toast.slice(split + 1);
+  const doors = useDoorsStore.getState();
+  switch (kind) {
+    case "call": {
+      const call = useCallStore.getState();
+      if (call.phase !== "incoming" || call.callId !== key) return;
+      if (action === "accept") await call.accept();
+      else if (action === "reject") call.reject();
+      return;
+    }
+    case "knock":
+      if (doors.knocks[key] && (action === "admit" || action === "wait" || action === "deny")) await doors.answer(key, action);
+      return;
+    case "invite": {
+      const invite = doors.invites.find((i) => i.channelId === key);
+      if (!invite) return;
+      if (action === "join") await doors.acceptInvite(invite);
+      else if (action === "dismiss") doors.dismissInvite(invite);
+      return;
+    }
+    case "meeting": {
+      const meeting = meetings.get(key);
+      if (!meeting) return;
+      meetings.delete(key);
+      if (action === "join") await enterMeeting(meeting.starId, meeting.channelId);
+      return;
+    }
+    case "myknock":
+      if (action === "cancel" && doors.myKnock?.knockId === key) await doors.cancelKnock();
+      return;
+  }
 }
 
 /**
@@ -266,6 +447,16 @@ export function startOverlay(bridge: DesktopBridge): void {
   let wake: ReturnType<typeof setTimeout> | null = null;
   let wakeIn = Infinity;
   const wakeAt = (ms: number) => { wakeIn = Math.min(wakeIn, ms); };
+  // «Скоро встреча» — из события сервера; живёт до начала встречи и ещё 5 минут.
+  const meetings = new Map<string, SoonMeeting>();
+  socket.on((event) => {
+    if (event.type !== "star_booking_soon") return;
+    const startsAt = Date.parse(event.starts_at);
+    if (!Number.isFinite(startsAt)) return;
+    meetings.set(event.booking_id, { id: event.booking_id, starId: event.star_id, channelId: event.channel_id,
+      title: event.title, room: event.room, startsAt });
+    push();
+  });
   const callTracks = () => {
     const call = useCallStore.getState();
     const tracks = new Map<string, MediaStreamTrack>();
@@ -299,7 +490,16 @@ export function startOverlay(bridge: DesktopBridge): void {
       roomState.focus = focus;
       if (wakeIn !== null) wakeAt(wakeIn);
     }
-    const state = callOverlaySnapshot(call, displayName(me) ?? "Я", speaking, prefs, filter) ?? roomState;
+    const now = Date.now();
+    for (const [id, m] of meetings) if (m.startsAt + MEETING_LINGER_MS <= now) meetings.delete(id);
+    const { toasts, wakeIn: toastsWake } = prefs.alerts
+      ? overlayToasts({ call, doors: useDoorsStore.getState(), details: useStarsStore.getState().details, myId: me?.id,
+        meetings: [...meetings.values()], now, quiet: (starId) => amResting(starId), dnd: isDoNotDisturb() })
+      : { toasts: [], wakeIn: null };
+    if (toastsWake !== null) wakeAt(toastsWake);
+    const base = callOverlaySnapshot(call, displayName(me) ?? "Я", speaking, prefs, filter) ?? roomState;
+    // Не в комнате: оверлей нужен для всплывашек или пока его переставляют.
+    const state = base ? { ...base, toasts } : toasts.length || useOverlayPrefs.getState().placing ? { ...emptyOverlay(prefs), toasts } : null;
     if (wake) clearTimeout(wake);
     wake = state && wakeIn < Infinity ? setTimeout(push, wakeIn + 20) : null;
     if (!state) lastSpoke.clear();
@@ -314,9 +514,19 @@ export function startOverlay(bridge: DesktopBridge): void {
   useCallStore.subscribe(push);
   useOverlayPrefs.subscribe(push);
   useRoomActivities.subscribe(push);
+  useDoorsStore.subscribe(push);
   bridge.onHotkey?.(overlayHotkey);
   bridge.onOverlayKeys?.((taken) => {
     const list = Array.isArray(taken) ? taken.filter((k): k is string => k === "mic" || k === "deafen") : [];
     useOverlayPrefs.setState({ keysTaken: list });
   });
+  bridge.onOverlayAction?.((value) => void overlayAction(value, meetings).finally(push));
+  // Оверлей перетащили — его место (и монитор) запоминаем как настройку.
+  bridge.onOverlayMoved?.((value) => {
+    const at = value as { display?: unknown; x?: unknown; y?: unknown } | null;
+    if (!at || !Number.isInteger(at.x) || !Number.isInteger(at.y)) return;
+    useOverlayPrefs.getState().setPrefs({ corner: "custom", position: { x: at.x as number, y: at.y as number },
+      display: Number.isSafeInteger(at.display) ? (at.display as number) : null });
+  });
+  bridge.onOverlayPlacing?.((on) => useOverlayPrefs.setState({ placing: on === true }));
 }

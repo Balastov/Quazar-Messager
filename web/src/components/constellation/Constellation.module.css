@@ -1185,10 +1185,6 @@
 
 .voiceToggle,
 .voiceToggleOff {
-  min-width: 64px;
-}
-
-.voiceToggleOff {
   background: rgba(248, 113, 113, 0.16);
   border-color: rgba(248, 113, 113, 0.45);
 }
@@ -1271,7 +1267,8 @@
 }
 
 .voiceBarInfo {
-  flex: 1;
+  /* Не уже 110px: если рядом с кнопками места меньше, кнопки переносятся строкой ниже. */
+  flex: 1 1 110px;
   min-width: 0;
   display: flex;
   flex-direction: column;
@@ -1287,6 +1284,28 @@
   font-size: 13px;
   font-weight: 700;
   color: #6ee7a0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.voiceBarActions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+/* Круглые кнопки одного размера — и включённые, и выключенные. */
+.voiceBarBtn {
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border-radius: 50%;
 }
 
 .voiceBarSub {

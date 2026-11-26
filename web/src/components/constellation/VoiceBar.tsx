@@ -54,53 +54,56 @@ export function VoiceBar({ floating = false }: { floating?: boolean }) {
           {detail ? ` · ${detail.name}` : ""}
         </span>
       </button>
-      {listenOnly ? (
-        <span className={s.voiceBarListen} title={`${placeNouns(detail?.kind).one} «Только слушать»: микрофон не используется`}>
-          🎧
-        </span>
-      ) : (
+      {/* Кнопки — одной группой: в узкой плашке уходят строкой ниже, не сжимая название. */}
+      <div className={s.voiceBarActions}>
+        {listenOnly ? (
+          <span className={s.voiceBarListen} title={`${placeNouns(detail?.kind).one} «Только слушать»: микрофон не используется`}>
+            🎧
+          </span>
+        ) : (
+          <button
+            type="button"
+            className={`${s.secondary} ${s.voiceBarBtn} ${micOn ? "" : s.voiceToggleOff}`}
+            onClick={() => void (micUnavailable ? retryMic() : toggleMic())}
+            disabled={serverMuted || status !== "connected"}
+            aria-label={micOn ? "Выключить микрофон" : "Включить микрофон"}
+            title={micOn ? "Выключить микрофон" : "Включить микрофон"}
+          >
+            {micOn ? <IconStarMic size={18} /> : <IconStarMicOff size={18} />}
+          </button>
+        )}
         <button
           type="button"
-          className={`${s.secondary} ${s.small} ${micOn ? "" : s.voiceToggleOff}`}
-          onClick={() => void (micUnavailable ? retryMic() : toggleMic())}
-          disabled={serverMuted || status !== "connected"}
-          aria-label={micOn ? "Выключить микрофон" : "Включить микрофон"}
-          title={micOn ? "Выключить микрофон" : "Включить микрофон"}
+          className={`${s.secondary} ${s.voiceBarBtn} ${deafened ? s.voiceToggleOff : ""}`}
+          onClick={() => void toggleDeafen()}
+          disabled={status !== "connected"}
+          aria-pressed={deafened}
+          aria-label={deafened ? "Включить звук собеседников" : "Выключить звук собеседников"}
+          title={deafened ? "Вы никого не слышите — включить звук собеседников" : "Выключить звук собеседников и свой микрофон"}
         >
-          {micOn ? <IconStarMic size={18} /> : <IconStarMicOff size={18} />}
+          {deafened ? <IconStarHeadphonesOff size={18} /> : <IconStarHeadphones size={18} />}
         </button>
-      )}
-      <button
-        type="button"
-        className={`${s.secondary} ${s.small} ${deafened ? s.voiceToggleOff : ""}`}
-        onClick={() => void toggleDeafen()}
-        disabled={status !== "connected"}
-        aria-pressed={deafened}
-        aria-label={deafened ? "Включить звук собеседников" : "Выключить звук собеседников"}
-        title={deafened ? "Вы никого не слышите — включить звук собеседников" : "Выключить звук собеседников и свой микрофон"}
-      >
-        {deafened ? <IconStarHeadphonesOff size={18} /> : <IconStarHeadphones size={18} />}
-      </button>
-      {sharingScreen && (
+        {sharingScreen && (
+          <button
+            type="button"
+            className={`${s.secondary} ${s.voiceBarBtn} ${s.screenActive}`}
+            onClick={() => void stopScreenShare()}
+            aria-label="Остановить показ экрана"
+            title="Вы показываете экран — остановить"
+          >
+            <IconScreenStop size={18} />
+          </button>
+        )}
         <button
           type="button"
-          className={`${s.secondary} ${s.small} ${s.screenActive}`}
-          onClick={() => void stopScreenShare()}
-          aria-label="Остановить показ экрана"
-          title="Вы показываете экран — остановить"
+          className={`${s.danger} ${s.voiceBarBtn}`}
+          onClick={() => void leave()}
+          aria-label={words.leave}
+          title={words.leave}
         >
-          <IconScreenStop size={18} />
+          ✕
         </button>
-      )}
-      <button
-        type="button"
-        className={`${s.danger} ${s.small}`}
-        onClick={() => void leave()}
-        aria-label={words.leave}
-        title={words.leave}
-      >
-        ✕
-      </button>
+      </div>
       {recorder && (
         <span className={s.voiceBarRecording} role="status" title={`Идёт запись — записывает ${recorderName}`}>
           <span className={s.recordingDot} aria-hidden />

@@ -276,3 +276,19 @@
   align-self: center;
   font-size: 13px;
 }
+
+/* «Вы задавали пароль для восстановления» на экране проверки номера. */
+.backupOffer {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid rgba(108, 99, 255, 0.45);
+  border-radius: 10px;
+  background: rgba(108, 99, 255, 0.08);
+}
+
+.backupOffer p {
+  margin: 0;
+}

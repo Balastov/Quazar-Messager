@@ -63,12 +63,14 @@ export default function SecuritySection() {
         <section className={s.card} aria-label="Восстановление переписки" data-tour="security-backup">
           <h3 className={s.sectionTitle}>Восстановление переписки</h3>
           <p className={s.hint}>
-            Пароль для восстановления пригодится, если все ваши устройства окажутся недоступны.
+            Необязательно. Без пароля переписку на новом устройстве откроет другое ваше устройство, а если
+            доступа к ним нет — проверка номера: новые сообщения будут читаться, но старые личные не
+            вернутся. С паролем для восстановления вернутся и старые.
           </p>
           {hasServerBackup ? (
             <p className={s.statusOk}>✓ Пароль задан.</p>
           ) : (
-            <p className={s.hint}>Пароль пока не задан — рекомендуем задать.</p>
+            <p className={s.hint}>Пароль не задан.</p>
           )}
           <input
             className={s.input}

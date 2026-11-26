@@ -115,16 +115,18 @@ it("points a new device to the server backup when no other device is signed in",
   await act(async () => root.render(createElement(KeyHelp)));
   await flush();
   expect(text()).toContain("В списке сеансов других устройств нет");
-  const option = [...document.querySelectorAll("b")].find((node) => node.textContent?.startsWith("2."))!.parentElement!;
+  const option = [...document.querySelectorAll("b")].find((node) => node.textContent?.startsWith("3."))!.parentElement!;
   expect(option.textContent).toContain("Ваш вариант");
 });
 
-it("does not promise a way out when there is neither a backup nor another device", async () => {
+it("points to the phone check when there is neither a backup nor another device", async () => {
   await act(async () => root.render(createElement(KeyHelp)));
   await flush();
-  expect(text()).not.toContain("Ваш вариант");
+  const option = [...document.querySelectorAll("b")].find((node) => node.textContent?.startsWith("2."))!.parentElement!;
+  expect(option.textContent).toContain("подтвердить номер");
+  expect(option.textContent).toContain("Ваш вариант");
+  expect(text().match(/Ваш вариант/g)).toHaveLength(1);
   expect(text()).toContain("копии на сервере нет");
-  expect(text()).toContain("Если ключа нет нигде");
 });
 
 it("explains a key that was changed on another device", async () => {
@@ -148,7 +150,7 @@ it("skips devices known to have no key and points to the backup", async () => {
   await act(async () => root.render(createElement(KeyHelp)));
   await flush();
   expect(text()).toContain("Ни на одном другом устройстве, где вы сейчас вошли, ключа нет");
-  const option = [...document.querySelectorAll("b")].find((node) => node.textContent?.startsWith("2."))!.parentElement!;
+  const option = [...document.querySelectorAll("b")].find((node) => node.textContent?.startsWith("3."))!.parentElement!;
   expect(option.textContent).toContain("Ваш вариант");
 });
 

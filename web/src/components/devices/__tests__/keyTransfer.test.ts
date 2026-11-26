@@ -15,10 +15,19 @@ const e2e = vi.hoisted(() => ({
 vi.mock("../../../store/e2e", () => ({
   useE2EStore: Object.assign((selector: (value: typeof e2e) => unknown) => selector(e2e), { getState: () => e2e }),
 }));
-const auth = vi.hoisted(() => ({ user: { id: "alice", has_password: false, phone_verified_at: null } }));
+const auth = vi.hoisted(() => ({ user: { id: "alice", has_password: false, phone_verified_at: null as string | null, phone: null as string | null } }));
 vi.mock("../../../store/auth", () => ({
   useAuthStore: Object.assign((selector: (value: typeof auth) => unknown) => selector(auth), { getState: () => auth }),
 }));
+// Проверка звонком — заглушка: нажали «Звонок прошёл», и номер подтверждён.
+vi.mock("../../profile/PhoneVerification", async () => {
+  const { createElement: h } = await import("react");
+  return { default: ({ onVerified }: { onVerified(token: string): void }) => h("button", { type: "button", onClick: () => onVerified("call-proof") }, "Звонок прошёл") };
+});
+vi.mock("../../../api/auth", async (original) => {
+  const real = await original<typeof import("../../../api/auth")>();
+  return { ...real, authApi: { ...real.authApi, signInMethods: vi.fn(async () => ({ identities: [] })) } };
+});
 const ws = vi.hoisted(() => ({ handlers: new Set<(event: unknown) => void>() }));
 vi.mock("../../../ws/socket", () => ({ socket: { on: (handler: (event: unknown) => void) => { ws.handlers.add(handler); return () => ws.handlers.delete(handler); }, onStatus: () => () => {} } }));
 vi.mock("../../../api/devices", () => ({ devicesApi: {
@@ -142,19 +151,23 @@ it("offers to try again when the other device cancelled", async () => {
   expect(devicesApi.requestKeys).toHaveBeenCalledTimes(2);
 });
 
-it("opens with the device route, then the recovery password, then a fresh start", async () => {
+it("opens with the device route, then the phone check, with the recovery password as a link", async () => {
   await act(async () => root.render(createElement(E2EKeyGate)));
   await settle(0);
   expect(host.textContent).toContain("Откройте переписку на этом устройстве");
   expect(host.textContent).toContain("iPhone · Quazar");
   expect(devicesApi.requestKeys).toHaveBeenCalledOnce();
   await act(async () => Simulate.click(button("Нет доступа к другим устройствам")!));
+  // Как в WhatsApp: без другого устройства — подтверждение, а не пароль.
+  expect(host.textContent).toContain("Подтвердите, что это вы");
+  expect(host.textContent).toContain("собеседники увидят пометку «ключ шифрования изменился»");
+  expect(host.textContent).toContain("На остальных ваших устройствах переписку нужно будет открыть заново");
+  expect(host.textContent).toContain("с ним вернутся и старые сообщения");
+  await act(async () => Simulate.click(button("Ввести пароль для восстановления")!));
   expect(host.textContent).toContain("Введите пароль для восстановления");
   expect(host.textContent).toContain("Это не пароль от аккаунта и не код из звонка");
   await act(async () => Simulate.click(button("Не помню пароль")!));
-  expect(host.textContent).toContain("Начать переписку заново");
-  expect(host.textContent).toContain("собеседники увидят пометку «ключ шифрования изменился»");
-  expect(host.textContent).toContain("На остальных ваших устройствах переписку нужно будет открыть заново");
+  expect(host.textContent).toContain("Подтвердите, что это вы");
   await act(async () => Simulate.click(button("Назад")!));
   expect(host.textContent).toContain("Откройте переписку на этом устройстве");
 });
@@ -164,10 +177,33 @@ it("skips the device route when no other device has the key", async () => {
   e2e.hasServerBackup = false;
   await act(async () => root.render(createElement(E2EKeyGate)));
   await settle(0);
-  expect(host.textContent).toContain("Начать переписку заново");
+  expect(host.textContent).toContain("Подтвердите, что это вы");
+  expect(host.textContent).not.toContain("Ввести пароль для восстановления");
   expect(devicesApi.requestKeys).not.toHaveBeenCalled();
   await act(async () => Simulate.click(button("Есть файл копии")!));
   expect(host.textContent).toContain("понадобится файл копии");
+  await act(async () => Simulate.click(button("Назад")!));
+  expect(host.textContent).toContain("Подтвердите, что это вы");
+});
+
+it("opens the chats right after the phone check, without a password", async () => {
+  vi.mocked(devicesApi.list).mockResolvedValue([device("Этот", false, true)]);
+  e2e.hasServerBackup = false;
+  const before = auth.user;
+  auth.user = { ...before, phone: "+79991234567", phone_verified_at: "2026-11-01T00:00:00Z" };
+  try {
+    await act(async () => root.render(createElement(E2EKeyGate)));
+    await settle(0);
+    expect(host.textContent).toContain("Подтвердите номер");
+    expect(host.textContent).toContain("пароль не нужен");
+    expect(button("Продолжить")).toBeUndefined();
+    await act(async () => Simulate.click(button("Звонок прошёл")!));
+    await settle(0);
+    expect(e2e.rotate).toHaveBeenCalledOnce();
+    expect(e2e.rotate).toHaveBeenCalledWith({ phoneProof: "call-proof" });
+  } finally {
+    auth.user = before;
+  }
 });
 
 describe("on the device that can read the chats", () => {

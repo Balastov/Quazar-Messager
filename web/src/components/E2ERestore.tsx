@@ -4,7 +4,9 @@ import { devicesApi, type DeviceSession } from "../api/devices";
 import { clearReauth } from "../auth/reauth";
 import { loggedInByCode } from "../auth/loginVia";
 import { StaleBackupError, type AccountProof } from "../crypto/keys";
+import { useAuthStore } from "../store/auth";
 import { useE2EStore } from "../store/e2e";
+import { formatRuPhoneDisplay } from "../utils/phone";
 import DeviceKeyReceiver from "./devices/DeviceKeyReceiver";
 import AccountProofInput from "./profile/AccountProofInput";
 import { apiErrorText } from "../utils/profile";
@@ -19,11 +21,12 @@ function errorText(err: unknown, fallback: string): string {
   return apiErrorText(err, fallback);
 }
 
-/** Куда вести сразу: другое устройство, пароль для восстановления или «начать заново». */
-export function firstRoute(others: DeviceSession[] | null, hasServerBackup: boolean): Route {
+/** Куда вести сразу: другое своё устройство, а нет его — проверка номера (как в WhatsApp).
+ * Пароль для восстановления — не обязательный шаг, а ссылка на экране проверки номера. */
+export function firstRoute(others: DeviceSession[] | null): Route {
   // Неизвестно (старая версия не сообщала или список не загрузился) — тоже шанс, что переписка там читается.
   if (others === null || others.some((device) => device.has_account_key !== false)) return "device";
-  return hasServerBackup ? "backup" : "fresh";
+  return "fresh";
 }
 
 function names(devices: DeviceSession[]): string {
@@ -32,7 +35,8 @@ function names(devices: DeviceSession[]): string {
 
 /**
  * Переписка на этом устройстве не читается: окно с одним понятным действием. Сначала — подтвердить
- * вход на другом своём устройстве; нет к нему доступа — пароль для восстановления; нет и его — начать заново.
+ * вход на другом своём устройстве; нет к нему доступа — подтвердить номер (новый ключ, как в WhatsApp).
+ * Пароль для восстановления, если его задавали, — ссылка на экране проверки номера: вернёт и старые сообщения.
  */
 export default function E2ERestore({ onLater }: { onLater(): void }) {
   const hasServerBackup = useE2EStore((st) => st.hasServerBackup);
@@ -52,15 +56,15 @@ export default function E2ERestore({ onLater }: { onLater(): void }) {
     };
   }, []);
   useEffect(() => {
-    if (others !== undefined && route === null) setRoute(firstRoute(others, hasServerBackup));
-  }, [others, route, hasServerBackup]);
+    if (others !== undefined && route === null) setRoute(firstRoute(others));
+  }, [others, route]);
 
   const candidates = others?.filter((device) => device.has_account_key !== false) ?? [];
   // Называем те, где переписка точно читается; если таких не знаем — возможные. Не больше трёх.
   const known = candidates.filter((device) => device.has_account_key === true);
   const named = (known.length > 0 ? known : candidates).slice(0, 3);
   const canAskDevice = others === null || candidates.length > 0;
-  const noAccess = () => setRoute(hasServerBackup ? "backup" : "fresh");
+  const noAccess = () => setRoute("fresh");
 
   let content: React.ReactNode = <p className={s.hint}>Проверяем…</p>;
   if (route === "device") {
@@ -80,13 +84,13 @@ export default function E2ERestore({ onLater }: { onLater(): void }) {
       </>
     );
   } else if (route === "backup") {
-    content = <BackupRoute onForgot={() => setRoute("fresh")} onBack={canAskDevice ? () => setRoute("device") : undefined} />;
+    content = <BackupRoute onForgot={() => setRoute("fresh")} onBack={hasServerBackup ? undefined : () => setRoute("fresh")} />;
   } else if (route === "fresh") {
     content = (
       <FreshRoute
         othersCount={others?.length ?? 0}
-        onFile={hasServerBackup ? undefined : () => setRoute("backup")}
-        onBack={canAskDevice ? () => setRoute("device") : hasServerBackup ? () => setRoute("backup") : undefined}
+        onBackup={() => setRoute("backup")}
+        onBack={canAskDevice ? () => setRoute("device") : undefined}
       />
     );
   }
@@ -236,20 +240,26 @@ function BackupRoute({ onForgot, onBack }: { onForgot(): void; onBack?: () => vo
   );
 }
 
-/** Э4: ни другого устройства, ни пароля — новый ключ. */
-function FreshRoute({ othersCount, onFile, onBack }: { othersCount: number; onFile?: () => void; onBack?: () => void }) {
+/** Э4: другого устройства нет — подтвердить номер, и здесь появится новый ключ (как в WhatsApp). */
+function FreshRoute({ othersCount, onBackup, onBack }: { othersCount: number; onBackup(): void; onBack?: () => void }) {
   const busy = useE2EStore((st) => st.busy);
+  const hasServerBackup = useE2EStore((st) => st.hasServerBackup);
+  const phone = useAuthStore((st) => (st.user?.phone_verified_at ? st.user.phone : null));
   const [proof, setProof] = useState<AccountProof | null>(null);
   const [proofRound, setProofRound] = useState(0);
   const [error, setError] = useState("");
+  const started = useRef(false);
 
-  const start = async () => {
+  const start = async (given: AccountProof) => {
+    if (started.current) return;
+    started.current = true;
     setError("");
     try {
-      await useE2EStore.getState().rotate(proof!);
+      await useE2EStore.getState().rotate(given);
     } catch (err) {
-      setError(errorText(err, "Не удалось начать заново"));
+      setError(errorText(err, "Не удалось открыть переписку"));
     } finally {
+      started.current = false;
       clearReauth();
       setProof(null);
       setProofRound((n) => n + 1);
@@ -258,32 +268,56 @@ function FreshRoute({ othersCount, onFile, onBack }: { othersCount: number; onFi
 
   return (
     <>
-      <h3 className={s.title}>Начать переписку заново</h3>
+      <h3 className={s.title}>{phone ? "Подтвердите номер" : "Подтвердите, что это вы"}</h3>
       <p className={s.lead}>
-        Старые личные сообщения здесь прочитать не получится: ключ к ним остался там, куда у вас сейчас
-        нет доступа. Новые сообщения будут читаться как обычно, а собеседники увидят пометку «ключ
-        шифрования изменился».
+        {phone ? (
+          <>
+            Позвоните с <b>{formatRuPhoneDisplay(phone)}</b> на проверочный номер — разговаривать и вводить код не
+            нужно. После проверки на этом устройстве появится новый ключ шифрования — пароль не нужен.
+          </>
+        ) : (
+          "После подтверждения на этом устройстве появится новый ключ шифрования."
+        )}{" "}
+        Новые сообщения будут читаться как обычно, а собеседники увидят пометку «ключ шифрования изменился».
+        Старые личные сообщения здесь не откроются — их ключ остался на прежних устройствах.
         {othersCount > 0 && " На остальных ваших устройствах переписку нужно будет открыть заново."}
       </p>
+      {hasServerBackup && (
+        <section className={s.backupOffer}>
+          <p className={s.hint}>
+            Вы задавали пароль для восстановления — с ним вернутся и старые сообщения.
+          </p>
+          <button type="button" className={s.link} onClick={onBackup}>
+            Ввести пароль для восстановления
+          </button>
+        </section>
+      )}
       <section className={s.section}>
-        <p className={s.hint}>Подтвердите, что это вы:</p>
         <AccountProofInput
           key={`rotate-${proofRound}`}
           purpose="app"
-          onChange={setProof}
+          onChange={(next) => {
+            setProof(next);
+            // Как в WhatsApp: номер подтвердили — сразу продолжаем, без лишней кнопки.
+            if (next && "phoneProof" in next) void start(next);
+          }}
           disabled={busy}
           inputClassName={s.input}
           buttonClassName={s.primary}
           hintClassName={s.hint}
         />
-        <button type="button" className={s.danger} disabled={busy || !proof} onClick={() => void start()}>
-          {busy ? "Начинаем…" : "Начать заново"}
-        </button>
+        {/* Звонок подтверждает и запускает сам; кнопка — для пароля аккаунта и Яндекс ID. */}
+        {!(proof && "phoneProof" in proof) && !(phone && !proof) && (
+          <button type="button" className={s.primary} disabled={busy || !proof} onClick={() => proof && void start(proof)}>
+            {busy ? "Открываем…" : "Продолжить"}
+          </button>
+        )}
+        {busy && proof && "phoneProof" in proof && <p className={s.hint}>Открываем переписку…</p>}
       </section>
       {error && <div className={s.statusErr} role="alert">{error}</div>}
       <div className={s.links}>
-        {onFile && (
-          <button type="button" className={s.link} onClick={onFile}>
+        {!hasServerBackup && (
+          <button type="button" className={s.link} onClick={onBackup}>
             Есть файл копии
           </button>
         )}

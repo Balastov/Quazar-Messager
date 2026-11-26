@@ -7,27 +7,15 @@ import { usePresenting } from "../notifications/presenting";
 import E2ERestore from "./E2ERestore";
 import KeyRequestPrompt, { useIncomingKeyRequest } from "./devices/KeyRequestPrompt";
 
-const BACKUP_HINT_DISMISSED_KEY = "quazar_e2e_backup_hint_dismissed";
-
-function readHintDismissed(): boolean {
-  try {
-    return localStorage.getItem(BACKUP_HINT_DISMISSED_KEY) === "1";
-  } catch {
-    return false;
-  }
-}
-
 /**
  * Следит, чтобы переписка читалась на этом устройстве: открывает её с другого своего устройства
- * (или по паролю для восстановления), спрашивает «Это вы входите?», когда её просит новое устройство,
- * и напоминает задать пароль для восстановления.
+ * (или после проверки номера), и спрашивает «Это вы входите?», когда её просит новое устройство.
+ * Пароль для восстановления не навязываем: он необязателен, как зашифрованная копия в WhatsApp.
  */
 export default function E2EKeyGate() {
   const status = useE2EStore((st) => st.status);
-  const hasServerBackup = useE2EStore((st) => st.hasServerBackup);
   const restorePromptOpen = useE2EStore((st) => st.restorePromptOpen);
   const setRestorePromptOpen = useE2EStore((st) => st.setRestorePromptOpen);
-  const [hintDismissed, setHintDismissed] = useState(readHintDismissed);
   // Строка сверху закрывает поиск и заголовки — её можно убрать до следующего запуска.
   const [bannerHidden, setBannerHidden] = useState(false);
   // Отдать переписку другому устройству можно, только если здесь она читается.
@@ -64,39 +52,6 @@ export default function E2EKeyGate() {
 
   if (status === "ready" && keyRequest.request && (!presenting || keyRequest.engaged)) {
     return <KeyRequestPrompt key={keyRequest.request.id} incoming={{ ...keyRequest, request: keyRequest.request }} />;
-  }
-
-  if (status === "ready" && !hasServerBackup && !hintDismissed && !inSettings) {
-    return (
-      <div className={s.banner}>
-        <span className={s.bannerText}>
-          Задайте пароль для восстановления — он вернёт переписку, если все ваши устройства окажутся
-          недоступны.
-        </span>
-        <button
-          type="button"
-          className={s.bannerAction}
-          onClick={() => useUiStore.getState().openSettings("security")}
-        >
-          Задать
-        </button>
-        <button
-          type="button"
-          className={s.close}
-          aria-label="Скрыть"
-          onClick={() => {
-            try {
-              localStorage.setItem(BACKUP_HINT_DISMISSED_KEY, "1");
-            } catch {
-              // ignore
-            }
-            setHintDismissed(true);
-          }}
-        >
-          ✕
-        </button>
-      </div>
-    );
   }
 
   return null;

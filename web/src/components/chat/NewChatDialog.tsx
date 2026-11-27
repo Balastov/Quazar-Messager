@@ -4,7 +4,7 @@ import type { User } from "../../api/types";
 import { useAuthStore } from "../../store/auth";
 import { useChatStore } from "../../store/chat";
 import { useContactsStore } from "../../store/contacts";
-import { canSearchUsers, extractRuLocalDigits } from "../../utils/phone";
+import { canSearchUsers, phoneSearchDigits } from "../../utils/phone";
 import { displayName } from "../../utils/profile";
 import { contactRows } from "../../chat/lists";
 import UserAvatar from "../UserAvatar";
@@ -29,7 +29,7 @@ export default function NewChatDialog({ onClose, onOpen }: { onClose: () => void
     const rows = contactRows(chats, phonebook, myId, phonebookNames).filter((row) => !row.bot);
     const q = query.trim().toLowerCase();
     if (!q) return rows;
-    const digits = extractRuLocalDigits(query);
+    const digits = phoneSearchDigits(query);
     return rows.filter((row) => row.name.toLowerCase().includes(q) || row.user.username.toLowerCase().includes(q)
       || (digits.length >= 3 && !!row.user.phone?.includes(digits)));
   }, [chats, phonebook, myId, phonebookNames, query]);

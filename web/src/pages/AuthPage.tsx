@@ -3,12 +3,13 @@ import { useNavigate } from "react-router-dom";
 import { authApi } from "../api/auth";
 import { phoneVerificationApi } from "../api/phoneVerification";
 import { useAuthStore } from "../store/auth";
-import { formatRuPhoneMask, isCompleteRuPhone, toE164Ru } from "../utils/phone";
+import { formatPhoneInput, toE164 } from "../utils/phone";
 import { apiErrorText, USERNAME_MAX } from "../utils/profile";
 import { useUsernameCheck } from "../components/profile/useUsernameCheck";
 import PhoneVisibilityChoice from "../components/profile/PhoneVisibilityChoice";
 import ForgotPasswordDialog from "../components/profile/ForgotPasswordDialog";
 import PhoneVerification from "../components/profile/PhoneVerification";
+import PhoneCountryHint from "../components/profile/PhoneCountryHint";
 import s from "./AuthPage.module.css";
 import { desktop } from "../platform/desktop";
 import { startDesktopYandexLogin } from "../auth/desktopYandex";
@@ -38,7 +39,7 @@ export default function AuthPage() {
   const setToken = useAuthStore(st => st.setToken);
   const navigate = useNavigate();
   const check = useUsernameCheck(screen === "profile" ? username : "");
-  const e164 = isCompleteRuPhone(phone) ? toE164Ru(phone) : null;
+  const e164 = toE164(phone);
   useEffect(() => { void authApi.providers().then(p => setYandex(p.yandex)).catch(() => {}); }, []);
   useEffect(() => {
     let active = true;
@@ -91,7 +92,7 @@ export default function AuthPage() {
   return <div className={s.root}><div className={s.card}><div className={s.formCard}>
     <button type="button" className={s.back} onClick={() => go(screen === "profile" ? "register" : "welcome")}>← Назад</button>
     <h2 className={s.formTitle}>{screen === "login" ? "Вход" : screen === "profile" ? "Как вас представить?" : "Регистрация"}</h2>
-    {screen === "login" && !legacy && <p className={s.lead}>Введите номер телефона и войдите звонком. Уже вошли в Quazar на другом устройстве — получите туда код.</p>}
+    {screen === "login" && !legacy && <p className={s.lead}>Введите номер телефона и войдите звонком или кодом из Telegram. Уже вошли в Quazar на другом устройстве — получите туда код.</p>}
     {screen === "login" && !legacy && <button type="button" className={s.ghost} onClick={() => go("device")}>Войти по QR-коду</button>}
     {screen === "register" && <p className={s.lead}>Сначала подтвердите телефон. Пароль для регистрации не нужен.</p>}
     <form className={s.form} onSubmit={event => void submit(event)}>
@@ -107,8 +108,9 @@ export default function AuthPage() {
         <PhoneVisibilityChoice value={discoverable} onChange={setDiscoverable} disabled={busy} />
         <button className={s.submit} type="submit" disabled={busy || check.state !== "ok" || discoverable === null}>{busy ? "Создаём аккаунт…" : "Создать аккаунт"}</button>
       </> : <>
-        <input className={s.input} type="tel" inputMode="numeric" aria-label="Номер телефона" placeholder="+7 (999) 000-00-00" value={phone}
-          onChange={event => { setPhone(formatRuPhoneMask(event.target.value)); setProof(undefined); setError(""); }} required autoComplete="tel" />
+        <input className={s.input} type="tel" inputMode="tel" aria-label="Номер телефона" placeholder="+7 (999) 000-00-00" value={phone}
+          onChange={event => { setPhone(formatPhoneInput(event.target.value)); setProof(undefined); setError(""); }} required autoComplete="tel" />
+        <PhoneCountryHint phone={phone} className={s.hint} />
         {screen === "login" && legacy ? <>
           <input className={s.input} type="password" placeholder="Пароль" value={password} onChange={event => setPassword(event.target.value)} required autoComplete="current-password" />
           <button className={s.submit} type="submit" disabled={busy || !e164 || !password}>Войти</button>

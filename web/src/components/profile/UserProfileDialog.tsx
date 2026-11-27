@@ -12,7 +12,7 @@ import { useProfileStore, type ProfileTarget } from "../../store/profile";
 import { useStarsStore } from "../../store/stars";
 import { useUiStore } from "../../store/ui";
 import { presenceTone } from "../../utils/presence";
-import { formatRuPhoneDisplay } from "../../utils/phone";
+import { formatPhoneDisplay } from "../../utils/phone";
 import { showOpenedChat } from "../../chat/showOpenedChat";
 import Dialog from "../constellation/Dialog";
 import PremiumBadge from "../premium/PremiumBadge";
@@ -143,7 +143,7 @@ function UserProfileDialog({ target, onClose }: { target: ProfileTarget; onClose
           {user?.phone && (
             <div>
               <dt>Телефон</dt>
-              <dd>{formatRuPhoneDisplay(user.phone)}</dd>
+              <dd>{formatPhoneDisplay(user.phone)}</dd>
             </div>
           )}
           {user?.created_at && (

@@ -27,7 +27,7 @@ from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.core.e2e import decode_public_key_b64
 from app.core.e2e_users import get_direct_chat_partner_ids
-from app.core.phone import normalize_ru_phone
+from app.core.phone import normalize_phone
 from app.core.security import verify_password
 from app.models.user import User
 from app.schemas.user import MeOut, UpdateProfile, UserOut
@@ -340,7 +340,7 @@ async def search_users(
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    """Поиск по никнейму, имени и фамилии; по номеру (+7…) — только целиком и только тех,
+    """Поиск по никнейму, имени и фамилии; по номеру — только целиком и только тех,
     кто разрешил находить себя по номеру."""
     query = q.strip()
     if len(query) < 2 and len(re.sub(r"\D", "", query)) < 3:
@@ -354,7 +354,7 @@ async def search_users(
         conditions.append(User.last_name.ilike(like))
     # По кусочку номера не ищем: так перебором находились бы и чужие номера.
     try:
-        phone = normalize_ru_phone(query)
+        phone = normalize_phone(query)
     except ValueError:
         phone = None
     if phone:

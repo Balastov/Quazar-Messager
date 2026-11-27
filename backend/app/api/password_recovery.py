@@ -11,7 +11,7 @@ from sqlalchemy import func, select
 from app.api.admin import Super, Db
 from app.api.support import AdminTicketDetail, _detail
 from app.core import passwords, support
-from app.core.phone import normalize_ru_phone
+from app.core.phone import normalize_phone
 from app.core.security import create_access_token
 from app.models.support import SupportTicket
 from app.models.user import User
@@ -84,7 +84,7 @@ async def forgot_password(body: ForgotPasswordBody, request: Request, db: Db):
         condition = func.lower(User.username) == body.login.removeprefix("@").lower()
         if body.login[0].isdigit() or body.login[0] in "+(":
             try:
-                condition = User.phone == normalize_ru_phone(body.login)
+                condition = User.phone == normalize_phone(body.login)
             except ValueError:
                 pass
         user = (await db.execute(select(User).where(condition, User.is_official.is_(False),

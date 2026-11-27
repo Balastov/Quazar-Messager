@@ -2,6 +2,8 @@ import { http } from "./client";
 
 export interface PhoneVerification {
   state: "pending" | "verified" | "expired" | "failed";
+  /** call — входящий звонок (+7), telegram — код в Telegram (номера других стран). */
+  method?: "call" | "telegram";
   phone: string;
   call_phone: string | null;
   expires_at: string;
@@ -16,8 +18,8 @@ export const phoneVerificationApi = {
   start: (phone: string, account: PhoneMode = false) => http.post<PhoneVerification>(
     `${path(account)}/start`, account === true || account === "reauth" ? {} : { phone },
   ).then(r => r.data),
-  status: (token: string, account: PhoneMode = false) => http.post<PhoneVerification>(
-    `${path(account)}/status`, { verification_token: token },
+  status: (token: string, account: PhoneMode = false, code?: string) => http.post<PhoneVerification>(
+    `${path(account)}/status`, code === undefined ? { verification_token: token } : { verification_token: token, code },
   ).then(r => r.data),
   completeLogin: (token: string) => http.post<{access_token: string}>("/auth/phone-login/complete", {verification_token: token}).then(r => r.data),
   reminder: () => http.post<{due: boolean; next_at: string; server_time: string}>("/users/me/phone-verification/reminder").then(r => r.data),

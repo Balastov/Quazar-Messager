@@ -12,3 +12,4 @@ pywebpush==2.0.1
 py-vapid==1.9.1
 httpx==0.28.1
 regex==2026.9.29
+phonenumbers==9.0.43

@@ -13,6 +13,7 @@
     "@sapphi-red/web-noise-suppressor": "0.4.1",
     "axios": "^1.7.9",
     "jsqr": "1.4.0",
+    "libphonenumber-js": "1.13.16",
     "livekit-client": "2.22.3",
     "lottie-web": "5.12.2",
     "lucide-react": "0.468.0",

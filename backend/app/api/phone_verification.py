@@ -12,7 +12,7 @@ from app.core.accounts import phone_taken, TAKEN
 from app.core.database import get_db
 from app.core.config import settings
 from app.core.deps import get_current_user
-from app.core.phone import normalize_ru_phone
+from app.core.phone import normalize_phone
 from app.models.user import User
 from app.models.phone_verification import PhoneVerification
 from app.core.security import create_access_token
@@ -30,15 +30,28 @@ class StartBody(BaseModel):
     @field_validator("phone")
     @classmethod
     def phone_valid(cls, value):
-        return normalize_ru_phone(value)
+        return normalize_phone(value)
 
 
 class StatusBody(BaseModel):
     verification_token: str = Field(min_length=32, max_length=128)
+    # Код из Telegram — только для проверок method="telegram".
+    code: str | None = Field(default=None, max_length=16)
+
+    @field_validator("code")
+    @classmethod
+    def code_digits(cls, value):
+        if value is None:
+            return None
+        value = "".join(ch for ch in value if not ch.isspace() and ch != "-")
+        if len(value) != 6 or not value.isascii() or not value.isdigit():
+            raise ValueError("Код — 6 цифр")
+        return value
 
 
 class VerificationOut(BaseModel):
     state: str
+    method: str
     phone: str
     call_phone: str | None
     expires_at: datetime
@@ -47,7 +60,7 @@ class VerificationOut(BaseModel):
 
 
 def output(attempt, state=None, token=None):
-    return VerificationOut(state=state or attempt.state, phone=attempt.phone, call_phone=attempt.call_phone,
+    return VerificationOut(state=state or attempt.state, method=attempt.method, phone=attempt.phone, call_phone=attempt.call_phone,
         expires_at=attempt.expires_at, verification_token=token)
 
 
@@ -70,7 +83,7 @@ async def start_registration(body: StartBody, request: Request, db: Db):
 
 @router.post("/auth/phone-verification/status", response_model=VerificationOut)
 async def registration_status(body: StatusBody, db: Db):
-    attempt, state = await verification.status(db, body.verification_token)
+    attempt, state = await verification.status(db, body.verification_token, code=body.code)
     return output(attempt, state)
 
 
@@ -83,7 +96,7 @@ async def start_account(request: Request, me: Me, db: Db):
 @router.post("/users/me/phone-verification/status", response_model=VerificationOut)
 async def account_status(body: StatusBody, me: Me, db: Db):
     was_verified = bool(me.phone_verified_at)
-    attempt, state = await verification.status(db, body.verification_token, me.id)
+    attempt, state = await verification.status(db, body.verification_token, me.id, code=body.code)
     result = output(attempt, state)
     if state == "verified" and not was_verified:
         result.access_token = create_access_token(me.id, method="phone_verified")
@@ -110,7 +123,7 @@ async def login_options(body: StartBody, db: Db):
 
 @router.post("/auth/phone-login/status", response_model=VerificationOut)
 async def login_status(body: StatusBody, db: Db):
-    attempt, state = await verification.status(db, body.verification_token, purpose="login")
+    attempt, state = await verification.status(db, body.verification_token, purpose="login", code=body.code)
     return output(attempt, state)
 
 
@@ -139,5 +152,5 @@ async def start_reauth(request: Request, me: Me, db: Db):
 
 @router.post("/users/me/phone-reauth/status", response_model=VerificationOut)
 async def reauth_status(body: StatusBody, me: Me, db: Db):
-    attempt, state = await verification.status(db, body.verification_token, me.id, purpose="reauth")
+    attempt, state = await verification.status(db, body.verification_token, me.id, purpose="reauth", code=body.code)
     return output(attempt, state)

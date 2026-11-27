@@ -6,7 +6,7 @@ import { loggedInByCode } from "../auth/loginVia";
 import { StaleBackupError, type AccountProof } from "../crypto/keys";
 import { useAuthStore } from "../store/auth";
 import { useE2EStore } from "../store/e2e";
-import { formatRuPhoneDisplay } from "../utils/phone";
+import { formatPhoneDisplay, verifiesByTelegram } from "../utils/phone";
 import DeviceKeyReceiver from "./devices/DeviceKeyReceiver";
 import AccountProofInput from "./profile/AccountProofInput";
 import { apiErrorText } from "../utils/profile";
@@ -270,9 +270,14 @@ function FreshRoute({ othersCount, onBackup, onBack }: { othersCount: number; on
     <>
       <h3 className={s.title}>{phone ? "Подтвердите номер" : "Подтвердите, что это вы"}</h3>
       <p className={s.lead}>
-        {phone ? (
+        {phone && verifiesByTelegram(phone) ? (
           <>
-            Позвоните с <b>{formatRuPhoneDisplay(phone)}</b> на проверочный номер — разговаривать и вводить код не
+            Подтвердите <b>{formatPhoneDisplay(phone)}</b> кодом, который придёт в Telegram. После проверки на этом
+            устройстве появится новый ключ шифрования — пароль не нужен.
+          </>
+        ) : phone ? (
+          <>
+            Позвоните с <b>{formatPhoneDisplay(phone)}</b> на проверочный номер — разговаривать и вводить код не
             нужно. После проверки на этом устройстве появится новый ключ шифрования — пароль не нужен.
           </>
         ) : (

@@ -4,11 +4,12 @@ import { authApi, type YandexProfile } from "../api/auth";
 import { useAuthStore } from "../store/auth";
 import { useUiStore } from "../store/ui";
 import { saveReauthCode } from "../auth/reauth";
-import { formatRuPhoneMask, isCompleteRuPhone, toE164Ru } from "../utils/phone";
+import { formatPhoneInput, isCompletePhone, toE164 } from "../utils/phone";
 import { apiErrorText, USERNAME_MAX } from "../utils/profile";
 import { useUsernameCheck } from "../components/profile/useUsernameCheck";
 import PhoneVisibilityChoice from "../components/profile/PhoneVisibilityChoice";
 import PhoneVerification from "../components/profile/PhoneVerification";
+import PhoneCountryHint from "../components/profile/PhoneCountryHint";
 import s from "./AuthPage.module.css";
 import { forgetDesktopYandex } from "../auth/desktopYandex";
 import { pathAfterLogin } from "../auth/returnAfterLogin";
@@ -136,7 +137,7 @@ function AlmostDone({ code, profile }: { code: string; profile: YandexProfile })
   const navigate = useNavigate();
   const setToken = useAuthStore((st) => st.setToken);
   const [username, setUsername] = useState(profile.username ?? "");
-  const [phone, setPhone] = useState(profile.phone ? formatRuPhoneMask(profile.phone) : "+7");
+  const [phone, setPhone] = useState(profile.phone ? formatPhoneInput(profile.phone) : "+7");
   const [firstName, setFirstName] = useState(profile.first_name ?? "");
   const [lastName, setLastName] = useState(profile.last_name ?? "");
   const [phoneDiscoverable, setPhoneDiscoverable] = useState<boolean | null>(null);
@@ -148,15 +149,15 @@ function AlmostDone({ code, profile }: { code: string; profile: YandexProfile })
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
-    if (!isCompleteRuPhone(phone)) return setError("Введите номер в формате +7 (999) 000-00-00");
+    if (!isCompletePhone(phone)) return setError("Введите номер полностью: +7 (999) 000-00-00 или с кодом другой страны");
     if (phoneDiscoverable === null) return setError("Выберите, можно ли найти вас по номеру");
-    if (!phoneProof) return setError("Подтвердите телефон звонком");
+    if (!phoneProof) return setError("Подтвердите телефон");
     setLoading(true);
     try {
       const data = await authApi.yandexComplete({
         code,
         username: username.trim().replace(/^@/, ""),
-        phone: toE164Ru(phone)!,
+        phone: toE164(phone)!,
         phone_discoverable: phoneDiscoverable,
         phone_verification_token: phoneProof,
         first_name: firstName.trim() || null,
@@ -175,9 +176,10 @@ function AlmostDone({ code, profile }: { code: string; profile: YandexProfile })
 
   if (!phoneProof) return <Shell title="Подтвердите телефон">
     <p className={s.lead}>Вы вошли через Яндекс ID. Подтвердите телефон, чтобы создать аккаунт Quazar без пароля.</p>
-    <input className={s.input} type="tel" value={phone} onChange={e => setPhone(formatRuPhoneMask(e.target.value))}
+    <input className={s.input} type="tel" inputMode="tel" value={phone} onChange={e => setPhone(formatPhoneInput(e.target.value))}
       placeholder="+7 (999) 000-00-00" autoComplete="tel" />
-    {isCompleteRuPhone(phone) && <PhoneVerification phone={toE164Ru(phone)!} onVerified={setPhoneProof} />}
+    <PhoneCountryHint phone={phone} className={s.hint} />
+    {isCompletePhone(phone) && <PhoneVerification phone={toE164(phone)!} onVerified={setPhoneProof} />}
     {error && <p className={s.error}>{error}</p>}
     <p className={s.hint}>Уже есть аккаунт? Войдите в него и привяжите Яндекс ID в настройках.</p>
   </Shell>;
@@ -217,10 +219,10 @@ function AlmostDone({ code, profile }: { code: string; profile: YandexProfile })
         <input
           className={s.input}
           type="tel"
-          inputMode="numeric"
+          inputMode="tel"
           placeholder="+7 (999) 000-00-00"
           value={phone}
-          onChange={(e) => { setPhone(formatRuPhoneMask(e.target.value)); setPhoneProof(undefined); }}
+          onChange={(e) => { setPhone(formatPhoneInput(e.target.value)); setPhoneProof(undefined); }}
           required
           autoComplete="tel"
         />
@@ -249,7 +251,7 @@ function AlmostDone({ code, profile }: { code: string; profile: YandexProfile })
         <button
           className={s.submit}
           type="submit"
-          disabled={loading || usernameCheck.state !== "ok" || !isCompleteRuPhone(phone) || phoneDiscoverable === null || !phoneProof}
+          disabled={loading || usernameCheck.state !== "ok" || !isCompletePhone(phone) || phoneDiscoverable === null || !phoneProof}
         >
           {loading ? "..." : "Готово"}
         </button>

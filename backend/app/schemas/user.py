@@ -2,7 +2,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field, ValidationInfo, field_validator
 
-from app.core.phone import normalize_ru_phone
+from app.core.phone import normalize_phone
 from app.core.profile import normalize_email, normalize_person_name, normalize_username
 
 
@@ -30,7 +30,7 @@ class UserRegister(BaseModel):
     @field_validator("phone")
     @classmethod
     def phone_valid(cls, v: str) -> str:
-        return normalize_ru_phone(v)
+        return normalize_phone(v)
 
     @field_validator("password")
     @classmethod
@@ -57,7 +57,7 @@ class UserLogin(BaseModel):
     @field_validator("phone")
     @classmethod
     def phone_valid(cls, v: str) -> str:
-        return normalize_ru_phone(v)
+        return normalize_phone(v)
 
 
 class UpdateProfile(BaseModel):

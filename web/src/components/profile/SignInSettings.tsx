@@ -5,6 +5,7 @@ import { clearReauth, reauthCode, startReauth } from "../../auth/reauth";
 import { openYandex } from "../../auth/desktopYandex";
 import { newPasswordProblem } from "../../auth/password";
 import { useAuthStore } from "../../store/auth";
+import { verifiesByTelegram } from "../../utils/phone";
 import AccountProofInput from "./AccountProofInput";
 import type { AccountProof } from "../../crypto/keys";
 import s from "../SettingsView.module.css";
@@ -139,6 +140,7 @@ export default function SignInSettings() {
 }
 
 function VerifiedSignIn({ methods, reload }: { methods: SignInMethods; reload: () => Promise<unknown> }) {
+  const byTelegram = useAuthStore(st => verifiesByTelegram(st.user?.phone ?? ""));
   const [action, setAction] = useState<"link" | "unlink" | null>(null);
   const [proof, setProof] = useState<AccountProof | null>(null);
   const [busy, setBusy] = useState(false);
@@ -157,7 +159,7 @@ function VerifiedSignIn({ methods, reload }: { methods: SignInMethods; reload: (
   };
   return <>
     <h3 className={s.sectionTitle}>Вход в аккаунт</h3>
-    <p className={s.hint}>Телефон подтверждён. Входите звонком{linked ? " или через привязанный Яндекс ID" : ""}.</p>
+    <p className={s.hint}>Телефон подтверждён. Входите {byTelegram ? "кодом из Telegram" : "звонком"}{linked ? " или через привязанный Яндекс ID" : ""}.</p>
     {(methods.providers.yandex || linked) && <>
       <p className={s.hint}>Яндекс ID: {linked ? `привязан${linked.login ? ` (${linked.login})` : ""}` : "не привязан"}</p>
       {action ? <div className={s.rowBtns}>

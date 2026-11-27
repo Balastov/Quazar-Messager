@@ -228,3 +228,43 @@ it("hides password settings for confirmed users and requests a fresh proof befor
   await act(async () => vi.advanceTimersByTimeAsync(4000));
   expect(button("Привязать Яндекс ID").disabled).toBe(false);
 });
+
+it("a foreign number gets a Telegram code to type instead of a call, and wrong codes keep the form", async () => {
+  const uk = "+447911123456", verified = vi.fn();
+  const sent = { state: "pending" as const, method: "telegram" as const, phone: uk, call_phone: null,
+    verification_token: token, expires_at: new Date(Date.now() + 300_000).toISOString() };
+  vi.mocked(phoneVerificationApi.start).mockResolvedValue(sent);
+  vi.mocked(phoneVerificationApi.status).mockRejectedValueOnce(new Error("Неверный код. Осталось попыток: 4"))
+    .mockResolvedValueOnce({ ...sent, verification_token: null, state: "verified" });
+  await act(async () => root.render(createElement(PhoneVerification, { phone: uk, onVerified: verified })));
+  await act(async () => button("Подтвердить телефон кодом из Telegram").click());
+  expect(phoneVerificationApi.start).toHaveBeenCalledWith(uk, false);
+  expect(host.querySelector("a[href^='tel:']")).toBeNull();
+  expect(host.textContent).toContain("Telegram");
+  await act(async () => vi.advanceTimersByTimeAsync(10_000));
+  expect(phoneVerificationApi.status).not.toHaveBeenCalled();
+  await change("input[aria-label='Код из Telegram']", "12-34 5x6");
+  await act(async () => button("Подтвердить").click());
+  expect(phoneVerificationApi.status).toHaveBeenLastCalledWith(token, false, "123456");
+  expect(host.textContent).toContain("Осталось попыток: 4");
+  expect(host.querySelector<HTMLInputElement>("input[aria-label='Код из Telegram']")!.value).toBe("");
+  expect(host.querySelector("input[aria-label='Код из Telegram']")).not.toBeNull();
+  expect(verified).not.toHaveBeenCalled();
+  await change("input[aria-label='Код из Telegram']", "654321");
+  await act(async () => button("Подтвердить").click());
+  expect(phoneVerificationApi.status).toHaveBeenLastCalledWith(token, false, "654321");
+  expect(verified).toHaveBeenCalledWith(token);
+});
+
+it("a rejected resend keeps the code already sent", async () => {
+  const uk = "+447911123456";
+  const sent = { state: "pending" as const, method: "telegram" as const, phone: uk, call_phone: null,
+    verification_token: token, expires_at: new Date(Date.now() + 300_000).toISOString() };
+  vi.mocked(phoneVerificationApi.start).mockResolvedValueOnce(sent)
+    .mockRejectedValueOnce(new Error("Слишком много попыток"));
+  await act(async () => root.render(createElement(PhoneVerification, { phone: uk, onVerified: vi.fn() })));
+  await act(async () => button("Подтвердить телефон кодом из Telegram").click());
+  await act(async () => button("Отправить код ещё раз").click());
+  expect(host.textContent).toContain("Слишком много попыток");
+  expect(host.querySelector("input[aria-label='Код из Telegram']")).not.toBeNull();
+});

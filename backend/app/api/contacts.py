@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.deps import get_current_user
-from app.core.phone import normalize_ru_phone
+from app.core.phone import normalize_phone, phone_region
 from app.models.contact import ContactSync, UserContact
 from app.models.user import User
 from app.schemas.user import UserOut
@@ -71,17 +71,20 @@ def _check_rate(user_id: str) -> None:
     recent.append(now)
 
 
-def _phonebook_names(entries: list[PhonebookEntry]) -> dict[str, str]:
-    """Нормализованный номер → имя из книги. Чужие страны и мусор пропускаем."""
+def _phonebook_names(entries: list[PhonebookEntry], region: str = "RU") -> dict[str, str]:
+    """Нормализованный номер → имя из книги. Номер без кода страны читаем по стране владельца,
+    а если так он не разбирается — как российский (у уехавших в книге остаются 8…). Мусор пропускаем."""
+    regions = [region] if region == "RU" else [region, "RU"]
     names: dict[str, str] = {}
     for entry in entries:
         name = " ".join(entry.name.split())[:128]
         for raw in entry.phones:
-            try:
-                phone = normalize_ru_phone(raw)
-            except ValueError:
-                continue
-            names.setdefault(phone, name)
+            for current in regions:
+                try:
+                    names.setdefault(normalize_phone(raw, current), name)
+                    break
+                except ValueError:
+                    continue
     return names
 
 
@@ -118,7 +121,7 @@ async def my_contacts(current_user: CurrentUser, db: Db):
 async def sync_contacts(body: SyncIn, current_user: CurrentUser, db: Db):
     """replace: найденные заменяют прежний список (удалённые из книги уходят); merge: добавляются."""
     _check_rate(current_user.id)
-    names = _phonebook_names(body.contacts)
+    names = _phonebook_names(body.contacts, phone_region(current_user.phone) or "RU")
     found = []
     if names:
         found = (

@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, ForeignKey, String
+from sqlalchemy import DateTime, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -17,9 +17,14 @@ class PhoneVerification(Base):
     user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=True)
     purpose: Mapped[str] = mapped_column(String(16), nullable=False, default="register", server_default="register")
     ip_hash: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    # call — входящий звонок через Звонок (+7), telegram — код через Telegram Gateway.
+    method: Mapped[str] = mapped_column(String(16), nullable=False, default="call", server_default="call")
     campaign_id: Mapped[str] = mapped_column(String(32), nullable=False)
     call_id: Mapped[str | None] = mapped_column(String(64), nullable=True, unique=True)
     call_phone: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    # Только для telegram: HMAC кода и число неверных попыток ввода.
+    code_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    code_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     state: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

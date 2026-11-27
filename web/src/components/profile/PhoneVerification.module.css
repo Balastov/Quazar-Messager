@@ -18,3 +18,17 @@
   text-decoration: none;
   overflow-wrap: anywhere;
 }
+
+.codeRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  max-width: 100%;
+}
+
+.codeInput {
+  width: 9.5em;
+  max-width: 100%;
+  letter-spacing: 0.25em;
+  font-variant-numeric: tabular-nums;
+}

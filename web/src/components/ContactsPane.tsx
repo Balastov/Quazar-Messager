@@ -11,10 +11,11 @@ import { chatLevel, useNotifyStore } from "../notifications/levels";
 import CustomStatusBadge from "./status/CustomStatusBadge";
 import {
   canSearchUsers,
-  extractRuLocalDigits,
-  formatRuPhoneDisplay,
-  formatRuPhoneMask,
+  formatPhoneDisplay,
+  formatPhoneInput,
   looksLikePhoneQuery,
+  phoneSearchDigits,
+  toE164,
 } from "../utils/phone";
 import {
   isContactPickerSupported,
@@ -188,7 +189,7 @@ export default function ContactsPane() {
     const list = chatsByLastMessage(chats, lastMessage, pinnedChats);
     const q = search.trim().toLowerCase();
     if (!q) return list;
-    const digits = extractRuLocalDigits(search);
+    const digits = phoneSearchDigits(search);
     return list.filter((c) => {
       const peer = chatPeer(c);
       if (peer.username.toLowerCase().includes(q)) return true;
@@ -203,7 +204,7 @@ export default function ContactsPane() {
     const rows = contactRows(chats, phonebook, currentUser?.id, phonebookNames, pinnedContacts);
     const q = search.trim().toLowerCase();
     if (!q) return rows;
-    const digits = extractRuLocalDigits(search);
+    const digits = phoneSearchDigits(search);
     return rows.filter((row) => row.name.toLowerCase().includes(q) || row.user.username.toLowerCase().includes(q)
       || (digits.length >= 3 && !!row.user.phone?.includes(digits)));
   }, [chats, phonebook, currentUser?.id, phonebookNames, search, pinnedContacts]);
@@ -279,12 +280,12 @@ export default function ContactsPane() {
       setPickerHint(picked === null ? null : "У контакта нет номера телефона");
       return;
     }
-    const digits = extractRuLocalDigits(picked.tel);
+    const digits = phoneSearchDigits(picked.tel);
     if (digits.length < 3) {
       setPickerHint("Не удалось распознать номер контакта");
       return;
     }
-    setSearch(digits.length === 10 ? formatRuPhoneMask(picked.tel) : picked.tel);
+    setSearch(toE164(picked.tel) ? formatPhoneInput(picked.tel) : picked.tel);
   };
 
   const showSearchPanel = canSearchUsers(search);
@@ -316,14 +317,13 @@ export default function ContactsPane() {
           <IconSearch />
           <input
             className={s.search}
-            placeholder="Никнейм, имя или телефон +7…"
+            placeholder="Никнейм, имя или телефон"
             value={search}
             onChange={(e) => {
               const raw = e.target.value;
               // Автомаска, если похоже на набор номера
               if (looksLikePhoneQuery(raw) || /^[+78(]/.test(raw.trim())) {
-                const d = extractRuLocalDigits(raw);
-                setSearch(d.length ? formatRuPhoneMask(raw) : raw);
+                setSearch(phoneSearchDigits(raw).length || raw.trim() === "+" ? formatPhoneInput(raw) : raw);
               } else {
                 setSearch(raw);
               }
@@ -373,13 +373,13 @@ export default function ContactsPane() {
             <div className={s.hint}>
               {!looksLikePhoneQuery(search)
                 ? "Никого не найдено"
-                : extractRuLocalDigits(search).length < 10
+                : !toE164(search)
                   ? "Введите номер целиком — по части номера не ищем"
                   : "По этому номеру никого не нашли. Человек мог скрыть номер — попробуйте никнейм или имя"}
             </div>
           )}
           {!searching && results.length === 0 && looksLikePhoneQuery(search) &&
-            extractRuLocalDigits(search).length >= 10 && (
+            !!toE164(search) && (
             <InviteFriendsButton className={s.inviteInline} onNotice={setPickerHint} />
           )}
           {results.map((u) => (
@@ -396,7 +396,7 @@ export default function ContactsPane() {
               <span className={s.userMeta}>
                 <span className={s.userName}>{displayName(u)}</span>
                 <span className={s.userPhone}>@{u.username}
-                  {u.phone && ` · ${formatRuPhoneDisplay(u.phone)}`}</span>
+                  {u.phone && ` · ${formatPhoneDisplay(u.phone)}`}</span>
               </span>
             </button>
           ))}
@@ -424,7 +424,7 @@ export default function ContactsPane() {
                 </div>
                 <span className={s.preview}>
                   @{c.user.username}
-                  {c.user.phone && ` · ${formatRuPhoneDisplay(c.user.phone)}`}
+                  {c.user.phone && ` · ${formatPhoneDisplay(c.user.phone)}`}
                 </span>
               </div>
             </button>

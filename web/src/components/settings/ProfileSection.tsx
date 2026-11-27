@@ -4,7 +4,7 @@ import { useAuthStore } from "../../store/auth";
 import { useUiStore } from "../../store/ui";
 import { activityTracker, IDLE_MINUTES_OPTIONS, systemIdleSupported } from "../../presence/activity";
 import { displayName } from "../../utils/profile";
-import { formatRuPhoneDisplay } from "../../utils/phone";
+import { formatPhoneDisplay } from "../../utils/phone";
 import UserAvatar from "../UserAvatar";
 import PremiumBadge from "../premium/PremiumBadge";
 import PremiumStatus from "../premium/PremiumStatus";
@@ -40,7 +40,7 @@ export default function ProfileSection() {
               {user.is_premium && <PremiumBadge size={16} />}
             </div>
             <div className={s.phone}>
-              @{user.username} · {formatRuPhoneDisplay(user.phone)}
+              @{user.username} · {formatPhoneDisplay(user.phone)}
               {user.phone_discoverable === false && " · скрыт"}
             </div>
             {user.premium?.active && (

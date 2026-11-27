@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.device_pairing import client_ip
 from app.core import device_sessions as sessions, login_codes
 from app.core.database import get_db
-from app.core.phone import normalize_ru_phone
+from app.core.phone import normalize_phone
 from app.schemas.user import TokenResponse
 
 
@@ -26,7 +26,7 @@ class StartBody(BaseModel):
     @field_validator("phone")
     @classmethod
     def phone_valid(cls, value):
-        return normalize_ru_phone(value)
+        return normalize_phone(value)
 
 
 class StartOut(BaseModel):

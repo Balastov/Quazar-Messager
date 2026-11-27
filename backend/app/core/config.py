@@ -83,6 +83,12 @@ class Settings(BaseSettings):
     ZVONOK_API_KEY: str = ""
     ZVONOK_CAMPAIGN_ID: str = ""
     ZVONOK_DAILY_LIMIT: int = 500
+    # Номера не на +7 подтверждаются кодом в Telegram (Telegram Gateway). Без токена
+    # такие номера не могут ни зарегистрироваться, ни подтвердиться.
+    TELEGRAM_GATEWAY_TOKEN: str = ""
+    # Необязательно: верифицированный канал, от имени которого приходит код.
+    TELEGRAM_GATEWAY_SENDER: str = ""
+    TELEGRAM_GATEWAY_DAILY_LIMIT: int = 300
     # Включать только за nginx, который перезаписывает X-Real-IP; API закрыт от прямого доступа.
     TRUST_PROXY_REAL_IP: bool = False
 

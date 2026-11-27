@@ -30,7 +30,7 @@ from app.core.avatars import detect_image, save_avatar
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.deps import get_current_user
-from app.core.phone import normalize_ru_phone
+from app.core.phone import normalize_phone
 from app.core.profile import normalize_email, normalize_person_name, normalize_username
 from app.core.security import create_access_token, hash_password, verify_password
 from app.core import passwords, support
@@ -326,7 +326,7 @@ async def yandex_exchange(body: ExchangeBody, db: Db):
             raise HTTPException(status_code=403, detail="Аккаунт заблокирован администрацией")
         return ExchangeOut(status="login", access_token=create_access_token(user.id, method="yandex"))
     p = flow.profile or {}
-    phone = _clean(normalize_ru_phone, p.get("phone"))
+    phone = _clean(normalize_phone, p.get("phone"))
     email = _clean(normalize_email, p.get("email"))
     return ExchangeOut(
         status="register",
@@ -359,7 +359,7 @@ class CompleteBody(BaseModel):
     @field_validator("phone")
     @classmethod
     def _phone(cls, v: str) -> str:
-        return normalize_ru_phone(v)
+        return normalize_phone(v)
 
     @field_validator("first_name", "last_name")
     @classmethod

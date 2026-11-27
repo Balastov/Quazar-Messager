@@ -353,6 +353,10 @@ async def lifespan(app: FastAPI):
         await conn.execute(text("ALTER TABLE notify_settings ALTER COLUMN level TYPE VARCHAR(24)"))
         await conn.execute(text("ALTER TABLE phone_verifications ADD COLUMN IF NOT EXISTS purpose VARCHAR(16) NOT NULL DEFAULT 'register'"))
         await conn.execute(text("UPDATE phone_verifications SET purpose = 'verify' WHERE purpose = 'register' AND user_id IS NOT NULL"))
+        # Иностранные номера: код в Telegram вместо звонка.
+        await conn.execute(text("ALTER TABLE phone_verifications ADD COLUMN IF NOT EXISTS method VARCHAR(16) NOT NULL DEFAULT 'call'"))
+        await conn.execute(text("ALTER TABLE phone_verifications ADD COLUMN IF NOT EXISTS code_hash VARCHAR(64)"))
+        await conn.execute(text("ALTER TABLE phone_verifications ADD COLUMN IF NOT EXISTS code_attempts INTEGER NOT NULL DEFAULT 0"))
         # Однократный переход ранее подтверждённых аккаунтов на новые способы входа.
         await conn.execute(text("UPDATE users SET sessions_revoked_at = NOW() WHERE phone_verified_at IS NOT NULL AND sessions_revoked_at IS NULL"))
         await conn.execute(text("ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS recovery_login VARCHAR(128)"))

@@ -127,7 +127,7 @@ export default function OAuthAuthorizePage() {
   };
 
   if (!user.phone_verified_at || needsPhone) return <Shell title={`Вход в ${name}`}>
-    <p className={s.lead}>{name} принимает только аккаунты с подтверждённым телефоном. Подтвердите номер звонком — это займёт минуту.</p>
+    <p className={s.lead}>{name} принимает только аккаунты с подтверждённым телефоном. Подтвердите номер — это займёт минуту.</p>
     {user.phone && <PhoneVerification phone={user.phone} account onVerified={() => { setNeedsPhone(false); reload(); }} />}
     <button type="button" className={s.ghost} onClick={cancel}>Отмена</button>
   </Shell>;

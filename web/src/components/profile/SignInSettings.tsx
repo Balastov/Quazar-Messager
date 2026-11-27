@@ -5,7 +5,7 @@ import { clearReauth, reauthCode, startReauth } from "../../auth/reauth";
 import { openYandex } from "../../auth/desktopYandex";
 import { newPasswordProblem } from "../../auth/password";
 import { useAuthStore } from "../../store/auth";
-import { verifiesByTelegram } from "../../utils/phone";
+import { usePhoneMethod } from "../../auth/phoneMethod";
 import AccountProofInput from "./AccountProofInput";
 import type { AccountProof } from "../../crypto/keys";
 import s from "../SettingsView.module.css";
@@ -140,7 +140,7 @@ export default function SignInSettings() {
 }
 
 function VerifiedSignIn({ methods, reload }: { methods: SignInMethods; reload: () => Promise<unknown> }) {
-  const byTelegram = useAuthStore(st => verifiesByTelegram(st.user?.phone ?? ""));
+  const byTelegram = usePhoneMethod(useAuthStore(st => st.user?.phone ?? "")) === "telegram";
   const [action, setAction] = useState<"link" | "unlink" | null>(null);
   const [proof, setProof] = useState<AccountProof | null>(null);
   const [busy, setBusy] = useState(false);

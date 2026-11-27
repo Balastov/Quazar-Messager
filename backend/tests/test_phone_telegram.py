@@ -155,16 +155,41 @@ class TelegramCodeTest(StarsTestBase):
             self.assertIn("Дневной лимит", response.json()["detail"])
         self.assertEqual(self.send.await_count, 1)
 
-    async def test_without_gateway_token_foreign_numbers_cannot_start_but_russian_still_call(self):
-        with mock.patch.object(settings, "TELEGRAM_GATEWAY_TOKEN", ""):
+    async def test_without_gateway_token_foreign_numbers_fall_back_to_the_call(self):
+        self.zvonok_create.side_effect = None
+        self.zvonok_create.return_value = zvonok.Confirmation("1", "+79863067372", verification.now())
+        result = mock.AsyncMock(return_value="verified")
+        with mock.patch.object(settings, "TELEGRAM_GATEWAY_TOKEN", ""), mock.patch.object(zvonok, "result", result):
             response = await self.start()
-            self.assertEqual(response.status_code, 503)
-            self.assertIn("+7", response.json()["detail"])
-            self.zvonok_create.side_effect = None
-            self.zvonok_create.return_value = zvonok.Confirmation("1", "+79863067372", verification.now())
-            russian = await self.start("+7 916 000-11-22")
-            self.assertEqual((russian.status_code, russian.json()["method"]), (200, "call"))
+            self.assertEqual(response.status_code, 200, response.text)
+            data = response.json()
+            self.assertEqual((data["method"], data["call_phone"]), ("call", "+79863067372"))
+            self.zvonok_create.assert_awaited_once_with(UK)
+            # Код для звонка не принимается, проверка идёт опросом провайдера.
+            self.assertEqual((await self.check(data["verification_token"], "123456")).status_code, 400)
+            self.assertEqual((await self.check(data["verification_token"])).json()["state"], "verified")
+            result.assert_awaited_once_with("1", UK)
         self.send.assert_not_awaited()
+        # Токен появился — новые проверки идут кодом в Telegram.
+        async with self.Session() as db:
+            await db.execute(update(PhoneVerification).values(created_at=verification.now() - timedelta(minutes=2)))
+            await db.commit()
+        self.assertEqual((await self.start()).json()["method"], "telegram")
+
+    def test_zvonok_matches_foreign_caller_numbers_in_any_spelling(self):
+        for reported in ("+447911123456", "447911123456", "00447911123456", "810447911123456"):
+            self.assertTrue(zvonok.same_phone(reported, UK), reported)
+        for reported in ("447911123457", "4479111234560", "", "79161234567"):
+            self.assertFalse(zvonok.same_phone(reported, UK), reported)
+        for reported in ("89160001122", "79160001122", "+7 916 000-11-22"):
+            self.assertTrue(zvonok.same_phone(reported, "+79160001122"), reported)
+        self.assertFalse(zvonok.same_phone("garbage", "+79160001122"))
+
+    async def test_providers_tell_the_client_how_foreign_numbers_are_checked(self):
+        from app.api import oauth
+        self.assertTrue((await oauth.providers()).telegram_codes)
+        with mock.patch.object(settings, "TELEGRAM_GATEWAY_TOKEN", ""):
+            self.assertFalse((await oauth.providers()).telegram_codes)
 
     async def test_number_without_telegram_is_reported_and_not_retried_immediately(self):
         self.send.side_effect = telegram_gateway.Undeliverable()

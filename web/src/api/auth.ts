@@ -44,7 +44,7 @@ export interface CodeLoginStart {
 
 export const authApi = {
   /** Какие внешние входы включены на сервере. */
-  providers: () => http.get<{ yandex: boolean; phone_verification?: boolean }>("/auth/providers").then((r) => r.data),
+  providers: () => http.get<{ yandex: boolean; phone_verification?: boolean; telegram_codes?: boolean }>("/auth/providers").then((r) => r.data),
   /** Адрес, с которого начинается вход через Яндекс (переход всей страницей). */
   yandexStartUrl: "/api/auth/yandex/start",
   yandexExchange: (code: string) =>

@@ -76,15 +76,15 @@ export function isCompletePhone(input: string): boolean {
   return toE164(input) !== null;
 }
 
-/** Код придёт в Telegram, а не звонком: подтверждение звонком — только для +7. */
-export function verifiesByTelegram(phone: string): boolean {
+/** Номер другой страны (не +7). Как его подтвердят — auth/phoneMethod.ts. */
+export function isForeignPhone(phone: string): boolean {
   return /^\+[0-689]/.test(phone);
 }
 
 /** Сохранённый номер для показа: +7 (999) 123-45-67, +44 7911 123456. */
 export function formatPhoneDisplay(input: string | null | undefined): string {
   if (!input) return "";
-  if (verifiesByTelegram(input)) return parsePhoneNumberFromString(input)?.formatInternational() ?? input;
+  if (isForeignPhone(input)) return parsePhoneNumberFromString(input)?.formatInternational() ?? input;
   const e164 = toE164Ru(input) ?? (input.startsWith("+7") && input.length >= 12 ? input : null);
   if (!e164) return input;
   return formatRuPhoneMask(e164);

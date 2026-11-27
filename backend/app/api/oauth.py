@@ -22,7 +22,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core import yandex, zvonok
+from app.core import telegram_gateway, yandex, zvonok
 from app.core.phone_verification import consume as consume_phone_verification
 from app.core.account_proof import AccountProof, require_account_proof
 from app.core.accounts import TAKEN, email_taken, phone_taken, username_taken
@@ -107,12 +107,14 @@ async def _new_flow(
 class ProvidersOut(BaseModel):
     yandex: bool
     phone_verification: bool
+    # Номера не на +7 подтверждаются кодом в Telegram; false — пока звонком (Gateway не настроен).
+    telegram_codes: bool = False
 
 
 @router.get("/providers", response_model=ProvidersOut)
 async def providers():
     """Какие внешние входы включены — клиент показывает кнопки только для них."""
-    return ProvidersOut(yandex=yandex.enabled(), phone_verification=zvonok.required())
+    return ProvidersOut(yandex=yandex.enabled(), phone_verification=zvonok.required(), telegram_codes=telegram_gateway.configured())
 
 
 @router.get("/yandex/start")
@@ -447,7 +449,7 @@ async def my_sign_in(current_user: CurrentUser, db: Db):
             IdentityOut(provider=i.provider, email=i.email, login=i.login, created_at=i.created_at)
             for i in rows.scalars()
         ],
-        providers=ProvidersOut(yandex=yandex.enabled(), phone_verification=zvonok.required()),
+        providers=ProvidersOut(yandex=yandex.enabled(), phone_verification=zvonok.required(), telegram_codes=telegram_gateway.configured()),
     )
 
 

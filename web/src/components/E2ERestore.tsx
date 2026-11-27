@@ -6,7 +6,8 @@ import { loggedInByCode } from "../auth/loginVia";
 import { StaleBackupError, type AccountProof } from "../crypto/keys";
 import { useAuthStore } from "../store/auth";
 import { useE2EStore } from "../store/e2e";
-import { formatPhoneDisplay, verifiesByTelegram } from "../utils/phone";
+import { formatPhoneDisplay } from "../utils/phone";
+import { usePhoneMethod } from "../auth/phoneMethod";
 import DeviceKeyReceiver from "./devices/DeviceKeyReceiver";
 import AccountProofInput from "./profile/AccountProofInput";
 import { apiErrorText } from "../utils/profile";
@@ -245,6 +246,7 @@ function FreshRoute({ othersCount, onBackup, onBack }: { othersCount: number; on
   const busy = useE2EStore((st) => st.busy);
   const hasServerBackup = useE2EStore((st) => st.hasServerBackup);
   const phone = useAuthStore((st) => (st.user?.phone_verified_at ? st.user.phone : null));
+  const phoneMethod = usePhoneMethod(phone ?? "");
   const [proof, setProof] = useState<AccountProof | null>(null);
   const [proofRound, setProofRound] = useState(0);
   const [error, setError] = useState("");
@@ -270,7 +272,7 @@ function FreshRoute({ othersCount, onBackup, onBack }: { othersCount: number; on
     <>
       <h3 className={s.title}>{phone ? "Подтвердите номер" : "Подтвердите, что это вы"}</h3>
       <p className={s.lead}>
-        {phone && verifiesByTelegram(phone) ? (
+        {phone && phoneMethod === "telegram" ? (
           <>
             Подтвердите <b>{formatPhoneDisplay(phone)}</b> кодом, который придёт в Telegram. После проверки на этом
             устройстве появится новый ключ шифрования — пароль не нужен.

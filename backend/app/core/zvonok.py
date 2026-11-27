@@ -8,7 +8,7 @@ import re
 import httpx
 
 from app.core.config import settings
-from app.core.phone import normalize_ru_phone
+from app.core.phone import normalize_ru_phone, uses_call_check
 
 BASE = "https://zvonok.com/manager/cabapi_external/api/v1/phones/"
 
@@ -36,6 +36,21 @@ def required() -> bool:
 
 def configured() -> bool:
     return bool(settings.ZVONOK_API_KEY.strip() and settings.ZVONOK_CAMPAIGN_ID.strip())
+
+
+def same_phone(reported: str, phone: str) -> bool:
+    """Номер из ответа Звонка — тот же, что проверяем. Российский провайдер может прислать его
+    как 8…/7…/+7…, иностранный — с «+», без него или с международным выходом 00 / 810."""
+    if uses_call_check(phone):
+        try:
+            return normalize_ru_phone(reported) == phone
+        except ValueError:
+            return False
+    digits = re.sub(r"\D", "", reported or "")
+    for prefix in ("810", "00"):
+        if digits.startswith(prefix) and digits[len(prefix):] == phone[1:]:
+            return True
+    return digits == phone[1:]
 
 
 @dataclass
@@ -88,7 +103,7 @@ async def result(call_id: str, phone: str, *, transport=None) -> str:
         if not isinstance(rows, list) or len(rows) != 1:
             raise ProviderError()
         row = rows[0]
-        if str(row.get("call_id")) != call_id or normalize_ru_phone(str(row.get("phone"))) != phone:
+        if str(row.get("call_id")) != call_id or not same_phone(str(row.get("phone")), phone):
             raise ProviderError()
         # Актуальное поле call_status; status устарело. Ответил/завершено/IVR не доказывают проверку.
         status = row.get("call_status")

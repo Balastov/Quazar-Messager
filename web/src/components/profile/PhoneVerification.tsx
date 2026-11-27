@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { phoneVerificationApi, type PhoneVerification as Attempt, type PhoneMode } from "../../api/phoneVerification";
 import { useAuthStore } from "../../store/auth";
 import { apiErrorText } from "../../utils/profile";
-import { formatPhoneDisplay, verifiesByTelegram } from "../../utils/phone";
+import { formatPhoneDisplay, isForeignPhone } from "../../utils/phone";
+import { usePhoneMethod } from "../../auth/phoneMethod";
 import s from "../SettingsView.module.css";
 import layout from "./PhoneVerification.module.css";
 
@@ -13,7 +14,8 @@ export default function PhoneVerification({ phone, account = false, proof, onVer
   const [busy, setBusy] = useState(false);
   const [code, setCode] = useState("");
   // Номера не на +7 подтверждаются кодом в Telegram: звонить на российский номер из-за границы дорого.
-  const telegram = attempt?.method ? attempt.method === "telegram" : verifiesByTelegram(phone);
+  const expected = usePhoneMethod(phone);
+  const telegram = attempt?.method ? attempt.method === "telegram" : expected === "telegram";
   const label = telegram ? buttonLabel.replace("звонком", "кодом из Telegram") : buttonLabel;
   const [error, setError] = useState<string | null>(null);
   const round = useRef(0);
@@ -105,6 +107,7 @@ export default function PhoneVerification({ phone, account = false, proof, onVer
       <button type="button" className={s.secondary} disabled={busy || disabled} onClick={() => void start()}>Отправить код ещё раз</button>
     </> : attempt?.state === "pending" ? <>
       <p className={s.hint}>Позвоните с {formatPhoneDisplay(phone)} на проверочный номер. Разговаривать и вводить код не нужно.</p>
+      {isForeignPhone(phone) && <p className={s.hint}>Проверочный номер российский: оператор может взять плату за международный звонок.</p>}
       <p className={s.hint} role="status">Ждём звонок. После проверки страница обновится автоматически. Если у вас две SIM-карты, выберите SIM с указанным номером.</p>
       {attempt.call_phone && <a className={`${s.primary} ${layout.callNumber}`} href={`tel:${attempt.call_phone}`}>Позвонить: {formatPhoneDisplay(attempt.call_phone)}</a>}
     </> : <>

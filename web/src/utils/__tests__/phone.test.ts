@@ -5,7 +5,7 @@ import {
   isForeignPhoneInput,
   phoneSearchDigits,
   toE164,
-  verifiesByTelegram,
+  isForeignPhone,
   extractRuLocalDigits,
   formatPhoneDisplay,
   formatRuPhoneMask,
@@ -63,8 +63,8 @@ describe("international phones", () => {
   it("chooses Telegram for non +7 numbers", () => {
     expect(isForeignPhoneInput("+7 (999)")).toBe(false);
     expect(isForeignPhoneInput("+380")).toBe(true);
-    expect(verifiesByTelegram("+447911123456")).toBe(true);
-    expect(verifiesByTelegram("+77011234567")).toBe(false);
+    expect(isForeignPhone("+447911123456")).toBe(true);
+    expect(isForeignPhone("+77011234567")).toBe(false);
   });
 
   it("formats stored numbers and searches by every digit of a foreign number", () => {

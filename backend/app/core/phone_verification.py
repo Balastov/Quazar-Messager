@@ -35,7 +35,9 @@ def code_digest(token, code):
 
 
 def method_for(phone):
-    return "call" if uses_call_check(phone) else "telegram"
+    """+7 — звонок. Остальные — код в Telegram, а пока Telegram Gateway не настроен — тоже звонок
+    (временная мера: звонок из-за границы платный, и номер звонящего может не дойти)."""
+    return "telegram" if not uses_call_check(phone) and telegram_gateway.configured() else "call"
 
 
 async def start(db, phone, ip, user_id=None, *, purpose=None):
@@ -43,8 +45,6 @@ async def start(db, phone, ip, user_id=None, *, purpose=None):
     method = method_for(phone)
     if method == "call" and not zvonok.configured():
         raise HTTPException(status_code=503, detail="Подтверждение телефона сейчас недоступно")
-    if method == "telegram" and not telegram_gateway.configured():
-        raise HTTPException(status_code=503, detail="Подтверждение номеров других стран пока недоступно. Пока можно использовать номер России или Казахстана (+7)")
     # Общий лимит сохраняется при рестартах и работает между процессами сервера.
     await db.execute(text("SELECT pg_advisory_xact_lock(hashtext('quazar-phone-verification-start'))"))
     stamp = now()

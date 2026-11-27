@@ -10,6 +10,7 @@
  * Внутри чужого сайта (iframe) страница кнопок не показывает: иначе нажатие можно подстроить.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { parsePhoneNumberFromString } from "libphonenumber-js";
 import { Navigate, useLocation, useNavigate } from "react-router-dom";
 import { oauthProviderApi, type AuthorizeRequest } from "../api/oauthProvider";
 import type { User } from "../api/types";
@@ -50,10 +51,13 @@ export function withParams(uri: string, values: Record<string, string>): string 
   return url.toString();
 }
 
-/** «+7 ••• •••-••-12» — номер узнаваемо, но не целиком. */
+/** «+7 ••• •••-••-12», «+33 ••• ••78» — номер узнаваемо, но не целиком: код страны и две последние цифры. */
 export function maskedPhone(phone: string | null | undefined): string {
   const digits = (phone ?? "").replace(/\D/g, "");
-  return digits.length >= 2 ? `+7 ••• •••-••-${digits.slice(-2)}` : "";
+  if (digits.length < 2) return "";
+  if (phone!.startsWith("+7") || !phone!.startsWith("+")) return `+7 ••• •••-••-${digits.slice(-2)}`;
+  const code = parsePhoneNumberFromString(phone!)?.countryCallingCode;
+  return code ? `+${code} ••• ••${digits.slice(-2)}` : `+••• ••${digits.slice(-2)}`;
 }
 
 function Shell({ title, children }: { title: string; children: React.ReactNode }) {

@@ -39,6 +39,9 @@ describe("authorize request", () => {
   it("shows only the last two digits of the phone", () => {
     expect(maskedPhone("+79991234512")).toBe("+7 ••• •••-••-12");
     expect(maskedPhone(null)).toBe("");
+    expect(maskedPhone("+33612345678")).toBe("+33 ••• ••78");
+    expect(maskedPhone("+447911123456")).toBe("+44 ••• ••56");
+    expect(maskedPhone("+12025550143")).toBe("+1 ••• ••43");
   });
 });
 

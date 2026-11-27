@@ -11,6 +11,7 @@ import { applyGlassTransparency } from "./styles/glass";
 import "./index.css";
 import { startDesktop } from "./platform/bootstrap";
 import { startAndroidPush } from "./platform/androidPush";
+import { startAndroidShare } from "./platform/androidShare";
 import DesktopUpdates from "./components/DesktopUpdates";
 import AndroidUpdates from "./components/AndroidUpdates";
 import Quiet from "./components/Quiet";
@@ -28,6 +29,8 @@ capturePendingInvite();
 startDesktop();
 // Приложение для Android: нажатие на уведомление могло и запустить его — подписываемся сразу.
 startAndroidPush();
+// …и «Поделиться» из другого приложения тоже.
+startAndroidShare();
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

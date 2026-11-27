@@ -42,6 +42,7 @@ import PhoneVerificationPrompt from "../components/profile/PhoneVerificationProm
 import FeedbackDialog from "../components/support/FeedbackDialog";
 import SwipeBack from "../navigation/SwipeBack";
 import TourHost from "../components/tour/TourHost";
+import ShareDialog from "../components/chat/ShareDialog";
 import { usePhoneLayout } from "../navigation/usePhoneLayout";
 
 type CallEventDetail = {
@@ -282,7 +283,7 @@ export default function MessengerPage() {
               <ContactsPane />
             </div>
             <div className={s.chatPane}>
-              <MessageView />
+              <MessageView acceptShare={!phone} />
               {tab === "chats" && peerPanelOpen && <PeerPanel />}
             </div>
           </>
@@ -317,7 +318,7 @@ export default function MessengerPage() {
 
       {showMobileChat && (
         <SwipeBack className={s.mobileChat} screenId={activeChatId} onBack={() => setMobileChatOpen(false)}>
-          <MessageView showBack />
+          <MessageView showBack acceptShare={phone} />
         </SwipeBack>
       )}
 
@@ -333,6 +334,7 @@ export default function MessengerPage() {
       <CallOverlay />
       <WallpaperHost />
       <TourHost />
+      <ShareDialog />
       {feedbackOpen && <FeedbackDialog onClose={() => useUiStore.getState().setFeedbackOpen(false)} />}
     </div>
   );

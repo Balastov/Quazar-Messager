@@ -68,6 +68,7 @@ import VoiceMessage from "./voice/VoiceMessage";
 import VoiceRecorderBar from "./voice/VoiceRecorderBar";
 import ChatActions from "./chat/ChatActions";
 import ForwardDialog from "./chat/ForwardDialog";
+import { TRAY_IMAGE, useShareStore } from "../platform/androidShare";
 import ScheduledBar from "./chat/ScheduledBar";
 import SavedAvatar from "./chat/SavedAvatar";
 import WhenDialog from "./chat/WhenDialog";
@@ -99,6 +100,9 @@ const LIVE_BARS = 60;
 
 interface Props {
   showBack?: boolean;
+  /** Этот экземпляр сейчас на экране и забирает присланное «Поделиться» (на странице их два:
+   *  панель для широкого окна и экран чата для телефона, видим один). */
+  acceptShare?: boolean;
 }
 
 interface PendingImage {
@@ -125,7 +129,7 @@ function reactionsOf(msg: Message) {
   return msg.reactions?.map((r) => ({ user_id: r.user_id, emoji: r.payload }));
 }
 
-export default function MessageView({ showBack = false }: Props) {
+export default function MessageView({ showBack = false, acceptShare = false }: Props) {
   const compactComposer = useCompactComposer();
   const {
     activeChatId,
@@ -316,6 +320,20 @@ export default function MessageView({ showBack = false }: Props) {
     if (!window.matchMedia?.("(hover: hover) and (pointer: fine)").matches) return;
     inputRef.current?.focus();
   }, [activeChatId, inputDisabled]);
+
+  // Прислали из другого приложения и выбрали этот чат: текст — в поле, картинки — в лоток,
+  // остальное — файлами. Ждём, пока поле готово (черновик восстановлен, ключи на месте).
+  // Хуки — до «Выберите чат» ниже; handleDropped объявлен позже, берём свежий через ref.
+  const dropRef = useRef<(files: File[]) => void>(() => {});
+  const shareDelivery = useShareStore((st) => st.delivery);
+  useEffect(() => {
+    if (!acceptShare || !shareDelivery || !activeChatId || inputDisabled || editing) return;
+    const share = useShareStore.getState().takeDelivery(activeChatId);
+    if (!share) return;
+    if (share.text) setText((current) => (current.trim() ? `${current.trimEnd()}\n${share.text}` : share.text));
+    if (share.files.length) dropRef.current(share.files);
+    else inputRef.current?.focus();
+  }, [acceptShare, shareDelivery, activeChatId, inputDisabled, editing, setText]);
 
   if (!activeChatId) {
     return (
@@ -529,11 +547,13 @@ export default function MessageView({ showBack = false }: Props) {
 
   /** Перетащили или вставили: картинки — в лоток к сообщению (уйдут по «Отправить»), остальное — файлами. */
   const handleDropped = (files: File[]) => {
-    const images = files.filter((f) => /^image\/(jpeg|png|gif|webp)$/.test(f.type));
+    const images = files.filter((f) => TRAY_IMAGE.test(f.type));
     const others = files.filter((f) => !images.includes(f));
     if (images.length) addImages(images);
     if (others.length) void handleFiles(others);
   };
+
+  dropRef.current = handleDropped;
 
   const startRecording = async () => {
     if (!activeChatId || inputDisabled || recorderRef.current) return;

@@ -16,6 +16,7 @@ public class MainActivity extends BridgeActivity {
     public void onCreate(Bundle savedInstanceState) {
         // Свой модуль регистрируем до создания моста, иначе веб-часть его не увидит.
         registerPlugin(UpdaterPlugin.class);
+        registerPlugin(SharePlugin.class);
         super.onCreate(savedInstanceState);
         NotificationChannels.ensure(this);
     }

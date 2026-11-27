@@ -7,6 +7,10 @@ POST /oauth/authorize выдаёт одноразовый код → серве�
 (POST /oauth/token) → GET /oauth/userinfo.
 
 Код и токен — случайные 32 байта; в базе только SHA-256. Без настроек клиента всё отвечает 404.
+
+Упрощённая регистрация (prompt=create): POST /oauth/register — телефон, фамилия и имя;
+никнейм подбирается сам (app/core/auto_username.py), номер скрыт от поиска.
+Клиенту с requires_name код и профиль выдаются только при заполненных имени и фамилии.
 """
 
 import base64
@@ -21,18 +25,26 @@ from datetime import datetime, timedelta, timezone
 from typing import Annotated
 from urllib.parse import parse_qs, urlencode, urlsplit
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationInfo, field_validator
 from sqlalchemy import delete, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.phone_verification import client_ip
+from app.core.accounts import TAKEN, phone_taken
+from app.core.auto_username import auto_username
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.deps import get_current_user
+from app.core.phone import normalize_phone
+from app.core.phone_verification import consume as consume_phone_verification
+from app.core.profile import normalize_person_name
+from app.core.security import create_access_token
 from app.models.oauth_provider import OAuthAccessToken, OAuthCode
 from app.models.user import User
+from app.schemas.user import NAME_LABELS, TokenResponse
 
 router = APIRouter(prefix="/oauth", tags=["oauth provider"])
 
@@ -60,6 +72,8 @@ class Client:
     name: str
     secret: str
     redirect_uris: tuple[str, ...]
+    # Клиент всегда получает и имя, и фамилию: без них код не выдаётся.
+    requires_name: bool = False
 
 
 def clients() -> dict[str, Client]:
@@ -67,7 +81,7 @@ def clients() -> dict[str, Client]:
     uris = tuple(u.strip() for u in settings.PADMA_OAUTH_REDIRECT_URIS.split(",") if u.strip())
     if not (settings.PADMA_OAUTH_CLIENT_ID and settings.PADMA_OAUTH_CLIENT_SECRET and uris):
         return {}
-    client = Client(settings.PADMA_OAUTH_CLIENT_ID, "Padma", settings.PADMA_OAUTH_CLIENT_SECRET, uris)
+    client = Client(settings.PADMA_OAUTH_CLIENT_ID, "Padma", settings.PADMA_OAUTH_CLIENT_SECRET, uris, requires_name=True)
     return {client.id: client}
 
 
@@ -130,6 +144,8 @@ async def authorize(body: AuthorizeIn, current_user: CurrentUser, db: Db):
         raise HTTPException(status_code=403, detail="Этот аккаунт не может входить в другие сервисы")
     if not current_user.phone_verified_at:
         raise HTTPException(status_code=403, detail="phone_unverified")
+    if not _has_name(client, current_user):
+        raise HTTPException(status_code=403, detail="name_required")
     code = secrets.token_urlsafe(32)
     db.add(OAuthCode(
         code_hash=_hash(code), client_id=client.id, redirect_uri=body.redirect_uri, user_id=current_user.id,
@@ -138,6 +154,62 @@ async def authorize(body: AuthorizeIn, current_user: CurrentUser, db: Db):
     await db.commit()
     separator = "&" if urlsplit(body.redirect_uri).query else "?"
     return AuthorizeOut(redirect_to=f"{body.redirect_uri}{separator}{urlencode({'code': code, 'state': body.state})}")
+
+
+class RegisterIn(BaseModel):
+    """Регистрация «для Padma»: никнейм, почту и видимость номера не спрашиваем."""
+
+    client_id: str = Field(max_length=64)
+    redirect_uri: str = Field(max_length=512)
+    phone: str = Field(max_length=64)
+    phone_verification_token: str = Field(max_length=128)
+    last_name: str = Field(max_length=256)
+    first_name: str = Field(max_length=256)
+
+    @field_validator("phone")
+    @classmethod
+    def _phone(cls, value: str) -> str:
+        return normalize_phone(value)
+
+    @field_validator("first_name", "last_name")
+    @classmethod
+    def _name(cls, value: str, info: ValidationInfo) -> str:
+        label = NAME_LABELS[info.field_name]
+        name = normalize_person_name(value, label)
+        if not name:
+            raise ValueError(f"Укажите {label.lower()}")
+        return name
+
+
+@router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
+async def register(body: RegisterIn, db: Db):
+    """Новый аккаунт по подтверждённому телефону. Код для клиента — по-прежнему только по «Продолжить»."""
+    _client(body.client_id, body.redirect_uri)
+    if await phone_taken(db, body.phone):
+        raise HTTPException(status_code=400, detail=TAKEN["phone"])
+    verified_at = await consume_phone_verification(db, body.phone, body.phone_verification_token)
+    user = None
+    # Ник мог занять параллельный запрос: повторяем только вставку, подтверждение не теряется.
+    for _ in range(3):
+        candidate = User(
+            username=await auto_username(db, body.last_name, body.first_name), phone=body.phone,
+            phone_verified_at=verified_at, sessions_revoked_at=verified_at,
+            first_name=body.first_name, last_name=body.last_name,
+            phone_discoverable=False, password_hash=None,
+        )
+        try:
+            async with db.begin_nested():
+                db.add(candidate)
+            user = candidate
+            break
+        except IntegrityError:
+            if await phone_taken(db, body.phone):
+                break
+    if user is None:
+        await db.rollback()
+        raise HTTPException(status_code=400, detail="Номер уже зарегистрирован или не удалось подобрать никнейм. Попробуйте ещё раз")
+    await db.commit()
+    return TokenResponse(access_token=create_access_token(user.id, method="register"))
 
 
 def _rate_limited(ip: str) -> bool:
@@ -177,8 +249,13 @@ def _pkce_ok(verifier: str, challenge: str) -> bool:
     return hmac.compare_digest(computed, challenge)
 
 
-def _can_sign_in(user: User | None) -> bool:
-    return bool(user and user.is_active and not user.blocked_at and not user.is_official and user.phone_verified_at)
+def _has_name(client: Client, user: User) -> bool:
+    return not client.requires_name or bool((user.first_name or "").strip() and (user.last_name or "").strip())
+
+
+def _can_sign_in(user: User | None, client: Client) -> bool:
+    return bool(user and user.is_active and not user.blocked_at and not user.is_official and user.phone_verified_at
+                and _has_name(client, user))
 
 
 @router.post("/token")
@@ -233,7 +310,7 @@ async def token(request: Request, db: Db):
         and row.redirect_uri == redirect_uri
         and row.expires_at > now
         and _pkce_ok(verifier, row.code_challenge)
-        and _can_sign_in(user)
+        and _can_sign_in(user, client)
     )
     if not valid:
         await db.commit()  # код всё равно сгорел
@@ -255,7 +332,8 @@ async def token(request: Request, db: Db):
 
 @router.get("/userinfo")
 async def userinfo(request: Request, db: Db):
-    """Профиль по токену доступа. Каждый раз заново: активен, не заблокирован, телефон подтверждён."""
+    """Профиль по токену доступа. Каждый раз заново: активен, не заблокирован, телефон подтверждён,
+    а клиенту с requires_name — заполнены имя и фамилия."""
     known = _require_enabled()
     invalid = _oauth_error(401, "invalid_token", **{"WWW-Authenticate": 'Bearer error="invalid_token"'})
     scheme, _, value = request.headers.get("authorization", "").partition(" ")
@@ -267,7 +345,7 @@ async def userinfo(request: Request, db: Db):
     if not row or row.revoked_at or row.expires_at <= _now() or row.client_id not in known:
         return invalid
     user = await db.get(User, row.user_id)
-    if not _can_sign_in(user):
+    if not _can_sign_in(user, known[row.client_id]):
         return invalid
     return JSONResponse({
         "sub": user.id,

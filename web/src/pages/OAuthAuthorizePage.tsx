@@ -1,11 +1,13 @@
 /**
  * «Войти в Padma через Квазар» — страница, на которую Padma отправляет человека
- * (/oauth/authorize?response_type=code&client_id=…&redirect_uri=…&state=…&code_challenge=…).
+ * (/oauth/authorize?response_type=code&client_id=…&redirect_uri=…&state=…&code_challenge=…[&prompt=create]).
  *
  * 1. Проверяем клиента и адрес возврата у сервера. Ошибка — показываем её и никуда не ведём.
  * 2. Не вошёл — на /auth; после входа вернём сюда же (auth/returnAfterLogin.ts).
- * 3. Телефон не подтверждён — подтверждение звонком, без него код не выдаётся.
- * 4. «Войти в Padma как …» — код выдаётся только по нажатию «Продолжить».
+ *    С prompt=create — упрощённая регистрация прямо здесь (components/auth/OAuthSignup.tsx).
+ * 3. Телефон не подтверждён — подтверждение (звонок или код в Telegram), без него код не выдаётся.
+ * 4. Нет имени или фамилии — просим заполнить (сохраняются в профиле Quazar), без них «Продолжить» недоступно.
+ * 5. «Войти в Padma как …» — код выдаётся только по нажатию «Продолжить».
  *
  * Внутри чужого сайта (iframe) страница кнопок не показывает: иначе нажатие можно подстроить.
  */
@@ -17,6 +19,7 @@ import type { User } from "../api/types";
 import { usersApi } from "../api/users";
 import { clearReturn, rememberReturn } from "../auth/returnAfterLogin";
 import PhoneVerification from "../components/profile/PhoneVerification";
+import OAuthSignup from "../components/auth/OAuthSignup";
 import { useAuthStore } from "../store/auth";
 import { apiErrorText } from "../utils/profile";
 import s from "./AuthPage.module.css";
@@ -42,6 +45,11 @@ export function readRequest(search: string): AuthorizeRequest | null {
   if (params.get("response_type") !== "code" || !request.client_id || !request.redirect_uri || !request.state
     || request.code_challenge_method !== "S256" || !CHALLENGE.test(request.code_challenge)) return null;
   return request;
+}
+
+/** prompt=create — клиент просит регистрацию, а не вход (кнопка «Зарегистрироваться» в Padma). */
+export function wantsSignup(search: string): boolean {
+  return new URLSearchParams(search).get("prompt") === "create";
 }
 
 /** Адрес возврата с добавленными параметрами (у адреса уже может быть свой query). */
@@ -80,6 +88,10 @@ export default function OAuthAuthorizePage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [needsPhone, setNeedsPhone] = useState(false);
+  const [needsName, setNeedsName] = useState(false);
+  const [lastName, setLastName] = useState<string | null>(null);
+  const [firstName, setFirstName] = useState<string | null>(null);
+  const signup = useMemo(() => wantsSignup(location.search), [location.search]);
   const inFrame = framed();
 
   useEffect(() => {
@@ -113,16 +125,22 @@ export default function OAuthAuthorizePage() {
   </Shell>;
 
   const name = check.name;
+  const cancel = () => {
+    clearReturn();
+    window.location.assign(withParams(request.redirect_uri, { error: "access_denied", state: request.state }));
+  };
+  if (!token && signup) return <Shell title={`Регистрация для ${name}`}>
+    <OAuthSignup request={request} name={name} onCancel={cancel} onSignIn={() => {
+      rememberReturn(location.pathname + location.search, name);
+      navigate("/auth", { replace: true });
+    }} />
+  </Shell>;
   if (!token) {
     rememberReturn(location.pathname + location.search, name);
     return <Navigate to="/auth" replace />;
   }
   if (!user) return <Shell title={`Вход в ${name}`}><p className={s.lead}>Загружаем профиль…</p></Shell>;
 
-  const cancel = () => {
-    clearReturn();
-    window.location.assign(withParams(request.redirect_uri, { error: "access_denied", state: request.state }));
-  };
   const another = () => {
     rememberReturn(location.pathname + location.search, name);
     setFreshUser(null);
@@ -136,15 +154,23 @@ export default function OAuthAuthorizePage() {
     <button type="button" className={s.ghost} onClick={cancel}>Отмена</button>
   </Shell>;
 
+  // Поля имени: пока человек не начал править — значения из профиля.
+  const last = lastName ?? user.last_name ?? "", first = firstName ?? user.first_name ?? "";
+  const nameMissing = needsName || !(user.last_name ?? "").trim() || !(user.first_name ?? "").trim();
   const proceed = async () => {
     setBusy(true); setError(null);
     try {
+      if (nameMissing) {
+        const saved = await usersApi.updateMe({ last_name: last.trim(), first_name: first.trim() });
+        setFreshUser(saved); setUser(saved); setNeedsName(false);
+      }
       const { redirect_to } = await oauthProviderApi.authorize(request);
       clearReturn();
       window.location.assign(redirect_to);
     } catch (err) {
       const text = apiErrorText(err, "Не удалось войти");
       if (text === "phone_unverified") setNeedsPhone(true);
+      else if (text === "name_required") { setNeedsName(true); setError("Укажите фамилию и имя"); }
       else setError(text);
       setBusy(false);
     }
@@ -152,9 +178,17 @@ export default function OAuthAuthorizePage() {
 
   return <Shell title={`Вход в ${name}`}>
     <p className={s.lead}>Войти в {name} как <b>{user.display_name || user.username}</b>{user.phone ? `, ${maskedPhone(user.phone)}` : ""}?</p>
-    <p className={s.hint}>{name} получит ваше имя, ник и подтверждённый номер телефона.</p>
+    <p className={s.hint}>{name} получит ваши фамилию и имя, ник и подтверждённый номер телефона.</p>
+    {nameMissing && <>
+      <p className={s.hint}>{name} нужны фамилия и имя — они сохранятся в вашем профиле Quazar.</p>
+      <input className={s.input} placeholder="Фамилия" aria-label="Фамилия" value={last} maxLength={64}
+        autoComplete="family-name" onChange={event => setLastName(event.target.value)} />
+      <input className={s.input} placeholder="Имя" aria-label="Имя" value={first} maxLength={64}
+        autoComplete="given-name" onChange={event => setFirstName(event.target.value)} />
+    </>}
     {error && <div className={s.error} role="alert">{error}</div>}
-    <button type="button" className={s.submit} disabled={busy} onClick={() => void proceed()}>{busy ? "Входим…" : "Продолжить"}</button>
+    <button type="button" className={s.submit} disabled={busy || (nameMissing && (!last.trim() || !first.trim()))}
+      onClick={() => void proceed()}>{busy ? "Входим…" : "Продолжить"}</button>
     <button type="button" className={s.ghost} disabled={busy} onClick={cancel}>Отмена</button>
     <button type="button" className={s.ghost} disabled={busy} onClick={another}>Войти другим аккаунтом</button>
   </Shell>;

@@ -6,13 +6,13 @@ export interface BrowserPlatform {
 }
 
 // Указатель на опубликованный релиз: версия сайта может быть новее десктопной сборки.
-export const DESKTOP_RELEASE = { version: "2.12.0", tag: "desktop-v2.12.0-pilot.1" };
+export const DESKTOP_RELEASE = { version: "2.13.0", tag: "desktop-v2.13.0-pilot.1" };
 const RELEASE_BASE = `https://github.com/Balastov/Quazar-Messager/releases/download/${DESKTOP_RELEASE.tag}`;
 // Опубликованная сборка для Android; null — ещё не выпускали (сайт пишет «почти готово»).
 // Своя версия, не как у DESKTOP_RELEASE: APK выпускают только когда меняется само приложение
 // (интерфейс оно берёт с сайта). Должна совпадать с /desktop-updates/android/latest.json.
-// 2.6.0 — звонки на весь экран поверх блокировки (2.3.0 Google Play Защита заблокировала, её пропустили).
-export const ANDROID_RELEASE: { version: string } | null = { version: "2.6.0" };
+// 2.13.0 — Quazar в меню «Поделиться» (2.6.0 — звонки на весь экран; 2.3.0 Google Play Защита заблокировала, её пропустили).
+export const ANDROID_RELEASE: { version: string } | null = { version: "2.13.0" };
 export function androidApkUrl(release: { version: string }): string {
   return `https://quazar-msg.ru/desktop-updates/android/Quazar-${release.version}-android.apk`;
 }

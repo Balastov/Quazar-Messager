@@ -11,7 +11,7 @@ import ScreenAudioControls, { ShareScreenAudioToggle } from "./ScreenAudioContro
 import ScreenAudioPlayer from "./ScreenAudioPlayer";
 import ScreenShareDialog from "./ScreenShareDialog";
 import { usePresenting } from "../notifications/presenting";
-import { NOISE_MODE_TITLE, useNoiseMenu } from "./NoiseMenu";
+import NoiseControls from "./NoiseControls";
 
 /** «Переподключение… 7 с» и пояснение, чья связь пропала. */
 function ReconnectNotice({ reason, deadline }: { reason: Reconnecting; deadline: number | null }) {
@@ -99,9 +99,6 @@ export default function CallOverlay() {
   const noiseSuppression = useCallStore((st) => st.noiseSuppression);
   const noiseSuppressionActive = useCallStore((st) => st.noiseSuppressionActive);
   const toggleNoiseSuppression = useCallStore((st) => st.toggleNoiseSuppression);
-  // Включено, но устройство не тянет нейросеть — работает обычная обработка браузера.
-  const noiseUnavailable = noiseSuppression && !noiseSuppressionActive && localStream !== null;
-  const noise = useNoiseMenu({ enabled: noiseSuppression, toggle: toggleNoiseSuppression, unavailable: noiseUnavailable });
 
   const audioRef = useRef<HTMLAudioElement>(null);
   const output = useDevicesStore((st) => st.output);
@@ -206,6 +203,8 @@ export default function CallOverlay() {
   const inCallControls =
     phase === "outgoing" || phase === "connecting" || phase === "active";
 
+  // Включено, но устройство не тянет RNNoise — работает обычная обработка браузера.
+  const noiseUnavailable = noiseSuppression && !noiseSuppressionActive && localStream !== null;
   const devicesButton = (
     <button
       type="button"
@@ -279,16 +278,17 @@ export default function CallOverlay() {
     <button
       type="button"
       className={s.mute}
-      onClick={noise.onButtonClick}
-      aria-haspopup="menu"
-      aria-expanded={noise.expanded}
+      onClick={() => void toggleNoiseSuppression()}
+      aria-pressed={noiseSuppression}
       title={
         noiseUnavailable
-          ? "Шумоподавление недоступно на этом устройстве — работает обычная обработка. Нажмите, чтобы выбрать"
-          : `Шумоподавление: ${NOISE_MODE_TITLE[noise.mode]}. Нажмите, чтобы выбрать`
+          ? "Шумоподавление недоступно на этом устройстве — работает обычная обработка"
+          : noiseSuppression
+            ? "Шумоподавление включено: фоновые звуки убираются"
+            : "Шумоподавление выключено"
       }
     >
-      {noise.mode === "off" ? "Шум: выкл" : noiseUnavailable ? "Шум: —" : `Шум: ${NOISE_MODE_TITLE[noise.mode]}`}
+      {noiseSuppression ? (noiseUnavailable ? "Шум: —" : "Шум: вкл") : "Шум: выкл"}
     </button>
   );
 
@@ -466,10 +466,10 @@ export default function CallOverlay() {
           </div>
         </div>
       )}
-      {noise.menu}
       {devicesOpen && (
         <Dialog title="Микрофон и динамик" onClose={() => setDevicesOpen(false)}>
           <AudioDevices />
+          <NoiseControls enabled={noiseSuppression} toggle={toggleNoiseSuppression} live divided />
         </Dialog>
       )}
       {screenDialogOpen && <ScreenShareDialog quality={false} audioSupported={canSendScreenAudio()}

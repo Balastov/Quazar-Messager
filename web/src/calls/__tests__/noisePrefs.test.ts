@@ -17,7 +17,7 @@ import {
   getNoiseEnginePref,
   setMicGatePref,
   setNoiseEnginePref,
-  subscribeNoiseEngine,
+  subscribeNoisePrefs,
 } from "../noiseSuppression";
 
 beforeEach(() => localStorage.clear());
@@ -33,7 +33,7 @@ describe("noise engine preference", () => {
 
   it("notifies subscribers about the new engine", () => {
     const seen: string[] = [];
-    const off = subscribeNoiseEngine(() => seen.push(getNoiseEnginePref()));
+    const off = subscribeNoisePrefs(() => seen.push(getNoiseEnginePref()));
     setNoiseEnginePref("rnnoise");
     off();
     setNoiseEnginePref("gtcrn");

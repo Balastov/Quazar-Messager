@@ -2,7 +2,7 @@
  * Нейросетевое шумоподавление микрофона для звонков и Планет.
  *
  * Микрофон → AudioWorklet с нейросетью (WASM) → порог микрофона → MediaStreamDestination → звонок.
- * Нейросети на выбор (меню у кнопки шумодава, настройки звонков): RNNoise — лёгкая, хорошо
+ * Нейросети на выбор (окно «Микрофон и динамик», настройки звонков): RNNoise — лёгкая, хорошо
  * убирает ровный фон; GTCRN (по умолчанию) — новее, гораздо лучше справляется с отрывистыми
  * звуками: щелчки клавиатуры без речи у RNNoise ≈ −19 дБ, у GTCRN ≈ −49 дБ. Чуть тяжелее.
  * Порог микрофона (micGateWorklet.js) глушит всё, пока человек молчит.
@@ -68,12 +68,16 @@ export function getNoiseEnginePref(): NoiseEngine {
   }
 }
 
-const engineListeners = new Set<() => void>();
+const prefListeners = new Set<() => void>();
 
-/** Подписка на смену нейросети (меню у кнопки шумодава, настройки). Возвращает отписку. */
-export function subscribeNoiseEngine(listener: () => void): () => void {
-  engineListeners.add(listener);
-  return () => engineListeners.delete(listener);
+/** Подписка на смену нейросети или порога (окно «Микрофон и динамик», настройки). Возвращает отписку. */
+export function subscribeNoisePrefs(listener: () => void): () => void {
+  prefListeners.add(listener);
+  return () => prefListeners.delete(listener);
+}
+
+function notifyPrefs(): void {
+  for (const listener of prefListeners) listener();
 }
 
 /** GTCRN на этом устройстве выдавал тишину — в разговорах берём RNNoise. */
@@ -105,7 +109,7 @@ export function setNoiseEnginePref(engine: NoiseEngine): void {
     // ignore
   }
   for (const mic of liveMics) void mic.setEngine(engine);
-  for (const listener of engineListeners) listener();
+  notifyPrefs();
 }
 
 /** Порог микрофона в дБ: ниже — тишина. */
@@ -151,6 +155,7 @@ export function setMicGatePref(db: number | null): void {
     // ignore
   }
   for (const mic of liveMics) mic.setGate(value);
+  notifyPrefs();
 }
 
 export function clearFailedOnThisDevice(): void {
@@ -312,6 +317,21 @@ export interface GateMeter {
   open: boolean;
 }
 
+const liveMeterListeners = new Set<(meter: GateMeter) => void>();
+
+/**
+ * Уровень перед порогом у микрофона, который сейчас в разговоре, — чтобы настроить ползунок
+ * прямо в звонке. Возвращает отписку.
+ */
+export function watchLiveGateMeter(listener: (meter: GateMeter) => void): () => void {
+  liveMeterListeners.add(listener);
+  if (liveMeterListeners.size === 1) for (const mic of liveMics) mic.setMeter(true);
+  return () => {
+    liveMeterListeners.delete(listener);
+    if (!liveMeterListeners.size) for (const mic of liveMics) mic.setMeter(false);
+  };
+}
+
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | undefined> {
   return Promise.race([
     promise,
@@ -366,9 +386,15 @@ export class NoiseSuppressedMic {
     this.outBuffer = new Float32Array(outProbe.fftSize);
     ctx.onstatechange = () => void this.recover();
     this.watchErrors(denoiser);
-    gate.port.onmessage = (event: MessageEvent<GateMeter>) => this.onGateMeter?.(event.data);
+    gate.port.onmessage = (event: MessageEvent<GateMeter>) => {
+      this.onGateMeter?.(event.data);
+      if (liveMics.has(this)) for (const listener of liveMeterListeners) listener(event.data);
+    };
     this.startWatching();
-    if (followSettings) liveMics.add(this);
+    if (followSettings) {
+      liveMics.add(this);
+      if (liveMeterListeners.size) this.setMeter(true);
+    }
   }
 
   /**

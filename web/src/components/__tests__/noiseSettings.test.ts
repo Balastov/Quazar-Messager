@@ -1,27 +1,17 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { Simulate } from "react-dom/test-utils";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
-const prefs = vi.hoisted(() => ({
-  engine: "rnnoise" as "rnnoise" | "gtcrn",
-  gate: null as number | null,
-  setEngine: vi.fn((engine: "rnnoise" | "gtcrn") => { prefs.engine = engine; prefs.listeners.forEach((l) => l()); }),
-  listeners: new Set<() => void>(),
-  setGate: vi.fn(),
-}));
+const prefs = vi.hoisted(() => ({ gate: null as number | null }));
 vi.mock("../../calls/noiseSuppression", () => ({
-  GATE_MIN_DB: -70,
-  GATE_MAX_DB: -20,
   NOISE_ENGINES: ["rnnoise", "gtcrn"],
   NoiseSuppressedMic: { create: vi.fn() },
-  engineFailedOnThisDevice: () => false,
-  getNoiseEnginePref: () => prefs.engine,
-  subscribeNoiseEngine: (listener: () => void) => { prefs.listeners.add(listener); return () => prefs.listeners.delete(listener); },
-  getMicGatePref: () => prefs.gate,
-  getMicGateLevelPref: () => prefs.gate ?? -50,
-  setNoiseEnginePref: prefs.setEngine,
-  setMicGatePref: prefs.setGate,
+}));
+vi.mock("../NoiseControls", () => ({
+  default: (props: { live: boolean }) => createElement("p", null, `controls live=${props.live}`),
+  GateMeterBar: () => null,
+  formatDb: (db: number) => `${db} дБ`,
+  useMicGate: () => ({ gateDb: prefs.gate, level: prefs.gate ?? -50 }),
 }));
 vi.mock("../../calls/devices", () => ({ getMicrophone: vi.fn() }));
 const call = vi.hoisted(() => ({ noiseSuppression: true, phase: "idle", toggleNoiseSuppression: vi.fn() }));
@@ -36,51 +26,36 @@ const { default: NoiseSettings } = await import("../settings/NoiseSettings");
 
 let host: HTMLDivElement, root: Root;
 beforeEach(() => {
-  vi.clearAllMocks();
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-  prefs.engine = "rnnoise"; prefs.gate = null;
-  call.noiseSuppression = true; call.phase = "idle"; voice.status = "idle";
+  prefs.gate = null; call.noiseSuppression = true; call.phase = "idle"; voice.status = "idle";
   host = document.createElement("div"); document.body.append(host); root = createRoot(host);
 });
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); vi.unstubAllGlobals(); });
 
 const render = () => act(async () => root.render(createElement(NoiseSettings)));
-const radio = (text: string) => [...host.querySelectorAll("label")].find(l => l.textContent?.includes(text))!.querySelector("input")!;
-const gateToggle = () => [...host.querySelectorAll("label")].find(l => l.textContent === "Порог микрофона")!.querySelector("input")!;
-const button = (text: string) => [...host.querySelectorAll("button")].find(b => b.textContent?.includes(text));
+const button = (text: string) => [...host.querySelectorAll("button")].find((b) => b.textContent?.includes(text));
 
-it("switches the neural network right away", async () => {
+it("outside a call offers voice tuning (with the gate on) and the comparison recording", async () => {
   await render();
-  expect(radio("RNNoise").checked).toBe(true);
-  await act(async () => radio("GTCRN").click());
-  expect(prefs.setEngine).toHaveBeenCalledWith("gtcrn");
-  expect(radio("GTCRN").checked).toBe(true);
+  expect(host.textContent).toContain("controls live=false");
+  expect(button("Настроить по голосу")).toBeUndefined();
+  prefs.gate = -45;
+  await render();
+  expect(button("Настроить по голосу")!.disabled).toBe(false);
+  expect(button("Записать пример")!.disabled).toBe(false);
+  expect(host.textContent).toContain("«Микрофон и динамик»");
 });
 
-it("turns the gate on at the remembered level and moves it with the slider", async () => {
-  await render();
-  expect(host.querySelector("#mic-gate")).toBeNull();
-  await act(async () => gateToggle().click());
-  expect(prefs.setGate).toHaveBeenLastCalledWith(-50);
-  const slider = host.querySelector<HTMLInputElement>("#mic-gate")!;
-  await act(async () => { slider.value = "-40"; Simulate.change(slider); });
-  expect(prefs.setGate).toHaveBeenLastCalledWith(-40);
-  expect(host.textContent).toContain("−40 дБ");
-  await act(async () => gateToggle().click());
-  expect(prefs.setGate).toHaveBeenLastCalledWith(null);
-});
-
-it("does not open the microphone for checks during a call", async () => {
+it("during a call shows the live level instead and does not open the microphone", async () => {
   prefs.gate = -45; call.phase = "active";
   await render();
-  expect(button("Настроить по голосу")!.disabled).toBe(true);
+  expect(host.textContent).toContain("controls live=true");
+  expect(button("Настроить по голосу")).toBeUndefined();
   expect(button("Записать пример")!.disabled).toBe(true);
-  expect(host.textContent).toContain("вне звонка");
 });
 
-it("disables network and gate choices while noise suppression is off", async () => {
+it("without noise suppression there is nothing to compare", async () => {
   call.noiseSuppression = false;
   await render();
-  expect([...host.querySelectorAll("fieldset")].every(f => f.disabled)).toBe(true);
   expect(button("Записать пример")).toBeUndefined();
 });

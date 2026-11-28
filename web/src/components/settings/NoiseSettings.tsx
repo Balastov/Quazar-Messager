@@ -1,53 +1,20 @@
 /**
- * Настройки шумоподавления: вкл/выкл, нейросеть (RNNoise или GTCRN), порог микрофона
- * с индикатором по живому голосу и запись для сравнения нейросетей на слух.
+ * Настройки шумоподавления: вариант и порог (тот же блок, что в окне «Микрофон и динамик»),
+ * плюс проверка порога по живому голосу и запись для сравнения нейросетей на слух.
  * Всё применяется сразу, в том числе к идущему разговору.
  */
 import { useEffect, useRef, useState } from "react";
-import {
-  GATE_MAX_DB,
-  GATE_MIN_DB,
-  NOISE_ENGINES,
-  NoiseSuppressedMic,
-  engineFailedOnThisDevice,
-  getMicGateLevelPref,
-  getMicGatePref,
-  setMicGatePref,
-  setNoiseEnginePref,
-  type GateMeter,
-  type NoiseEngine,
-} from "../../calls/noiseSuppression";
+import { NOISE_ENGINES, NoiseSuppressedMic, type GateMeter } from "../../calls/noiseSuppression";
 import { getMicrophone } from "../../calls/devices";
 import { useCallStore } from "../../store/call";
-import { useNoiseEngine } from "../NoiseMenu";
 import { micErrorText, useVoiceStore } from "../../store/voice";
+import NoiseControls, { GateMeterBar, formatDb, useMicGate } from "../NoiseControls";
 import s from "../SettingsView.module.css";
 import n from "./NoiseSettings.module.css";
 
-const ENGINE_TEXT: Record<NoiseEngine, { title: string; hint: string }> = {
-  rnnoise: {
-    title: "Обычная (RNNoise)",
-    hint: "Лёгкая. Хорошо убирает ровный фон: вентилятор, гул, улицу.",
-  },
-  gtcrn: {
-    title: "Сильная (GTCRN) — по умолчанию",
-    hint: "Лучше убирает клавиатуру, щелчки и отрывистые звуки. Немного сильнее нагружает процессор.",
-  },
-};
-
+const ENGINE_TITLE = { rnnoise: "RNNoise", gtcrn: "GTCRN" } as const;
 const TUNE_MS = 30_000;
 const RECORD_MS = 8_000;
-/** Шкала индикатора, дБ. */
-const METER_FLOOR = -80;
-const METER_TOP = -10;
-
-function meterPct(db: number): number {
-  return Math.min(100, Math.max(0, ((db - METER_FLOOR) / (METER_TOP - METER_FLOOR)) * 100));
-}
-
-function formatDb(db: number): string {
-  return `${db < 0 ? "−" : ""}${Math.abs(db)} дБ`;
-}
 
 function openMic() {
   // Как в разговоре: встроенное шумоподавление браузера выключено, работает наше.
@@ -60,108 +27,35 @@ export default function NoiseSettings() {
   const callPhase = useCallStore((st) => st.phase);
   const voice = useVoiceStore((st) => st.status);
   const busy = !["idle", "ended"].includes(callPhase) || voice !== "idle";
-
-  const engine = useNoiseEngine();
-  const [gateOn, setGateOn] = useState(() => getMicGatePref() !== null);
-  const [gateDb, setGateDb] = useState(getMicGateLevelPref);
-
-  const chooseEngine = (next: NoiseEngine) => setNoiseEnginePref(next);
-  const toggleGate = () => {
-    setGateOn(!gateOn);
-    setMicGatePref(gateOn ? null : gateDb);
-  };
-  const changeGate = (db: number) => {
-    setGateDb(db);
-    if (gateOn) setMicGatePref(db);
-  };
+  const { gateDb } = useMicGate();
 
   return (
     <section className={s.card}>
-      <label className={s.toggle}>
-        <input type="checkbox" checked={noiseSuppression} onChange={() => void toggleNoiseSuppression()} />
-        <span className={s.toggleUi} />
-        <span className={s.toggleLabel}>Шумоподавление микрофона</span>
-      </label>
+      <NoiseControls enabled={noiseSuppression} toggle={toggleNoiseSuppression} live={busy} />
       <p className={s.hint}>
-        Убирает из вашего голоса клавиатуру, вентилятор, улицу и бытовые звуки. Когда выключено,
-        работает более слабое встроенное шумоподавление браузера. Во время звонка вариант выбирается
-        кнопкой шумодава.
+        Во время разговора то же самое — в окне «Микрофон и динамик»; кнопка шумодава просто включает
+        и выключает его.
       </p>
-
-      <fieldset className={n.group} disabled={!noiseSuppression}>
-        <legend className={s.toggleLabel}>Нейросеть</legend>
-        {NOISE_ENGINES.map((id) => (
-          <label key={id} className={n.option}>
-            <input type="radio" name="noise-engine" checked={engine === id} onChange={() => chooseEngine(id)} />
-            <span>
-              <span className={n.optionTitle}>{ENGINE_TEXT[id].title}</span>
-              <span className={s.hint}>
-                {ENGINE_TEXT[id].hint}
-                {engine === id && engineFailedOnThisDevice(id) && " На этом устройстве она не заработала — в разговорах используется обычная."}
-              </span>
-            </span>
-          </label>
-        ))}
-      </fieldset>
-
-      <fieldset className={n.group} disabled={!noiseSuppression}>
-        <label className={s.toggle}>
-          <input type="checkbox" checked={gateOn} onChange={toggleGate} />
-          <span className={s.toggleUi} />
-          <span className={s.toggleLabel}>Порог микрофона</span>
-        </label>
-        <p className={s.hint}>
-          Пока вы молчите, собеседники не слышат ничего: ни клавиатуру, ни геймпад, ни мышь. Короткие
-          щелчки порог не открывают. Звуки во время речи он не убирает — это работа нейросети.
-        </p>
-        {gateOn && (
-          <>
-            <div className={s.sliderHead}>
-              <label htmlFor="mic-gate" className={s.toggleLabel}>Порог</label>
-              <span className={s.sliderValue}>{formatDb(gateDb)}</span>
-            </div>
-            <input
-              id="mic-gate"
-              type="range"
-              min={GATE_MIN_DB}
-              max={GATE_MAX_DB}
-              step={1}
-              value={gateDb}
-              onChange={(e) => changeGate(Number(e.target.value))}
-              className={s.slider}
-              style={{ "--fill": `${((gateDb - GATE_MIN_DB) / (GATE_MAX_DB - GATE_MIN_DB)) * 100}%` } as React.CSSProperties}
-            />
-            <div className={s.sliderScale}>
-              <span>Пропускает тихий голос</span>
-              <span>Только громкую речь</span>
-            </div>
-          </>
-        )}
-        {gateOn && <GateTuner disabled={busy} gateDb={gateDb} />}
-      </fieldset>
-
-      {noiseSuppression && <Compare disabled={busy} gateDb={gateOn ? gateDb : null} />}
+      {noiseSuppression && gateDb !== null && !busy && <GateTuner gateDb={gateDb} />}
+      {noiseSuppression && <Compare disabled={busy} gateDb={gateDb} />}
       {busy && noiseSuppression && (
-        <p className={s.hint}>Проверить по голосу можно вне звонка и голосовой комнаты. Настройки же применяются к разговору сразу.</p>
+        <p className={s.hint}>Проверить по записи можно вне звонка и голосовой комнаты.</p>
       )}
     </section>
   );
 }
 
 /** Живой индикатор: громкость после нейросети и отметка порога. */
-function GateTuner({ disabled, gateDb }: { disabled: boolean; gateDb: number }) {
+function GateTuner({ gateDb }: { gateDb: number }) {
   const [state, setState] = useState<"idle" | "starting" | "running">("idle");
   const [meter, setMeter] = useState<GateMeter>({ levelDb: -100, open: false });
   const [error, setError] = useState<string | null>(null);
   const stopRef = useRef<(() => void) | null>(null);
 
   useEffect(() => () => stopRef.current?.(), []);
-  useEffect(() => {
-    if (disabled) stopRef.current?.();
-  }, [disabled]);
 
   const start = async () => {
-    if (state !== "idle" || disabled) return;
+    if (state !== "idle") return;
     setState("starting");
     setError(null);
     let cancelled = false;
@@ -198,7 +92,7 @@ function GateTuner({ disabled, gateDb }: { disabled: boolean; gateDb: number }) 
   return (
     <div className={n.tool}>
       {state === "idle" ? (
-        <button type="button" className={s.secondary} disabled={disabled} onClick={() => void start()}>
+        <button type="button" className={s.secondary} onClick={() => void start()}>
           Настроить по голосу
         </button>
       ) : (
@@ -208,18 +102,7 @@ function GateTuner({ disabled, gateDb }: { disabled: boolean; gateDb: number }) 
               ? "Разрешите доступ к микрофону…"
               : "Помолчите и постучите по клавиатуре — полоса должна быть левее отметки. Потом скажите несколько слов — правее."}
           </p>
-          {state === "running" && (
-            <>
-              <div className={n.meter} aria-label="Громкость микрофона после нейросети" role="meter"
-                aria-valuemin={METER_FLOOR} aria-valuemax={METER_TOP} aria-valuenow={Math.round(meter.levelDb)}>
-                <div className={meter.open ? n.fillOpen : n.fillClosed} style={{ width: `${meterPct(meter.levelDb)}%` }} />
-                <div className={n.mark} style={{ left: `${meterPct(gateDb)}%` }} />
-              </div>
-              <p className={meter.open ? n.open : n.closed} role="status">
-                {meter.open ? "Собеседники вас слышат" : "Тишина — собеседники ничего не слышат"}
-              </p>
-            </>
-          )}
+          {state === "running" && <GateMeterBar meter={meter} gateDb={gateDb} />}
           <button type="button" className={s.secondary} onClick={() => stopRef.current?.()}>
             Остановить
           </button>
@@ -297,7 +180,7 @@ function Compare({ disabled, gateDb }: { disabled: boolean; gateDb: number | nul
         if (cancelled) return release();
         // create() мог откатиться на RNNoise — не выдаём её за другую нейросеть.
         if (mic && mic.engine === engine) {
-          variants.push({ id: engine, title: ENGINE_TEXT[engine].title + gateNote, track: mic.track });
+          variants.push({ id: engine, title: ENGINE_TITLE[engine] + gateNote, track: mic.track });
         }
       }
 

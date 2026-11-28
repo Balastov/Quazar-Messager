@@ -2,8 +2,9 @@
  * Нейросетевое шумоподавление микрофона для звонков и Планет.
  *
  * Микрофон → AudioWorklet с нейросетью (WASM) → порог микрофона → MediaStreamDestination → звонок.
- * Нейросети на выбор (настройки звонков): RNNoise — лёгкая, хорошо убирает ровный фон;
- * GTCRN — новее, лучше справляется с отрывистыми звуками (клавиатура, щелчки), чуть тяжелее.
+ * Нейросети на выбор (меню у кнопки шумодава, настройки звонков): RNNoise — лёгкая, хорошо
+ * убирает ровный фон; GTCRN (по умолчанию) — новее, гораздо лучше справляется с отрывистыми
+ * звуками: щелчки клавиатуры без речи у RNNoise ≈ −19 дБ, у GTCRN ≈ −49 дБ. Чуть тяжелее.
  * Порог микрофона (micGateWorklet.js) глушит всё, пока человек молчит.
  * Если что-то не поддерживается, create() вернёт null
  * и звонок пойдёт со встроенной обработкой браузера.
@@ -55,12 +56,24 @@ export function setNoiseSuppressionPref(enabled: boolean): void {
 export type NoiseEngine = "rnnoise" | "gtcrn";
 export const NOISE_ENGINES: readonly NoiseEngine[] = ["rnnoise", "gtcrn"];
 
+/** По умолчанию GTCRN: заметно лучше убирает клавиатуру и щелчки (замеры — в шапке файла). */
+export const DEFAULT_NOISE_ENGINE: NoiseEngine = "gtcrn";
+
 export function getNoiseEnginePref(): NoiseEngine {
   try {
-    return localStorage.getItem(ENGINE_KEY) === "gtcrn" ? "gtcrn" : "rnnoise";
+    const value = localStorage.getItem(ENGINE_KEY);
+    return value === "rnnoise" || value === "gtcrn" ? value : DEFAULT_NOISE_ENGINE;
   } catch {
-    return "rnnoise";
+    return DEFAULT_NOISE_ENGINE;
   }
+}
+
+const engineListeners = new Set<() => void>();
+
+/** Подписка на смену нейросети (меню у кнопки шумодава, настройки). Возвращает отписку. */
+export function subscribeNoiseEngine(listener: () => void): () => void {
+  engineListeners.add(listener);
+  return () => engineListeners.delete(listener);
 }
 
 /** GTCRN на этом устройстве выдавал тишину — в разговорах берём RNNoise. */
@@ -92,6 +105,7 @@ export function setNoiseEnginePref(engine: NoiseEngine): void {
     // ignore
   }
   for (const mic of liveMics) void mic.setEngine(engine);
+  for (const listener of engineListeners) listener();
 }
 
 /** Порог микрофона в дБ: ниже — тишина. */

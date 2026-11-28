@@ -6,7 +6,8 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 const prefs = vi.hoisted(() => ({
   engine: "rnnoise" as "rnnoise" | "gtcrn",
   gate: null as number | null,
-  setEngine: vi.fn(),
+  setEngine: vi.fn((engine: "rnnoise" | "gtcrn") => { prefs.engine = engine; prefs.listeners.forEach((l) => l()); }),
+  listeners: new Set<() => void>(),
   setGate: vi.fn(),
 }));
 vi.mock("../../calls/noiseSuppression", () => ({
@@ -16,6 +17,7 @@ vi.mock("../../calls/noiseSuppression", () => ({
   NoiseSuppressedMic: { create: vi.fn() },
   engineFailedOnThisDevice: () => false,
   getNoiseEnginePref: () => prefs.engine,
+  subscribeNoiseEngine: (listener: () => void) => { prefs.listeners.add(listener); return () => prefs.listeners.delete(listener); },
   getMicGatePref: () => prefs.gate,
   getMicGateLevelPref: () => prefs.gate ?? -50,
   setNoiseEnginePref: prefs.setEngine,

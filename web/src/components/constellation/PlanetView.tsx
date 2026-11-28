@@ -32,6 +32,7 @@ import s from "./Constellation.module.css";
 import { usePresence, usePresenceText } from "../../store/presence";
 import { presenceTone } from "../../utils/presence";
 import { compareNames, compareUsers, displayName } from "../../utils/profile";
+import { NOISE_MODE_TITLE, useNoiseMenu } from "../NoiseMenu";
 
 interface Props {
   detail: StarDetail;
@@ -543,6 +544,11 @@ export default function PlanetView({ detail, channel, onBack, onEdit }: Props) {
 export function RoomControls({ detail, channel }: { detail: StarDetail; channel: StarChannel }) {
   const myId = useAuthStore((st) => st.user?.id);
   const voice = useVoiceStore();
+  const noise = useNoiseMenu({
+    enabled: voice.noiseSuppression,
+    toggle: voice.toggleNoise,
+    unavailable: voice.status === "connected" && !voice.noiseActive && !voice.micUnavailable && !voice.listenOnly,
+  });
   const [inviteOpen, setInviteOpen] = useState(false);
   const [devicesOpen, setDevicesOpen] = useState(false);
   const [soundsOpen, setSoundsOpen] = useState(false);
@@ -644,15 +650,16 @@ export function RoomControls({ detail, channel }: { detail: StarDetail; channel:
               icon={<IconNoiseFilter />}
               tone={voice.noiseSuppression ? "on" : "default"}
               label={
-                !voice.noiseSuppression
-                  ? "Шумоподавление выключено — включить"
+                noise.mode === "off"
+                  ? "Шумоподавление: без обработки — выбрать"
                   : voice.noiseActive || voice.micUnavailable
-                    ? "Шумоподавление включено: убирает клавиатуру, вентилятор, улицу"
-                    : "Шумоподавление включено, но не работает на этом устройстве"
+                    ? `Шумоподавление: ${NOISE_MODE_TITLE[noise.mode]} — выбрать`
+                    : "Шумоподавление включено, но не работает на этом устройстве — выбрать"
               }
-              pressed={voice.noiseSuppression}
-              onClick={() => void voice.toggleNoise()}
+              menuExpanded={noise.expanded}
+              onClick={noise.onButtonClick}
             />
+            {noise.menu}
             {deafenButton}
             <ControlButton
               icon={voice.cameraOn ? <IconStarCamera /> : <IconStarCameraOff />}
@@ -924,6 +931,7 @@ function ControlButton({
   tone = "default",
   pressed,
   disabled,
+  menuExpanded,
 }: {
   icon: React.ReactNode;
   label: string;
@@ -931,6 +939,8 @@ function ControlButton({
   tone?: "default" | "on" | "off";
   pressed?: boolean;
   disabled?: boolean;
+  /** Кнопка открывает меню: открыто ли оно сейчас (aria-expanded вместо aria-pressed). */
+  menuExpanded?: boolean;
 }) {
   const toneClass = tone === "on" ? s.ctrlOn : tone === "off" ? s.ctrlOff : "";
   return (
@@ -940,7 +950,9 @@ function ControlButton({
       onClick={onClick}
       disabled={disabled}
       aria-label={label}
-      aria-pressed={pressed}
+      aria-pressed={menuExpanded === undefined ? pressed : undefined}
+      aria-haspopup={menuExpanded === undefined ? undefined : "menu"}
+      aria-expanded={menuExpanded}
       title={label}
     >
       {icon}

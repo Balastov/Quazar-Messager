@@ -17,17 +17,27 @@ import {
   getNoiseEnginePref,
   setMicGatePref,
   setNoiseEnginePref,
+  subscribeNoiseEngine,
 } from "../noiseSuppression";
 
 beforeEach(() => localStorage.clear());
 
 describe("noise engine preference", () => {
-  it("defaults to RNNoise and remembers GTCRN", () => {
-    expect(getNoiseEnginePref()).toBe("rnnoise");
-    setNoiseEnginePref("gtcrn");
+  it("defaults to GTCRN and remembers RNNoise", () => {
     expect(getNoiseEnginePref()).toBe("gtcrn");
-    localStorage.setItem("quazar_noise_engine", "something-else");
+    setNoiseEnginePref("rnnoise");
     expect(getNoiseEnginePref()).toBe("rnnoise");
+    localStorage.setItem("quazar_noise_engine", "something-else");
+    expect(getNoiseEnginePref()).toBe("gtcrn");
+  });
+
+  it("notifies subscribers about the new engine", () => {
+    const seen: string[] = [];
+    const off = subscribeNoiseEngine(() => seen.push(getNoiseEnginePref()));
+    setNoiseEnginePref("rnnoise");
+    off();
+    setNoiseEnginePref("gtcrn");
+    expect(seen).toEqual(["rnnoise"]);
   });
 
   it("choosing an engine again gives it another chance on this device", () => {

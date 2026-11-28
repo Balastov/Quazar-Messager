@@ -12,7 +12,6 @@ import {
   engineFailedOnThisDevice,
   getMicGateLevelPref,
   getMicGatePref,
-  getNoiseEnginePref,
   setMicGatePref,
   setNoiseEnginePref,
   type GateMeter,
@@ -20,6 +19,7 @@ import {
 } from "../../calls/noiseSuppression";
 import { getMicrophone } from "../../calls/devices";
 import { useCallStore } from "../../store/call";
+import { useNoiseEngine } from "../NoiseMenu";
 import { micErrorText, useVoiceStore } from "../../store/voice";
 import s from "../SettingsView.module.css";
 import n from "./NoiseSettings.module.css";
@@ -30,7 +30,7 @@ const ENGINE_TEXT: Record<NoiseEngine, { title: string; hint: string }> = {
     hint: "Лёгкая. Хорошо убирает ровный фон: вентилятор, гул, улицу.",
   },
   gtcrn: {
-    title: "Сильная (GTCRN)",
+    title: "Сильная (GTCRN) — по умолчанию",
     hint: "Лучше убирает клавиатуру, щелчки и отрывистые звуки. Немного сильнее нагружает процессор.",
   },
 };
@@ -61,14 +61,11 @@ export default function NoiseSettings() {
   const voice = useVoiceStore((st) => st.status);
   const busy = !["idle", "ended"].includes(callPhase) || voice !== "idle";
 
-  const [engine, setEngine] = useState<NoiseEngine>(getNoiseEnginePref);
+  const engine = useNoiseEngine();
   const [gateOn, setGateOn] = useState(() => getMicGatePref() !== null);
   const [gateDb, setGateDb] = useState(getMicGateLevelPref);
 
-  const chooseEngine = (next: NoiseEngine) => {
-    setEngine(next);
-    setNoiseEnginePref(next);
-  };
+  const chooseEngine = (next: NoiseEngine) => setNoiseEnginePref(next);
   const toggleGate = () => {
     setGateOn(!gateOn);
     setMicGatePref(gateOn ? null : gateDb);
@@ -87,7 +84,8 @@ export default function NoiseSettings() {
       </label>
       <p className={s.hint}>
         Убирает из вашего голоса клавиатуру, вентилятор, улицу и бытовые звуки. Когда выключено,
-        работает более слабое встроенное шумоподавление браузера. Можно переключать прямо во время звонка.
+        работает более слабое встроенное шумоподавление браузера. Во время звонка вариант выбирается
+        кнопкой шумодава.
       </p>
 
       <fieldset className={n.group} disabled={!noiseSuppression}>

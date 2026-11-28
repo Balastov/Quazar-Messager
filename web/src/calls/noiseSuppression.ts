@@ -1,9 +1,11 @@
 /**
- * Нейросетевое шумоподавление микрофона (RNNoise) для звонков.
+ * Нейросетевое шумоподавление микрофона для звонков и Планет.
  *
- * Микрофон → AudioWorklet с RNNoise (WASM) → MediaStreamDestination → RTCPeerConnection.
- * Убирает клавиатуру, вентиляторы, улицу и бытовые звуки — то, что встроенный
- * noiseSuppression браузера не берёт. Если что-то не поддерживается, create() вернёт null
+ * Микрофон → AudioWorklet с нейросетью (WASM) → порог микрофона → MediaStreamDestination → звонок.
+ * Нейросети на выбор (настройки звонков): RNNoise — лёгкая, хорошо убирает ровный фон;
+ * GTCRN — новее, лучше справляется с отрывистыми звуками (клавиатура, щелчки), чуть тяжелее.
+ * Порог микрофона (micGateWorklet.js) глушит всё, пока человек молчит.
+ * Если что-то не поддерживается, create() вернёт null
  * и звонок пойдёт со встроенной обработкой браузера.
  *
  * RNNoise — это WebAssembly внутри AudioWorklet, поэтому в CSP нужен 'wasm-unsafe-eval'
@@ -13,11 +15,16 @@
  * уровень до и после RNNoise и при «речь есть, а на выходе тишина» вызывает onFailed:
  * звонок переключается на обычный микрофон, а устройство запоминается как неподходящее.
  */
-import workletUrl from "@sapphi-red/web-noise-suppressor/rnnoiseWorklet.js?url";
-import wasmUrl from "@sapphi-red/web-noise-suppressor/rnnoise.wasm?url";
-import simdWasmUrl from "@sapphi-red/web-noise-suppressor/rnnoise_simd.wasm?url";
+import rnnoiseWorkletUrl from "@sapphi-red/web-noise-suppressor/rnnoiseWorklet.js?url";
+import rnnoiseWasmUrl from "@sapphi-red/web-noise-suppressor/rnnoise.wasm?url";
+import rnnoiseSimdWasmUrl from "@sapphi-red/web-noise-suppressor/rnnoise_simd.wasm?url";
+import gtcrnWorkletUrl from "@sapphi-red/web-noise-suppressor/gtcrnWorklet.js?url";
+import gtcrnWasmUrl from "@sapphi-red/web-noise-suppressor/gtcrn.wasm?url";
+import gateWorkletUrl from "./micGateWorklet.js?url";
 
 const PREF_KEY = "quazar_noise_suppression";
+const ENGINE_KEY = "quazar_noise_engine";
+const GATE_KEY = "quazar_mic_gate";
 /**
  * RNNoise на этом устройстве уже выдавал тишину — не пробуем, пока человек сам не включит снова.
  * v2: до исправления CSP отметку получили все устройства — старую не учитываем.
@@ -43,6 +50,93 @@ export function setNoiseSuppressionPref(enabled: boolean): void {
   } catch {
     // ignore
   }
+}
+
+export type NoiseEngine = "rnnoise" | "gtcrn";
+export const NOISE_ENGINES: readonly NoiseEngine[] = ["rnnoise", "gtcrn"];
+
+export function getNoiseEnginePref(): NoiseEngine {
+  try {
+    return localStorage.getItem(ENGINE_KEY) === "gtcrn" ? "gtcrn" : "rnnoise";
+  } catch {
+    return "rnnoise";
+  }
+}
+
+/** GTCRN на этом устройстве выдавал тишину — в разговорах берём RNNoise. */
+const ENGINE_FAILED_KEY = "quazar_noise_engine_failed";
+
+export function engineFailedOnThisDevice(engine: NoiseEngine): boolean {
+  try {
+    return engine !== "rnnoise" && localStorage.getItem(ENGINE_FAILED_KEY) === engine;
+  } catch {
+    return false;
+  }
+}
+
+function markEngineFailed(engine: NoiseEngine): void {
+  try {
+    localStorage.setItem(ENGINE_FAILED_KEY, engine);
+  } catch {
+    // ignore
+  }
+}
+
+/** Меняет нейросеть, в том числе у микрофона, который сейчас в разговоре. */
+export function setNoiseEnginePref(engine: NoiseEngine): void {
+  try {
+    localStorage.setItem(ENGINE_KEY, engine);
+    // Человек выбрал сам — даём нейросети ещё один шанс.
+    localStorage.removeItem(ENGINE_FAILED_KEY);
+  } catch {
+    // ignore
+  }
+  for (const mic of liveMics) void mic.setEngine(engine);
+}
+
+/** Порог микрофона в дБ: ниже — тишина. */
+export const GATE_MIN_DB = -70;
+export const GATE_MAX_DB = -20;
+export const GATE_DEFAULT_DB = -50;
+
+function clampGate(db: number): number {
+  return Math.min(GATE_MAX_DB, Math.max(GATE_MIN_DB, Math.round(db)));
+}
+
+/** Порог микрофона (дБ) или null — выключен. */
+export function getMicGatePref(): number | null {
+  try {
+    const raw = localStorage.getItem(GATE_KEY);
+    if (raw === null || raw === "off") return null;
+    const db = Number(raw);
+    return Number.isFinite(db) ? clampGate(db) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Последнее значение порога, даже если он сейчас выключен (для ползунка). */
+export function getMicGateLevelPref(): number {
+  const active = getMicGatePref();
+  if (active !== null) return active;
+  try {
+    const db = Number(localStorage.getItem(GATE_KEY + "_level"));
+    return localStorage.getItem(GATE_KEY + "_level") !== null && Number.isFinite(db) ? clampGate(db) : GATE_DEFAULT_DB;
+  } catch {
+    return GATE_DEFAULT_DB;
+  }
+}
+
+/** Включает/меняет (число) или выключает (null) порог, в том числе прямо в разговоре. */
+export function setMicGatePref(db: number | null): void {
+  const value = db === null ? null : clampGate(db);
+  try {
+    localStorage.setItem(GATE_KEY, value === null ? "off" : String(value));
+    if (value !== null) localStorage.setItem(GATE_KEY + "_level", String(value));
+  } catch {
+    // ignore
+  }
+  for (const mic of liveMics) mic.setGate(value);
 }
 
 export function clearFailedOnThisDevice(): void {
@@ -134,8 +228,11 @@ export async function setBrowserNoiseSuppression(
   }
 }
 
-let libPromise: Promise<typeof import("@sapphi-red/web-noise-suppressor")> | null = null;
-let wasmPromise: Promise<ArrayBuffer> | null = null;
+type Lib = typeof import("@sapphi-red/web-noise-suppressor");
+type EngineNode = AudioWorkletNode & { destroy(): void };
+
+let libPromise: Promise<Lib> | null = null;
+const wasmPromises = new Map<NoiseEngine, Promise<ArrayBuffer>>();
 
 function loadLib() {
   libPromise ??= import("@sapphi-red/web-noise-suppressor").catch((err) => {
@@ -145,15 +242,60 @@ function loadLib() {
   return libPromise;
 }
 
-/** Загрузка модели (~150 КБ); можно начать заранее, параллельно с запросом микрофона. */
-export function preloadNoiseSuppression(): Promise<ArrayBuffer> {
-  wasmPromise ??= loadLib()
-    .then((lib) => lib.loadRnnoise({ url: wasmUrl, simdUrl: simdWasmUrl }))
-    .catch((err) => {
-      wasmPromise = null;
-      throw err;
-    });
-  return wasmPromise;
+const ENGINES: Record<NoiseEngine, {
+  worklet: string;
+  load: (lib: Lib) => Promise<ArrayBuffer>;
+  node: (lib: Lib, ctx: AudioContext, wasmBinary: ArrayBuffer) => EngineNode;
+}> = {
+  rnnoise: {
+    worklet: rnnoiseWorkletUrl,
+    load: (lib) => lib.loadRnnoise({ url: rnnoiseWasmUrl, simdUrl: rnnoiseSimdWasmUrl }),
+    node: (lib, ctx, wasmBinary) => new lib.RnnoiseWorkletNode(ctx, { wasmBinary, maxChannels: 1 }),
+  },
+  gtcrn: {
+    worklet: gtcrnWorkletUrl,
+    load: (lib) => lib.loadGtcrn({ url: gtcrnWasmUrl }),
+    node: (lib, ctx, wasmBinary) => new lib.GtcrnWorkletNode(ctx, { wasmBinary, maxChannels: 1 }),
+  },
+};
+
+/** Загрузка модели (~150–200 КБ); можно начать заранее, параллельно с запросом микрофона. */
+export function preloadNoiseSuppression(engine: NoiseEngine = getNoiseEnginePref()): Promise<ArrayBuffer> {
+  let promise = wasmPromises.get(engine);
+  if (!promise) {
+    promise = loadLib()
+      .then((lib) => ENGINES[engine].load(lib))
+      .catch((err) => {
+        wasmPromises.delete(engine);
+        throw err;
+      });
+    wasmPromises.set(engine, promise);
+  }
+  return promise;
+}
+
+/** Узел нейросети в этом AudioContext (модуль AudioWorklet подгружается один раз на контекст). */
+async function createEngineNode(ctx: AudioContext, engine: NoiseEngine, loaded: Set<NoiseEngine>): Promise<EngineNode> {
+  const [lib, wasmBinary] = await Promise.all([loadLib(), preloadNoiseSuppression(engine)]);
+  if (!loaded.has(engine)) {
+    await ctx.audioWorklet.addModule(ENGINES[engine].worklet);
+    loaded.add(engine);
+  }
+  const node = ENGINES[engine].node(lib, ctx, wasmBinary);
+  // Стерео-микрофоны сводим в моно: голосу в звонке второй канал не нужен.
+  node.channelCount = 1;
+  node.channelCountMode = "explicit";
+  node.channelInterpretation = "speakers";
+  return node;
+}
+
+/** Микрофоны, которые сейчас в работе: им сразу применяются новые настройки. */
+const liveMics = new Set<NoiseSuppressedMic>();
+
+/** Уровень перед порогом (дБ) и пропускает ли порог звук — для настройки ползунка. */
+export interface GateMeter {
+  levelDb: number;
+  open: boolean;
 }
 
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | undefined> {
@@ -173,55 +315,81 @@ const WATCH_INTERVAL_MS = 200;
 
 export class NoiseSuppressedMic {
   /**
-   * RNNoise перестал работать: выдаёт тишину ("silent") или аудио на устройстве
+   * Шумоподавление перестало работать: выдаёт тишину ("silent") или аудио на устройстве
    * остановилось и не перезапускается ("suspended", например прерывание на iOS).
    */
   onFailed: ((reason: DenoiserFailure) => void) | null = null;
+  /** Уровень перед порогом микрофона, ~20 раз в секунду, пока включён setMeter(true). */
+  onGateMeter: ((meter: GateMeter) => void) | null = null;
   /** Для диагностики: ошибка внутри AudioWorklet, если браузер её сообщил. */
   processorError: string | null = null;
-  readonly watchdog = new SilenceWatchdog();
+  watchdog = new SilenceWatchdog();
 
   private enabled = true;
   private closed = false;
   private watchTimer: ReturnType<typeof setInterval> | null = null;
+  private switching: Promise<void> = Promise.resolve();
   private readonly rawBuffer: Float32Array<ArrayBuffer>;
   private readonly outBuffer: Float32Array<ArrayBuffer>;
 
   private constructor(
     private readonly ctx: AudioContext,
     private readonly source: MediaStreamAudioSourceNode,
-    /** Уровень до RNNoise (стоит в цепочке, поэтому браузер его точно обрабатывает). */
+    /** Уровень до нейросети (стоит в цепочке, поэтому браузер его точно обрабатывает). */
     private readonly rawProbe: AnalyserNode,
-    private readonly rnnoise: AudioWorkletNode & { destroy(): void },
-    /** Уровень после RNNoise. */
+    private denoiser: EngineNode,
+    private engineName: NoiseEngine,
+    private readonly loadedEngines: Set<NoiseEngine>,
+    /** Уровень после нейросети (до порога: сторож тишины следит за самой нейросетью). */
     private readonly outProbe: AnalyserNode,
+    private readonly gate: AudioWorkletNode,
     private readonly destination: MediaStreamAudioDestinationNode,
     /** Очищенный трек — его отправляем собеседнику. */
-    readonly track: MediaStreamTrack
+    readonly track: MediaStreamTrack,
+    followSettings: boolean
   ) {
     this.rawBuffer = new Float32Array(rawProbe.fftSize);
     this.outBuffer = new Float32Array(outProbe.fftSize);
     ctx.onstatechange = () => void this.recover();
-    rnnoise.onprocessorerror = (event) => {
-      this.processorError = (event as ErrorEvent).message || "processorerror";
-    };
-    this.watchTimer = setInterval(() => this.watch(), WATCH_INTERVAL_MS);
+    this.watchErrors(denoiser);
+    gate.port.onmessage = (event: MessageEvent<GateMeter>) => this.onGateMeter?.(event.data);
+    this.startWatching();
+    if (followSettings) liveMics.add(this);
   }
 
-  /** force — запустить даже там, где RNNoise раньше отказал (для проверки микрофона). */
+  /**
+   * force — запустить даже там, где шумоподавление раньше отказало (для проверки микрофона).
+   * engine/gateDb — по умолчанию из настроек; followSettings: false — не менять их вслед
+   * за настройками (сравнение нейросетей на записи).
+   */
   static async create(
     input: MediaStreamTrack,
-    { force = false }: { force?: boolean } = {}
+    {
+      force = false,
+      engine = getNoiseEnginePref(),
+      gateDb = getMicGatePref(),
+      followSettings = true,
+    }: { force?: boolean; engine?: NoiseEngine; gateDb?: number | null; followSettings?: boolean } = {}
   ): Promise<NoiseSuppressedMic | null> {
     if (!(force ? canRunNoiseSuppression() : isNoiseSuppressionSupported())) return null;
+    if (!force && engineFailedOnThisDevice(engine)) engine = "rnnoise";
 
     let ctx: AudioContext | null = null;
     try {
-      const [lib, wasmBinary] = await Promise.all([loadLib(), preloadNoiseSuppression()]);
-
       ctx = new AudioContext({ sampleRate: SAMPLE_RATE, latencyHint: "interactive" });
       if (ctx.sampleRate !== SAMPLE_RATE) throw new Error(`sample rate ${ctx.sampleRate}`);
-      await ctx.audioWorklet.addModule(workletUrl);
+      const loaded = new Set<NoiseEngine>();
+      let denoiser: EngineNode;
+      try {
+        denoiser = await createEngineNode(ctx, engine, loaded);
+      } catch (err) {
+        if (engine === "rnnoise") throw err;
+        // Выбранная нейросеть не загрузилась — пробуем основную.
+        console.warn(`Noise engine ${engine} unavailable, falling back to RNNoise`, err);
+        engine = "rnnoise";
+        denoiser = await createEngineNode(ctx, engine, loaded);
+      }
+      await ctx.audioWorklet.addModule(gateWorkletUrl);
 
       // Без жеста пользователя (например, звонок принят из уведомления) браузер может
       // не запустить аудио — тогда честно откатываемся, а не шлём тишину.
@@ -230,25 +398,29 @@ export class NoiseSuppressedMic {
 
       const source = ctx.createMediaStreamSource(new MediaStream([input]));
       const rawProbe = ctx.createAnalyser();
-      const rnnoise = new lib.RnnoiseWorkletNode(ctx, { wasmBinary, maxChannels: 1 });
-      // Стерео-микрофоны сводим в моно до RNNoise: голосу в звонке второй канал не нужен.
-      rnnoise.channelCount = 1;
-      rnnoise.channelCountMode = "explicit";
-      rnnoise.channelInterpretation = "speakers";
       const outProbe = ctx.createAnalyser();
+      const gate = new AudioWorkletNode(ctx, "quazar-mic-gate", {
+        numberOfInputs: 1,
+        numberOfOutputs: 1,
+        outputChannelCount: [1],
+        channelCount: 1,
+        channelCountMode: "explicit",
+        processorOptions: { thresholdDb: gateDb },
+      });
       const destination = ctx.createMediaStreamDestination();
       destination.channelCount = 1;
       destination.channelCountMode = "explicit";
 
-      // микрофон → проба → RNNoise → проба → трек для собеседника
+      // микрофон → проба → нейросеть → проба → порог → трек для собеседника
       source.connect(rawProbe);
-      rawProbe.connect(rnnoise);
-      rnnoise.connect(outProbe);
-      outProbe.connect(destination);
+      rawProbe.connect(denoiser);
+      denoiser.connect(outProbe);
+      outProbe.connect(gate);
+      gate.connect(destination);
 
       const track = destination.stream.getAudioTracks()[0];
       if (!track) throw new Error("no output track");
-      return new NoiseSuppressedMic(ctx, source, rawProbe, rnnoise, outProbe, destination, track);
+      return new NoiseSuppressedMic(ctx, source, rawProbe, denoiser, engine, loaded, outProbe, gate, destination, track, followSettings);
     } catch (err) {
       console.warn("Noise suppression unavailable, using browser processing", err);
       void ctx?.close().catch(() => {});
@@ -265,36 +437,95 @@ export class NoiseSuppressedMic {
     return this.ctx.state;
   }
 
-  /** Пиковые уровни до и после RNNoise (0…1). */
+  /** Нейросеть, которая работает сейчас. */
+  get engine(): NoiseEngine {
+    return this.engineName;
+  }
+
+  /** Пиковые уровни до и после нейросети (0…1). */
   levels(): { input: number; output: number } {
     if (this.closed) return { input: 0, output: 0 };
     return { input: peak(this.rawProbe, this.rawBuffer), output: peak(this.outProbe, this.outBuffer) };
   }
 
-  /** Вкл/выкл без пересогласования звонка: RNNoise просто обходится в графе. */
+  /** Вкл/выкл без пересогласования звонка: нейросеть и порог просто обходятся в графе. */
   setEnabled(enabled: boolean): void {
     if (this.closed || enabled === this.enabled) return;
     this.enabled = enabled;
     this.rawProbe.disconnect();
-    if (enabled) {
-      this.rawProbe.connect(this.rnnoise);
-    } else {
-      this.rawProbe.connect(this.destination);
+    this.rawProbe.connect(enabled ? this.denoiser : this.destination);
+  }
+
+  /** Порог микрофона (дБ) или null — выключить. Применяется сразу. */
+  setGate(thresholdDb: number | null): void {
+    if (this.closed) return;
+    this.gate.port.postMessage({ thresholdDb });
+  }
+
+  /** Присылать ли уровень перед порогом (onGateMeter) — для настройки ползунка. */
+  setMeter(on: boolean): void {
+    if (this.closed) return;
+    this.gate.port.postMessage({ meter: on });
+  }
+
+  /** Меняет нейросеть на лету: тот же трек, звонок не пересогласуется. */
+  setEngine(engine: NoiseEngine): Promise<void> {
+    this.switching = this.switching.then(() => this.swapEngine(engine)).catch((err) => {
+      console.warn(`Noise engine ${engine} unavailable, keeping ${this.engineName}`, err);
+    });
+    return this.switching;
+  }
+
+  private async swapEngine(engine: NoiseEngine): Promise<void> {
+    if (this.closed || engine === this.engineName) return;
+    const next = await createEngineNode(this.ctx, engine, this.loadedEngines);
+    if (this.closed) {
+      next.destroy();
+      return;
     }
+    const old = this.denoiser;
+    next.connect(this.outProbe);
+    if (this.enabled) {
+      this.rawProbe.disconnect();
+      this.rawProbe.connect(next);
+    }
+    old.disconnect();
+    old.destroy();
+    this.denoiser = next;
+    this.engineName = engine;
+    this.watchErrors(next);
+    // Новая модель — заново убеждаемся, что она не выдаёт тишину.
+    this.watchdog = new SilenceWatchdog();
+    this.startWatching();
   }
 
   close(): void {
     if (this.closed) return;
     this.closed = true;
+    liveMics.delete(this);
     this.stopWatching();
     this.ctx.onstatechange = null;
+    this.onGateMeter = null;
     this.track.stop();
     this.source.disconnect();
     this.rawProbe.disconnect();
-    this.rnnoise.disconnect();
+    this.denoiser.disconnect();
     this.outProbe.disconnect();
-    this.rnnoise.destroy();
+    this.gate.disconnect();
+    this.gate.port.onmessage = null;
+    this.denoiser.destroy();
     void this.ctx.close().catch(() => {});
+  }
+
+  private watchErrors(node: EngineNode): void {
+    node.onprocessorerror = (event) => {
+      this.processorError = (event as ErrorEvent).message || "processorerror";
+    };
+  }
+
+  private startWatching(): void {
+    this.stopWatching();
+    this.watchTimer = setInterval(() => this.watch(), WATCH_INTERVAL_MS);
   }
 
   private stopWatching(): void {
@@ -309,14 +540,19 @@ export class NoiseSuppressedMic {
     const state = this.watchdog.feed(input, output, WATCH_INTERVAL_MS);
     if (state === "checking") return;
     this.stopWatching();
-    if (state === "failed") {
-      console.warn("RNNoise outputs silence on this device; falling back to the plain microphone", {
-        processorError: this.processorError,
-        sampleRate: this.ctx.sampleRate,
-      });
-      markUnsupportedHere();
-      this.onFailed?.("silent");
+    if (state !== "failed") return;
+    console.warn(`${this.engineName} outputs silence on this device`, {
+      processorError: this.processorError,
+      sampleRate: this.ctx.sampleRate,
+    });
+    if (this.engineName !== "rnnoise") {
+      // Дополнительная нейросеть не заработала — переходим на основную, микрофон остаётся.
+      markEngineFailed(this.engineName);
+      void this.setEngine("rnnoise");
+      return;
     }
+    markUnsupportedHere();
+    this.onFailed?.("silent");
   }
 
   private async recover(): Promise<void> {
